@@ -1,0 +1,17 @@
+name: AfyaYangu
+options:
+  bundleIdPrefix: ke.go.health
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  AfyaYangu:
+    type: application
+    platform: iOS
+    sources: [AfyaYangu]
+    info:
+      path: AfyaYangu/Info.plist
+      properties:
+        CFBundleDisplayName: Afya Yangu
+        UILaunchScreen: {}
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true

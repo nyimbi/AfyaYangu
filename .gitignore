@@ -13,3 +13,8 @@ __pycache__/
 .pytest_cache/
 .dart_tool/
 migrate/
+.gradle/
+local.properties
+ios/AfyaYangu.xcodeproj
+.kotlin/
+android/app/build/
