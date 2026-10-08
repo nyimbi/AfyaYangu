@@ -14,10 +14,13 @@ android {
 		versionName = "2.0.0"
 	}
 
-	buildFeatures { viewBinding = false }
 	buildTypes {
 		release {
 			isMinifyEnabled = false
 		}
 	}
+}
+
+dependencies {
+	testImplementation("junit:junit:4.13.2")
 }

@@ -38,3 +38,8 @@ final class ModelDecodeTests: XCTestCase {
 		XCTAssertEqual(stored, card)
 	}
 }
+final class SenseBandsTests: XCTestCase {
+	func testRespiration() { XCTAssertEqual(SenseBands.respiration(16), "normal"); XCTAssertEqual(SenseBands.respiration(9), "alert") }
+	func testCough() { XCTAssertEqual(SenseBands.cough(5), "normal"); XCTAssertEqual(SenseBands.cough(18), "watch"); XCTAssertEqual(SenseBands.cough(31), "alert") }
+	func testPPG() { XCTAssertEqual(SenseBands.ppg(72), "normal"); XCTAssertEqual(SenseBands.ppg(50), "watch"); XCTAssertEqual(SenseBands.ppg(140), "alert") }
+}

@@ -1,6 +1,7 @@
 """Information service — content library, county dashboard, decision tree (INF-002), hotline directory."""
 from typing import Any
 
+from afya.info.content_seed import seed_rows
 from afya.info.views import ContentItem, CountyRisk, DecisionNode, HotlineInfo
 from afya.logmixin import LogMixin
 
@@ -14,7 +15,17 @@ class InfoService(LogMixin):
 	def __init__(self) -> None:
 		self._content: dict[str, ContentItem] = {}
 		self._risk: dict[str, CountyRisk] = {}
-		assert self._content == {} and self._risk == {}
+		self.seed()
+		assert self._content and self._risk == {}
+
+	def seed(self) -> int:
+		"""Load harmonised en/sw corpus; idempotent."""
+		n = 0
+		for item in seed_rows():
+			self._content[item.item_id] = item
+			n += 1
+		assert n >= 8, 'seed corpus must load'
+		return n
 
 	async def upsert_content(self, item: ContentItem) -> None:
 		assert item.item_id and item.title, 'id/title required'

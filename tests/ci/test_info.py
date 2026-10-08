@@ -13,11 +13,13 @@ async def test_dashboard_defaults_low() -> None:
 
 async def test_content_must_be_harmonised() -> None:
 	svc = InfoService()
+	base = len(svc.library())
 	await svc.upsert_content(ContentItem(item_id='INF-003-1', title='EVD basics', body='...', lang='en'))
 	with pytest.raises(AssertionError):
 		svc.library()
 	await svc.upsert_content(ContentItem(item_id='INF-003-1', title='EVD basics', body='...', lang='en', harmony_tag='official'))
-	assert len(svc.library()) == 1
+	ids = [c.item_id for c in svc.library()]
+	assert 'INF-003-1' in ids and len(ids) == base + 1
 
 
 def test_decision_tree_malaria_path() -> None:
@@ -45,3 +47,13 @@ def test_hotline_directory_includes_719() -> None:
 	svc = InfoService()
 	numbers = [h.number for h in svc.hotlines()]
 	assert '719' in numbers and len(numbers) == 2
+
+
+def test_seed_corpus_en_and_sw() -> None:
+	from afya.info.service import InfoService as IS
+	svc = IS()
+	en = svc.library('en')
+	sw = svc.library('sw')
+	assert len(en) >= 5 and len(sw) >= 5
+	assert all(c.harmony_tag for c in en + sw)
+	assert svc.seed() == svc.seed()  # idempotent
