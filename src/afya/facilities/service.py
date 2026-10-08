@@ -41,6 +41,32 @@ class FacilityService(LogMixin):
 		self._log_info('nearest lookup', kind=req.kind, hits=len(out))
 		return out
 
+	@staticmethod
+	def _kind(value: object) -> FacilityKind:
+		return FacilityKind(str(value))
+
+	@staticmethod
+	def _num(value: object) -> float:
+		assert isinstance(value, (int, float, str)), 'numeric facility coord required'
+		return float(value)
+
+	async def ingest_mohf(self, rows: list[dict[str, object]]) -> int:
+		"""Import MoH Facility List rows (§18.5); skips invalid rows, returns accepted count."""
+		accepted = 0
+		for row in rows:
+			try:
+				fac = Facility(
+					facility_id=str(row['facility_id']), name=str(row['name']),
+					kind=self._kind(row['kind']), county=str(row['county']),
+					lat=self._num(row['lat']), lon=self._num(row['lon']),
+				)
+				await self.upsert(fac)
+				accepted += 1
+			except (KeyError, ValueError, TypeError):
+				self._log_warn('skipped invalid facility row')
+		assert accepted <= len(rows), 'accepted cannot exceed offered'
+		return accepted
+
 	def ed_status(self, facility_id: str) -> str:
 		fac = self._facilities[facility_id]
 		assert fac.kind is FacilityKind.ed, 'only ED facilities expose status'

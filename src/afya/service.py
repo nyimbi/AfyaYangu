@@ -7,7 +7,10 @@ from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import SmsOut, UssdRequest, WhatsAppIn
 from afya.emergency.service import EmergencyService, Inline719Port
 from afya.emergency.views import EmergencyCard, IMUSample, SOSEvent
+import os
+
 from afya.integrations.service import PPBClient
+from afya.persistence.service import SqliteStore
 from afya.medicine.service import MedicineService
 from afya.medicine.views import DoseRequest, VerifyRequest
 from afya.facilities.service import FacilityService
@@ -43,9 +46,10 @@ class InteractionsRequest(BaseModel):
 	drugs: list[str]
 
 
-def build_services(http: AsyncClient | None = None) -> dict[str, object]:
+def build_services(http: AsyncClient | None = None, db_path: str | None = None) -> dict[str, object]:
 	client = http or AsyncClient(timeout=10)
 	registry = FeatureRegistry()
+	store = SqliteStore(db_path) if db_path else None
 	return {
 		'registry': registry,
 		'triage': TriageService(registry),
@@ -56,13 +60,13 @@ def build_services(http: AsyncClient | None = None) -> dict[str, object]:
 		'emergency': EmergencyService(Inline719Port()),
 		'info': InfoService(),
 		'records': RecordsService(),
-		'privacy': PrivacyService(),
-		'sync': SyncService(),
+		'privacy': PrivacyService(store),
+		'sync': SyncService(store),
 	}
 
 
 def create_app(services: dict[str, object] | None = None) -> FastAPI:
-	svc = services or build_services()
+	svc = services or build_services(db_path=os.environ.get('AFYA_DB_PATH'))
 	assert {'registry', 'triage', 'surveillance', 'facilities', 'channels', 'sync', 'privacy'} <= svc.keys(), 'core services required'
 	registry: FeatureRegistry = svc['registry']  # type: ignore[assignment]
 	triage: TriageService = svc['triage']  # type: ignore[assignment]

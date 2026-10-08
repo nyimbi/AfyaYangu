@@ -28,6 +28,17 @@ async def test_ed_status_requires_ed_kind() -> None:
 		svc.ed_status('F1')
 
 
+async def test_mohf_ingest_skips_invalid_rows() -> None:
+	svc = FacilityService()
+	rows = [
+		{'facility_id': 'F1', 'name': 'KNH', 'kind': 'ed', 'county': 'Nairobi', 'lat': -1.3, 'lon': 36.8},
+		{'facility_id': 'F9', 'name': 'broken', 'kind': 'not_a_kind', 'county': 'X', 'lat': 0.0, 'lon': 36.0},
+		{'name': 'missing id'},
+	]
+	assert await svc.ingest_mohf(rows) == 1
+	assert len(svc.nearest(NearestRequest(lat=-1.29, lon=36.8, limit=5))) == 1
+
+
 async def test_booking_queue_monotonic() -> None:
 	svc = FacilityService()
 	await svc.upsert(Facility(facility_id='F1', name='A', kind=FacilityKind.ed, county='X', lat=-1, lon=36))

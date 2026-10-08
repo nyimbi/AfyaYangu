@@ -9,9 +9,10 @@ from afya.privacy.views import (
 
 
 class PrivacyService(LogMixin):
-	def __init__(self) -> None:
+	def __init__(self, store=None) -> None:
 		self._consents: dict[str, ConsentRecord] = {}
 		self._audit: list[tuple[bool, AccessRequest]] = []
+		self._store = store
 		assert self._consents == {} and self._audit == []
 
 	async def record_consent(self, record: ConsentRecord) -> ConsentRecord:
@@ -20,6 +21,8 @@ class PrivacyService(LogMixin):
 		if not record.legal_basis is LegalBasis.legal_obligation:
 			assert record.retention_days <= 730, 'health data retention must be bounded (24 months cap)'
 		self._consents[record.consent_id] = record
+		if self._store is not None:
+			await self._store.save_consent(record)
 		self._log_info('consent recorded', consent_id=record.consent_id)
 		return record
 
@@ -33,6 +36,8 @@ class PrivacyService(LogMixin):
 	async def withdraw(self, consent_id: str) -> ConsentRecord:
 		rec = self._consents[consent_id]
 		rec.withdrawn = True
+		if self._store is not None:
+			await self._store.save_consent(rec)
 		self._log_warn('consent withdrawn', consent_id=consent_id)
 		return rec
 

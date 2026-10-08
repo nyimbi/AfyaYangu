@@ -9,9 +9,10 @@ def backoff_delay_s(attempt: int) -> float:
 
 
 class SyncService(LogMixin):
-	def __init__(self) -> None:
+	def __init__(self, store=None) -> None:
 		self._queue: dict[str, SyncOp] = {}
 		self._server_state: dict[str, dict[str, SyncOp]] = {}
+		self._store = store
 		assert self._queue == {} and self._server_state == {}
 
 	async def enqueue(self, op: SyncOp) -> SyncOp:
@@ -19,6 +20,8 @@ class SyncService(LogMixin):
 		op.attempt = 1
 		op.synced = False
 		self._queue[op.op_id] = op
+		if self._store is not None:
+			await self._store.save_sync_op(op)
 		return op
 
 	def strategy_for(self, dataset: str) -> ConflictStrategy:
@@ -43,12 +46,16 @@ class SyncService(LogMixin):
 				op.synced = True
 				self._server_state.setdefault(op.dataset, {})[op.op_id] = op
 				synced += 1
+				if self._store is not None:
+					await self._store.save_sync_op(op)
 			else:
 				winner, client_won = await self.resolve(op, srv)
 				if client_won:
 					op.synced = True
 					self._server_state[op.dataset][op.op_id] = op
 					synced += 1
+					if self._store is not None:
+						await self._store.save_sync_op(op)
 				else:
 					op.attempt += 1
 					assert backoff_delay_s(op.attempt) > backoff_delay_s(op.attempt - 1), 'backoff monotonic'
