@@ -1,164 +1,113 @@
 # Afya Yangu / Mlinzi
 
-**A national health companion for Kenya with dormant outbreak superpowers.**
-Public-facing brand: **Afya Yangu** (*My Health*) · Product codename: **Mlinzi** (*Guardian*).
+**Every person in Kenya carries a guardian in their pocket — a tool that helps them find care today, protect their family tomorrow, and stand together against an outbreak when it comes.**
 
-Source of truth: [`docs/spec.md`](docs/spec.md) (v2.0 — Kenya MoH / PHEOC-facing product spec: 7 channels, 4 feature tiers, 9 sensor subsystems, DPA 2019/Digital Health Act 2023 privacy architecture).
+Public-facing brand: **Afya Yangu** (*My Health*) · Codename: **Mlinzi** (*Guardian*) · Built for Kenya MoH, PHEOC, County Health Management Teams, telcos and implementing partners.
 
-> ⚠️ The spec carries its own verification note: epidemiological figures, hotline codes and platform specifics must be validated against MoH/PHEOC official channels before external use.
-
----
-
-## What this repository is
-
-A **working vertical implementation** of the spec:
-
-- **Backend core** — Python 3.11+/FastAPI/Pydantic v2 service layer implementing every product domain: feature registry & tier model, channel contracts (SMS/USSD/WhatsApp/radio/social/CHW/native), triage (with the **malaria trap** rule), facilities, medicine registry, emergency, content, family health wallet, offline-first sync, Tier-4 surveillance, privacy (consent/DPIA/RBAC/breach), vendor gateway clients, and on-device-provenance ML engines.
-- **Fully native mobile apps** (owner decision, 2026-10-08 — supersedes the spec's Flutter row): **SwiftUI for iOS** and **Kotlin for Android**, zero external app dependencies, speaking the same REST contract, offline-first with persistent local caches.
-- **PostgreSQL schema + adapters** and **SQLite adapters** on the same persistence Protocol.
-
-**Not contained here**: vendor credentials (telco/WhatsApp Business/PPB), MoH-sourced clinical content corpora, and production ML training assets — each has a coded seam (`docs/ml-models.md`, `docs/buildout.md`).
+> ⚠️ Figures, hotline codes and platform specifics are drawn from open reporting and are **not independently confirmed** — validate against MoH/PHEOC official channels before external use. The product design is independent of these specifics.
 
 ---
 
-## Repository layout
+## 1 · The problem
 
-```
-docs/
-  spec.md            product spec v2.0 (Appendices B–D reconstructed after a source truncation)
-  buildout.md        spec § → module → test map + remaining gap ledger
-  ml-models.md       ML engine descriptions, provenance, decisions
-src/afya/
-  service.py         FastAPI app assembly (30+ endpoints), build_services(), env-driven config
-  config.py          env-driven ServiceConfig (AT/WhatsApp/PPB/JALI/PHEOC/MoHF/PG DSN)
-  strings.py         en/sw string tables (USSD menus, triage recommendations)
-  ids.py             UUID7 helpers    logmixin.py  _log_* logging convention
-  registry/          45-feature catalog (Appendix B), tier model, Tier-4 activation gate
-  triage/            TRI-001 (malaria trap) / TRI-002 (21-day diary) / TRI-003 (gated)
-  facilities/        FND-001..006 nearest/ED-status/booking, MoHF ingestion
-  medicine/          MED-001..004 PPB port, interactions, dosing, stock crowdsourcing
-  emergency/         EMG-001..003 SOS fan-out, fall detection, offline card
-  info/              INF-001..010 content (harmony-tagged), decision tree, hotlines
-  records/           REC-001..003 wallet, EPI gaps, growth flags, med reminders
-  channels/          C HAN-000..006 SMS GSM-7 segmentation, USSD FSM + AT callback, WA router, CHW tasks
-  sync/              §16 offline queue, conflict matrix, backoff
-  surveillance/      county signals, geofences, PET store, breath-rate estimation, tier-4 gate
-  sensors/           derived-metric ingestion: respiration/cough/fall/PPG/sleep/PM2.5 (raw rejected)
-  evidence/          SENS-004 photo+note: sha256 verify, mime whitelist, 8 MB cap, dedupe, tier-4 gate
-  privacy/           consent ledger, DPIA gate (blocks raw-sensor retention), RBAC, 72h breach, anonymize
-  ml/                YamnetCoughEngine (SENS-002) via ONNX runtime
-  persistence/       schema.sql + PostgresStore (asyncpg) + SqliteStore — same Protocol
-ios/                 SwiftUI app (xcodegen project.yml → AfyaYangu.xcodeproj)
-android/             Kotlin app (AGP 9.0, Gradle 9.8)
-models/cough/        yamnet.onnx + class map (fetched from HF)
-tests/ci/            109 pytest tests incl. contract tests over real HTTP (pytest-httpserver)
-examples/            deploy_schema.py (PG), demo.py (end-to-end narrative)
-```
+Kenya has confirmed an imported Ebola case and activated its response machinery: hotlines, WhatsApp chatbot, border labs, isolation units, HCW training. But there is **no citizen-facing tool that turns every phone into a personal safety device, a community reporting node, and a durable health companion.** The health-system layer is covered; the citizen layer is not. People with fever don't know whether to stay home or seek care; contacts under observation have no structured way to log symptoms; community reporting still requires a phone call; risk awareness stops at the national case count.
+
+**The central strategic insight — an app cannot be built for Ebola alone.** With one case in 50 million people, personal risk is negligible; a fear-driven "Ebola app" gets downloaded, opened twice, and deleted. Therefore the product is layered:
+
+1. **Information delivered through channels people already use** — SMS, USSD, WhatsApp, radio, social, community health workers. No download required. This is the *reach* product.
+2. **The app is a genuine year-round health utility** — facility finder, medicine verifier, family health wallet, immunisation tracker, medication reminders. This is the *retention* product.
+3. **Outbreak capability is dormant infrastructure** — symptom surveillance, proximity alerting, geofenced risk alerts,LiDAR respiration monitoring — that activates only when PHEOC triggers it. This is the *response* product.
+
+> A user who installs Afya Yangu for the facility finder in November automatically has outbreak surveillance capability in their pocket in March.
+
+## 2 · Vision & design principles
+
+**Design principles:** 1) reach people wherever they are (channel-agnostic); 2) trust is the currency — no false reassurance, no data surprises; 3) low-resource phones are first-class; 4) offline-first, always (every core feature works with no connectivity, sync is opportunistic); 5) privacy by design per DPA 2019/ODPC/Digital Health Act 2023.
+
+**Personas** (prioritised): *Wanjiku* (34, Nairobi salaried) and *Amina* (19, Mombasa job-seeker) drive app + WhatsApp; *Otieno* (28, Kisumu) and *Grace* (52, Siaya, low literacy) drive SMS/USSD/radio; *Mama Zawadi* (45, Busia border) drives the outbreak-relevant border flows; *Dr. Kimani* (41, clinician) drives CHW/facility integration; *Hassan* (22, Garissa) drives CHW-trust flows.
+
+## 3 · Channel architecture (no download required)
+
+| CHAN | Channel | Role |
+|---|---|---|
+| 0 | Community radio | Health bulletins in vernacular stations; myth-busting |
+| 1 | **Zero-rated SMS** | Alerts, triage prompts, geofenced risk alerts — free to receive/send |
+| 2 | USSD (`*XXX#`) | Interactive menu: info / facility / symptom report / hotline |
+| 3 | **WhatsApp bot (primary information product)** | Triage, Q&A, myth-busting, facility finder |
+| 4 | Social media | Content dissemination + misinformation response |
+| 5 | Human intermediaries | CHWs, village elders, faith leaders — the trust layer |
+| 6 | Native application | Full utility + dormant outbreak power |
+
+## 4 · Feature model (four tiers)
+
+- **Tier 1 — Earns the Download (weeks 0–8):** febrile-illness triage (with the **malaria trap**: fever without contact history is treated malaria-first — never EVD-alarm first; escalation requires exposure or a full symptom cluster), facility finder (all 47 counties), ED status, testing sites, pharmacies, vaccination points, medicine verifier (PPB registry), drug interactions, dosage calculator, **Emergency SOS with auto-alert**, fall detection, offline emergency card, county risk dashboard, "What should I do?" decision tree, EVD info + myth-busting, travel advisory, hotline directory (719).
+- **Tier 2 — Earns the Return Visit (months 2–6):** appointment booking/queue management, drug-stock crowdsourcing, family health wallet (basic), service status feed, health tips, first aid, enhanced diaries.
+- **Tier 3 — Earns the Home Screen (months 4–12):** full family health wallet, growth monitoring, safe-and-dignified-burial guidance, daily-habit surfaces.
+- **Tier 4 — The Outbreak Superpower (dormant until activated):** EVD-specific triage, symptom surveillance, geofenced risk alerts, proximity alerting (BLE tokens), LiDAR respiration monitoring (12–25 br/min), acoustic cough detection, camera symptom capture, **Emergency SOS in outbreak mode**.
+
+The **three-key activation gate** is enforced at every layer: PHEOC authorization + reviewed DPIA + feature flag — all three, or Tier 4 stays dark.
+
+## 5 · Capability highlights
+
+- **Privacy by design (DPA 2019 / ODPC / Digital Health Act 2023):** consent ledger with withdrawal + bounded retention (24-month cap for citizen data; legal-obligation basis for mandatory notification), automated **DPIA gate that blocks any raw-sensor retention**, RBAC with 8 scoped roles, 72-hour breach clock with ODPC + high-risk recipient logic, structural anonymization (phone/id masking, county-level location generalization).
+- **Raw sensor data never leaves the handset.** Only derived metrics travel: respiration *rates* (not audio/depth), cough *counts* (not audio), fall *verdicts* (not accelerometer traces) — enforced in the type system, not by policy.
+- **Evidence with integrity:** photo + textual note submissions are sha256-verified, mime-whitelisted, size-capped, deduplicated, and tier-4-gated for EVD symptoms — routed for clinician review.
+- **On-device ML:** YAMNet (AudioSet, 521 classes) via ONNX for acoustic cough detection (16 MB), identical band semantics implemented three times (server/Swift/Kotlin). No dermatology classifier is shipped **deliberately** — a wrong "not-EVD" photo verdict is a public-health hazard; evidence + clinician review is the clinical path.
+- **Offline-first + conflict rules:** every write lands locally first; the sync queue uses the spec's conflict matrix (last-write-wins for personal data, server-authoritative for case reports/immunisations/content, append-only for proximity tokens) with bounded exponential backoff; nothing is lost across restarts.
+- **Clinical safety rails:** PPB-backed medicine verification (fail-closed: unreachable registry ⇒ "verify manually"), interaction table with severity bands, weight-based dosing with paediatric warnings, 21-day observation window caps, EPI schedule gap detection for children (guardian-consent enforced for minors).
+
+## 6 · Product management & phasing
+
+| Phase | Window | Channels | Tiers | Success criteria |
+|---|---|---|---|---|
+| 1 — Information First | Weeks 0–4 | CHAN-0..5 | info | 500k SMS opt-ins · 100k WA users · 50 stations |
+| 2 — Utility Launch | Weeks 2–8 | +CHAN-6 | T1 | 300k installs · 40% D30 · 50k triages |
+| 3 — Retention Build | Months 2–6 | all | T1–2 | 1M installs · 25% DAU/MAU · 100k children tracked |
+| 4 — Daily Habit | Months 4–12 | all | T1–3 | habit surfaces live |
+| 5 — Outbreak Ready | Months 6–12 | all | T1–4 | tier-4 proven in drills |
+| 6 — Scale & Sustain | Month 12+ | all | all | multi-disease, national integration |
+
+**North-star metrics (12 months):** 15M people reached · 3M protected (triaged with actionable guidance) · 35% DAU/MAU · lives-saved measured via modelling. Reach KPIs: 2M downloads, 3M SMS opt-ins, 2M WA users, 500k USSD sessions/month, 10M weekly radio reach, 5,000 CHWs.
+
+## 7 · Product-market fit
+
+- **Why Kenya, why now:** 50M+ phone lines, near-universal SMS/voice reach, WhatsApp as de-facto messaging layer, active MoH digital-health program (ADaM, JALI, DHIS2, KMHFL) to integrate with, and a live EVD response creating legitimate demand for surveillance infrastructure. Distribution economics: zero-rating (data-free SMS/app traffic agreed with telcos) removes the access tax that kills rural usage.
+- **Why this survives contact with users:** the app earns its home-screen slot via daily-year-round utility (wallet/reminders/facilities), not fear; the fear-shaped features sit dormant until needed. The bot-and-radio layer protects the 80% who will never install anything.
+- **Who pays / who builds:** MoH/Digital Health Agency owns product; implementing partners + telcos distribute; ODPC-registered data flows; PHEOC consumes signals. Revenue is *not* the point — public-health ROI (earlier detection, fewer contacts lost) is, with per-tier evaluation hooks built in.
+- **Falsifiable bets:** (a) year-round utility achieves ≥35% DAU/MAU; (b) dormant-capability prepositioning beats a reactive outbreak app on deployment speed; (c) consent-first, low-identifiability proximity data survives public scrutiny. Each has metric plumbing in this repo.
+
+## 8 · Theoretical underpinnings
+
+- **AVADAR (polio, ten African countries):** CHW-mediated mobile reporting works when the tool is simple and alerting is automatic → CHAN-5 task model + auto-alert fan-out.
+- **Offline-first modular mHealth (ACM MobiSys-class):** the client is the source of truth; sync is a bonus → §16 queue design implemented in sync/ and both app caches.
+- **DESIRE architecture (COVID-19 exposure notification):** privacy-preserving proximity is feasible only if opt-in and transparent, combining centralised + decentralised elements around ephemeral identifiers and private encounter tokens (PETs routed via trusted proxy) → SENS proximity-token store (append-only) + consent gating.
+- **LiBre LiDAR respiration (§2.3):** motion-resilient decoupling of device motion from chest displacement at ≤4 m, sub-1-brpm error, <120 ms/frame → estimation split (on-device motion series → server peak-window estimation + 12–25 br/min banding).
+- **Information theory lens:** the malaria trap is a **prior-probability correction** — with EVD prevalence ~2×10⁻⁸, presenting symptom-alarm first maximizes false-alarm cost at the expense of the base-rate disease (malaria) that will actually be present; the triage ladder re-orders the hypothesis tree by base rate, with exposure evidence shifting the posterior.
+- **Game theory lens (trust):** citizen-reporting channels die on fear of data misuse; the DPIA gate + structural minimisation + breach clock are commitment devices that make cooperation (reporting symptoms) incentive-compatible for the sender.
 
 ---
 
-## Quickstart
+## 9 · What is implemented here
 
-### 1. Backend
+A working vertical of the spec: FastAPI backend core (30+ endpoints, 45-feature registry, all 9 sensor families, tier-4 gate, Postgres+SQLite persistence, vendor gateway clients), **fully native** SwiftUI iOS + Kotlin Android clients (offline-first, evidence upload, feature screens), and YAMNet ONNX cough analysis — with **109 backend tests, pyright-clean types, iOS XCTest and Android JVM suites green**.
 
-```sh
-uv sync                                   # creates .venv from pyproject.toml
-uv run pytest -vxs tests/ci               # 109 tests
-uv run pyright                            # strict types: 0 errors
-uv run uvicorn afya.service:app --port 8000
-# → http://localhost:8000/health  /features  /docs (OpenAPI)
-```
+Full engineering map (spec § → module → test): [`docs/buildout.md`](docs/buildout.md) · ML provenance/decisions: [`docs/ml-models.md`](docs/ml-models.md) · full product spec: [`docs/spec.md`](docs/spec.md).
 
-Optional persistence:
+## 10 · Quickstart
 
 ```sh
-createdb afya && uv run python examples/deploy_schema.py     # Postgres (local server)
-AFYA_DB_PATH=/tmp/afya.db uv run uvicorn afya.service:app    # SQLite adapter
-```
+uv sync && uv run pytest -vxs tests/ci && uv run pyright      # backend + tests (109 green)
+uv run uvicorn afya.service:app --port 8000                    # API (OpenAPI at /docs)
+createdb afya && uv run python examples/deploy_schema.py       # local Postgres schema
+uv run python examples/demo.py                                 # end-to-end narrative demo
 
-Env vars (all optional): `AFYA_DB_PATH`, `AFYA_PG_DSN`, `AT_API_KEY/AT_USERNAME/AT_BASE_URL` (Africa's Talking zero-rated SMS), `WHATSAPP_TOKEN/WHATSAPP_PHONE_ID` (Meta Cloud API), `PPB_URL`, `JALI_URL`, `PHEOC_URL`, `MOHF_URL`.
-
-### 2. iOS (native SwiftUI)
-
-```sh
-cd ios
-xcodegen generate                                        # regenerates AfyaYangu.xcodeproj from project.yml
-xcodebuild -project AfyaYangu.xcodeproj -scheme AfyaYangu \
+cd ios && xcodegen generate && xcodebuild -project AfyaYangu.xcodeproj -scheme AfyaYangu \
 	-destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO
-xcodebuild test -project AfyaYangu.xcodeproj -scheme AfyaYangu \
-	-destination 'id=<simulator-udid>' CODE_SIGNING_ALLOWED=NO
+cd android && gradle testDebugUnitTest assembleDebug           # APK under app/build/outputs/apk/debug/
 ```
 
-App surfaces: Status (health/tier-4 state), FND-001 Finder, REC-001 Wallet, TRI-002 Diary, CHAN-005 CHW console, SENS-004 Evidence upload, TRI-001 triage chips, 719 SOS.
+Backend code: `src/afya/` (per-domain `service.py` logic + `views.py` Pydantic v2 models) · native clients: `ios/` (xcodegen project.yml) and `android/` (Gradle Kotlin DSL) · models: `models/cough/`.
 
-### 3. Android (native Kotlin)
+## 11 · Honest ledger of what is not here
 
-```sh
-cd android
-gradle :app:testDebugUnitTest assembleDebug
-# APK → app/build/outputs/apk/debug/app-debug.apk
-```
-
-App surfaces mirror iOS: MainActivity (triage/SOS) → FeaturesActivity (finder/wallet/diary/CHW/sensor ingest) → EvidenceActivity (photo + note).
-
-Both clients default to `http://localhost:8000` (Simulator/emulator loops back to a locally running backend).
-
-### 4. End-to-end demo
-
-```sh
-uv run python examples/demo.py    # USSD menu → malaria-trap triage → SOS → offline sync → tier-4 activation → TRI-003 unlock
-```
-
----
-
-## Key API surfaces
-
-| Route | Purpose |
-|---|---|
-| `GET /health` · `GET /features` | liveness + registry (tier-4 features absent when dormant) |
-| `POST /triage/preliminary` · `/triage/evd` · `/triage/diary` | febrile triage (malaria trap), gated EVD triage, 21-day diary |
-| `POST /sensors/ingest` · `/sensors/breath/estimate` · `POST /ml/cough/analyze` | derived sensor metrics, LiDAR breath estimation, YAMNet cough verdict (tier-4 gated) |
-| `POST /evidence` | photo + textual note (multipart, sha256-verified, deduped) |
-| `POST /facilities`·`/facilities/nearest`·`/{id}/ed-status`·`/{id}/booking` | facility layer |
-| `POST /medicine/verify`·`/interactions`·`/dose` | PPB-backed medicine layer |
-| `POST /emergency/sos`·`/fall`·`/card/qr` | emergency layer |
-| `GET /records/{ref}/wallet`·`/{ref}/immunisation-gaps` | family health wallet |
-| `POST /channels/sms`·`/ussd`·`/whatsapp`·`/ussd/callback`·`/channels/chw/tasks…` | channel layer (zero-rated SMS, AT USSD callback CON/END, CHW assign/open/done) |
-| `POST /sync/ops`·`/sync/flush` | offline-first queue |
-| `POST /privacy/consent`·`/privacy/dpia` | privacy layer |
-| `POST /tier4/activate` · `/surveillance/*` | dormant outbreak superpower |
-
-OpenAPI: `http://localhost:8000/docs`.
-
----
-
-## Architecture invariants (enforced by tests)
-
-1. **Tier-4 is dormant by default.** Activation requires all three: PHEOC authorization, reviewed DPIA, feature flag. The engine checks the gate — not just the router.
-2. **Raw sensor data never reaches the server.** Models reject raw payloads structurally; only derived metrics pass.
-3. **Local write always succeeds; UI never blocks on the network** (§16.1). Both mobile clients keep last-good responses in persistent storage and degrade visibly to cached state.
-4. **The malaria trap (§6.3).** Febrile illness without contact history is treated malaria-first; EVD escalation requires exposure/contact or a full symptom cluster.
-5. **No unharmonised content is ever served.** The INF library refuses while any item lacks a provenance tag.
-6. **Evidence integrity.** Photo blobs are stored only after sha256 matches the declared hash; duplicates dedupe on receipt.
-7. **DB-level safety.** Postgres schema carries CHECK constraints (dataset allowlist, geo bounds, retention bounds) that tests prove fire.
-
----
-
-## Verification gates (per change)
-
-```sh
-uv run pytest -vxs tests/ci   # backend contracts
-uv run pyright                 # static types
-cd ios && xcodebuild test ...  # XCTest
-cd android && gradle :app:testDebugUnitTest
-```
-
-Current state: **109 backend tests green · pyright 0 errors · iOS XCTest green · Android JVM tests green · APK assembles.**
-
----
-
-## Governance and honest-gap ledger
-
-See [`docs/buildout.md`](docs/buildout.md) for the full §→module→test map and [`docs/ml-models.md`](docs/ml-models.md) for model provenance/decisions. Deliberately *not* faked: vendor credentials, MoH content corpora, dermatology classification (no validated model exists — evidence pipeline + clinician review instead), and heavy statistical models (transparency over opacity per §19.3).
-
-History note: the original repo skeleton (JS/Swift/Kotlin sketches) never compiled and was removed after a full assessment; git history preserves it. This buildout replaced it spec-first.
+Vendor/production credentials (telco gateways, WhatsApp Business, PPB endpoints), MoH-sourced content corpora, dermatology models (deliberate), and Postgres at production scale — every one has a coded seam; none is faked.
