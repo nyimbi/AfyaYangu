@@ -136,5 +136,27 @@ class BackendClient(private val context: Context) {
 		val v = JSONObject(request("sensors/ingest", body))
 		return v.getString("band") + ": " + v.getString("detail")
 	}
+	fun uploadEvidence(kind: String, note: String, blob: ByteArray): String {
+		val boundary = "afya-" + System.currentTimeMillis()
+		val conn = URL(BASE + "evidence").openConnection() as HttpURLConnection
+		conn.requestMethod = "POST"
+		conn.doOutput = true
+		conn.connectTimeout = 10000
+		conn.readTimeout = 15000
+		conn.setRequestProperty("content-type", "multipart/form-data; boundary=$boundary")
+		conn.outputStream.use { os ->
+			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"kind\"\r\n\r\n$kind\r\n").toByteArray())
+			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"subject_ref\"\r\n\r\nU1\r\n").toByteArray())
+			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"county\"\r\n\r\nNairobi\r\n").toByteArray())
+			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\n$note\r\n").toByteArray())
+			os.write("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".toByteArray())
+			os.write(blob)
+			os.write("\r\n--$boundary--\r\n".toByteArray())
+		}
+		val code = conn.responseCode
+		val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.use { it.readBytes().decodeToString() }
+		if (code !in 200..299) throw IllegalStateException("upload failed: $code $text")
+		return text.orEmpty()
+	}
 	companion object { const val BASE = "http://localhost:8000/" }
 }

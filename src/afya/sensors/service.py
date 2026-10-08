@@ -33,7 +33,21 @@ def ppg_band(hr: float) -> SenseVerdict:
 	return SenseVerdict(kind=SenseKind.ppg, anomaly=False, band='normal', detail=f'hr {hr} in range')
 
 
-_ENGINES = {SenseKind.respiration: resp_band, SenseKind.cough: cough_band, SenseKind.ppg: ppg_band, SenseKind.fall: lambda v: SenseVerdict(kind=SenseKind.fall, anomaly=v > 4.0, band='alert' if v > 4.0 else 'normal', detail=f'g-force {v}')}
+def sleep_band(hours: float) -> SenseVerdict:
+	if hours < 5.5:
+		return SenseVerdict(kind=SenseKind.sleep, anomaly=True, band='watch', detail=f'{hours}h short sleep')
+	return SenseVerdict(kind=SenseKind.sleep, anomaly=False, band='normal', detail=f'{hours}h within target')
+
+
+def ambient_band(pm25: float) -> SenseVerdict:
+	if pm25 > 55.0:
+		return SenseVerdict(kind=SenseKind.ambient, anomaly=True, band='alert', detail=f'PM2.5 {pm25} µg/m³ hazardous')
+	if pm25 > 35.0:
+		return SenseVerdict(kind=SenseKind.ambient, anomaly=True, band='watch', detail=f'PM2.5 {pm25} µg/m³ elevated')
+	return SenseVerdict(kind=SenseKind.ambient, anomaly=False, band='normal', detail=f'PM2.5 {pm25} µg/m³ ok')
+
+
+_ENGINES = {SenseKind.respiration: resp_band, SenseKind.cough: cough_band, SenseKind.ppg: ppg_band, SenseKind.fall: lambda v: SenseVerdict(kind=SenseKind.fall, anomaly=v > 4.0, band='alert' if v > 4.0 else 'normal', detail=f'g-force {v}'), SenseKind.sleep: sleep_band, SenseKind.ambient: ambient_band}
 
 
 _INGEST_FEATURE: dict[SenseKind, str] = {
@@ -41,6 +55,8 @@ _INGEST_FEATURE: dict[SenseKind, str] = {
 	SenseKind.cough: 'SENS-002',
 	SenseKind.fall: 'SENS-003',
 	SenseKind.ppg: 'SENS-005',
+	SenseKind.sleep: 'SENS-007',
+	SenseKind.ambient: 'SENS-008',
 }
 
 

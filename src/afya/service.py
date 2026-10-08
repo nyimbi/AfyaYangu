@@ -1,17 +1,23 @@
 """App assembly — FastAPI front door (spec §15.5)."""
-from fastapi import FastAPI, HTTPException
+from afya.surveillance.service import SurveillanceService, estimate_breath_rate
+from afya.surveillance.views import CountySignal, Geofence, ProximityToken
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from httpx import AsyncClient
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 import os
 
 from afya.config import ServiceConfig
 from afya.persistence.service import SqliteStore
-from afya.sensors.service import SensorService
 from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import ChwTask, SmsOut, UssdRequest, WhatsAppIn
 from afya.emergency.service import EmergencyService, Inline719Port
 from afya.emergency.views import EmergencyCard, IMUSample, SOSEvent
+from afya.evidence.service import EvidenceService
+from afya.evidence.views import EvidenceSubmission
+from afya.evidence.service import EvidenceService, FileSystemEvidenceStore
+from afya.evidence.views import EvidenceSubmission, EvidenceKind
 from afya.integrations.gateways import AtSmsRestSend, AtUssdCallback
 from afya.integrations.service import PPBClient
 from afya.medicine.service import MedicineService
@@ -28,6 +34,7 @@ from afya.registry.service import FeatureRegistry, Tier4Activation, Tier
 from afya.surveillance.service import SurveillanceService
 from afya.surveillance.views import CountySignal, Geofence
 from afya.sensors.service import SensorService
+from afya.sensors.views import SenseKind
 from afya.sensors.views import SenseIngest
 from afya.sync.service import SyncService
 from afya.sync.views import SyncOp
@@ -44,6 +51,12 @@ class HealthResponse(BaseModel):
 	status: str
 	version: str = APP_VERSION
 	tier4: bool = False
+
+
+class BreathEstimateRequest(BaseModel):
+	model_config = MODEL_CONFIG
+	series: list[float]
+	fps: float = Field(default=30.0, ge=0.5, le=120)
 
 
 class InteractionsRequest(BaseModel):
@@ -68,6 +81,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'emergency': EmergencyService(Inline719Port()),
 		'info': InfoService(),
 		'records': RecordsService(),
+		'evidence': EvidenceService(registry, FileSystemEvidenceStore('var/evidence')),
 		'privacy': PrivacyService(store),
 		'sync': SyncService(store),
 	}
@@ -85,6 +99,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	emergency: EmergencyService = svc['emergency']  # type: ignore[assignment]
 	info: InfoService = svc['info']  # type: ignore[assignment]
 	records: RecordsService = svc['records']  # type: ignore[assignment]
+	evidence: EvidenceService = svc['evidence']  # type: ignore[assignment]
 	privacy: PrivacyService = svc['privacy']  # type: ignore[assignment]
 	sync: SyncService = svc['sync']  # type: ignore[assignment]
 	medicine: MedicineService = svc['medicine']  # type: ignore[assignment]
@@ -121,6 +136,12 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return [e.model_dump(mode='json') for e in triage.diary(ref)]
 
 	# --- sensors (derived metrics only; tier4 gated) ---
+	@app.post('/sensors/breath/estimate')
+	async def sensors_breath(req: BreathEstimateRequest) -> dict[str, object]:
+		rate = estimate_breath_rate(req.series, req.fps)
+		verdict = await sensors.ingest(SenseIngest(kind=SenseKind.respiration, subject_ref='U1', value=rate, county='Nairobi'))
+		return {'rate_bpm': rate, **verdict.model_dump(mode='json')}
+
 	@app.post('/sensors/ingest')
 	async def sensors_ingest(inp: SenseIngest) -> dict[str, object]:
 		try:
@@ -248,6 +269,26 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except KeyError as exc:
 			raise HTTPException(status_code=404, detail='unknown task') from exc
 		return {'ok': True}
+
+	# --- photo + textual evidence (SENS-004) ---
+	@app.post('/evidence')
+	async def evidence_upload(file: UploadFile = File(...), kind: str = 'scene_photo', subject_ref: str = 'U1', county: str = 'Nairobi', note: str = '') -> dict[str, object]:
+		blob = await file.read()
+		import hashlib
+		from uuid6 import uuid7
+		submission = EvidenceSubmission(
+			submission_id='EV-' + str(uuid7()).replace('-', '').upper()[:12],
+			kind=EvidenceKind(kind), subject_ref=subject_ref, county=county,
+			image_sha256=hashlib.sha256(blob).hexdigest(), mime=file.content_type or 'image/jpeg',
+			size_bytes=len(blob), note=note,
+		)
+		try:
+			receipt = await evidence.submit(submission, blob)
+		except PermissionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return receipt.model_dump(mode='json')
 
 	# --- sync ---
 	@app.post('/sync/ops')

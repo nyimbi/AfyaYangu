@@ -15,5 +15,8 @@
 		<activity
 			android:name=".FeaturesActivity"
 			android:exported="false" />
+		<activity
+			android:name=".EvidenceActivity"
+			android:exported="false" />
 	</application>
 </manifest>

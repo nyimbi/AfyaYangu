@@ -35,9 +35,12 @@ class EmergencyService(LogMixin):
 	@staticmethod
 	def fall(samples: list[IMUSample]) -> FallResult:
 		assert 1 <= len(samples) <= 6000, 'sample window out of contract'
-		peak = max(math.sqrt(s.x * s.x + s.y * s.y + s.z * s.z) for s in samples)
-		freefall = min(abs(math.sqrt(s.x * s.x + s.y * s.y + s.z * s.z) - 9.81) for s in samples) < 1.5
-		fall = peak > 25.0 and freefall
+		mags = [math.sqrt(s.x * s.x + s.y * s.y + s.z * s.z) for s in samples]
+		peak = max(mags)
+		freefall_idx = next((i for i, m in enumerate(mags) if m < 2.0), None)
+		impact_idx = mags.index(peak)
+		# EMG-002 signature: near-zero-g window BEFORE the impact spike.
+		fall = peak > 25.0 and freefall_idx is not None and freefall_idx < impact_idx
 		return FallResult(fall_detected=fall, peak_g=round(peak, 2), auto_alert=fall)
 
 	@staticmethod

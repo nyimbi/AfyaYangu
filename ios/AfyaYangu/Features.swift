@@ -182,6 +182,7 @@ struct FeatureTabView: View {
 			NavigationStack { WalletView() }.tabItem { Label("Wallet", systemImage: "person.3") }
 			NavigationStack { DiaryView() }.tabItem { Label("Diary", systemImage: "book") }
 			NavigationStack { ChwView() }.tabItem { Label("CHW", systemImage: "figure.walk") }
+			NavigationStack { EvidenceUploadView() }.tabItem { Label("Evidence", systemImage: "camera") }
 		}
 	}
 }

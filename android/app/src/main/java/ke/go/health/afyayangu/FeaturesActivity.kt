@@ -38,8 +38,13 @@ class FeaturesActivity : Activity() {
 			val diaryOut = TextView(ctx).apply { text = "loading..." }
 			val chwOut = TextView(ctx).apply { text = "loading..." }
 			val sensorOut = TextView(ctx).apply { text = "loading..." }
+			val evBtn = android.widget.Button(ctx).apply {
+				text = "SENS-004 Evidence submission"
+				setOnClickListener { ctx.startActivity(android.content.Intent(ctx, EvidenceActivity::class.java)) }
+			}
 			val root = LinearLayout(ctx).apply {
 				orientation = LinearLayout.VERTICAL
+				addView(evBtn)
 				addView(section(ctx, "FND-001 Facility Finder", finderOut))
 				addView(section(ctx, "REC-001 Family Health Wallet", walletOut))
 				addView(section(ctx, "TRI-002 Symptom Diary", diaryOut))

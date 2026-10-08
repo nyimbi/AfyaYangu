@@ -14,6 +14,26 @@ def _risk_band(z: float) -> str:
 	return 'low'
 
 
+def estimate_breath_rate(series: list[float], fps: float = 30.0) -> float:
+	"""LiDAR chest-motion series (derived on-device) -> breaths/min by peak counting (§14.1).
+	Accepts the variance/motion series only — never raw depth frames (§17.2)."""
+	assert 0.5 <= fps <= 120, 'capture fps bounds'
+	assert 30 <= len(series) <= 6000, 'need a window >= 1 s'
+	mean = sum(series) / len(series)
+	centered = [v - mean for v in series]
+	window = int(fps * 1.5)  # >= 1.5 s of motion context for peak counting
+	peaks = 0
+	for i in range(1, len(centered) - 1):
+		lo = centered[max(0, i - window):i]
+		hi = centered[i + 1:i + 1 + window]
+		if centered[i] > 0 and (not lo or centered[i] >= max(lo)) and (not hi or centered[i] > max(hi)):
+			peaks += 1
+	seconds = len(series) / fps
+	rate = 60.0 * peaks / seconds
+	assert 0 < rate < 200, 'estimate in plausible envelope'
+	return round(rate, 1)
+
+
 class SurveillanceService(LogMixin):
 	def __init__(self, registry: FeatureRegistry) -> None:
 		self._registry = registry

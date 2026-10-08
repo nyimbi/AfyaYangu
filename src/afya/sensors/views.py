@@ -13,6 +13,8 @@ class SenseKind(str, Enum):
 	cough = 'cough'
 	fall = 'fall'
 	ppg = 'ppg'
+	sleep = 'sleep'
+	ambient = 'ambient'
 
 
 class SenseIngest(BaseModel):

@@ -50,3 +50,15 @@ def test_raw_fields_structurally_rejected() -> None:
 	from pydantic import ValidationError
 	with pytest.raises(ValidationError):
 		SenseIngest.model_validate({'kind': 'respiration', 'subject_ref': 'U1', 'value': 16, 'county': 'N', 'depth': [1.0, 2.0]})
+
+def test_breath_rate_estimation() -> None:
+	import math as _m
+	from afya.surveillance.service import estimate_breath_rate
+	fps = 30.0
+	# 16 bpm -> 3.75 s period over 8 s
+	series = [1.0 * _m.sin(2 * 3.14159 * 16 / 60 * t / fps) for t in range(240)]
+	rate = estimate_breath_rate(series, fps)
+	assert 13 <= rate <= 19
+	series_fast = [1.0 * _m.sin(2 * 3.14159 * 24 / 60 * t / fps) for t in range(240)]
+	rate_fast = estimate_breath_rate(series_fast, fps)
+	assert 20 <= rate_fast <= 28

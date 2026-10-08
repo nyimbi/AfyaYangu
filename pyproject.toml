@@ -10,6 +10,8 @@
 		"httpx>=0.27",
 		"uuid6>=2024.7.10",
 		"aiosqlite>=0.22.1",
+		"asyncpg>=0.32.0",
+		"python-multipart>=0.0.32",
 ]
 
 [dependency-groups]

@@ -18,3 +18,4 @@ local.properties
 ios/AfyaYangu.xcodeproj
 .kotlin/
 android/app/build/
+var/evidence
