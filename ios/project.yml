@@ -15,3 +15,17 @@ targets:
         UILaunchScreen: {}
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+  AfyaYanguTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: AfyaYangu
+schemes:
+  AfyaYangu:
+    build:
+      targets:
+        AfyaYangu: all
+        AfyaYanguTests: [test]
+    test:
+      targets: [AfyaYanguTests]
