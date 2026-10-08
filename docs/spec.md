@@ -3462,4 +3462,45 @@ The critical risk is that funding and attention evaporate when the outbreak ends
 |---|---|---|
 | REC-001 | Family Health Wallet (Basic) | 2 |
 | REC-002 | Family Health Wallet (Full) | 3 |
-| REC-003 | Growth
+## Appendix B (continued): Features by ID — Tier 4 / Sensors
+
+| ID | Name | Tier |
+|---|---|---|
+| REC-003 | Growth Monitoring Chart | 3 |
+| LOC-001 | Geofenced Risk Alerts | 4 |
+| SENS-001 | LiDAR Respiration Monitoring | 4 |
+| SENS-002 | Acoustic Cough Detection | 4 |
+| SENS-003 | Fall Detection (see EMG-002) | 1 |
+| SENS-004 | Camera-Based Symptom Capture | 4 |
+| SENS-005 | Screen/Camera PPG Health Monitoring | 2 |
+| SENS-006 | Wearable Integration | 2 |
+| SENS-007 | Sleep and Activity Monitoring | 2 |
+| SENS-008 | Environmental and Ambient Sensing | 4 |
+
+> This appendix was reconstructed on 2026-10-08 from the document's own §14 headings and §11 tier model; the original file was truncated mid-table. Tier assignments follow §11 (dormant outbreak capabilities) except SENS-003/EMG-002, which is a year-round Tier 1 feature.
+
+## Appendix C: References
+
+> ⚠️ Derived solely from in-text mentions (§2.3 and body); none independently confirmed. Validate before external publication.
+
+1. AVADAR (Auto-Visual AFP Detection and Reporting) — polio surveillance across ten African countries (§2.3).
+2. LiBre and successor LiDAR respiration monitoring literature (§2.3).
+3. DESIRE architecture — combined centralised/decentralised COVID-19 exposure notification using Ephemeral Bluetooth Identifiers and Private Encounter Tokens (§2.3).
+4. Kenya Data Protection Act 2019 (DPA 2019), Office of the Data Protection Commissioner (§17).
+5. Kenya Digital Health Act 2023 (§17).
+6. Kenya Master Health Facility List / MoH (§18.5).
+7. ACM MobiSys-class literature on offline-first modular mHealth platforms (§2.3).
+
+## Appendix D: Open Questions and Decisions Required
+
+> ⚠️ Reconstructed 2026-10-08 from the document's open flags; additions belong to the product owner.
+
+| # | Question | Blocks |
+|---|---|---|
+| 1 | Product owner entity (MoH Digital Health Agency vs implementing partner) — listed TBD | governance, contracting |
+| 2 | Official hotline codes/platform names/case counts require MoH/PHEOC validation (see Verification Note) | content, USSD menus, INF-006 |
+| 3 | Tier-4 activation protocol: who holds PHEOC authorization + flag authority + DPIA sign-off? | surveillance gate |
+| 4 | Cloud provider + data residency final selection (AWS Africa vs Azure South Africa vs on-prem) | §15.3, DPIA |
+| 5 | Unleash instance vs internal feature flags for Tier-4 control | §15.2 |
+| 6 | Telco zero-rating agreements for CHAN-001 | distribution |
+| 7 | Retention policy per data type needs ODPC sign-off (24-month cap assumed in code) | privacy service |
