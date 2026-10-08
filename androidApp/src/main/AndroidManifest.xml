@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.afya.kuwa">
+
+    <!-- Permissions required by Afya Kuwa -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    
+    <!-- Biometric/health permissions (optional, for specific features) -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.NFC" />
+    
+    <!-- Permissions only needed at runtime -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    
+    <application
+        android:name=".kuwa.MainApplication"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Afya Kuwa"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Theme.AfyaKuwa">
+        
+        <!-- Main activity -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="Afya Kuwa"
+            android:theme="@style/Theme.AfyaKuwa.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        
+        <!-- JALI chatbot integration -->
+        <meta-data
+            android:name="com.google.android.gms.version"
+            android:value="@integer/google_play_services_version" />
+        
+        <!-- WorkManager custom foreground service -->
+        <service
+            android:name=".privacy.PrivacyService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
+            
+        <!-- BLE scanning service -->
+        <service
+            android:name=".sensors.BLEScanService"
+            android:exported="false" />
+            
+        <!-- NFC service -->
+        <activity
+            android:name=".sensors.NFCReaderActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AfyaKuwa.NoActionBar" />
+            
+    </application>
+    
+    <!-- GPS/Location configuration -->
+    <uses-feature
+        android:glEsVersion="0x00000003"
+        android:required="false" />
+    
+    <!-- Permissions used only on newer versions -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"
+        android:required="false" />
+    
+</manifest>
