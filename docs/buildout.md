@@ -17,6 +17,8 @@
 | §15.5 API | `src/afya/service.py` (FastAPI) | `test_app.py` |
 | Native clients | `ios/` (SwiftUI), `android/` (Kotlin) | xcodebuild + gradle assembleDebug |
 
+Everyday-health domain modules (2026-10-08, commit 4e06739): women/ (cycle tracking), maternal/ (ANC + danger signs), chronic/ (BP/glucose/refill), mental/ (WHO-5 + lines), blood/ (donor matching), alerts/ (water/air/flood/school/multi-disease), insurance/ (SHA + price transparency) — new tests/ci/test_expansion.py; registry now 58 features incl. REC-004..009/INF-011..016/SENS-009.
+
 Known gaps (tracked): persistence layer is SQLite adapter; production Postgres/Timescale (asyncpg) swap of same Protocol pending; §19.1 TFLite/ONNX model assets not present — Tier 4 ML stays dormant by design; spec.md appendices C–D reconstructed (source truncation); hotline codes unverified per spec's own verification note; Android BackendClient context-bound paths lack JVM tests (pure-logic extraction or Robolectric pending).
 
 Buildout increments (2026-10-08): mobile feature screens shipped on both platforms — iOS (Finder/Wallet/Diary/CHW tabs, xcodebuild+XCTest 5/5 green) and Android (FeaturesActivity with FND-001/REC-001/TRI-002/CHAN-005/sensor-ingest sections, APK assembled); server-side sensor ingestion with band engines (tier4-gated, raw-payload rejection); AT SMS REST + WhatsApp Business clients (HTTP-tested) with env-driven ServiceConfig; en/sw i18n (USSD menus, triage recommendations); CHW task assign/open/done + AT USSD callback endpoints; wallet aggregate endpoint.
