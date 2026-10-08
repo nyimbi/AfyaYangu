@@ -3,14 +3,17 @@ from fastapi import FastAPI, HTTPException
 from httpx import AsyncClient
 from pydantic import BaseModel, ConfigDict
 
-from afya.channels.service import AfricaTalkingSmsPort, ChannelService
-from afya.channels.views import SmsOut, UssdRequest, WhatsAppIn
-from afya.emergency.service import EmergencyService, Inline719Port
-from afya.emergency.views import EmergencyCard, IMUSample, SOSEvent
 import os
 
-from afya.integrations.service import PPBClient
+from afya.config import ServiceConfig
 from afya.persistence.service import SqliteStore
+from afya.sensors.service import SensorService
+from afya.channels.service import AfricaTalkingSmsPort, ChannelService
+from afya.channels.views import ChwTask, SmsOut, UssdRequest, WhatsAppIn
+from afya.emergency.service import EmergencyService, Inline719Port
+from afya.emergency.views import EmergencyCard, IMUSample, SOSEvent
+from afya.integrations.gateways import AtSmsRestSend, AtUssdCallback
+from afya.integrations.service import PPBClient
 from afya.medicine.service import MedicineService
 from afya.medicine.views import DoseRequest, VerifyRequest
 from afya.facilities.service import FacilityService
@@ -24,6 +27,8 @@ from afya.records.views import GrowthRecord, ImmunisationRecord, WalletMember
 from afya.registry.service import FeatureRegistry, Tier4Activation, Tier
 from afya.surveillance.service import SurveillanceService
 from afya.surveillance.views import CountySignal, Geofence
+from afya.sensors.service import SensorService
+from afya.sensors.views import SenseIngest
 from afya.sync.service import SyncService
 from afya.sync.views import SyncOp
 from afya.triage.service import TriageService
@@ -48,15 +53,18 @@ class InteractionsRequest(BaseModel):
 
 def build_services(http: AsyncClient | None = None, db_path: str | None = None) -> dict[str, object]:
 	client = http or AsyncClient(timeout=10)
+	cfg = ServiceConfig.from_env()
 	registry = FeatureRegistry()
+	sms_port = AtSmsRestSend(cfg.at_base_url, cfg.at_api_key, cfg.at_username, client) if cfg.at_api_key else AfricaTalkingSmsPort(cfg.at_base_url, cfg.at_api_key or 'dev-key')
 	store = SqliteStore(db_path) if db_path else None
 	return {
 		'registry': registry,
 		'triage': TriageService(registry),
 		'surveillance': SurveillanceService(registry),
-		'medicine': MedicineService(PPBClient('https://ppb.health.go.ke/api', client)),
+		'sensors': SensorService(registry),
+		'medicine': MedicineService(PPBClient(cfg.ppb_url, client)),
 		'facilities': FacilityService(),
-		'channels': ChannelService(AfricaTalkingSmsPort('https://api.africastalking.com', 'env-key')),
+		'channels': ChannelService(sms_port),
 		'emergency': EmergencyService(Inline719Port()),
 		'info': InfoService(),
 		'records': RecordsService(),
@@ -70,6 +78,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	assert {'registry', 'triage', 'surveillance', 'facilities', 'channels', 'sync', 'privacy'} <= svc.keys(), 'core services required'
 	registry: FeatureRegistry = svc['registry']  # type: ignore[assignment]
 	triage: TriageService = svc['triage']  # type: ignore[assignment]
+	sensors: SensorService = svc['sensors']  # type: ignore[assignment]
 	surveillance: SurveillanceService = svc['surveillance']  # type: ignore[assignment]
 	facilities: FacilityService = svc['facilities']  # type: ignore[assignment]
 	channels: ChannelService = svc['channels']  # type: ignore[assignment]
@@ -92,8 +101,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- triage ---
 	@app.post('/triage/preliminary', response_model=TriageResult)
-	async def triage_preliminary(inp: TriageInput) -> TriageResult:
-		return triage.assess(inp)
+	async def triage_preliminary(inp: TriageInput, lang: str = 'en') -> TriageResult:
+		return triage.assess(inp, lang)
 
 	@app.post('/triage/evd', response_model=TriageResult)
 	async def triage_evd(inp: TriageInput) -> TriageResult:
@@ -106,6 +115,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def triage_diary(entry: DiaryEntry) -> dict[str, bool]:
 		await triage.diary_append(entry)
 		return {'accepted': True}
+
+	@app.get('/triage/{ref}/diary')
+	async def triage_diary_list(ref: str) -> list[dict[str, object]]:
+		return [e.model_dump(mode='json') for e in triage.diary(ref)]
+
+	# --- sensors (derived metrics only; tier4 gated) ---
+	@app.post('/sensors/ingest')
+	async def sensors_ingest(inp: SenseIngest) -> dict[str, object]:
+		try:
+			return (await sensors.ingest(inp)).model_dump(mode='json')
+		except PermissionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 	# --- facilities ---
 	@app.post('/facilities')
@@ -184,6 +205,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def records_growth(rec: GrowthRecord) -> dict[str, str]:
 		return records.growth_flag(rec).model_dump(mode='json')
 
+	@app.get('/records/{guardian_ref}/wallet')
+	async def records_wallet(guardian_ref: str) -> dict[str, object]:
+		try:
+			return records.wallet(guardian_ref)
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
 	# --- channels ---
 	@app.post('/channels/sms')
 	async def channels_sms(to_msisdn: str, body: str) -> dict[str, object]:
@@ -199,6 +227,27 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/channels/whatsapp')
 	async def channels_whatsapp(msg: WhatsAppIn) -> dict[str, object]:
 		return channels.route_whatsapp(msg).model_dump(mode='json')
+
+	@app.post('/channels/ussd/callback')
+	async def channels_ussd_callback(cb: AtUssdCallback, lang: str = 'en') -> dict[str, str]:
+		return channels.ussd_carrier_callback(cb, lang)
+
+	@app.post('/channels/chw/tasks')
+	async def chw_assign(task: ChwTask) -> dict[str, bool]:
+		await channels.assign_chw_task(task)
+		return {'ok': True}
+
+	@app.get('/channels/chw/tasks/{chw_ref}')
+	async def chw_open(chw_ref: str) -> list[dict[str, object]]:
+		return [t.model_dump(mode='json') for t in channels.open_tasks(chw_ref)]
+
+	@app.post('/channels/chw/tasks/{task_id}/done')
+	async def chw_done(task_id: str) -> dict[str, bool]:
+		try:
+			await channels.complete_task(task_id)
+		except KeyError as exc:
+			raise HTTPException(status_code=404, detail='unknown task') from exc
+		return {'ok': True}
 
 	# --- sync ---
 	@app.post('/sync/ops')

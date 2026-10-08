@@ -39,6 +39,16 @@ def test_ussd_flow() -> None:
 	assert second.end_text and 'routed to feature' in second.end_text
 
 
+def test_ussd_swahili_menu() -> None:
+	from afya.integrations.gateways import AtUssdCallback
+	svc = ChannelService(make_sms_port())
+	menu = svc.ussd(UssdRequest(session_id='s2', msisdn='+254711222333', text=''), lang='sw').menu
+	assert menu and 'Tafuta kituo' in menu
+	carrier = svc.ussd_carrier_callback(AtUssdCallback(session_id='s2', phone_number='+254711222333', text=''), lang='sw')
+	assert carrier['action'] == 'CON' and 'Ebola' in carrier['text']
+	assert svc.ussd_carrier_callback(AtUssdCallback(session_id='s2', phone_number='+254711222333', text='3'), lang='sw')['action'] == 'END'
+
+
 def test_whatsapp_routing() -> None:
 	svc = ChannelService(make_sms_port())
 	assert 'malaria' in svc.route_whatsapp(WhatsAppIn(from_msisdn='+254711222333', body='I have fever')).reply
@@ -49,6 +59,9 @@ async def test_chw_task_and_push() -> None:
 	svc = ChannelService(make_sms_port())
 	t = await svc.assign_chw_task(ChwTask(task_id='T1', chw_ref='CHW1', community='Kibera', kind='followup'))
 	assert not t.done
+	assert svc.open_tasks('CHW1') == [t]
+	await svc.complete_task('T1')
+	assert svc.open_tasks('CHW1') == []
 	assert svc.push(PushPayload(title='t', body='b')).title == 't'
 
 

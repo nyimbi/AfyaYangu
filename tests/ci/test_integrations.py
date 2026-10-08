@@ -1,9 +1,11 @@
+import httpx
 import pytest
 from pytest_httpserver import HTTPServer
 
+from afya.integrations.gateways import AtSmsRestSend, WhatsAppBusinessClient
 from afya.integrations.service import JaliClient, MoHFFacilityClient, PPBClient, PheocClient
+from afya.channels.views import SmsOut
 from afya.medicine.views import VerifyRequest
-import httpx
 
 
 @pytest.fixture
@@ -28,6 +30,18 @@ async def test_mohf_download(client: httpx.AsyncClient, httpserver: HTTPServer) 
 	httpserver.expect_request('/facilities', method='GET').respond_with_json([{'name': 'KNH'}])
 	mohf = MoHFFacilityClient(httpserver.url_for('/'), client)
 	assert (await mohf.download_facilities('Nairobi'))[0]['name'] == 'KNH'
+
+
+async def test_at_sms_rest_send(client: httpx.AsyncClient, httpserver: HTTPServer) -> None:
+	httpserver.expect_request('/version1/messaging', method='POST').respond_with_json({'SMSMessageData': {'Recipients': [{'messageId': 'ATX_1'}]}})
+	sender = AtSmsRestSend(httpserver.url_for('/'), 'k1', 'afya', client)
+	assert await sender.send(SmsOut(to_msisdn='+254711222333', body='Call 719', segments=1)) == 'ATX_1'
+
+
+async def test_whatsapp_business_send(client: httpx.AsyncClient, httpserver: HTTPServer) -> None:
+	httpserver.expect_request('/v22.0/PHONE_ID/messages', method='POST').respond_with_json({'messages': [{'id': 'wamid.1'}]})
+	wa = WhatsAppBusinessClient('PHONE_ID', 'tok', client, api_base=httpserver.url_for('/'))
+	assert await wa.send_text('+254711222333', 'Tafuta kituo') == 'wamid.1'
 
 
 async def test_ppb_verify_paths(client: httpx.AsyncClient, httpserver: HTTPServer) -> None:

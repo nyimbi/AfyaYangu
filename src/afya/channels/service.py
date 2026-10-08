@@ -4,7 +4,9 @@ from typing import Protocol
 from afya.channels.views import (
 	ChwTask, PushPayload, RadioBulletin, SmsOut, UssdRequest, UssdResponse, WhatsAppIn, WhatsAppOut,
 )
+from afya.integrations.gateways import AtUssdCallback
 from afya.logmixin import LogMixin
+from afya.strings import SUPPORTED_LANGS, USSD_MENU
 
 
 class SmsGatewayPort(Protocol):
@@ -39,8 +41,6 @@ class AfricaTalkingSmsPort:
 
 
 class ChannelService(LogMixin):
-	USSD_MENU = 'CON Afya Yangu\n1. Ebola info\n2. Find facility\n3. Report symptoms\n4. Hotline 719'
-
 	def __init__(self, sms: SmsGatewayPort) -> None:
 		self._sms = sms
 		self._ussd_state: dict[str, int] = {}
@@ -53,16 +53,24 @@ class ChannelService(LogMixin):
 		self._log_info('sms queued', ref=ref, segments=out.segments)
 		return out
 
-	def ussd(self, req: UssdRequest) -> UssdResponse:
+	def ussd(self, req: UssdRequest, lang: str = 'en') -> UssdResponse:
+		assert lang in SUPPORTED_LANGS, f'unsupported lang {lang}'
 		assert req.text == '' or req.text.isdigit(), 'USSD selections numeric'
 		if req.text == '':
 			self._ussd_state[req.session_id] = 0
-			return UssdResponse(session_id=req.session_id, menu=self.USSD_MENU)
+			return UssdResponse(session_id=req.session_id, menu=USSD_MENU[lang])
 		choice = int(req.text) if req.text.isdigit() else 0
 		assert 0 <= choice <= 4, 'menu bounded'
 		if choice in (1, 2, 3, 4):
 			return UssdResponse(session_id=req.session_id, end_text=f'Selected {choice}: routed to feature.')
-		return UssdResponse(session_id=req.session_id, menu=self.USSD_MENU)
+		return UssdResponse(session_id=req.session_id, menu=USSD_MENU[lang])
+
+	def ussd_carrier_callback(self, cb: AtUssdCallback, lang: str = 'en') -> dict[str, str]:
+		"""Africa's Talking callback -> {text: ..., action: CONTINUE|END} response envelope."""
+		resp = self.ussd(UssdRequest(session_id=cb.session_id, msisdn='+' + cb.phone_number.lstrip('+'), text=cb.text), lang)
+		if resp.menu:
+			return {'text': resp.menu, 'action': 'CON'}
+		return {'text': resp.end_text or '', 'action': 'END'}
 
 	def route_whatsapp(self, msg: WhatsAppIn) -> WhatsAppOut:
 		body = msg.body.lower()
@@ -84,6 +92,17 @@ class ChannelService(LogMixin):
 		self._chw_tasks.append(task)
 		assert len([t for t in self._chw_tasks if not t.done]) <= 1000, 'CHW backlog unbounded'
 		return task
+
+	def open_tasks(self, chw_ref: str) -> list[ChwTask]:
+		return [t for t in self._chw_tasks if t.chw_ref == chw_ref and not t.done]
+
+	async def complete_task(self, task_id: str) -> ChwTask:
+		for t in self._chw_tasks:
+			if t.task_id == task_id:
+				t.done = True
+				self._log_info('chw task done', task_id=task_id)
+				return t
+		raise KeyError(task_id)
 
 	def push(self, payload: PushPayload) -> PushPayload:
 		assert payload.title and payload.body, 'title/body required'

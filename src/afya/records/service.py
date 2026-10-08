@@ -53,6 +53,15 @@ class RecordsService(LogMixin):
 			flag = 'stunted'
 		return GrowthFlag(member_ref=rec.member_ref, flag=flag)
 
+	def wallet(self, guardian_ref: str) -> dict[str, object]:
+		assert guardian_ref in self._members, 'unknown guardian'
+		kids = [m for m in self._members.values() if m.guardian_ref == guardian_ref]
+		return {
+			'guardian': self._members[guardian_ref].model_dump(mode='json'),
+			'members': [m.model_dump(mode='json') for m in kids],
+			'gaps': {m.member_ref: self.immunisation_gaps(m.member_ref) for m in kids},
+		}
+
 	async def add_reminder(self, reminder: MedReminder) -> MedReminder:
 		self._reminders.append(reminder)
 		return reminder
