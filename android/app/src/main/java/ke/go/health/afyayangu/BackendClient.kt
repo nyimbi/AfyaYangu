@@ -79,7 +79,8 @@ class BackendClient(private val context: Context) {
 	// --- Tier-1/2 feature surfaces (FND-001, REC-001, TRI-002, CHAN-005, sensors) ---
 
 	fun nearest(lat: Double, lon: Double, kind: String?, limit: Int = 3): String {
-		val txt = request("facilities/nearest?lat=$lat&lon=$lon&limit=$limit" + (kind?.let { "&kind=$it" } ?: ""), null)
+		val body = JSONObject().put("lat", lat).put("lon", lon).apply { kind?.let { put("kind", it) } }.put("limit", limit)
+		val txt = request("facilities/nearest", body.toString())
 		val arr = JSONArray(txt)
 		val out = StringBuilder()
 		for (i in 0 until arr.length()) {

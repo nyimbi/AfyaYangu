@@ -174,8 +174,10 @@ struct WrapChips: View {
 
 struct FeatureTabView: View {
 	@ObservedObject var state: AppState = AppState.sharedState
+	@State private var tab: Int = Int(UserDefaults.standard.integer(forKey: "startTab"))
 
 	var body: some View {
+<<<<<<< HEAD
 		TabView {
 			NavigationStack { HomeScreen(state: state) }.tabItem { Label("Status", systemImage: "wifi") }
 			NavigationStack { FinderView() }.tabItem { Label("Finder", systemImage: "mappin.and.ellipse") }
@@ -184,6 +186,16 @@ struct FeatureTabView: View {
 			NavigationStack { ChwView() }.tabItem { Label("CHW", systemImage: "figure.walk") }
 			NavigationStack { EvidenceUploadView() }.tabItem { Label("Evidence", systemImage: "camera") }
 			NavigationStack { PlacesView() }.tabItem { Label("Maps", systemImage: "map") }
+=======
+		TabView(selection: $tab) {
+			NavigationStack { HomeScreen(state: state) }.tabItem { Label("Status", systemImage: "wifi") }.tag(0)
+			NavigationStack { FinderView() }.tabItem { Label("Finder", systemImage: "mappin.and.ellipse") }.tag(1)
+			NavigationStack { WalletView() }.tabItem { Label("Wallet", systemImage: "person.3") }.tag(2)
+			NavigationStack { DiaryView() }.tabItem { Label("Diary", systemImage: "book") }.tag(3)
+			NavigationStack { ChwView() }.tabItem { Label("CHW", systemImage: "figure.walk") }.tag(4)
+			NavigationStack { EvidenceUploadView() }.tabItem { Label("Evidence", systemImage: "camera") }.tag(5)
+			NavigationStack { PlacesView() }.tabItem { Label("Maps", systemImage: "map") }.tag(6)
+>>>>>>> ce34a3c (screens: emulator/simulator captures embedded in README + serve_demo example + OSM fixture)
 		}
 	}
 }

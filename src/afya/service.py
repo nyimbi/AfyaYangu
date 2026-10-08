@@ -540,7 +540,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		from afya.mobile.actions import catalogue
 		return [act.model_dump(mode='json') for act in catalogue()]
 
-	@app.post('/places/nearest')
+	@app.get('/places/nearest')
 	async def places_nearest(lat: float, lon: float, kinds: list[str] | None = None, limit: int = 5) -> list[dict[str, object]]:
 		wanted = {PlaceKind(k) for k in (kinds or [])} or None
 		return [

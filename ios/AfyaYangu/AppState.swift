@@ -8,7 +8,7 @@ final class AppState: ObservableObject {
 	@Published var features: [FeatureDTO] = []
 	@Published var card: String = ""
 
-	let client = BackendClient(baseURL: "http://localhost:8000")
+	let client = BackendClient(baseURL: UserDefaults.standard.string(forKey: "base_url") ?? "http://localhost:8000")
 
 	init() {
 		card = UserDefaults.standard.string(forKey: "emergency.card") ?? ""

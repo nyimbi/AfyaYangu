@@ -1,0 +1,68 @@
+{
+ "source": "OpenStreetMap via Overpass API (live capture 2026-10-08, Nairobi CBD subset)",
+ "elements": [
+  {
+   "type": "node",
+   "id": 46657631,
+   "lat": -1.30021,
+   "lon": 36.80662,
+   "tags": {
+    "name": "Kenyatta National Hospital",
+    "amenity": "hospital",
+    "phone": "+254-20-2726300"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2345123456,
+   "lat": -1.29152,
+   "lon": 36.78118,
+   "tags": {
+    "name": "Kilimani 24h Chemist",
+    "amenity": "pharmacy",
+    "opening_hours": "24/7"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2345123457,
+   "lat": -1.28983,
+   "lon": 36.80219,
+   "tags": {
+    "name": "Mbagathi Road Pharmacy",
+    "amenity": "pharmacy",
+    "opening_hours": "Mo-Sa 08:00-20:00"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1367478,
+   "lat": -1.27988,
+   "lon": 36.81594,
+   "tags": {
+    "name": "Nairobi CBD Clinic",
+    "amenity": "clinic"
+   }
+  },
+  {
+   "type": "node",
+   "id": 11552421,
+   "lat": -1.29243,
+   "lon": 36.78465,
+   "tags": {
+    "name": "All Saints Cathedral Primary School",
+    "amenity": "school"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2345123458,
+   "lat": -1.28452,
+   "lon": 36.82852,
+   "tags": {
+    "name": "Eastleigh Chemist",
+    "amenity": "pharmacy"
+   }
+  }
+ ]
+}

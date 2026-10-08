@@ -186,6 +186,24 @@ cd android && gradle testDebugUnitTest assembleDebug           # APK under app/b
 
 Backend code: `src/afya/` (per-domain `service.py` logic + `views.py` Pydantic v2 models) · native clients: `ios/` (xcodegen project.yml) and `android/` (Gradle Kotlin DSL) · models: `models/cough/`.
 
+## 12 · Screens (captured from the emulators/simulators)
+
+Android (Pixel 3a API 34, emulator, live backend on `:8123` via `adb reverse`) and iOS (iPhone 15 Pro simulator, live backend).
+
+| | |
+|---|---|
+| **Android home** — connection state + EVD-contact triage chips | ![Android home](docs/screenshots/android-home.png) |
+| **Android triage result** — malaria-trap verdict (spec 6.3) | ![Android triage](docs/screenshots/android-triage.png) |
+| **Android feature surfaces** — finder/wallet/diary/CHW/sensors | ![Android features](docs/screenshots/android-features.png) |
+| **Android evidence upload** — photo + note (SENS-004) | ![Android evidence](docs/screenshots/android-evidence.png) |
+| **Android maps** — OpenStreetMap places + navigation handoff | ![Android places](docs/screenshots/android-places.png) · ![Android navigation](docs/screenshots/android-navigation.png) |
+| **iOS status** · **iOS finder** | ![iOS status](docs/screenshots/ios-status.png) · ![iOS finder](docs/screenshots/ios-finder.png)· |
+| **iOS wallet** · **iOS diary** | ![iOS wallet](docs/screenshots/ios-wallet.png) · ![iOS diary](docs/screenshots/ios-diary.png) |
+| **iOS CHW console** · **iOS evidence** | ![iOS CHW](docs/screenshots/ios-chw.png) · ![iOS evidence](docs/screenshots/ios-evidence.png) |
+| **iOS maps (OSM + turn-by-turn)** | ![iOS places](docs/screenshots/ios-places.png) |
+
+To reproduce: `examples/serve_demo.py` on `:8123` + `adb reverse tcp:8000 tcp:8123` (Android installs from `android/app/build/outputs/apk/debug/`) or `xcrun simctl install … AfyaYangu.app` (`simctl spawn booted defaults write ke.go.health.AfyaYangu base_url http://localhost:8123`).
+
 ## 11 · Honest ledger of what is not here
 
 Vendor/production credentials (telco gateways, WhatsApp Business, PPB endpoints), MoH-sourced content corpora, dermatology models (deliberate), and Postgres at production scale — every one has a coded seam; none is faked.
