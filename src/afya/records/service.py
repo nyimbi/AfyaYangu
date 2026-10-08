@@ -1,7 +1,8 @@
 """Records service — wallet CRUD, EPI completeness, growth flags, med reminders."""
 from afya.logmixin import LogMixin
 from afya.records.views import (
-	EPI_SCHEDULE, GrowthFlag, GrowthRecord, ImmunisationRecord, MedReminder, WalletMember,
+	EPI_SCHEDULE, GrowthFlag, GrowthRecord, ImmunisationRecord, LabResult, MedReminder,
+	Prescription, WalletMember,
 )
 
 
@@ -68,3 +69,29 @@ class RecordsService(LogMixin):
 
 	def reminders_for(self, member_ref: str) -> list[MedReminder]:
 		return [r for r in self._reminders if r.member_ref == member_ref]
+
+	def __init_labs(self) -> None:
+		self._labs: list[LabResult] = []
+		self._rx: list[Prescription] = []
+
+	async def add_lab(self, res: LabResult) -> None:
+		if not hasattr(self, '_labs'):
+			self.__init_labs()
+		self._labs.append(res)
+		if res.flag == 'critical':
+			self._log_warn('critical lab result', test=res.test)
+
+	def labs(self, member_ref: str) -> list[LabResult]:
+		if not hasattr(self, '_labs'):
+			self.__init_labs()
+		return [l for l in self._labs if l.member_ref == member_ref]
+
+	async def add_prescription(self, rx: Prescription) -> None:
+		if not hasattr(self, '_rx'):
+			self.__init_labs()
+		self._rx.append(rx)
+
+	def prescriptions(self, member_ref: str) -> list[Prescription]:
+		if not hasattr(self, '_rx'):
+			self.__init_labs()
+		return [r for r in self._rx if r.member_ref == member_ref]

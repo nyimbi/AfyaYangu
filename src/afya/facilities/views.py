@@ -23,6 +23,8 @@ class Facility(BaseModel):
 	lat: float = Field(ge=-5, le=6)
 	lon: float = Field(ge=33, le=43)
 	open_now: bool = True
+	hours24: bool = False
+	wait_minutes: int | None = Field(default=None, ge=0, le=600)
 	ed_status: str | None = None
 	crowdload: int = Field(default=0, ge=0, le=100)
 

@@ -73,8 +73,10 @@ class SurveillanceService(LogMixin):
 			return (dx * dx + dy * dy) ** 0.5 <= f.radius_m
 		return [f for f in self._geofences if inside(f)]
 
-	def weekly_signal(self, history: list[CountySignal]) -> SignalReading:
+	def weekly_signal(self, history: list[CountySignal], disease: str | None = None) -> SignalReading:
 		assert history, 'no signal history'
+		disease = disease or history[0].disease
+		assert all(h.disease == disease for h in history), 'single-disease aggregation'
 		county = history[0].county
 		assert all(h.county == county for h in history), 'single-county aggregation'
 		primary = [h.fever_reports for h in history]
@@ -83,5 +85,5 @@ class SurveillanceService(LogMixin):
 		stdev = statistics.pstdev(base) or 1.0
 		z = (primary[-1] - mean) / stdev
 		risk = _risk_band(z)
-		self._log_info('weekly signal', county=county, z=round(z, 2))
-		return SignalReading(county=county, z_score=round(z, 2), risk=risk, weeks_observed=len(history))
+		self._log_info('weekly signal', county=county, disease=disease, z=round(z, 2))
+		return SignalReading(county=county, z_score=round(z, 2), risk=risk, weeks_observed=len(history), disease=disease)

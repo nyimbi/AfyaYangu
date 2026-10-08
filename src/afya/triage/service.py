@@ -2,7 +2,7 @@
 from afya.logmixin import LogMixin
 from afya.registry.service import FeatureRegistry
 from afya.strings import rec
-from afya.triage.views import DiaryEntry, EBOLA_SYMPTOMS, RiskLevel, TriageInput, TriageResult
+from afya.triage.views import DiaryEntry, Differential, EBOLA_SYMPTOMS, RiskLevel, TriageInput, TriageResult
 
 
 class TriageService(LogMixin):
@@ -52,3 +52,33 @@ class TriageService(LogMixin):
 
 	def diary(self, subject_ref: str) -> list[DiaryEntry]:
 		return sorted([e for e in self._diary.values() if e.subject_ref == subject_ref], key=lambda e: e.day)
+
+	def diagnose(self, inp: TriageInput) -> 'Differential':
+		"""Common-illness differential: profile overlap, base-rate-ordered (malaria trap), never certain."""
+		from afya.triage.views import DISEASE_PROFILES, DiagnosisItem, Differential
+		assert bool(inp.symptoms), 'symptoms required'
+		have = set(inp.symptoms) | ({'fever'} if inp.temperature_c >= 38.0 else set())
+		entries = [
+			DiagnosisItem(disease=d, score=round(len(have & prof) / len(prof), 2), note='possible — needs testing to confirm')
+			for d, prof in DISEASE_PROFILES.items()
+		]
+		malaria_first = not (inp.ebola_contact or inp.affected_area_travel)
+		if malaria_first and ({'fever', 'chills'} & have):
+			entries.sort(key=lambda e: -(e.score + (0.10 if e.disease == 'malaria' else 0.0)))
+			mx = entries[:3]
+			return Differential(entries=mx, lead='malaria', advise=RECMAP['malaria'], malaria_trap_applied=True)
+		mx = sorted(entries, key=lambda e: -e.score)[:3]
+		lead = mx[0].disease if mx and mx[0].score > 0 else 'no_match'
+		advise = RECMAP.get(lead, 'Visit facility for assessment; call 719 if severe.')
+		assert mx and all(e.note for e in mx), 'notes required'
+		return Differential(entries=mx, lead=lead, advise=advise, malaria_trap_applied=malaria_first)
+
+
+RECMAP = {
+	'malaria': 'Test and treat for malaria first (spec 6.3); call 719 if no improvement in 48h.',
+	'typhoid': 'Febrile >3 days suggests typhoid — get a blood test (Widal/culture) at a facility.',
+	'flu': 'Rest, fluids; seek care if breathing is difficult or fever >3 days.',
+	'cholera': 'START ORS NOW and get to a facility — rapid dehydration is the danger. Call 719.',
+	'covid': 'Mask up; test if available; seek care for breathing difficulty.',
+	'evd': 'Isolate immediately; call 719; go to nearest isolation treatment unit.',
+}

@@ -48,3 +48,29 @@ RECOMMENDATIONS: dict[RiskLevel, str] = {
 	RiskLevel.medium: 'Contact hotline 719; self-monitor; isolate from household if symptoms progress.',
 	RiskLevel.high: 'Isolate immediately; call 719; go to nearest isolation treatment unit.',
 }
+
+# --- Multi-disease differential (all common illnesses, not only EVD) ---
+
+DISEASE_PROFILES: dict[str, frozenset[str]] = {
+	'malaria': frozenset({'fever', 'headache', 'body_aches', 'chills', 'fatigue', 'nausea'}),
+	'typhoid': frozenset({'fever', 'abdominal_pain', 'headache', 'constipation', 'diarrhoea', 'fatigue'}),
+	'flu': frozenset({'fever', 'cough', 'sore_throat', 'runny_nose', 'body_aches', 'headache'}),
+	'cholera': frozenset({'diarrhoea', 'vomiting', 'dehydration', 'muscle_cramps'}),
+	'covid': frozenset({'fever', 'cough', 'sore_throat', 'loss_of_smell', 'fatigue', 'shortness_of_breath'}),
+	'evd': EBOLA_SYMPTOMS,
+}
+
+
+class DiagnosisItem(BaseModel):
+	model_config = MODEL_CONFIG
+	disease: str
+	score: float = Field(ge=0, le=1)
+	note: str
+
+
+class Differential(BaseModel):
+	model_config = MODEL_CONFIG
+	entries: list[DiagnosisItem]
+	lead: str
+	advise: str
+	malaria_trap_applied: bool

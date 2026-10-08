@@ -7,6 +7,7 @@ MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_ali
 class CountySignal(BaseModel):
 	model_config = MODEL_CONFIG
 	county: str
+	disease: str = Field(default='evd', pattern=r'^(evd|cholera|malaria|dengue|mpox|rvf)$')
 	week_isoyear: int = Field(ge=2024, le=2100)
 	week: int = Field(ge=1, le=53)
 	fever_reports: int = Field(ge=0)
@@ -17,6 +18,7 @@ class CountySignal(BaseModel):
 class SignalReading(BaseModel):
 	model_config = MODEL_CONFIG
 	county: str
+	disease: str = Field(default='evd', pattern=r'^(evd|cholera|malaria|dengue|mpox|rvf)$')
 	z_score: float
 	risk: str = Field(pattern=r'^(low|moderate|high)$')
 	weeks_observed: int = Field(ge=1)

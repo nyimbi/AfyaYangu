@@ -20,3 +20,4 @@ ios/AfyaYangu.xcodeproj
 android/app/build/
 var/evidence
 models/**/.cache/
+var/evidence/

@@ -21,6 +21,7 @@ class FacilityService(LogMixin):
 		self._facilities: dict[str, Facility] = {}
 		self._bookings: dict[str, Booking] = {}
 		self._queue_counts: dict[str, int] = {}
+		self._waits: dict[str, list[int]] = {}
 		assert self._facilities == {} and self._bookings == {}
 
 	async def upsert(self, facility: Facility) -> Facility:
@@ -66,6 +67,19 @@ class FacilityService(LogMixin):
 				self._log_warn('skipped invalid facility row')
 		assert accepted <= len(rows), 'accepted cannot exceed offered'
 		return accepted
+
+	def nearest24h(self, req: NearestRequest) -> list[tuple[Facility, float]]:
+		req.kind = None if req.kind is None else req.kind
+		pool = [f for f in self._facilities.values() if f.hours24 and (req.kind is None or f.kind is req.kind)]
+		assert pool, 'no 24h facilities registered'
+		return sorted(((f, haversine_km(req.lat, req.lon, f.lat, f.lon)) for f in pool), key=lambda p: p[1])[: req.limit]
+
+	async def report_wait(self, facility_id: str, minutes: int) -> int:
+		assert 0 <= minutes <= 600, 'wait bounds'
+		fac = self._facilities[facility_id]
+		self._waits.setdefault(facility_id, []).append(minutes)
+		fac.wait_minutes = round(sum(self._waits[facility_id]) / len(self._waits[facility_id]))
+		return fac.wait_minutes
 
 	def ed_status(self, facility_id: str) -> str:
 		fac = self._facilities[facility_id]

@@ -85,6 +85,19 @@ class FeatureRegistry:
 		FeatureSpec(id='SENS-006', name='Wearable Integration', tier=Tier.tier2, channels=['native']),
 		FeatureSpec(id='SENS-007', name='Sleep and Activity Monitoring', tier=Tier.tier2, channels=['native']),
 		FeatureSpec(id='SENS-008', name='Environmental Ambient Sensing', tier=Tier.tier4, channels=['native']),
+		FeatureSpec(id='INF-011', name='Water Quality Alerts', tier=Tier.tier2, channels=['native', 'sms']),
+		FeatureSpec(id='INF-012', name='Air Quality', tier=Tier.tier2, channels=['native']),
+		FeatureSpec(id='INF-013', name='Flood and Weather Alerts', tier=Tier.tier2, channels=['native', 'sms']),
+		FeatureSpec(id='INF-014', name='School Closures and Public Notices', tier=Tier.tier1, channels=['native', 'sms', 'radio']),
+		FeatureSpec(id='INF-015', name='Traditional and Herbal Safety', tier=Tier.tier1, channels=['native', 'whatsapp']),
+		FeatureSpec(id='INF-016', name='Price Transparency', tier=Tier.tier2, channels=['native']),
+		FeatureSpec(id='REC-004', name='Blood Donor Matching', tier=Tier.tier2, channels=['native']),
+		FeatureSpec(id='REC-005', name='Mental Health Support', tier=Tier.tier2, channels=['native', 'sms']),
+		FeatureSpec(id='REC-006', name='Chronic Disease Companion', tier=Tier.tier2, channels=['native']),
+		FeatureSpec(id='REC-007', name='Lab Results and Prescriptions Wallet', tier=Tier.tier3, channels=['native']),
+		FeatureSpec(id='REC-008', name='Maternal ANC Tracker', tier=Tier.tier2, channels=['native', 'sms']),
+		FeatureSpec(id='REC-009', name='Menstrual Cycle Tracking', tier=Tier.tier2, channels=['native']),
+		FeatureSpec(id='SENS-009', name='Steps and Activity', tier=Tier.tier2, channels=['native']),
 	)
 
 	def __init__(self, activation: Tier4Activation | None = None) -> None:

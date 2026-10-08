@@ -52,3 +52,31 @@ class MedReminder(BaseModel):
 	times_per_day: int = Field(ge=1, le=6)
 	started_iso: str
 	channel: str = Field(pattern=r'^(sms|native|whatsapp)$')
+
+# --- Records wallet artifacts: lab results, prescriptions, insurance card (family vault) ---
+
+class LabResult(BaseModel):
+	model_config = MODEL_CONFIG
+	member_ref: str
+	test: str = Field(pattern=r'^(mRDT|widal|hba1c|fbc|viral_load|glucose_f|bp|other)$')
+	value: str
+	unit: str | None = None
+	flag: str = Field(default='unknown', pattern=r'^(normal|abnormal|critical|unknown)$')
+	performed_iso: str
+
+
+class Prescription(BaseModel):
+	model_config = MODEL_CONFIG
+	member_ref: str
+	drug: str
+	days: int = Field(ge=1, le=180)
+	refills_left: int = Field(ge=0, le=10)
+	prescribed_iso: str
+
+
+class InsuranceCard(BaseModel):
+	model_config = MODEL_CONFIG
+	member_ref: str
+	sha_member_no_hash: str = Field(pattern=r'^[0-9a-f]{8,64}$')
+	product: str = Field(pattern=r'^(SHIF|TAIFA|EDU|SHCP)$')
+	active: bool

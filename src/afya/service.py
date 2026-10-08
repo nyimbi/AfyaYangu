@@ -14,11 +14,20 @@ from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import ChwTask, SmsOut, UssdRequest, WhatsAppIn
 from afya.emergency.service import EmergencyService, Inline719Port
 from afya.emergency.views import EmergencyCard, IMUSample, SOSEvent
-from afya.evidence.service import EvidenceService
-from afya.evidence.views import EvidenceSubmission
 from afya.evidence.service import EvidenceService, FileSystemEvidenceStore
-from afya.evidence.views import EvidenceSubmission, EvidenceKind
 from afya.integrations.gateways import AtSmsRestSend, AtUssdCallback
+from afya.evidence.views import EvidenceSubmission, EvidenceKind
+from afya.insurance.service import InlineSHAPort, InsuranceService, SHACheckRequest, PriceItem
+from afya.maternal.service import MaternalService
+from afya.maternal.views import ANCRecord, Pregnancy
+from afya.mental.service import MentalHealthService, WHO5
+from afya.women.service import WomenService
+from afya.women.views import CycleLog
+from afya.alerts.service import AlertsService
+from afya.alerts.views import AirQuality, CommunityAlert, FloodReport, WaterQuality
+from afya.blood.service import BloodRequest, BloodService, Donor
+from afya.chronic.service import ChronicService
+from afya.chronic.views import BPReading, GlucoseReading, RefillTracker
 from afya.integrations.service import PPBClient
 from afya.medicine.service import MedicineService
 from afya.medicine.views import DoseRequest, VerifyRequest
@@ -88,6 +97,13 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'emergency': EmergencyService(Inline719Port()),
 		'info': InfoService(),
 		'records': RecordsService(),
+		'women': WomenService(),
+		'maternal': MaternalService(),
+		'chronic': ChronicService(),
+		'mental': MentalHealthService(),
+		'blood': BloodService(),
+		'alerts': AlertsService(),
+		'insurance': InsuranceService(InlineSHAPort()),
 		'evidence': EvidenceService(registry, FileSystemEvidenceStore('var/evidence')),
 		'privacy': PrivacyService(store),
 		'sync': SyncService(store),
@@ -107,6 +123,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	info: InfoService = svc['info']  # type: ignore[assignment]
 	records: RecordsService = svc['records']  # type: ignore[assignment]
 	evidence: EvidenceService = svc['evidence']  # type: ignore[assignment]
+	women: WomenService = svc['women']  # type: ignore[assignment]
+	maternal: MaternalService = svc['maternal']  # type: ignore[assignment]
+	chronic: ChronicService = svc['chronic']  # type: ignore[assignment]
+	mental: MentalHealthService = svc['mental']  # type: ignore[assignment]
+	blood: BloodService = svc['blood']  # type: ignore[assignment]
+	alerts: AlertsService = svc['alerts']  # type: ignore[assignment]
+	insurance: InsuranceService = svc['insurance']  # type: ignore[assignment]
 	cough_engine = svc.get('cough_engine')
 	privacy: PrivacyService = svc['privacy']  # type: ignore[assignment]
 	sync: SyncService = svc['sync']  # type: ignore[assignment]
@@ -322,6 +345,125 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			return engine.analyze(wave, tier4_active=registry.tier4_active()).model_dump(mode='json')
 		except PermissionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+	# --- women / maternal / chronic / mental / blood / alerts / insurance ---
+	@app.post('/women/cycle')
+	async def women_cycle(entry: CycleLog) -> dict[str, int]:
+		return {'logs': await women.log(entry)}
+
+	@app.get('/women/cycle/{ref}/predict')
+	async def women_predict(ref: str, ref_date: str = '2026-10-08') -> dict[str, object]:
+		try:
+			return women.predict(ref, ref_date).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/maternal/pregnancy')
+	async def maternal_register(p: Pregnancy) -> dict[str, bool]:
+		await maternal.register(p)
+		return {'ok': True}
+
+	@app.get('/maternal/{ref}/anc-due')
+	async def maternal_anc(ref: str, today_iso: str = '2026-10-08', gest_week: int = 12) -> list[int]:
+		try:
+			return maternal.anc_due(ref, today_iso, gest_week)
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.post('/maternal/anc')
+	async def maternal_anc_record(rec: ANCRecord) -> dict[str, bool]:
+		await maternal.record_anc(rec)
+		return {'ok': True}
+
+	@app.post('/maternal/danger')
+	async def maternal_danger(signs: list[str]) -> dict[str, object]:
+		try:
+			return maternal.assess_danger(signs).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/chronic/bp')
+	async def chronic_bp(r: BPReading):
+		out = await chronic.bp(r)
+		return {'stage': out.stage}
+
+	@app.post('/chronic/glucose')
+	async def chronic_glucose(r: GlucoseReading):
+		out = await chronic.glucose(r)
+		return {'level': out.level}
+
+	@app.get('/chronic/{ref}/bp-trend')
+	async def chronic_trend(ref: str) -> dict[str, str]:
+		try:
+			return {'trend': chronic.bp_trend(ref)}
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/chronic/refill')
+	async def chronic_refill(t: RefillTracker) -> dict[str, bool]:
+		return {'due': await chronic.set_refill(t)}
+
+	@app.post('/mental/who5')
+	async def mental_who5(w: WHO5) -> dict[str, object]:
+		return mental.assess(w).model_dump(mode='json')
+
+	@app.get('/mental/lines')
+	async def mental_lines() -> list[dict[str, str]]:
+		return mental.lines()
+
+	@app.post('/blood/donors')
+	async def blood_register(d: Donor) -> dict[str, bool]:
+		await blood.register(d)
+		return {'ok': True}
+
+	@app.post('/blood/match')
+	async def blood_match(req: BloodRequest, today_iso: str = '2026-10-08') -> list[dict[str, object]]:
+		return [m.model_dump(mode='json') for m in blood.match(req, today_iso)]
+
+	@app.post('/alerts')
+	async def alerts_issue(a: CommunityAlert) -> dict[str, bool]:
+		try:
+			await alerts.issue(a)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'ok': True}
+
+	@app.get('/alerts/{county}')
+	async def alerts_county(county: str) -> list[dict[str, object]]:
+		return [a.model_dump(mode='json') for a in alerts.by_county(county)]
+
+	@app.post('/environment/water')
+	async def environment_water(w: WaterQuality) -> dict[str, str]:
+		return {'advisory': alerts.water_alert(w)}
+
+	@app.post('/environment/air')
+	async def environment_air(a: AirQuality) -> dict[str, str]:
+		return {'advisory': alerts.air_alert(a)}
+
+	@app.post('/environment/flood')
+	async def environment_flood(f: FloodReport) -> dict[str, str]:
+		msg, risk = await alerts.flood_alert(f)
+		return {'advisory': msg, 'cholera_risk': risk}
+
+	@app.post('/insurance/sha-check')
+	async def insurance_check(req: SHACheckRequest) -> dict[str, object]:
+		return (await insurance.check(req)).model_dump(mode='json')
+
+	@app.post('/insurance/prices')
+	async def insurance_prices(item: PriceItem) -> dict[str, bool]:
+		await insurance.upsert_price(item)
+		return {'ok': True}
+
+	@app.get('/insurance/quote/{facility_id}/{procedure}')
+	async def insurance_quote(facility_id: str, procedure: str, sha_active: bool = False) -> dict[str, object]:
+		q = insurance.quote(procedure, facility_id, sha_active)
+		if q is None:
+			raise HTTPException(status_code=404, detail='no price on file')
+		return q.model_dump(mode='json')
+
+	@app.post('/triage/diagnose')
+	async def triage_diagnose(inp: TriageInput) -> dict[str, object]:
+		return triage.diagnose(inp).model_dump(mode='json')
 
 	# --- sync ---
 	@app.post('/sync/ops')
