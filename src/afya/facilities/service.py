@@ -1,0 +1,59 @@
+"""Facility service — nearest finder, ED status, county cache, booking queue."""
+import math
+from typing import Any
+
+from afya.facilities.views import Booking, Facility, FacilityKind, NearestRequest
+from afya.logmixin import LogMixin
+
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+	for v in (lat1, lon1, lat2, lon2):
+		assert -90 <= v <= 90 or -180 <= v <= 180, 'coord out of planet bounds'
+	r = 6371.0088
+	p1, p2 = math.radians(lat1), math.radians(lat2)
+	dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+	a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+	return 2 * r * math.asin(math.sqrt(a))
+
+
+class FacilityService(LogMixin):
+	def __init__(self) -> None:
+		self._facilities: dict[str, Facility] = {}
+		self._bookings: dict[str, Booking] = {}
+		self._queue_counts: dict[str, int] = {}
+		assert self._facilities == {} and self._bookings == {}
+
+	async def upsert(self, facility: Facility) -> Facility:
+		assert facility.facility_id, 'facility_id required'
+		self._facilities[facility.facility_id] = facility
+		return facility
+
+	def nearest(self, req: NearestRequest) -> list[tuple[Facility, float]]:
+		pool = list(self._facilities.values())
+		if req.kind is not None:
+			pool = [f for f in pool if f.kind is req.kind]
+		assert pool, 'no facilities registered'
+		ranked = sorted(
+			((f, haversine_km(req.lat, req.lon, f.lat, f.lon)) for f in pool),
+			key=lambda pair: (pair[1], -pair[0].crowdload * 0 + pair[0].crowdload),
+		)
+		out = ranked[: req.limit]
+		self._log_info('nearest lookup', kind=req.kind, hits=len(out))
+		return out
+
+	def ed_status(self, facility_id: str) -> str:
+		fac = self._facilities[facility_id]
+		assert fac.kind is FacilityKind.ed, 'only ED facilities expose status'
+		return fac.ed_status or 'unknown'
+
+	async def book(self, facility_id: str, slot_iso: str, booking_id: str) -> Booking:
+		fac = self._facilities[facility_id]
+		pos = self._queue_counts.get(facility_id, 0) + 1
+		self._queue_counts[facility_id] = pos
+		booking = Booking(booking_id=booking_id, facility_id=facility_id, slot_iso=slot_iso, queue_position=pos)
+		self._bookings[booking.booking_id] = booking
+		assert booking.queue_position >= 1
+		return booking
+
+	def all_facilities(self) -> list[Facility]:
+		return list(self._facilities.values())

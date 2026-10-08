@@ -1,0 +1,10 @@
+{
+	"venvPath": ".",
+	"venv": ".venv",
+	"extraPaths": ["src"],
+	"include": ["src", "tests"],
+	"typeCheckingMode": "standard",
+	"reportCallIssue": "error",
+	"reportAttributeAccessIssue": "error",
+	"reportMissingImports": "error"
+}
