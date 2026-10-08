@@ -75,5 +75,66 @@ class BackendClient(private val context: Context) {
 	fun emergencyCard(): String =
 		context.getSharedPreferences("afya", Context.MODE_PRIVATE).getString("emergency.card", "AFYA|set name|blood group|contact")!!
 
+
+	// --- Tier-1/2 feature surfaces (FND-001, REC-001, TRI-002, CHAN-005, sensors) ---
+
+	fun nearest(lat: Double, lon: Double, kind: String?, limit: Int = 3): String {
+		val txt = request("facilities/nearest?lat=$lat&lon=$lon&limit=$limit" + (kind?.let { "&kind=$it" } ?: ""), null)
+		val arr = JSONArray(txt)
+		val out = StringBuilder()
+		for (i in 0 until arr.length()) {
+			val row = arr.getJSONObject(i)
+			val f = row.getJSONObject("facility")
+			out.append(f.getString("name")).append(" | ").append(f.getString("county"))
+				.append(" (").append(row.getDouble("km")).append(" km)\n")
+		}
+		return out.toString()
+	}
+
+	fun wallet(guardianRef: String): String {
+		val w = JSONObject(request("records/$guardianRef/wallet", null))
+		val sb = StringBuilder("Guardian: ").append(w.getJSONObject("guardian").getString("member_ref")).append('\n')
+		val members = w.getJSONArray("members")
+		for (i in 0 until members.length()) sb.append("* ").append(members.getJSONObject(i).getString("member_ref")).append('\n')
+		val gaps = w.getJSONObject("gaps")
+		val idx = gaps.keys()
+		while (idx.hasNext()) {
+			val k = idx.next()
+			sb.append(k).append(": ").append(gaps.getJSONArray(k).join(", ")).append('\n')
+		}
+		return sb.toString()
+	}
+
+	fun diary(subjectRef: String): String {
+		val arr = JSONArray(request("triage/$subjectRef/diary", null))
+		val sb = StringBuilder()
+		for (i in 0 until arr.length()) {
+			val e = arr.getJSONObject(i)
+			sb.append("Day ").append(e.getInt("day")).append(" - ").append(e.getJSONArray("symptoms").join(", "))
+				.append(if (e.getBoolean("synced")) " synced" else " pending").append('\n')
+		}
+		return sb.ifEmpty { "No diary entries yet." }.toString()
+	}
+
+	fun chwTasks(chwRef: String): String {
+		val arr = JSONArray(request("channels/chw/tasks/$chwRef", null))
+		val sb = StringBuilder()
+		for (i in 0 until arr.length()) {
+			val t = arr.getJSONObject(i)
+			sb.append(t.getString("task_id")).append(" | ").append(t.getString("kind")).append(" | ").append(t.getString("community")).append('\n')
+		}
+		return sb.ifEmpty { "No open tasks." }.toString()
+	}
+
+	fun completeTask(taskId: String): Boolean {
+		request("channels/chw/tasks/$taskId/done", "{}")
+		return true
+	}
+
+	fun ingest(kind: String, value: Double, county: String): String {
+		val body = JSONObject().put("kind", kind).put("subject_ref", "U1").put("value", value).put("county", county).toString()
+		val v = JSONObject(request("sensors/ingest", body))
+		return v.getString("band") + ": " + v.getString("detail")
+	}
 	companion object { const val BASE = "http://localhost:8000/" }
 }

@@ -17,4 +17,6 @@
 | §15.5 API | `src/afya/service.py` (FastAPI) | `test_app.py` |
 | Native clients | `ios/` (SwiftUI), `android/` (Kotlin) | xcodebuild + gradle assembleDebug |
 
-Known gaps (tracked): persistence layer (Postgres/Timescale per §15.2) is pluggable-but-absent; TFLite/ONNX models (§15.2, §19.1) not present — Tier 4 ML stays dormant by design; spec.md appendices C–D missing (source truncation); hotline codes unverified per spec's own verification note.
+Known gaps (tracked): persistence layer is SQLite adapter; production Postgres/Timescale (asyncpg) swap of same Protocol pending; §19.1 TFLite/ONNX model assets not present — Tier 4 ML stays dormant by design; spec.md appendices C–D reconstructed (source truncation); hotline codes unverified per spec's own verification note; Android BackendClient context-bound paths lack JVM tests (pure-logic extraction or Robolectric pending).
+
+Buildout increments (2026-10-08): mobile feature screens shipped on both platforms — iOS (Finder/Wallet/Diary/CHW tabs, xcodebuild+XCTest 5/5 green) and Android (FeaturesActivity with FND-001/REC-001/TRI-002/CHAN-005/sensor-ingest sections, APK assembled); server-side sensor ingestion with band engines (tier4-gated, raw-payload rejection); AT SMS REST + WhatsApp Business clients (HTTP-tested) with env-driven ServiceConfig; en/sw i18n (USSD menus, triage recommendations); CHW task assign/open/done + AT USSD callback endpoints; wallet aggregate endpoint.

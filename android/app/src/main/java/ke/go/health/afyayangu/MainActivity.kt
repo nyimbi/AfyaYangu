@@ -48,6 +48,7 @@ class MainActivity : Activity() {
 			}
 		}
 		val sos = Button(ctx).apply { text = "Call 719 (toll-free, 24/7)" }
+		val features = Button(ctx).apply { text = "Features" ; setOnClickListener { startActivity(android.content.Intent(ctx, FeaturesActivity::class.java)) } }
 		val root = LinearLayout(ctx).apply {
 			orientation = LinearLayout.VERTICAL
 			addView(statusText)
@@ -55,6 +56,7 @@ class MainActivity : Activity() {
 			addView(chips, ViewGroup.LayoutParams(MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 			addView(resultText)
 			addView(sos)
+			addView(features)
 			setGravity(Gravity.TOP)
 		}
 		return ScrollView(ctx).apply { addView(root) }
