@@ -16,6 +16,8 @@ from afya.emergency.service import EmergencyService, Inline719Port
 from afya.emergency.views import EmergencyCard, IMUSample, SOSEvent
 from afya.evidence.service import EvidenceService, FileSystemEvidenceStore
 from afya.integrations.gateways import AtSmsRestSend, AtUssdCallback
+from afya.integrations.overpass import OverpassClient
+from afya.places.service import Place, PlaceKind, PlacesService
 from afya.evidence.views import EvidenceSubmission, EvidenceKind
 from afya.insurance.service import InlineSHAPort, InsuranceService, SHACheckRequest, PriceItem
 from afya.maternal.service import MaternalService
@@ -30,7 +32,7 @@ from afya.chronic.service import ChronicService
 from afya.chronic.views import BPReading, GlucoseReading, RefillTracker
 from afya.integrations.service import PPBClient
 from afya.medicine.service import MedicineService
-from afya.medicine.views import DoseRequest, VerifyRequest
+from afya.medicine.views import DoseRequest, StockReport, VerifyRequest
 from afya.facilities.service import FacilityService
 from afya.facilities.views import Booking, Facility, NearestRequest
 from afya.info.service import InfoService
@@ -38,7 +40,7 @@ from afya.info.views import CountyRisk
 from afya.privacy.service import PrivacyService
 from afya.privacy.views import ConsentRecord, DPIAInput
 from afya.records.service import RecordsService
-from afya.records.views import GrowthRecord, ImmunisationRecord, WalletMember
+from afya.records.views import GrowthRecord, ImmunisationRecord, LabResult, WalletMember
 from afya.ml.cough import SR as WAV_SR, YamnetCoughEngine
 from afya.registry.service import FeatureRegistry, Tier4Activation, Tier
 from afya.surveillance.service import SurveillanceService
@@ -104,6 +106,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'blood': BloodService(),
 		'alerts': AlertsService(),
 		'insurance': InsuranceService(InlineSHAPort()),
+		'places': PlacesService(),
 		'evidence': EvidenceService(registry, FileSystemEvidenceStore('var/evidence')),
 		'privacy': PrivacyService(store),
 		'sync': SyncService(store),
@@ -130,6 +133,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	blood: BloodService = svc['blood']  # type: ignore[assignment]
 	alerts: AlertsService = svc['alerts']  # type: ignore[assignment]
 	insurance: InsuranceService = svc['insurance']  # type: ignore[assignment]
+	places: PlacesService = svc['places']  # type: ignore[assignment]
 	cough_engine = svc.get('cough_engine')
 	privacy: PrivacyService = svc['privacy']  # type: ignore[assignment]
 	sync: SyncService = svc['sync']  # type: ignore[assignment]
@@ -190,6 +194,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def facility_nearest(req: NearestRequest) -> list[dict[str, object]]:
 		return [{'facility': f.model_dump(mode='json'), 'km': round(km, 2)} for f, km in facilities.nearest(req)]
 
+	@app.post('/facilities/{facility_id}/wait')
+	async def facility_wait(facility_id: str, minutes: int) -> dict[str, int]:
+		try:
+			return {'median_wait': await facilities.report_wait(facility_id, minutes)}
+		except (AssertionError, KeyError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
 	@app.get('/facilities/{facility_id}/ed-status')
 	async def facility_ed(facility_id: str) -> dict[str, str]:
 		try:
@@ -211,6 +222,11 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/medicine/interactions')
 	async def medicine_interactions(req: InteractionsRequest) -> list[str]:
 		return medicine.check_interactions(req.drugs)
+
+	@app.post('/medicine/stock')
+	async def medicine_stock(report: StockReport) -> dict[str, bool]:
+		await medicine.report_stock(report)
+		return {'ok': True}
 
 	@app.post('/medicine/dose')
 	async def medicine_dose(req: DoseRequest) -> dict[str, object]:
@@ -256,6 +272,15 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/records/growth')
 	async def records_growth(rec: GrowthRecord) -> dict[str, str]:
 		return records.growth_flag(rec).model_dump(mode='json')
+
+	@app.post('/records/labs')
+	async def records_add_lab(res: LabResult) -> dict[str, bool]:
+		await records.add_lab(res)
+		return {'ok': True}
+
+	@app.get('/records/{ref}/labs')
+	async def records_labs(ref: str) -> list[dict[str, object]]:
+		return [l.model_dump(mode='json') for l in records.labs(ref)]
 
 	@app.get('/records/{guardian_ref}/wallet')
 	async def records_wallet(guardian_ref: str) -> dict[str, object]:
@@ -509,5 +534,26 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/surveillance/signal')
 	async def surveillance_signal(history: list[CountySignal]) -> dict[str, object]:
 		return surveillance.weekly_signal(history).model_dump(mode='json')
+
+	@app.get('/mobile/actions')
+	async def mobile_actions() -> list[dict[str, object]]:
+		from afya.mobile.actions import catalogue
+		return [act.model_dump(mode='json') for act in catalogue()]
+
+	@app.post('/places/nearest')
+	async def places_nearest(lat: float, lon: float, kinds: list[str] | None = None, limit: int = 5) -> list[dict[str, object]]:
+		wanted = {PlaceKind(k) for k in (kinds or [])} or None
+		return [
+			{'place': p.model_dump(mode='json'), 'km': round(km, 2), 'directions': places.directions(p, lat, lon).model_dump(mode='json')}
+			for p, km in places.nearest(lat, lon, wanted, limit)
+		]
+
+	@app.post('/places/import-osm')
+	async def places_import_osm(county_lat: float, county_lon: float) -> dict[str, int]:
+		client = OverpassClient()
+		rows = await client.fetch_places(county_lat, county_lon)
+		for p in rows:
+			await places.upsert(p)
+		return {'imported': len(rows), 'total': places.count()}
 
 	return app

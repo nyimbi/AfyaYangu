@@ -50,6 +50,13 @@ class FeaturesActivity : Activity() {
 				addView(section(ctx, "TRI-002 Symptom Diary", diaryOut))
 				addView(section(ctx, "CHAN-005 CHW tasks", chwOut))
 				addView(section(ctx, "Sensors ingest (fall, 5.5 g demo)", sensorOut))
+				takeIf { true }?.let {
+					val placesBtn = android.widget.Button(ctx).apply {
+						text = "Maps: pharmacies / hospitals / schools (OpenStreetMap)"
+						setOnClickListener { ctx.startActivity(android.content.Intent(ctx, PlacesActivity::class.java)) }
+					}
+					addView(placesBtn)
+				}
 			}
 			executor.execute {
 				setOut(finderOut, runCatching { client.nearest(-1.29, 36.82, "treatment_unit", 3) }

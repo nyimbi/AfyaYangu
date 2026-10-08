@@ -97,3 +97,48 @@ extension BackendClient {
 		return try JSONDecoder().decode(SenseVerdictDTO.self, from: try await send(req: req))
 	}
 }
+
+struct PlaceDTO: Codable, Identifiable {
+	var id: String { osm_id }
+	let osm_id: String
+	let name: String
+	let kind: String
+	let lat: Double
+	let lon: Double
+	let opening_hours: String?
+}
+
+struct PlaceNearestDTO: Codable, Identifiable {
+	var id: String { place.osm_id }
+	let place: PlaceDTO
+	let km: Double
+	let directions: DirectionsDTO
+}
+
+struct DirectionsDTO: Codable {
+	let distance_km: Double
+	let bearing_deg: Int
+	let walk_minutes: Int
+	let guidance: String
+	let apple_maps_url: String
+	let google_maps_url: String
+}
+
+extension BackendClient {
+	func nearestPlaces(lat: Double, lon: Double, kind: String, limit: Int = 5) async throws -> [PlaceNearestDTO] {
+		var comps = URLComponents(url: base.appendingPathComponent("places/nearest"), resolvingAgainstBaseURL: false)!
+		comps.queryItems = [
+			URLQueryItem(name: "lat", value: String(lat)),
+			URLQueryItem(name: "lon", value: String(lon)),
+			URLQueryItem(name: "kinds", value: kind),
+			URLQueryItem(name: "limit", value: String(limit)),
+		]
+		return try JSONDecoder().decode([PlaceNearestDTO].self, from: try await send(url: comps.url!))
+	}
+
+	func importOsmPlaces(lat: Double, lon: Double) async throws -> String {
+		let d = try await send(url: base.appendingPathComponent("places/import-osm?county_lat=\(lat)&county_lon=\(lon)"))
+		let obj = try JSONSerialization.jsonObject(with: d, options: []) as? [String: Int]
+		return "OSM import: \(obj?["imported"] ?? 0) places (total \(obj?["total"] ?? 0))"
+	}
+}

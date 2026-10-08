@@ -15,6 +15,7 @@ targets:
         UILaunchScreen: {}
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        NSLocationWhenInUseUsageDescription: Afya Yangu uses your location to find the nearest clinics, pharmacies, schools — and to warn you about outbreak risks near you.
   AfyaYanguTests:
     type: bundle.unit-test
     platform: iOS

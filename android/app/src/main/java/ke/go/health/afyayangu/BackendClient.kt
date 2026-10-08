@@ -158,5 +158,26 @@ class BackendClient(private val context: Context) {
 		if (code !in 200..299) throw IllegalStateException("upload failed: $code $text")
 		return text.orEmpty()
 	}
+	data class PlaceRow(val name: String, val kind: String, val lat: Double, val lon: Double, val km: Double, val walkMin: Int, val guidance: String, val hours: String?)
+
+	fun nearestPlaces(lat: Double, lon: Double, kind: String, limit: Int = 5): List<PlaceRow> {
+		val arr = JSONArray(request("places/nearest?lat=$lat&lon=$lon&kinds=$kind&limit=$limit", null))
+		return (0 until arr.length()).map { i ->
+			val row = arr.getJSONObject(i)
+			val p = row.getJSONObject("place")
+			val d = row.getJSONObject("directions")
+			PlaceRow(
+				p.getString("name"), p.getString("kind"), p.getDouble("lat"), p.getDouble("lon"),
+				row.getDouble("km"), d.getInt("walk_minutes"), d.getString("guidance"),
+				p.optString("opening_hours", null),
+			)
+		}
+	}
+
+	fun importOsmPlaces(lat: Double, lon: Double): String {
+		val out = JSONObject(request("places/import-osm?county_lat=$lat&county_lon=$lon", null))
+		return "OSM import: ${out.getInt("imported")} places (total ${out.getInt("total")})"
+	}
+
 	companion object { const val BASE = "http://localhost:8000/" }
 }
