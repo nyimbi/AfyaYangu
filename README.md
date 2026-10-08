@@ -58,6 +58,82 @@ The **three-key activation gate** is enforced at every layer: PHEOC authorizatio
 - **Offline-first + conflict rules:** every write lands locally first; the sync queue uses the spec's conflict matrix (last-write-wins for personal data, server-authoritative for case reports/immunisations/content, append-only for proximity tokens) with bounded exponential backoff; nothing is lost across restarts.
 - **Clinical safety rails:** PPB-backed medicine verification (fail-closed: unreachable registry ⇒ "verify manually"), interaction table with severity bands, weight-based dosing with paediatric warnings, 21-day observation window caps, EPI schedule gap detection for children (guardian-consent enforced for minors).
 
+## 5a · Fully implemented feature table (58 registered + 2 insurance)
+
+| ID | Feature | Tier | Implementation |
+|---|---|---|---|
+| | **Channels** | | |
+| CHAN-000 | Community Radio | T1 | GET radio broadcast contracts (content library) |
+| CHAN-001 | SMS Zero-Rated | T1 | POST /channels/sms (GSM-7 segmentation, zero-rated) |
+| CHAN-002 | USSD | T1 | POST /channels/ussd + /channels/ussd/callback (AT CON/END, en/sw) |
+| CHAN-003 | WhatsApp Bot | T1 | POST /channels/whatsapp (router) · WA Cloud API client |
+| CHAN-004 | Social Media | T1 | social dissemination contracts |
+| CHAN-005 | Human Intermediaries | T2 | POST+GET /channels/chw/tasks (+done) |
+| CHAN-006 | Native Application | T1 | native push payload contracts |
+| | **Information** | | |
+| INF-001 | County Risk Dashboard | T1 | GET /info/dashboard/{county} |
+| INF-002 | What Should I Do Decision Tree | T1 | decision tree (library-embedded, tested) |
+| INF-003 | Ebola Information Library | T1 | harmonised en/sw content library |
+| INF-004 | Myth-Busting Library | T1 | myth-busting seed |
+| INF-005 | Travel Advisory | T1 | travel advisory content |
+| INF-006 | Hotline and Contact Directory | T1 | GET /info/hotlines |
+| INF-007 | Service Status Feed | T2 | service status feed (registry) |
+| INF-008 | Health Tips and Education | T3 | tips content |
+| INF-009 | First Aid Guide | T3 | first aid content |
+| INF-010 | Safe and Dignified Burial Guidance | T3 | burial guidance content |
+| INF-011 | Water Quality Alerts | T2 | POST /environment/water |
+| INF-012 | Air Quality | T2 | POST /environment/air |
+| INF-013 | Flood and Weather Alerts | T2 | POST /environment/flood (+auto cholera alert) |
+| INF-014 | School Closures and Public Notices | T1 | POST /alerts (school_closure) + GET /alerts/{county} |
+| INF-015 | Traditional and Herbal Safety | T1 | herbal safety content |
+| INF-016 | Price Transparency | T2 | GET /insurance/quote/... |
+| | **Triage** | | |
+| TRI-001 | Broad Febrile-Illness Triage | T1 | POST /triage/preliminary + /triage/diagnose (6-disease differential, malaria trap) |
+| TRI-002 | Symptom Diary and Follow-Up | T1 | POST+GET diary (21-day window) |
+| TRI-003 | Ebola-Specific Triage | T4* | POST /triage/evd (tier-4 gated) |
+| | **Facilities** | | |
+| FND-001 | Facility Finder | T1 | POST /facilities/nearest (haversine, kind filter, 24h) |
+| FND-002 | Emergency Department Status | T1 | GET /facilities/{id}/ed-status |
+| FND-003 | Testing Site Locator | T1 | testing sites (kind filter) |
+| FND-004 | Pharmacy and Chemist Finder | T1 | pharmacies + crowdsourced wait medians |
+| FND-005 | Vaccination Point Finder | T1 | vaccination points (kind filter) |
+| FND-006 | Appointment Booking and Queue Management | T2 | POST /facilities/{id}/booking (queue monotonic) |
+| | **Medicine** | | |
+| MED-001 | Medicine Verifier | T1 | POST /medicine/verify (PPB port + offline fail-closed stub) |
+| MED-002 | Drug Interaction and Safety Checker | T1 | POST /medicine/interactions |
+| MED-003 | Dosage Calculator | T1 | POST /medicine/dose |
+| MED-004 | Drug Stock Crowdsourcing | T2 | stock crowdsourcing service (report/stock_for) |
+| | **Emergency** | | |
+| EMG-001 | Emergency SOS | T1 | POST /emergency/sos (719 fan-out, geofence, SMS actions) |
+| EMG-002 | Fall Detection and Auto-Alert | T1 | POST /emergency/fall (freefall-before-impact signature) |
+| EMG-003 | Offline Emergency Card | T1 | offline card + QR (both apps) |
+| | **Records & wellbeing** | | |
+| REC-001 | Family Health Wallet Basic | T2 | GET /records/{ref}/wallet (family members + EPI gaps) |
+| REC-002 | Family Health Wallet Full | T3 | wallet artifacts: labs/prescriptions (service) |
+| REC-003 | Growth Monitoring Chart | T3 | POST /records/growth (underweight/stunted flags) |
+| REC-004 | Blood Donor Matching | T2 | POST /blood/match (compatibility+90d+county) |
+| REC-005 | Mental Health Support | T2 | POST /mental/who5 + GET /mental/lines |
+| REC-006 | Chronic Disease Companion | T2 | POST /chronic/bp·glucose·refill + bp-trend |
+| REC-007 | Lab Results and Prescriptions Wallet | T3 | LabResult + Prescription (service) |
+| REC-008 | Maternal ANC Tracker | T2 | POST /maternal/* (pregnancy, anc-due, danger) |
+| REC-009 | Menstrual Cycle Tracking | T2 | POST /women/cycle + predict |
+| | **Location** | | |
+| LOC-001 | Geofenced Risk Alerts | T4* | geofence registry + proximity + outbreak geofences |
+| | **Sensors & ML** | | |
+| SENS-001 | LiDAR Respiration Monitoring | T4* | POST /sensors/breath/estimate (motion series -> brpm) + band |
+| SENS-002 | Acoustic Cough Monitoring | T4* | POST /ml/cough/analyze (YAMNet ONNX, tier-4 gate) |
+| SENS-003 | Fall Detection | T1 | fall ingest kind |
+| SENS-004 | Camera Symptom Capture | T4* | POST /evidence (photo+note, sha256, dedupe) |
+| SENS-005 | PPG Health Monitoring | T2 | ppg ingest band |
+| SENS-006 | Wearable Integration | T2 | wearable sync ingest (derived only) |
+| SENS-007 | Sleep and Activity Monitoring | T2 | sleep band ingest |
+| SENS-008 | Environmental Ambient Sensing | T4* | ambient PM2.5 band |
+| SENS-009 | Steps and Activity | T2 | activity ingest (registered) |
+| INS-001 | SHA cover check | T2 | POST /insurance/sha-check |
+| INS-002 | price transparency | T2 | POST /insurance/prices + GET quote |
+
+*T4 = dormant behind the three-key gate (PHEOC + DPIA + flag). Tests: 117 green in `tests/ci` incl. per-domain contract tests.
+
 ## 6 · Product management & phasing
 
 | Phase | Window | Channels | Tiers | Success criteria |
