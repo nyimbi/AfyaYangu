@@ -12,6 +12,8 @@
 		"aiosqlite>=0.22.1",
 		"asyncpg>=0.32.0",
 		"python-multipart>=0.0.32",
+		"onnxruntime>=1.30.0",
+		"numpy>=2.4.6",
 ]
 
 [dependency-groups]

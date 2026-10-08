@@ -30,6 +30,7 @@ from afya.privacy.service import PrivacyService
 from afya.privacy.views import ConsentRecord, DPIAInput
 from afya.records.service import RecordsService
 from afya.records.views import GrowthRecord, ImmunisationRecord, WalletMember
+from afya.ml.cough import SR as WAV_SR, YamnetCoughEngine
 from afya.registry.service import FeatureRegistry, Tier4Activation, Tier
 from afya.surveillance.service import SurveillanceService
 from afya.surveillance.views import CountySignal, Geofence
@@ -70,8 +71,14 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	registry = FeatureRegistry()
 	sms_port = AtSmsRestSend(cfg.at_base_url, cfg.at_api_key, cfg.at_username, client) if cfg.at_api_key else AfricaTalkingSmsPort(cfg.at_base_url, cfg.at_api_key or 'dev-key')
 	store = SqliteStore(db_path) if db_path else None
+	try:
+		from afya.ml.cough import YamnetCoughEngine as YCE
+		cough_engine: object = YCE()
+	except (FileNotFoundError, AssertionError):
+		cough_engine = None
 	return {
 		'registry': registry,
+		'cough_engine': cough_engine,
 		'triage': TriageService(registry),
 		'surveillance': SurveillanceService(registry),
 		'sensors': SensorService(registry),
@@ -89,7 +96,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 
 def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	svc = services or build_services(db_path=os.environ.get('AFYA_DB_PATH'))
-	assert {'registry', 'triage', 'surveillance', 'facilities', 'channels', 'sync', 'privacy'} <= svc.keys(), 'core services required'
+	assert {'registry', 'triage', 'surveillance', 'facilities', 'channels', 'sync', 'privacy', 'evidence'} <= svc.keys(), 'core services required'
 	registry: FeatureRegistry = svc['registry']  # type: ignore[assignment]
 	triage: TriageService = svc['triage']  # type: ignore[assignment]
 	sensors: SensorService = svc['sensors']  # type: ignore[assignment]
@@ -100,6 +107,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	info: InfoService = svc['info']  # type: ignore[assignment]
 	records: RecordsService = svc['records']  # type: ignore[assignment]
 	evidence: EvidenceService = svc['evidence']  # type: ignore[assignment]
+	cough_engine = svc.get('cough_engine')
 	privacy: PrivacyService = svc['privacy']  # type: ignore[assignment]
 	sync: SyncService = svc['sync']  # type: ignore[assignment]
 	medicine: MedicineService = svc['medicine']  # type: ignore[assignment]
@@ -289,6 +297,31 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return receipt.model_dump(mode='json')
+
+	@app.post('/ml/cough/analyze')
+	async def ml_cough_analyze(file: UploadFile = File(...)) -> dict[str, object]:
+		"""16 kHz mono WAV -> YAMNet AudioSet -> cough verdict (SENS-002, tier4 gated)."""
+		if not cough_engine:
+			raise HTTPException(status_code=503, detail='onnx model assets not deployed (models/cough)')
+		import io
+		import wave as wavmod
+		import numpy as np
+		blob = await file.read()
+		try:
+			with wavmod.open(io.BytesIO(blob), 'rb') as w:
+				if w.getframerate() != WAV_SR or w.getnchannels() != 1:
+					raise HTTPException(status_code=422, detail='requires 16 kHz mono WAV')
+				frames = np.frombuffer(w.readframes(w.getnframes()), dtype='<i2')
+				wave = (frames.astype(np.float32) / 32768.0)
+		except HTTPException:
+			raise
+		except Exception as exc:
+			raise HTTPException(status_code=422, detail='invalid WAV') from exc
+		engine: YamnetCoughEngine = cough_engine  # type: ignore[assignment]
+		try:
+			return engine.analyze(wave, tier4_active=registry.tier4_active()).model_dump(mode='json')
+		except PermissionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 	# --- sync ---
 	@app.post('/sync/ops')

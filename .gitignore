@@ -19,3 +19,4 @@ ios/AfyaYangu.xcodeproj
 .kotlin/
 android/app/build/
 var/evidence
+models/**/.cache/
