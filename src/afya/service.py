@@ -2,10 +2,12 @@
 from afya.surveillance.service import SurveillanceService, estimate_breath_rate
 from afya.surveillance.views import CountySignal, Geofence, ProximityToken
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse, Response
 from httpx import AsyncClient
 from pydantic import BaseModel, ConfigDict, Field
 
+import json
 import os
 
 from afya.config import ServiceConfig
@@ -38,7 +40,7 @@ from afya.facilities.views import Booking, Facility, NearestRequest
 from afya.info.service import InfoService
 from afya.info.views import CountyRisk
 from afya.privacy.service import PrivacyService
-from afya.privacy.views import ConsentRecord, DPIAInput
+from afya.privacy.views import ConsentRecord, DPIAInput, RBACRole
 from afya.records.service import RecordsService
 from afya.records.views import GrowthRecord, ImmunisationRecord, LabResult, WalletMember
 from afya.ml.cough import SR as WAV_SR, YamnetCoughEngine
@@ -60,6 +62,8 @@ from afya.ai.service import AIService
 from afya.ai.views import AggregateCell, FairnessAudit, RedressRequest, RiskInputs, WarningSignal
 from afya.alerting.service import AlertingService
 from afya.alerting.views import ExposureAck, FeedItem, FamilyStatus
+from afya.auth.service import AuthService
+from afya.auth.views import PKCEStart, PKCETokenRequest, TokenRequest
 from afya.chw.service import ChwService
 from afya.chw.views import ActivityLogEntry, ChwCase, ChwProfile
 from afya.community.service import CommunityService
@@ -144,6 +148,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'access': AccessService(),
 		'retention': RetentionService(),
 		'chw': ChwService(),
+		'auth': AuthService(),
 	}
 
 
@@ -180,7 +185,101 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	access: AccessService = svc['access']  # type: ignore[assignment]
 	retention: RetentionService = svc['retention']  # type: ignore[assignment]
 	chw: ChwService = svc['chw']  # type: ignore[assignment]
+	auth: AuthService = svc['auth']  # type: ignore[assignment]
 	app = FastAPI(title='Afya Yangu / Mlinzi', version=APP_VERSION)
+
+	# --- §15.5 request integrity: rate limiting and idempotency ------------------------------
+	# Applied as middleware rather than per-route so a new endpoint cannot be added without them.
+	@app.middleware('http')
+	async def request_integrity(request: Request, call_next):  # type: ignore[no-untyped-def]
+		device = request.headers.get('x-device-id') or (request.client.host if request.client else 'unknown')
+		decision = auth.check_rate(device)
+		if not decision.allowed:
+			return JSONResponse(
+				status_code=429, content={'detail': decision.message, 'retry_after_seconds': decision.retry_after_seconds},
+				headers={'Retry-After': str(decision.retry_after_seconds)},
+			)
+		key = request.headers.get('idempotency-key')
+		if key and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+			body = (await request.body()).decode('utf-8', 'replace')
+			try:
+				prior = auth.replay(key, body)
+			except AssertionError as exc:
+				return JSONResponse(status_code=409, content={'detail': str(exc)})
+			if prior is not None:
+				return JSONResponse(status_code=prior.status_code, content=prior.response)
+			response = await call_next(request)
+			if response.status_code < 400:
+				chunks = [chunk async for chunk in response.body_iterator]  # type: ignore[attr-defined]
+				raw = b''.join(chunks)
+				try:
+					payload = json.loads(raw)
+				except ValueError:
+					# A non-JSON success body cannot be replayed; the write itself still stands, and
+					# the response is passed through untouched rather than re-parsed outside the try.
+					return Response(content=raw, status_code=response.status_code, headers=dict(response.headers))
+				auth.store(key, body, payload, response.status_code)
+				return JSONResponse(status_code=response.status_code, content=payload, headers=dict(response.headers))
+			return response
+		return await call_next(request)
+
+	def require_token(authorization: str | None) -> tuple[str, RBACRole]:
+		"""Resolve a bearer token to (subject, role). Absent or unknown token is a 401, not a 500."""
+		if not authorization or not authorization.lower().startswith('bearer '):
+			raise HTTPException(status_code=401, detail='Bearer token required')
+		presented = authorization.split(' ', 1)[1].strip()
+		try:
+			return auth.resolve_anonymous(presented).subject_ref, RBACRole.citizen_anonymous
+		except AssertionError:
+			pass
+		try:
+			worker = auth.resolve_worker(presented)
+			return worker.subject_ref, RBACRole(worker.role)
+		except (AssertionError, ValueError) as exc:
+			raise HTTPException(status_code=401, detail='Invalid or expired token') from exc
+
+	def require_scope(dataset: str):  # type: ignore[no-untyped-def]
+		"""Route guard: the token's role must cover the dataset it is asking for (§17 RBAC)."""
+		async def guard(authorization: str | None = Header(default=None)) -> str:
+			subject, role = require_token(authorization)
+			from afya.privacy.views import AccessRequest
+			if not privacy.check_access(AccessRequest(role=role, dataset=dataset)):
+				raise HTTPException(status_code=403, detail=f'role {role.value} may not read {dataset}')
+			return subject
+		return guard
+
+	# --- §15.5 authentication ---
+	@app.post('/auth/anonymous')
+	async def auth_anonymous(req: TokenRequest) -> dict[str, object]:
+		token = await auth.issue_anonymous(req.subject_ref)
+		return token.model_dump(mode='json')
+
+	@app.post('/auth/pkce/authorize')
+	async def auth_pkce_authorize(req: PKCEStart) -> dict[str, str]:
+		try:
+			authz = auth.start_pkce(req)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'authorization_code': authz.authorization_code, 'state': authz.state, 'redirect_uri': authz.redirect_uri}
+
+	@app.post('/auth/pkce/token')
+	async def auth_pkce_token(req: PKCETokenRequest, role: RBACRole) -> dict[str, object]:
+		try:
+			token = auth.exchange_pkce(req, role)
+		except AssertionError as exc:
+			raise HTTPException(status_code=401, detail=str(exc)) from exc
+		return token.model_dump(mode='json')
+
+	@app.post('/auth/revoke')
+	async def auth_revoke(authorization: str | None = Header(default=None)) -> dict[str, int]:
+		if not authorization or not authorization.lower().startswith('bearer '):
+			raise HTTPException(status_code=401, detail='Bearer token required')
+		return {'revoked': await auth.revoke(authorization.split(' ', 1)[1].strip())}
+
+	@app.get('/auth/whoami')
+	async def auth_whoami(authorization: str | None = Header(default=None)) -> dict[str, str]:
+		subject, role = require_token(authorization)
+		return {'subject_ref': subject, 'role': role.value}
 
 	@app.get('/health', response_model=HealthResponse)
 	async def health() -> HealthResponse:
@@ -743,14 +842,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.post('/community/cases')
-	async def community_case(report: CaseReport) -> dict[str, object]:
+	async def community_case(report: CaseReport, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
 		try:
 			return (await community.submit_case(report)).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/community/cases/{report_id}/advance')
-	async def community_advance(report_id: str, status: CaseStatus) -> dict[str, str]:
+	async def community_advance(report_id: str, status: CaseStatus, _subject: str = Depends(require_scope('assigned'))) -> dict[str, str]:
 		try:
 			return {'status': (await community.advance_case(report_id, status)).value}
 		except AssertionError as exc:
@@ -761,7 +860,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'reminder': community.ppe_reminder()}
 
 	@app.post('/community/peer-alert')
-	async def community_peer_alert(alert: PeerAlert) -> dict[str, object]:
+	async def community_peer_alert(alert: PeerAlert, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
 		try:
 			return (await community.send_peer_alert(alert)).model_dump(mode='json')
 		except AssertionError as exc:
@@ -772,11 +871,11 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return community.tracing_prompts()
 
 	@app.post('/community/contacts')
-	async def community_contacts(contacts: ContactList) -> dict[str, object]:
+	async def community_contacts(contacts: ContactList, _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
 		return (await community.save_contacts(contacts)).model_dump(mode='json')
 
 	@app.post('/community/contacts/{subject_ref}/entry')
-	async def community_contact_entry(subject_ref: str, entry: ContactEntry) -> dict[str, object]:
+	async def community_contact_entry(subject_ref: str, entry: ContactEntry, _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
 		return community.add_contact(subject_ref, entry).model_dump(mode='json')
 
 	@app.post('/community/misinformation')
@@ -826,7 +925,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return alerting.family_board(family_ref).model_dump(mode='json')
 
 	@app.post('/alerting/exposure')
-	async def alerting_exposure(subject_ref: str, case_ref: str | None = None) -> dict[str, object]:
+	async def alerting_exposure(subject_ref: str, case_ref: str | None = None, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
 		if not registry.tier4_active():
 			raise HTTPException(status_code=403, detail='exposure notification is dormant until PHEOC activates the event')
 		return (await alerting.notify_exposure(subject_ref, case_ref)).model_dump(mode='json')
@@ -932,7 +1031,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- AI & analytics (§19, §11.7) ---
 	@app.post('/ai/hotspots')
-	async def ai_hotspots(cells: list[AggregateCell]) -> dict[str, object]:
+	async def ai_hotspots(cells: list[AggregateCell], _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
 		try:
 			return ai.hotspots(cells).model_dump(mode='json')
 		except AssertionError as exc:
@@ -943,7 +1042,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return ai.personal_risk(inp).model_dump(mode='json')
 
 	@app.post('/ai/early-warning')
-	async def ai_warning(county: str, disease: str, signals: list[WarningSignal]) -> dict[str, object]:
+	async def ai_warning(county: str, disease: str, signals: list[WarningSignal], _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
 		try:
 			return ai.assess_warning(county, disease, signals).model_dump(mode='json')
 		except AssertionError as exc:
@@ -1020,11 +1119,11 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.get('/retention/inventory/{subject_ref}')
-	async def retention_inventory(subject_ref: str) -> dict[str, object]:
+	async def retention_inventory(subject_ref: str, _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
 		return retention.inventory(subject_ref).model_dump(mode='json')
 
 	@app.post('/retention/delete')
-	async def retention_delete(req: DeletionRequest) -> dict[str, object]:
+	async def retention_delete(req: DeletionRequest, _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
 		return (await retention.delete(req)).model_dump(mode='json')
 
 	@app.post('/retention/purge-expired')
@@ -1039,12 +1138,12 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return retention.encryption_posture().model_dump(mode='json')
 
 	@app.get('/retention/transparency')
-	async def retention_transparency(period: str, subject_ref: str | None = None) -> dict[str, object]:
+	async def retention_transparency(period: str, subject_ref: str | None = None, _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
 		return retention.transparency_report(period, subject_ref).model_dump(mode='json')
 
 	# --- CHW trust layer (§5 CHAN-005, §11.4 COM-101) ---
 	@app.post('/chw/provision')
-	async def chw_provision(profile: ChwProfile) -> dict[str, bool]:
+	async def chw_provision(profile: ChwProfile, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, bool]:
 		try:
 			await chw.provision(profile)
 		except AssertionError as exc:
@@ -1069,7 +1168,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'reminder': chw.ppe_reminder()}
 
 	@app.get('/chw/{chw_ref}')
-	async def chw_get(chw_ref: str) -> dict[str, object]:
+	async def chw_get(chw_ref: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
 		try:
 			return chw.profile(chw_ref).model_dump(mode='json')
 		except AssertionError as exc:
@@ -1080,18 +1179,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'open_cases': chw.case_load(chw_ref)}
 
 	@app.post('/chw/{chw_ref}/cases')
-	async def chw_case(chw_ref: str, case: ChwCase) -> dict[str, object]:
+	async def chw_case(chw_ref: str, case: ChwCase, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
 		try:
 			return (await chw.assign_case(chw_ref, case)).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.get('/chw/{chw_ref}/cases')
-	async def chw_cases(chw_ref: str) -> list[dict[str, object]]:
+	async def chw_cases(chw_ref: str, _subject: str = Depends(require_scope('assigned'))) -> list[dict[str, object]]:
 		return [c.model_dump(mode='json') for c in chw.cases(chw_ref)]
 
 	@app.post('/chw/activity')
-	async def chw_activity(entry: ActivityLogEntry) -> dict[str, bool]:
+	async def chw_activity(entry: ActivityLogEntry, _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
 		try:
 			await chw.log_activity(entry)
 		except AssertionError as exc:
@@ -1099,7 +1198,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.get('/chw/{chw_ref}/activity')
-	async def chw_activity_summary(chw_ref: str, period: str = '2026-W41') -> dict[str, object]:
+	async def chw_activity_summary(chw_ref: str, period: str = '2026-W41', _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
 		return chw.activity_summary(chw_ref, period).model_dump(mode='json')
 
 	return app
