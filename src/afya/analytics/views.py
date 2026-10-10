@@ -13,11 +13,9 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
+from afya.ai.views import MIN_CELL_SIZE
 
-# §11.7 / §19.3: "Minimum cell size of 10 to prevent re-identification." One constant, reused
-# rather than restated, so the analytics boundary and the AI boundary cannot drift apart.
-MIN_CELL_SIZE = 10
+MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 
 class DashboardId(str, Enum):

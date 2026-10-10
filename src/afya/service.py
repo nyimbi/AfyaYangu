@@ -1094,6 +1094,36 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return {'consent_id': out.consent_id}
 
+	@app.get('/privacy/consent')
+	async def privacy_consent_catalogue(
+		authorization: str | None = Header(default=None),
+	) -> dict[str, object]:
+		"""§SEC-001's categories as toggles, with the consequence each withdrawal carries.
+
+		The catalogue names no person, so it is readable without a token — a prospective user
+		deciding whether to use the app is who the plain-language sentences are for. The route takes
+		no subject: when the caller presents a token their own live grants are resolved into the
+		toggles, and otherwise every toggle reads off.
+
+		A `subject_ref` parameter would have been the obvious shape and is the wrong one — the route
+		has no guard, because the catalogue is public, so any subject parameter would be a reference
+		a stranger could type. The token is the only subject this route reads.
+		"""
+		caller: str | None = None
+		if authorization:
+			try:
+				caller = require_token(authorization)[0]
+			except HTTPException:
+				caller = None
+		granted = {c.category.value: True for c in privacy.consent_catalogue()
+		           if caller is not None and privacy.has_category_consent(caller, c.category)}
+		sensor_grants = {str(r['sensor']): True for r in privacy.sensor_consents()
+		                 if caller is not None and privacy.sensor_consented(caller, str(r['sensor']))}
+		return {
+			'toggles': [t.model_dump(mode='json') for t in privacy.consent_toggles(granted, sensor_grants)],
+			'sensors': privacy.sensor_consents(),
+		}
+
 	@app.post('/privacy/dpia')
 	async def privacy_dpia(inp: DPIAInput) -> dict[str, object]:
 		return privacy.assess_dpia(inp).model_dump(mode='json')

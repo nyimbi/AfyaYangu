@@ -3,9 +3,54 @@ from typing import Any
 
 from afya.logmixin import LogMixin
 from afya.privacy.views import (
-	AccessRequest, BreachEvent, BreachNotification, ConsentRecord, DPIAInput, DPIAReport,
-	LegalBasis, RBACRole, _SCOPE,
+	AccessRequest, BreachEvent, BreachNotification, ConsentCategory, ConsentRecord, ConsentScope,
+	ConsentToggle, DPIAInput, DPIAReport, LegalBasis, RBACRole, _SCOPE,
 )
+
+# §SEC-001's eight categories. `explains` is the plain-language sentence beside the toggle and
+# `on_withdrawal` is the consequence §SEC-001 requires be stated — both are data so a toggle cannot
+# ship without them, and neither carries a spec code.
+CONSENT_CATALOGUE: tuple[ConsentScope, ...] = (
+	ConsentScope(category=ConsentCategory.symptom_storage, label='Keep my symptom history',
+		explains='We store the symptoms you log so you and your health worker can see how you have been.',
+		on_withdrawal='Your symptom history stops being used and is deleted on the next clean-up.'),
+	ConsentScope(category=ConsentCategory.location_tracking, label='Use my location',
+		explains='We use your area to find the nearest clinic and to show risk alerts where you are.',
+		on_withdrawal='You can still use the app, but you will type your area by hand and alerts will be less precise.'),
+	ConsentScope(category=ConsentCategory.proximity_logging, label='Nearby contact log',
+		explains='The app can note when it is close to another app user, without either of you being identified.',
+		on_withdrawal='Close-contact alerts cannot reach you if you are exposed.'),
+	ConsentScope(category=ConsentCategory.sensor_monitoring, label='Phone sensors',
+		explains='Your phone can measure things like breathing, coughing and falls. Each one is a separate choice.',
+		on_withdrawal='The sensors you switch off stop measuring immediately and their readings are deleted.',
+		per_sensor=True),
+	ConsentScope(category=ConsentCategory.share_health_authorities, label='Share with health authorities',
+		explains='Counts of illness, with no names, go to the Ministry so they can see where an outbreak is moving.',
+		on_withdrawal='Your data is left out of the counts the Ministry sees.'),
+	ConsentScope(category=ConsentCategory.share_chw, label='Share with my health worker',
+		explains='Your community health worker can see your record so they can follow up with you.',
+		on_withdrawal='Your health worker will not be able to see your record or follow up.'),
+	ConsentScope(category=ConsentCategory.cloud_backup, label='Back up my data',
+		explains='A copy of your record is kept so you do not lose it if you change or lose your phone.',
+		on_withdrawal='Your record stays only on this phone. If you lose it, the record goes with it.'),
+	ConsentScope(category=ConsentCategory.research, label='Allow research use',
+		explains='De-identified data may be used to study how illness spreads. This is never required.',
+		on_withdrawal='Your data is not used in research. Nothing else about the app changes.',
+		separate_from_core=True),
+)
+
+_CATALOGUE_BY_CATEGORY: dict[ConsentCategory, ConsentScope] = {c.category: c for c in CONSENT_CATALOGUE}
+
+
+def _handling(sensitivity: Any) -> Any:
+	"""The §13.1 handling row for a sensitivity class. Imported at call time because
+	`afya.sensors.service` reaches back into the registry, and a module-level import would put the
+	sensor table on the privacy module's import path."""
+	from afya.sensors.service import HANDLING
+	for row in HANDLING:
+		if row.sensitivity is sensitivity:
+			return row
+	raise AssertionError(f'no handling row for {sensitivity}')
 
 
 class PrivacyService(LogMixin):
@@ -32,6 +77,73 @@ class PrivacyService(LogMixin):
 			for c in self._consents.values()
 		)
 		return out
+
+	# --- §SEC-001 consent categories ------------------------------------------------------------
+
+	@staticmethod
+	def consent_catalogue() -> list[ConsentScope]:
+		"""§SEC-001's eight categories, each with the consequence its withdrawal carries."""
+		return list(CONSENT_CATALOGUE)
+
+	def sensor_consents(self) -> list[dict[str, object]]:
+		"""§SEC-001 asks for "Sensor monitoring (each sensor separately)".
+
+		That is one category in the catalogue and one decision per sensor here, enumerated from the
+		§13.1 matrix so the two cannot drift: a sensor added to §13.1 without a consent toggle would
+		be a measurement nobody consented to. A sensor whose class requires no consent under §17.2
+		(the Low rows) still appears, because §SEC-001's granularity is per sensor rather than per
+		class — but it is marked so a client does not demand a grant it does not need.
+		"""
+		from afya.sensors.service import SENSORS
+		return [
+			{
+				'sensor': s.slug, 'name': s.name, 'used_for': s.used_for,
+				'sensitivity': s.sensitivity.value,
+				'needs_consent': _handling(s.sensitivity).capture_requires_consent,
+				'raw_retained': _handling(s.sensitivity).raw_may_be_retained,
+			}
+			for s in SENSORS
+		]
+
+	def consent_toggles(self, granted: dict[str, bool] | None = None,
+	                    sensors: dict[str, bool] | None = None) -> list[ConsentToggle]:
+		"""The catalogue resolved against what a subject has actually granted.
+
+		§SEC-001 wants granular toggles, one-tap revocation and a log the user can see. `granted` is
+		keyed by category value; a category absent from it is off, because consent is opt-in and a
+		default of on is not consent.
+		"""
+		granted = granted or {}
+		sensors = sensors or {}
+		from afya.sensors.service import SENSORS
+		out: list[ConsentToggle] = []
+		for scope in CONSENT_CATALOGUE:
+			row = ConsentToggle(
+				category=scope.category, label=scope.label, explains=scope.explains,
+				on_withdrawal=scope.on_withdrawal, separate_from_core=scope.separate_from_core,
+				granted=bool(granted.get(scope.category.value, False)),
+			)
+			if scope.per_sensor:
+				row.sensors = {s.slug: bool(sensors.get(s.slug, False)) for s in SENSORS}
+			out.append(row)
+		return out
+
+	def has_category_consent(self, subject_ref: str, category: ConsentCategory) -> bool:
+		"""Whether a subject holds a live grant for one category. Revocation is one tap, so a
+		withdrawn record is not consent — the same rule `has_consent` applies."""
+		return any(
+			c.subject_ref == subject_ref and c.purpose == category.value and not c.withdrawn
+			for c in self._consents.values()
+		)
+
+	def sensor_consented(self, subject_ref: str, sensor: str) -> bool:
+		"""Whether a subject consented to one sensor. §SEC-001's per-sensor rule means a blanket
+		`sensor_monitoring` grant is not enough on its own — the grant must name the sensor."""
+		return any(
+			c.subject_ref == subject_ref and not c.withdrawn
+			and c.purpose == f'{ConsentCategory.sensor_monitoring.value}:{sensor}'
+			for c in self._consents.values()
+		)
 
 	async def withdraw(self, consent_id: str) -> ConsentRecord:
 		rec = self._consents[consent_id]

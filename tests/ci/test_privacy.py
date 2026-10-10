@@ -1,9 +1,11 @@
 import pytest
+from pydantic import ValidationError
 
 from afya.auth.service import AuthService
 from afya.privacy.service import PrivacyService
 from afya.privacy.views import (
-	AccessRequest, BreachEvent, ConsentRecord, DPIAInput, LegalBasis, RBACRole,
+	AccessRequest, BreachEvent, ConsentCategory, ConsentRecord, ConsentScope, DPIAInput, LegalBasis,
+	RBACRole,
 )
 
 
@@ -151,3 +153,141 @@ def test_breach_72h() -> None:
 	assert n1.odpc_deadline_days == 3 and n1.notify_users and n1.overdue is False
 	assert n2.odpc_deadline_days == 0 and n2.overdue is False
 	assert late.odpc_deadline_days == 0 and late.overdue is True
+
+# --- §SEC-001 consent categories ------------------------------------------------------------
+
+async def test_the_catalogue_has_the_eight_spec_categories() -> None:
+	"""§SEC-001 lists eight consent categories. Granularity is the whole claim — one blanket
+	"agree" toggle is what the section exists to replace — so the set is closed and pinned."""
+	svc = PrivacyService()
+	cats = [c.category for c in svc.consent_catalogue()]
+	assert len(cats) == 8
+	assert set(cats) == {
+		ConsentCategory.symptom_storage, ConsentCategory.location_tracking,
+		ConsentCategory.proximity_logging, ConsentCategory.sensor_monitoring,
+		ConsentCategory.share_health_authorities, ConsentCategory.share_chw,
+		ConsentCategory.cloud_backup, ConsentCategory.research,
+	}
+
+
+async def test_every_category_states_the_consequence_of_withdrawal() -> None:
+	"""§SEC-001 requires "a clear statement of consequences of revocation". A toggle without one
+	asks a person to give something up without telling them what it costs, so the sentence is a
+	required field rather than a nicety."""
+	for scope in PrivacyService().consent_catalogue():
+		assert scope.label and scope.explains and scope.on_withdrawal
+		assert scope.on_withdrawal.endswith('.'), 'the consequence is a sentence, not a fragment'
+
+
+async def test_only_research_is_separate_from_core() -> None:
+	"""§SEC-001 marks research "opt-in, separate". A second separate category would mean something
+	else was being withheld from the core flow, which the spec does not say."""
+	svc = PrivacyService()
+	separate = [c.category for c in svc.consent_catalogue() if c.separate_from_core]
+	assert separate == [ConsentCategory.research]
+
+
+def test_a_non_research_category_cannot_be_marked_separate() -> None:
+	"""Canary at the model: the validator must refuse the mistake, not merely be absent."""
+	with pytest.raises(ValidationError, match='not marked separate'):
+		ConsentScope(category=ConsentCategory.location_tracking, label='x', explains='y',
+		             on_withdrawal='z.', separate_from_core=True)
+
+
+async def test_sensor_monitoring_is_one_decision_per_sensor() -> None:
+	"""§SEC-001: "Sensor monitoring (each sensor separately)". The category enumerates the §13.1
+	matrix, so a sensor added to §13.1 without a consent entry would be a measurement nobody
+	consented to."""
+	from afya.sensors.service import SENSORS
+	svc = PrivacyService()
+	rows = svc.sensor_consents()
+	assert len(rows) == len(SENSORS) == 18
+	assert {r['sensor'] for r in rows} == {s.slug for s in SENSORS}
+	toggles = svc.consent_toggles()
+	sm = next(t for t in toggles if t.category is ConsentCategory.sensor_monitoring)
+	assert len(sm.sensors) == 18 and not any(sm.sensors.values()), 'opt-in means off by default'
+
+
+async def test_the_per_sensor_consent_needs_the_sensor_named() -> None:
+	"""A blanket `sensor_monitoring` grant is not a per-sensor grant, which is the distinction
+	§SEC-001 draws. Naming the sensor is what makes it consent to *that* measurement."""
+	svc = PrivacyService()
+	await svc.record_consent(ConsentRecord(
+		subject_ref='U9', purpose=ConsentCategory.sensor_monitoring.value, data_types=['sensor'],
+		retention_days=90, legal_basis=LegalBasis.consent))
+	assert svc.has_category_consent('U9', ConsentCategory.sensor_monitoring) is True
+	assert svc.sensor_consented('U9', 'gps') is False, 'the blanket grant names no sensor'
+	assert svc.sensor_consented('U9', 'microphone') is False
+
+
+async def test_a_named_sensor_grant_is_recognised_and_revocable() -> None:
+	svc = PrivacyService()
+	rec = await svc.record_consent(ConsentRecord(
+		subject_ref='U8', purpose='sensor_monitoring:gps', data_types=['location'],
+		retention_days=21, legal_basis=LegalBasis.consent))
+	assert svc.sensor_consented('U8', 'gps') is True
+	assert svc.sensor_consented('U8', 'camera_rear') is False, 'consent to one sensor is not consent to another'
+	await svc.withdraw(rec.consent_id)
+	assert svc.sensor_consented('U8', 'gps') is False, 'one-tap revocation (§SEC-001)'
+
+
+async def test_a_granted_category_resolves_into_its_toggle() -> None:
+	svc = PrivacyService()
+	toggles = svc.consent_toggles(granted={'location_tracking': True})
+	assert len(toggles) == 8
+	assert [t.category.value for t in toggles if t.granted] == ['location_tracking']
+	assert all(t.revocable for t in toggles), '§SEC-001: one-tap revocation on every category'
+
+
+async def test_low_sensitivity_sensors_are_marked_as_needing_no_grant() -> None:
+	"""§17.2 does not require consent for a barometer reading, and asking for one is consent
+	theatre. The row still appears — §SEC-001's granularity is per sensor — but marked."""
+	svc = PrivacyService()
+	by_sensor = {r['sensor']: r for r in svc.sensor_consents()}
+	assert by_sensor['barometer']['needs_consent'] is False
+	assert by_sensor['gps']['needs_consent'] is True
+	assert by_sensor['microphone']['needs_consent'] is True
+	assert all(r['raw_retained'] is False for r in svc.sensor_consents()), '§SEC-002'
+
+
+async def test_the_consent_catalogue_route_serves_toggles_without_codes() -> None:
+	"""The catalogue is what a person reads, so it carries no spec code — and it is public,
+	because someone deciding whether to use the app is who the plain-language text is for."""
+	import httpx
+	import re
+	from afya.service import create_app
+	app = create_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		out = (await c.get('/privacy/consent')).json()
+		assert len(out['toggles']) == 8 and len(out['sensors']) == 18
+		body = str(out)
+		assert re.search(r'\b(?:CHAN|INF|TRI|FND|MED|EMG|REC|MON|SENS|LOC|COM|ALT|AI|ACC|SEC)-\d{3}\b', body) is None, \
+			'a spec code reached a surface a person reads'
+		sm = next(t for t in out['toggles'] if t['category'] == 'sensor_monitoring')
+		assert len(sm['sensors']) == 18 and not any(sm['sensors'].values())
+
+
+async def test_the_catalogue_route_will_not_show_a_stranger_your_grants() -> None:
+	"""Consent state is personal data, and this route is public because the catalogue is. That
+	combination is why it carries no subject parameter at all: a subject a caller could name would
+	be a stranger's reference they could type, which is the IDOR shape `require_self` exists to
+	prevent. The token is the only subject it reads."""
+	import httpx
+	from afya.privacy.views import ConsentRecord, LegalBasis
+	from afya.service import build_services, create_app
+	services = build_services(db_path='/tmp/afya-consent-idor.db')
+	svc: PrivacyService = services['privacy']  # type: ignore[assignment]
+	await svc.record_consent(ConsentRecord(subject_ref='OWNER', purpose='location_tracking',
+		data_types=['location'], retention_days=90, legal_basis=LegalBasis.consent))
+	await svc.record_consent(ConsentRecord(subject_ref='OWNER', purpose='sensor_monitoring:gps',
+		data_types=['location'], retention_days=21, legal_basis=LegalBasis.consent))
+	app = create_app(services)
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		other = (await c.post('/auth/anonymous', json={'subject_ref': 'OTHER'})).json()['token']
+		out = (await c.get('/privacy/consent', headers={'authorization': f'Bearer {other}'})).json()
+		assert [t['category'] for t in out['toggles'] if t['granted']] == [], 'a stranger read a live grant'
+		owner = (await c.post('/auth/anonymous', json={'subject_ref': 'OWNER'})).json()['token']
+		out = (await c.get('/privacy/consent', headers={'authorization': f'Bearer {owner}'})).json()
+		assert [t['category'] for t in out['toggles'] if t['granted']] == ['location_tracking']
+		sm = next(t for t in out['toggles'] if t['category'] == 'sensor_monitoring')
+		assert [k for k, v in sm['sensors'].items() if v] == ['gps']

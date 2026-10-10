@@ -8,6 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
+# §11.7 / §19.3 / §SEC-004: "Minimum cell size of 10 to prevent re-identification." Defined here
+# because this module is the lowest layer that needs it — `afya.analytics.views` and
+# `afya.integrations.feeds` both import from it, so this is the single copy.
 MIN_CELL_SIZE = 10
 
 

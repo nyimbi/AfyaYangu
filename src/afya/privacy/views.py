@@ -1,8 +1,8 @@
 """Privacy domain models — DPA 2019 / ODPC / Digital Health Act 2023 (spec §17)."""
 from enum import Enum
-from typing import Any
+from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from afya.ids import uuid7str
 
@@ -24,6 +24,63 @@ class ConsentRecord(BaseModel):
 	retention_days: int = Field(ge=1, le=3650)
 	legal_basis: LegalBasis
 	withdrawn: bool = False
+
+
+class ConsentCategory(str, Enum):
+	"""§SEC-001's eight consent categories, verbatim. Consent granularity is the claim, so the
+	categories are a closed set rather than whatever string a caller sends."""
+	symptom_storage = 'symptom_storage'
+	location_tracking = 'location_tracking'
+	proximity_logging = 'proximity_logging'
+	sensor_monitoring = 'sensor_monitoring'
+	share_health_authorities = 'share_health_authorities'
+	share_chw = 'share_chw'
+	cloud_backup = 'cloud_backup'
+	research = 'research'
+
+
+class ConsentScope(BaseModel):
+	"""What one §SEC-001 category covers, and what withdrawing it costs.
+
+	§SEC-001 requires "a clear statement of consequences of revocation" for every category, and that
+	statement is the part a person reads. It is data here so a toggle cannot ship without one.
+	"""
+	model_config = MODEL_CONFIG
+	category: ConsentCategory
+	label: str = Field(min_length=1)
+	# The plain-language sentence shown beside the toggle. No spec code reaches it.
+	explains: str = Field(min_length=1)
+	on_withdrawal: str = Field(min_length=1)
+	# True only for `research`, which §SEC-001 marks "opt-in, separate": it must never be bundled
+	# with a category a user needs to use the product.
+	separate_from_core: bool = False
+	# §SEC-001: "Sensor monitoring (each sensor separately)". The categories a sensor maps to are
+	# per-sensor, so this lists the sensitivity classes it can cover rather than one blanket grant.
+	per_sensor: bool = False
+
+	@model_validator(mode='after')
+	def _only_research_is_separate(self) -> Self:
+		"""§SEC-001 marks research alone as "opt-in, separate". A second separate category would mean
+		some other consent was being withheld from the core flow too, which the spec does not say."""
+		if self.separate_from_core and self.category is not ConsentCategory.research:
+			raise ValueError(f'{self.category.value} is not marked separate by §SEC-001')
+		return self
+
+
+class ConsentToggle(BaseModel):
+	"""One grant, resolved. §SEC-001 wants granular toggles, one-tap revocation, and a consent audit
+	log visible to the user — so a toggle carries its own state and the audit entry that set it."""
+	model_config = MODEL_CONFIG
+	category: ConsentCategory
+	label: str
+	explains: str
+	on_withdrawal: str
+	granted: bool
+	# For `sensor_monitoring`: the per-sensor grants, because §SEC-001 asks for each sensor
+	# separately and a single boolean would collapse eight decisions into one.
+	sensors: dict[str, bool] = {}
+	separate_from_core: bool = False
+	revocable: bool = True
 
 
 class RBACRole(str, Enum):
