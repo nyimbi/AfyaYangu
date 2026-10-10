@@ -27,6 +27,9 @@ class ContentItem(BaseModel):
 	body: str
 	lang: str = Field(pattern=r'^(en|sw|sheng)$')
 	harmony_tag: str | None = None  # verified/official-source tag per §6.2
+	# A stable, code-free handle. The seed ids embed spec codes (`INF-003-en`); this is what a client
+	# keys on and what may reach a screen, so the code stays internal like every other spec id.
+	slug: str = ''
 
 
 class DecisionNode(BaseModel):

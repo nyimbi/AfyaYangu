@@ -40,7 +40,7 @@ from afya.medicine.views import DoseRequest, StockReport, VerifyRequest
 from afya.facilities.service import FacilityService
 from afya.facilities.views import Booking, Facility, NearestRequest
 from afya.info.service import InfoService
-from afya.info.views import CountyRisk
+from afya.info.views import ContentItem, CountyRisk
 from afya.privacy.service import PrivacyService
 from afya.privacy.views import ConsentRecord, DPIAInput, RBACRole
 from afya.records.service import RecordsService
@@ -520,6 +520,56 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/info/dashboard/{county}')
 	async def info_dashboard(county: str) -> dict[str, str]:
 		return info.dashboard(county).model_dump(mode='json')
+
+	@app.get('/info/library')
+	async def info_library(lang: str = 'en') -> list[dict[str, str]]:
+		"""§6.2 content library (INF-003/004/008/009/010/015), served by language.
+
+		Served as {slug,title,body,harmony_tag} — never `item_id`, whose seed values embed spec codes
+		(`INF-003-en`) that must not reach a screen. The slug is what a client keys on.
+		"""
+		return [
+			{'slug': c.slug, 'title': c.title, 'body': c.body, 'harmony_tag': c.harmony_tag or '', 'lang': c.lang}
+			for c in info.library(lang)
+		]
+
+	@app.post('/info/content')
+	async def info_upsert_content(item: ContentItem) -> dict[str, bool]:
+		"""Publish or correct a library item. The `harmony_tag` is required — §6.2 serves nothing
+		that has not been harmonised against the official source."""
+		if not item.harmony_tag:
+			raise HTTPException(status_code=422, detail='content must carry a harmony tag before it is served')
+		try:
+			await info.upsert_content(item)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'ok': True}
+
+	@app.get('/info/decision-tree')
+	async def info_decision_tree(answers: str = '') -> dict[str, object]:
+		"""§INF-002 "What Should I Do" decision tree.
+
+		Without `answers` it returns the root question; each subsequent call passes the answers so
+		far, comma-separated as `y`/`n`, and returns either the next question or the leaf
+		recommendation. The answers are the caller's own symptoms, so no subject is named or needed.
+		"""
+		parsed: list[bool] = []
+		for token in [t.strip().lower() for t in answers.split(',') if t.strip()]:
+			if token not in ('y', 'n', 'yes', 'no', 'true', 'false'):
+				raise HTTPException(status_code=422, detail=f'answer must be yes or no, not {token!r}')
+			parsed.append(token in ('y', 'yes', 'true'))
+		if not parsed:
+			return {'question': info.TREE['root'].question, 'done': False, 'recommendation': None}
+		try:
+			recommendation = info.decide('', parsed)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		# Re-walk to find the node the answers reached, so a client can ask the next question.
+		node = info.TREE['root']
+		for ans in parsed:
+			node = info.TREE[node.yes_next if ans else node.no_next]  # type: ignore[index]
+		next_question = None if node.leaf_recommendation else node.question
+		return {'question': next_question, 'done': node.leaf_recommendation is not None, 'recommendation': recommendation}
 
 	@app.post('/records/member')
 	async def records_member(member: WalletMember) -> dict[str, bool]:

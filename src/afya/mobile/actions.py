@@ -75,6 +75,7 @@ CHW_TASK_KINDS = ['followup', 'referral', 'sensitisation']
 # slug -> spec feature id. Internal traceability only; never serialised (see module docstring).
 FEATURE_OF: dict[str, str] = {
 	'febrile_triage': 'TRI-001', 'evd_triage': 'TRI-003', 'differential': 'TRI-001', 'symptom_diary': 'TRI-002',
+	'what_should_i_do': 'INF-002', 'health_library': 'INF-003', 'publish_content': 'INF-003',
 	'nearest_facilities': 'FND-001', 'ed_status': 'FND-002', 'report_wait': 'FND-004', 'book_appointment': 'FND-006',
 	'verify_medicine': 'MED-001', 'drug_interactions': 'MED-002', 'dosage': 'MED-003', 'report_stock': 'MED-004',
 	'sos': 'EMG-001', 'emergency_card': 'EMG-003',
@@ -188,6 +189,10 @@ def catalogue() -> list[MobileAction]:
 		_a('evd_triage', 'Ebola check', 'Triage', 'POST', '/triage/evd', triage_fields),
 		_a('differential', 'What illness could this be?', 'Triage', 'POST', '/triage/diagnose', triage_fields),
 		_a('symptom_diary', 'Log how I feel today', 'Triage', 'POST', '/triage/diary', [_f('entry_id', 'Entry number', ph='generated for you'), _s(), _f('day', 'Day (1-21)', 'int'), _f('symptoms', 'Symptoms', 'list'), _f('temperature_c', 'Temperature °C', 'decimal')]),
+		_a('what_should_i_do', 'What should I do?', 'Triage', 'GET', '/info/decision-tree', [_f('answers', 'Answers so far', ph='yes,no,leave blank to start')]),
+		# Information library (§6.2, INF-003/004/008/009/010/015)
+		_a('health_library', 'Health information', 'Information', 'GET', '/info/library', [_f('lang', 'Language', 'select', ['en', 'sw'])]),
+		_a('publish_content', 'Publish health information', 'Information', 'POST', '/info/content', [_f('item_id', 'Reference'), _f('title', 'Title'), _f('body', 'Text', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw', 'sheng']), _f('harmony_tag', 'Official source tag'), _f('slug', 'Short name')]),
 		# Facilities
 		_a('nearest_facilities', 'Find care near me', 'Facilities', 'POST', '/facilities/nearest', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('kind', 'Type of place', 'select', FACILITY_KINDS), _f('limit', 'How many results', 'int')]),
 		_a('ed_status', 'How busy is the emergency unit?', 'Facilities', 'GET', '/facilities/{facility_id}/ed-status', [_f('id', 'Facility', 'path')]),
@@ -372,6 +377,8 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'decision_tree': ('Should I see a doctor?', 'Plain-language help deciding your next step'),
 	'hotlines': ('Who can I call?', 'Hotline numbers that are free and answered'),
 	'febrile_triage': ('Check my fever', 'Quick check: treat malaria first unless there is Ebola contact risk'),
+	'what_should_i_do': ('What should I do?', 'A few yes/no questions that lead to advice'),
+	'health_library': ('Health information', 'Ebola, prevention, first aid, safe burial — official guidance'),
 	'symptom_diary': ('My symptom diary', 'Track how you feel if you were exposed'),
 	'evd_triage': ('Ebola check', 'Deeper screening when officials activate outbreak mode'),
 	'nearest_facilities': ('Find care near me', 'Nearest clinics and hospitals with walking directions'),
