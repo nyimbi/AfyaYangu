@@ -2,7 +2,7 @@
 from afya.surveillance.service import SurveillanceService, estimate_breath_rate
 from afya.surveillance.views import CountySignal, Geofence, ProximityToken
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from httpx import AsyncClient
 from pydantic import BaseModel, ConfigDict, Field
@@ -80,12 +80,20 @@ from afya.monitoring.views import (
 	AdherenceEvent, ConditionProfile, FoodSafetyAlert, MedSchedule, MonitoringDay, PeakFlowReading,
 	WeightReading,
 )
+from afya.realtime.service import RealtimeService
+from afya.realtime.views import KNOWN_CATEGORIES, SocketSubscription, now_iso
 from afya.retention.service import RetentionService
 from afya.retention.views import DeletionRequest
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 APP_VERSION = '2.0.0'
+
+# §15.5 versioning. `v1` is the current and only version, so the unversioned paths remain
+# canonical — a client written against the bare path keeps working, and one that pins a version
+# gets the same routes. A future `v2` mounts beside it and this tuple grows.
+API_VERSIONS: tuple[str, ...] = ('v1',)
+CURRENT_API_VERSION = 'v1'
 
 
 class HealthResponse(BaseModel):
@@ -143,6 +151,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'monitoring': MonitoringService(),
 		'community': CommunityService(),
 		'alerting': AlertingService(),
+		'realtime': RealtimeService(),
 		'location': LocationService(),
 		'ai': AIService(),
 		'access': AccessService(),
@@ -180,6 +189,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	monitoring: MonitoringService = svc['monitoring']  # type: ignore[assignment]
 	community: CommunityService = svc['community']  # type: ignore[assignment]
 	alerting: AlertingService = svc['alerting']  # type: ignore[assignment]
+	realtime: RealtimeService = svc['realtime']  # type: ignore[assignment]
 	location: LocationService = svc['location']  # type: ignore[assignment]
 	ai: AIService = svc['ai']  # type: ignore[assignment]
 	access: AccessService = svc['access']  # type: ignore[assignment]
@@ -890,9 +900,15 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/alerting/feed')
 	async def alerting_publish(item: FeedItem) -> dict[str, object]:
 		try:
-			return (await alerting.publish(item)).model_dump(mode='json')
+			stored = await alerting.publish(item)
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		# The durable feed is written first, then the socket fans out. A socket is a transport, not
+		# a second source of truth: a client that was offline when the alert fired still finds it
+		# in the REST feed, which §16.1 requires to survive a restart.
+		out = stored.model_dump(mode='json')
+		out['delivered_realtime'] = realtime.publish(stored)
+		return out
 
 	@app.get('/alerting/feed')
 	async def alerting_feed(county: str | None = None) -> list[dict[str, object]]:
@@ -923,6 +939,38 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/alerting/family/{family_ref}')
 	async def alerting_family(family_ref: str) -> dict[str, object]:
 		return alerting.family_board(family_ref).model_dump(mode='json')
+
+	# --- §15.5 WebSocket: real-time alert delivery -------------------------------------------
+	@app.websocket('/alerts/socket')
+	async def alerts_socket(ws: WebSocket, county: str | None = None, categories: str | None = None) -> None:
+		"""A subscriber names a county and categories as query parameters; the server sends one
+		frame per matching alert. Unnamed categories default to the toggleable set, and critical
+		categories are delivered regardless — the same rule `AlertingService.should_deliver`
+		applies, so a socket cannot mute an exposure notification that the REST path would send.
+		"""
+		await ws.accept()
+		named = [c.strip() for c in (categories or '').split(',') if c.strip()]
+		unknown = sorted(set(named) - KNOWN_CATEGORIES)
+		if unknown:
+			await ws.send_json({'kind': 'error', 'at_iso': now_iso(), 'message': f'unknown alert category: {unknown[0]}'})
+			await ws.close(code=1008)
+			return
+		sub = realtime.subscribe(SocketSubscription(
+			county=county, categories=named or sorted(KNOWN_CATEGORIES),
+		))
+		try:
+			await ws.send_json(realtime.hello(sub).model_dump(mode='json'))
+			while True:
+				event = await sub.queue.get()
+				await ws.send_json(event.model_dump(mode='json'))
+		except WebSocketDisconnect:
+			pass  # the client hung up; that is the normal way a socket ends
+		finally:
+			realtime.unsubscribe(sub)
+
+	@app.get('/alerts/socket/stats')
+	async def alerts_socket_stats() -> dict[str, object]:
+		return realtime.stats().model_dump(mode='json')
 
 	@app.post('/alerting/exposure')
 	async def alerting_exposure(subject_ref: str, case_ref: str | None = None, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
@@ -1201,4 +1249,31 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def chw_activity_summary(chw_ref: str, period: str = '2026-W41', _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
 		return chw.activity_summary(chw_ref, period).model_dump(mode='json')
 
-	return app
+	# --- §15.5 versioning: `/v1/` beside the bare paths --------------------------------------
+	# Both spellings reach the same routes. `v1` is the only version, so pinning it changes
+	# nothing today; it exists so that when a `v2` diverges, it mounts here and the bare paths can
+	# stay on `v1` — which is what makes the pin mean something instead of being decoration.
+	# The wrapper is a facade: it holds no routes of its own, so the OpenAPI spec it publishes is
+	# the API's own, not an empty description of a mount table.
+	root = FastAPI(title='Afya Yangu / Mlinzi', version=APP_VERSION, openapi_url=None, docs_url=None, redoc_url=None)
+	# The facade holds no routes of its own, so its own spec would describe a mount table. Point it
+	# at the API's, which is what `create_app().openapi()` is read for — the catalogue drift-lock
+	# test and the published `/openapi.json` both depend on it returning real routes.
+	root.openapi = app.openapi  # type: ignore[method-assign]
+
+	@root.get('/')
+	async def api_index() -> dict[str, object]:
+		return {
+			'service': 'Afya Yangu / Mlinzi', 'current_version': CURRENT_API_VERSION,
+			'versions': list(API_VERSIONS), 'docs': f'/{CURRENT_API_VERSION}/docs',
+		}
+
+	@root.get('/openapi.json')
+	async def openapi_spec() -> JSONResponse:
+		return JSONResponse(app.openapi())
+
+	for _version in API_VERSIONS:
+		root.mount(f'/{_version}', app)
+	root.mount('/', app)
+	assert len(root.routes) >= len(API_VERSIONS) + 2, 'index, spec and every version must be mounted'
+	return root

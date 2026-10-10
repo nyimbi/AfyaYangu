@@ -213,7 +213,7 @@ The **three-key activation gate** is enforced at every layer: PHEOC authorizatio
 
 ## 9 · What is implemented here
 
-A working vertical of the spec: FastAPI backend core (156 operations over 154 paths, 97-feature registry, all 10 sensor families, tier-4 gate, Postgres+SQLite persistence, vendor gateway clients), **fully native** SwiftUI iOS + Kotlin Android clients (offline-first, evidence upload, feature screens), and YAMNet ONNX cough analysis — with **backend tests green, pyright-clean types, iOS XCTest and Android JVM suites green**.
+A working vertical of the spec: FastAPI backend core (162 operations over 160 paths, 97-feature registry, all 10 sensor families, tier-4 gate, Postgres+SQLite persistence, vendor gateway clients), **fully native** SwiftUI iOS + Kotlin Android clients (offline-first, evidence upload, feature screens, catalogue-driven action forms), and YAMNet ONNX cough analysis — with **backend tests green, pyright-clean types, iOS XCTest and Android JVM suites green**. §15.5 is complete: REST, WebSocket alert delivery, gRPC for internal calls, `/v1` versioning, OAuth 2.0 + PKCE and anonymous tokens, idempotency keys, per-device rate limiting, and a published OpenAPI 3.1 spec.
 
 Full engineering map (spec § → module → test): [`docs/buildout.md`](docs/buildout.md) · ML provenance/decisions: [`docs/ml-models.md`](docs/ml-models.md) · full product spec: [`docs/spec.md`](docs/spec.md).
 

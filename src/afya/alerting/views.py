@@ -6,10 +6,34 @@ MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_ali
 
 # --- ALT-001 community alert feed --------------------------------------------------------
 
+# The public hazard types a feed item can carry.
+FEED_CATEGORIES: tuple[str, ...] = (
+	'outbreak', 'weather', 'flood', 'fire', 'road', 'security', 'drug_recall', 'water',
+	'food_recall', 'service',
+)
+
+# Which preference governs each feed category. A feed item and a preference are not the same
+# vocabulary — a person switches off "water quality", they do not switch off "flood" — so the
+# link between them has to be stated rather than assumed. Without it a subscriber naming a
+# preference could never match an item, and the socket would silently deliver nothing.
+FEED_PREFERENCE: dict[str, str] = {
+	'outbreak': 'disease_alerts', 'weather': 'county_alerts', 'flood': 'county_alerts',
+	'fire': 'county_alerts', 'road': 'county_alerts', 'security': 'county_alerts',
+	'drug_recall': 'facility_alerts', 'water': 'water_quality', 'food_recall': 'nutrition',
+	'service': 'facility_alerts',
+}
+
+
+def governing_preference(feed_category: str) -> str:
+	"""The preference category that decides whether `feed_category` is delivered."""
+	assert feed_category in FEED_PREFERENCE, f'unknown feed category {feed_category}'
+	return FEED_PREFERENCE[feed_category]
+
+
 class FeedItem(BaseModel):
 	model_config = MODEL_CONFIG
 	item_id: str
-	category: str = Field(pattern=r'^(outbreak|weather|flood|fire|road|security|drug_recall|water|food_recall|service)$')
+	category: str = Field(pattern=r'^(' + '|'.join(FEED_CATEGORIES) + r')$')
 	headline: str = Field(max_length=120)
 	body: str = Field(max_length=600)
 	source: str
@@ -28,6 +52,13 @@ TOGGLEABLE: tuple[str, ...] = (
 	'water_quality', 'nutrition', 'health_tips',
 )
 CRITICAL: tuple[str, ...] = ('exposure_notification', 'immediate_danger')
+
+# A preference can only govern a feed category if the person is able to switch it off, so every
+# value in FEED_PREFERENCE must be toggleable. Asserted here rather than discovered in production.
+assert set(FEED_PREFERENCE.values()) <= set(TOGGLEABLE), 'a feed category is governed by a preference nobody can set'
+
+# The preferences that govern at least one feed category — the ones a subscriber may name.
+FEED_SCOPED_PREFERENCES: frozenset[str] = frozenset(FEED_PREFERENCE.values())
 
 
 class AlertPreferences(BaseModel):

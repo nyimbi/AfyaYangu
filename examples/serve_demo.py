@@ -5,6 +5,7 @@ Places come from models/places_fixture.json (live Overpass capture subset); for 
 """
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import uvicorn
@@ -12,6 +13,7 @@ import uvicorn
 from afya.alerts.views import CommunityAlert, WaterQuality
 from afya.channels.views import ChwTask
 from afya.facilities.views import Facility, FacilityKind
+from afya.grpc_api.service import serve as serve_grpc
 from afya.integrations.overpass import parse_overpass
 from afya.records.views import WalletMember
 from afya.registry.service import Tier4Activation
@@ -43,13 +45,25 @@ async def seed(svc: dict[str, object]) -> None:
 	await channels.assign_chw_task(ChwTask(task_id='T-REF-001', chw_ref='CHW1', community='Kosovo A', kind='referral'))
 
 
-def main() -> None:
-	import json
+async def run() -> None:
+	"""REST on `port`, gRPC beside it on `port + 1` (§15.5), both over the same service objects."""
 	svc = build_services(db_path='/tmp/afya_demo.db')
-	asyncio.run(seed(svc))
+	await seed(svc)
 	app = create_app(svc)
 	port = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8123
-	uvicorn.run(app, host='127.0.0.1', port=port, log_level='warning')
+	grpc_port = int(os.environ.get('AFYA_GRPC_PORT', str(port + 1)))
+	server = await serve_grpc(svc, grpc_port)
+	config = uvicorn.Config(app, host='127.0.0.1', port=port, log_level='warning')
+	http = uvicorn.Server(config)
+	print(f'REST  http://127.0.0.1:{port}  (docs at /v1/docs)\ngRPC  afya.internal.v1 on 127.0.0.1:{grpc_port}')
+	try:
+		await http.serve()
+	finally:
+		await server.stop(grace=0)
+
+
+def main() -> None:
+	asyncio.run(run())
 
 
 if __name__ == '__main__':
