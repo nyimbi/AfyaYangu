@@ -76,6 +76,9 @@ CHW_TASK_KINDS = ['followup', 'referral', 'sensitisation']
 FEATURE_OF: dict[str, str] = {
 	'febrile_triage': 'TRI-001', 'evd_triage': 'TRI-003', 'differential': 'TRI-001', 'symptom_diary': 'TRI-002',
 	'what_should_i_do': 'INF-002', 'health_library': 'INF-003', 'publish_content': 'INF-003',
+	'hotline_directory': 'INF-006', 'county_risk': 'INF-001',
+	'medicine_registry': 'MED-001', 'medicine_recalls': 'MED-001', 'report_suspicious_medicine': 'MED-004',
+	'sha_cover_verify': 'INF-016', 'sha_facilities': 'INF-016', 'sha_benefits': 'INF-016',
 	'nearest_facilities': 'FND-001', 'ed_status': 'FND-002', 'report_wait': 'FND-004', 'book_appointment': 'FND-006',
 	'verify_medicine': 'MED-001', 'drug_interactions': 'MED-002', 'dosage': 'MED-003', 'report_stock': 'MED-004',
 	'sos': 'EMG-001', 'emergency_card': 'EMG-003',
@@ -192,6 +195,8 @@ def catalogue() -> list[MobileAction]:
 		_a('what_should_i_do', 'What should I do?', 'Triage', 'GET', '/info/decision-tree', [_f('answers', 'Answers so far', ph='yes,no,leave blank to start')]),
 		# Information library (§6.2, INF-003/004/008/009/010/015)
 		_a('health_library', 'Health information', 'Information', 'GET', '/info/library', [_f('lang', 'Language', 'select', ['en', 'sw'])]),
+		_a('hotline_directory', 'Useful phone numbers', 'Information', 'GET', '/info/hotlines', []),
+		_a('county_risk', 'How is my county doing?', 'Information', 'GET', '/info/dashboard/{county}', [_f('county', 'County', 'path')]),
 		_a('publish_content', 'Publish health information', 'Information', 'POST', '/info/content', [_f('item_id', 'Reference'), _f('title', 'Title'), _f('body', 'Text', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw', 'sheng']), _f('harmony_tag', 'Official source tag'), _f('slug', 'Short name')]),
 		# Facilities
 		_a('nearest_facilities', 'Find care near me', 'Facilities', 'POST', '/facilities/nearest', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('kind', 'Type of place', 'select', FACILITY_KINDS), _f('limit', 'How many results', 'int')]),
@@ -203,6 +208,9 @@ def catalogue() -> list[MobileAction]:
 		_a('drug_interactions', 'Can I take these together?', 'Medicine', 'POST', '/medicine/interactions', [_f('drugs', 'Medicines', 'list')]),
 		_a('dosage', 'How much should I give?', 'Medicine', 'POST', '/medicine/dose', [_f('drug', 'Medicine'), _f('weight_kg', 'Weight in kg', 'decimal'), _f('mg_per_kg', 'mg per kg', 'decimal')]),
 		_a('report_stock', 'Report whether a medicine is in stock', 'Medicine', 'POST', '/medicine/stock', [_f('report_id', 'Report number', ph='generated for you'), _f('facility_id', 'Facility'), _f('drug', 'Medicine'), _f('in_stock', 'In stock?', 'bool')]),
+		_a('medicine_registry', 'Which medicines are approved?', 'Medicine', 'GET', '/medicine/registry', [_f('since', 'Only changes since', ph='optional')]),
+		_a('medicine_recalls', 'Has a medicine been recalled?', 'Medicine', 'GET', '/medicine/recalls', [_f('since', 'Only changes since', ph='optional')]),
+		_a('report_suspicious_medicine', 'Report a fake medicine', 'Medicine', 'POST', '/medicine/suspicious', [_f('gtin', 'Barcode number'), _f('batch', 'Batch number'), _f('note', 'What is wrong?', 'textarea')]),
 		# Emergency
 		_a('sos', 'Get help now', 'Emergency', 'POST', '/emergency/sos', [_f('sos_id', 'Alert number', ph='generated for you'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('severity', 'How serious?', 'select', ['low', 'medium', 'high']), _f('symptoms', 'Symptoms', 'list')]),
 		_a('emergency_card', 'My emergency card', 'Emergency', 'POST', '/emergency/card/qr', [_f('name', 'Full name'), _f('blood_group', 'Blood group', 'select', BLOOD_GROUPS), _f('allergies', 'Allergies', 'list'), _f('conditions', 'Ongoing conditions', 'list'), _f('emergency_contact', 'Who to call')]),
@@ -347,6 +355,9 @@ def catalogue() -> list[MobileAction]:
 		_a('file_price', 'Tell us what a procedure cost', 'Insurance', 'POST', '/insurance/prices', [_f('facility_id', 'Facility'), _f('procedure', 'Procedure', 'select', PROCEDURES), _f('kes', 'Cost in KES', 'int'), _f('sha_covered', 'Covered by SHA?', 'bool')]),
 		_a('price_quote', 'What does it cost?', 'Insurance', 'GET', '/insurance/quote/{facility_id}/{procedure}', [_f('facility_id', 'Facility', 'path'), _f('procedure', 'Procedure', 'path')]),
 		_a('sha_cover_check', 'Am I covered?', 'Insurance', 'POST', '/insurance/sha-check', [_f('member_no', 'SHA member number')]),
+		_a('sha_cover_verify', 'Check my cover with SHA', 'Insurance', 'POST', '/insurance/sha/verify', [_f('member_no', 'SHA member number'), _f('purpose', 'What for?', 'select', ['facility_visit', 'registration', 'refund'])]),
+		_a('sha_facilities', 'Where is my cover accepted?', 'Insurance', 'GET', '/insurance/sha/facilities', [_f('county', 'County')]),
+		_a('sha_benefits', 'What does my cover include?', 'Insurance', 'GET', '/insurance/sha/benefits', [_f('product', 'Scheme', ph='SHIF')]),
 	]
 
 
@@ -379,6 +390,14 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'febrile_triage': ('Check my fever', 'Quick check: treat malaria first unless there is Ebola contact risk'),
 	'what_should_i_do': ('What should I do?', 'A few yes/no questions that lead to advice'),
 	'health_library': ('Health information', 'Ebola, prevention, first aid, safe burial — official guidance'),
+	'hotline_directory': ('Useful phone numbers', 'Hotlines and offices you can call'),
+	'county_risk': ('How is my county doing?', 'Official risk status and guidance where you live'),
+	'medicine_registry': ('Which medicines are approved?', 'Check a medicine against the national register'),
+	'medicine_recalls': ('Has a medicine been recalled?', 'Recalls and safety notices from the regulator'),
+	'report_suspicious_medicine': ('Report a fake medicine', 'Tell the regulator about a suspected falsified drug'),
+	'sha_cover_verify': ('Check my cover with SHA', 'Confirm your cover directly with the authority'),
+	'sha_facilities': ('Where is my cover accepted?', 'Facilities that accept your cover, by county'),
+	'sha_benefits': ('What does my cover include?', 'Benefits included in your scheme'),
 	'symptom_diary': ('My symptom diary', 'Track how you feel if you were exposed'),
 	'evd_triage': ('Ebola check', 'Deeper screening when officials activate outbreak mode'),
 	'nearest_facilities': ('Find care near me', 'Nearest clinics and hospitals with walking directions'),

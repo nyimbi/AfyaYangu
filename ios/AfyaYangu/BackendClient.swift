@@ -86,10 +86,8 @@ actor BackendClient {
 		try JSONDecoder().decode(HealthDTO.self, from: try await send(path: "health"))
 	}
 
-	func features() async throws -> [FeatureDTO] {
-		let data = try await send(path: "features")
-		return try JSONDecoder().decode([FeatureDTO].self, from: data)
-	}
+	// No `features()`: the registry endpoint's id is a spec code (CHAN-000), and this app shows the
+	// friendly `/mobile/features` instead (`friendlyFeatures()` in Endpoints.swift).
 
 	func triagePreliminary(symptoms: [String], temperatureC: Double, ebolaContact: Bool) async throws -> TriageResultDTO {
 		var req = URLRequest(url: base.appendingPathComponent("triage/preliminary"))

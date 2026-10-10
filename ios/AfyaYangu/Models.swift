@@ -14,6 +14,9 @@ struct FeatureDTO: Codable, Identifiable {
 	let channels: [String]
 }
 
+// FeatureDTO is the ops registry shape (its `id` is a spec code) and is deliberately not fetched by
+// this app; the friendly `/mobile/features` DTO in Endpoints.swift is what screens render.
+
 struct TriageRequestDTO: Codable {
 	let symptoms: [String]
 	let temperature_c: Double

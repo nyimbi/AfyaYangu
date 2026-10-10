@@ -106,12 +106,17 @@ class BackendClient(private val context: Context) {
 		return HealthDTO(h.getString("status"), h.getString("version"), h.getBoolean("tier4"))
 	}
 
+	/**
+	 * What the app can do, in plain language.
+	 *
+	 * This reads `/mobile/features`, whose ids are slugs. `/features` is the ops registry and its id
+	 * is the spec code (`CHAN-000`); reading it here is what put those codes on screen.
+	 */
 	fun features(): List<FeatureDTO> {
-		val txt = cached("features") ?: JSONObject().let { throw IllegalStateException("offline and no cache") }
-		val arr = JSONObject(txt).getJSONArray("features")
+		val arr = JSONArray(request("mobile/features", null))
 		return (0 until arr.length()).map { i ->
 			val f = arr.getJSONObject(i)
-			FeatureDTO(f.getString("id"), f.getString("name"))
+			FeatureDTO(f.getString("id"), f.getString("title"))
 		}
 	}
 

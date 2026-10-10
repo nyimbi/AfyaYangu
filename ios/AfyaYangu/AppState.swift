@@ -5,7 +5,6 @@ import SwiftUI
 final class AppState: ObservableObject {
 	@Published var health: HealthDTO?
 	@Published var offline = false
-	@Published var features: [FeatureDTO] = []
 	@Published var friendly: [FriendlyFeatureDTO] = []
 	@Published var card: String = ""
 
@@ -18,12 +17,10 @@ final class AppState: ObservableObject {
 	func refresh() async {
 		do {
 			health = try await client.health()
-			features = try await client.features()
 			friendly = (try? await client.friendlyFeatures()) ?? []
 			offline = false
 		} catch {
 			// Spec 16.1: UI never blocks on the network — degrade to cache.
-			if let cached = try? await client.features() { features = cached }
 			offline = true
 		}
 	}

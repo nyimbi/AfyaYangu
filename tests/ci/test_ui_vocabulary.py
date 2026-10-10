@@ -232,3 +232,28 @@ def test_native_clients_carry_no_codes(client_dir: str) -> None:
 				continue
 			bad += _scan(f'{src.relative_to(REPO)}:{line_no}', line)
 	assert bad == [], f'feature codes in native client strings: {bad}'
+
+
+@pytest.mark.parametrize('client_dir', ['ios/AfyaYangu', 'android/app/src/main/java/ke/go/health/afyayangu'])
+def test_clients_do_not_read_the_code_bearing_registry(client_dir: str) -> None:
+	"""A code can reach a screen through a served payload, not only a literal.
+
+	`/features` is the ops registry and its `id` is the spec code (`CHAN-000`); the client-facing
+	endpoint is `/mobile/features`, whose ids are slugs. Android read the registry and printed
+	`it.id` on screen, which the literal scan could not see. No client may read `/features`.
+	"""
+	root = REPO / client_dir
+	if not root.exists():
+		pytest.skip(f'{client_dir} not present')
+	bad: list[str] = []
+	for src in sorted(root.rglob('*')):
+		if src.suffix not in ('.swift', '.kt'):
+			continue
+		for line_no, line in enumerate(src.read_text(encoding='utf-8').splitlines(), 1):
+			stripped = line.strip()
+			if stripped.startswith(('//', '///', '*', '/*')):
+				continue
+			# The registry is read by the string "features" as a path; "/mobile/features" is fine.
+			if re.search(r'["\']features["\']', line) and 'mobile' not in line:
+				bad.append(f'{src.relative_to(REPO)}:{line_no}: {stripped[:70]}')
+	assert bad == [], f'clients read the code-bearing /features registry: {bad}'

@@ -74,7 +74,10 @@ class MainActivity : Activity() {
 				statusText.text = "Offline — cached state shown"
 			})
 			features.fold({ list ->
-				resultText.text = "Active features (${list.size}): " + list.joinToString { it.id }
+				// Names, never ids: the registry id is a spec code (CHAN-000, TRI-001) and must not
+				// reach a screen. The server withholds dormant capabilities, so the list is already
+				// what is live.
+				resultText.text = "Active features (${list.size}): " + list.joinToString { it.name }
 			}, {})
 		}
 	}

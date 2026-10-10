@@ -1717,10 +1717,11 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# §18.6 SHA — cover, acceptance list, benefits.
 	@app.post('/insurance/sha/verify')
-	async def sha_verify(req: SHACheckRequest) -> dict[str, object]:
+	async def sha_verify(req: SHACheckRequest, _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
 		"""Cover verification against the real authority, not the offline stub. The service keeps the
 		hash binding, so what is returned can only ever carry the hash of the number that was asked
-		about."""
+		about. Guarded: an unguarded cover check is a member-number oracle spending our SHA
+		credentials, the same class as the open facility proxy."""
 		live = InsuranceService(sha)
 		try:
 			return (await live.check(req)).model_dump(mode='json')
@@ -1758,7 +1759,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=502, detail='the PPB registry is unreachable') from exc
 
 	@app.post('/medicine/suspicious')
-	async def medicine_suspicious(report: dict[str, object]) -> dict[str, object]:
+	async def medicine_suspicious(report: dict[str, object], _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
+		"""Report a suspected falsified medicine. Guarded so the PPB report is attributable and the
+		egress is not an open relay to the regulator's intake."""
 		try:
 			ref = await ppb.report_suspicious(dict(report))
 		except AssertionError as exc:
