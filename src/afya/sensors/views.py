@@ -211,3 +211,62 @@ class SenseVerdict(BaseModel):
 	anomaly: bool
 	band: str = Field(pattern=r'^(normal|watch|alert)$')
 	detail: str
+
+class AccuracyClaim(BaseModel):
+	"""What §14 states about one sensing capability, and what it obliges the app to disclose.
+
+	§14.5 is explicit that this is not decoration: "PPG accuracy varies with skin pigmentation …
+	the app must disclose known accuracy limitations. This is an ethical requirement, not an
+	optional refinement." So the disclosure is a required field, not a note — a reading whose
+	limitations are known and unstated is the thing the section forbids.
+	"""
+	model_config = MODEL_CONFIG
+	kind: SenseKind
+	capability: str = Field(min_length=1)
+	stated_accuracy: str = Field(min_length=1)
+	limitations: list[str] = Field(min_length=1)
+	disclosure: str = Field(min_length=1)
+	not_diagnostic: bool
+	estimate_only: bool = False
+	confidence_indicator: bool = False
+	# §14.5's ethical requirement. Marked per capability rather than globally, because a claim about
+	# who was in the validation set is only honest where the spec makes it.
+	bias_disclosure_required: bool = False
+	# The signal quality below which §14's own hedge ("where signal quality permits") applies.
+	quality_floor: float = Field(default=0.0, ge=0, le=1)
+
+	@model_validator(mode='after')
+	def _a_bias_disclosure_is_stated_not_merely_required(self) -> Self:
+		if self.bias_disclosure_required and not any('skin' in x.lower() for x in self.limitations):
+			raise ValueError(f'{self.kind.value} requires a bias disclosure but states no skin-tone limitation')
+		return self
+
+	@model_validator(mode='after')
+	def _a_disclosure_is_a_sentence(self) -> Self:
+		if not self.disclosure.endswith('.'):
+			raise ValueError(f'{self.kind.value} disclosure must be a sentence')
+		return self
+
+
+class Confidence(str, Enum):
+	"""How much a reading may be relied on, which is not the same as whether it crossed a threshold."""
+	good = 'good'
+	low_quality = 'low_quality'
+	not_available = 'not_available'
+
+
+class QualifiedVerdict(BaseModel):
+	"""A verdict plus what the app owes the person about it.
+
+	Two independent things are reported because they fail independently: the reading may be in range
+	*and* unreliable, or out of range and unreliable — and a band that hides the second case is the
+	"estimate presented as a measurement" §14.5 forbids.
+	"""
+	model_config = MODEL_CONFIG
+	verdict: SenseVerdict
+	confidence: Confidence
+	disclosure: str = Field(min_length=1)
+	limitations: list[str]
+	not_diagnostic: bool
+	seek_clinician: bool
+

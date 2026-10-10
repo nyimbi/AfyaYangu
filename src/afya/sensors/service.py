@@ -7,8 +7,9 @@ config (extra='forbid') — only derived values pass.
 from afya.logmixin import LogMixin
 from afya.registry.service import FeatureRegistry, Tier
 from afya.sensors.views import (
-	Availability, BatteryCost, DeviceProvenance, Handling, MeasurementSource, Sensitivity, SenseIngest,
-	SenseKind, SenseVerdict, SensorSpec, SourceClass,
+	AccuracyClaim, Availability, BatteryCost, Confidence, DeviceProvenance, Handling,
+	MeasurementSource, QualifiedVerdict, Sensitivity, SenseIngest, SenseKind, SenseVerdict, SensorSpec,
+	SourceClass,
 )
 
 # §13.1's Full Sensor Inventory, all eighteen rows. The Data Sensitivity column is the load-bearing
@@ -118,6 +119,50 @@ def source_class(source: MeasurementSource) -> SourceClass:
 	raise AssertionError(f'no provenance class for {source}')
 
 
+# §14's accuracy statements, per capability, each with the disclosure it obliges. §14.5 is the
+# one the spec marks as an ethical requirement rather than a refinement, so its row is the only one
+# carrying `bias_disclosure_required` — and the validator makes it state a skin-tone limitation
+# rather than merely flag that one is owed.
+ACCURACY: tuple[AccuracyClaim, ...] = (
+	AccuracyClaim(kind=SenseKind.respiration, capability='Contactless breathing rate',
+		stated_accuracy='expected error under 1 breath per minute in controlled conditions, wider in practice',
+		limitations=['needs a relatively still subject', 'clothing and bedding reduce accuracy',
+			'not a substitute for clinical assessment'],
+		disclosure='An estimate of your breathing rate, not a measurement. It is less reliable if you are moving or under a blanket.',
+		not_diagnostic=True, confidence_indicator=True),
+	AccuracyClaim(kind=SenseKind.cough, capability='Cough and breathing sounds',
+		stated_accuracy='background noise reduces accuracy; it cannot tell one cough from another',
+		limitations=['background noise reduces accuracy',
+			'cannot distinguish a dangerous cough from any other cough'],
+		disclosure='Counts coughs. It cannot tell what is causing them, so it is not a diagnosis.',
+		not_diagnostic=True),
+	AccuracyClaim(kind=SenseKind.fall, capability='Fall and collapse detection',
+		stated_accuracy='machine learning reduces false alarms, but they will happen',
+		limitations=['false alarms will happen', 'a slow slide to the floor may not register'],
+		disclosure='Detects a fall and asks if you are all right. It can miss a fall or raise a false alarm.',
+		not_diagnostic=True),
+	AccuracyClaim(kind=SenseKind.ppg, capability='Heart rate, and estimated blood pressure and oxygen',
+		stated_accuracy='heart rate is reasonably accurate to about 5 beats per minute; blood pressure and oxygen are less accurate than a cuff or a pulse oximeter and vary by device, skin tone and technique',
+		limitations=['less accurate than a cuff or pulse oximeter', 'varies by device and by technique',
+			'accuracy varies with skin pigmentation'],
+		disclosure='An estimate only, and it is less reliable on darker skin. Always confirm with a health worker or a proper device.',
+		not_diagnostic=True, estimate_only=True, bias_disclosure_required=True, quality_floor=0.5),
+	AccuracyClaim(kind=SenseKind.sleep, capability='Sleep and activity',
+		stated_accuracy='derived from movement and phone use, not from a sleep study',
+		limitations=['inferred from movement, so a still awake person can read as asleep'],
+		disclosure='Sleep and activity are worked out from how you move, so they can be wrong.',
+		not_diagnostic=True),
+	AccuracyClaim(kind=SenseKind.ambient, capability='Surroundings — pressure, light, noise, temperature',
+		stated_accuracy='a reading of the room or the weather, not of a person',
+		limitations=['air quality by camera haze is only used where it has been validated'],
+		disclosure='Reads your surroundings. It says nothing about your health on its own.',
+		not_diagnostic=False),
+)
+
+_ACCURACY_BY_KIND: dict[SenseKind, AccuracyClaim] = {a.kind: a for a in ACCURACY}
+assert set(_ACCURACY_BY_KIND) == set(SenseKind), 'every sense kind needs a stated accuracy and a disclosure'
+
+
 def resp_band(rate: float) -> SenseVerdict:
 	assert 0 <= rate <= 300, 'derived rate bounds'
 	if rate < 12 or rate > 25:
@@ -176,16 +221,57 @@ class SensorService(LogMixin):
 		assert self._history == []
 
 	async def ingest(self, inp: SenseIngest) -> SenseVerdict:
+		"""Validate a derived reading and return its band. The band is the verdict; the disclosure
+		that has to travel beside it is `qualified_verdict`."""
+		return (await self.qualified_verdict(inp)).verdict
+
+	async def qualified_verdict(self, inp: SenseIngest) -> QualifiedVerdict:
+		"""A verdict plus what the app owes the person about it (§14's accuracy statements).
+
+		§14.5 makes this an ethical requirement rather than a refinement: "PPG accuracy varies with
+		skin pigmentation … the app must disclose known accuracy limitations". Two things are
+		reported because they fail independently — a reading can be in range *and* unreliable — and
+		`inp.quality` is finally consulted here: §14.5's own hedge is "blood oxygen saturation, where
+		signal quality permits", which until now nothing enforced.
+		"""
 		feat = self._registry.get(_INGEST_FEATURE[inp.kind])
 		if feat.tier is Tier.tier4 and not self._registry.tier4_active():
 			# Refusal text a person may read: no spec code, no tier number.
 			raise PermissionError(f'{inp.kind.value} sensing opens when the outbreak response is activated')
 		verdict = _ENGINES[inp.kind](inp.value)
+		claim = _ACCURACY_BY_KIND[inp.kind]
+		if inp.quality < claim.quality_floor:
+			# Below the floor the reading is not reported as a reading at all — the band would be a
+			# number presented as a measurement, which is exactly what the disclosure exists to stop.
+			confidence = Confidence.not_available
+		elif inp.quality < min(1.0, claim.quality_floor + 0.25):
+			confidence = Confidence.low_quality
+		else:
+			confidence = Confidence.good
+		disclosure = claim.disclosure
+		if confidence is Confidence.low_quality:
+			disclosure = f'This reading is unclear, so treat it as a rough guide. {disclosure}'
+		elif confidence is Confidence.not_available:
+			disclosure = 'This reading was not clear enough to use. Try again, or use a proper device.'
 		self._history.append(inp)
 		self._history = self._history[-10_000:]
 		assert len(self._history) <= 10_000, 'ingest history bounded'
-		self._log_info('sense ingested', kind=inp.kind.value, band=verdict.band)
-		return verdict
+		self._log_info('sense ingested', kind=inp.kind.value, band=verdict.band,
+		               confidence=confidence.value)
+		return QualifiedVerdict(
+			verdict=verdict, confidence=confidence, disclosure=disclosure,
+			limitations=list(claim.limitations), not_diagnostic=claim.not_diagnostic,
+			seek_clinician=claim.not_diagnostic and verdict.anomaly,
+		)
+
+	def accuracy_claims(self) -> list[AccuracyClaim]:
+		"""§14's accuracy statements and the disclosures they oblige."""
+		return list(ACCURACY)
+
+	def undisclosed_limitations(self) -> list[str]:
+		"""Capabilities whose limitations are known and unstated — the thing §14.5 forbids. Empty
+		on a correct build, which is what makes it a check rather than a report."""
+		return sorted(a.kind.value for a in ACCURACY if not a.disclosure or not a.limitations)
 
 	def history(self) -> list[SenseIngest]:
 		return list(self._history)

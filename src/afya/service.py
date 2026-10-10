@@ -547,10 +547,29 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/sensors/ingest')
 	async def sensors_ingest(inp: SenseIngest, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""Take a derived reading and return the verdict §14 obliges the app to show beside it.
+
+		The verdict alone would be a number presented as a measurement. §14.5 requires the known
+		accuracy limitations be disclosed, so the response carries the disclosure, the limitations
+		and a confidence that reflects the reading's signal quality — "where signal quality permits"
+		is §14.5's own hedge, and it is enforced here rather than assumed of the client.
+		"""
 		try:
-			return (await sensors.ingest(inp)).model_dump(mode='json')
+			return (await sensors.qualified_verdict(inp)).model_dump(mode='json')
 		except PermissionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+	@app.get('/sensors/accuracy')
+	async def sensors_accuracy() -> dict[str, object]:
+		"""§14's accuracy statements and the disclosures they oblige, for the client to show.
+
+		Public: it names no person and no reading. It is the text a person needs *before* trusting
+		a number, which is the point §14.5 makes about disclosure being an ethical requirement.
+		"""
+		return {
+			'claims': [a.model_dump(mode='json') for a in sensors.accuracy_claims()],
+			'undisclosed_limitations': sensors.undisclosed_limitations(),
+		}
 
 	# §13.1's capability matrix. The rows name no person and no reading, so the matrix is public —
 	# a prospective user deciding whether the app suits their handset is exactly who it is for. The

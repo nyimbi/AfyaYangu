@@ -319,3 +319,102 @@ async def test_a_provenance_class_carries_no_spec_code(svc: SensorService) -> No
 	import re
 	body = str(svc.external_device_gap())
 	assert re.search(r'\b(?:SENS|SEC|ACC|REC|MON)-\d{3}\b', body) is None, 'a spec code reached a payload'
+
+
+# --- §14 accuracy statements and the disclosure §14.5 makes an ethical requirement -----------
+
+async def test_every_sense_kind_states_its_accuracy_and_its_limits() -> None:
+	"""§14 states an accuracy figure and a limitation list for each capability. §14.5 is explicit
+	that disclosing them is "an ethical requirement, not an optional refinement", so a capability
+	with no stated limitation is the thing the section forbids."""
+	from afya.sensors.service import ACCURACY
+	from afya.sensors.views import SenseKind
+	assert {a.kind for a in ACCURACY} == set(SenseKind)
+	for a in ACCURACY:
+		assert a.stated_accuracy and a.limitations and a.disclosure, a.kind
+		assert a.disclosure.endswith('.'), a.kind
+
+
+async def test_the_bias_disclosure_is_required_where_the_spec_requires_it(svc: SensorService) -> None:
+	"""§14.5: "PPG accuracy varies with skin pigmentation … the app must disclose known accuracy
+	limitations." The row must carry the limitation, not merely a flag saying one is owed."""
+	from afya.sensors.service import ACCURACY
+	from afya.sensors.views import AccuracyClaim, SenseKind
+	ppg = next(a for a in ACCURACY if a.kind is SenseKind.ppg)
+	assert ppg.bias_disclosure_required is True
+	assert any('skin' in x.lower() for x in ppg.limitations)
+	assert 'darker skin' in ppg.disclosure
+	assert svc.undisclosed_limitations() == []
+	with pytest.raises(ValidationError, match='states no skin-tone limitation'):
+		AccuracyClaim(kind=SenseKind.ppg, capability='x', stated_accuracy='y',
+		              limitations=['varies by device'], disclosure='z.', not_diagnostic=True,
+		              bias_disclosure_required=True)
+
+
+async def test_signal_quality_gates_the_reading() -> None:
+	"""§14.5's own hedge is "blood oxygen saturation — where signal quality permits". Nothing read
+	`SenseIngest.quality` before, so a reading taken through a bad signal was reported as a reading.
+	Below the floor it is not reported as one at all."""
+	from afya.registry.service import FeatureRegistry
+	from afya.sensors.views import Confidence, SenseIngest, SenseKind
+	svc = SensorService(FeatureRegistry())
+	async def at(q: float):  # noqa: ANN202
+		return await svc.qualified_verdict(SenseIngest(kind=SenseKind.ppg, subject_ref='U1', value=72,
+		                                               quality=q, county='Nairobi'))
+	assert (await at(0.9)).confidence is Confidence.good
+	low = await at(0.6)
+	assert low.confidence is Confidence.low_quality and 'rough guide' in low.disclosure
+	unusable = await at(0.3)
+	assert unusable.confidence is Confidence.not_available
+	assert 'not clear enough to use' in unusable.disclosure
+	assert 'An estimate only' not in unusable.disclosure, 'an unusable reading is not offered as an estimate'
+
+
+async def test_an_anomaly_carries_the_clinician_prompt_and_the_limits() -> None:
+	"""A band on its own is a number. An out-of-range reading on a not-diagnostic capability has to
+	say both that it is not a diagnosis and that a clinician is the next step."""
+	from afya.registry.service import FeatureRegistry, Tier4Activation
+	from afya.sensors.views import SenseIngest, SenseKind
+	# Cough sensing is Tier 4, so the outbreak event has to be open before it can be read at all.
+	reg = FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_reviewed=True, flag_enabled=True))
+	svc = SensorService(reg)
+	out = await svc.qualified_verdict(SenseIngest(kind=SenseKind.cough, subject_ref='U1', value=40,
+	                                              quality=0.9, county='Nairobi'))
+	assert out.verdict.anomaly is True and out.not_diagnostic is True and out.seek_clinician is True
+	assert any('cannot distinguish' in x for x in out.limitations)
+	calm = await svc.qualified_verdict(SenseIngest(kind=SenseKind.cough, subject_ref='U1', value=4,
+	                                               quality=0.9, county='Nairobi'))
+	assert calm.seek_clinician is False
+
+
+async def test_the_accuracy_surface_serves_the_disclosure_without_a_spec_code() -> None:
+	import httpx
+	import re
+	from afya.service import create_app
+	app = create_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		out = (await c.get('/sensors/accuracy')).json()
+		assert len(out['claims']) == 6 and out['undisclosed_limitations'] == []
+		body = str(out)
+		assert re.search(r'\b(?:SENS|SEC|ACC|REC|MON|LOC|COM|ALT|AI|CHAN|INF|TRI|FND|MED|EMG)-\d{3}\b', body) is None
+
+
+async def test_the_ingest_route_returns_the_disclosure_not_just_the_band() -> None:
+	import httpx
+	from afya.service import build_services, create_app
+	from afya.registry.service import Tier4Activation
+	services = build_services()
+	# Open the outbreak event so a Tier-4 capability can be read; the disclosure is the same
+	# question either way, and this keeps the test about the disclosure.
+	services["registry"].activate(Tier4Activation(  # type: ignore[attr-defined]
+		authorized_by_pheoc=True, dpia_reviewed=True, flag_enabled=True))
+	app = create_app(services)
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		token = (await c.post('/auth/anonymous', json={'subject_ref': 'U1'})).json()['token']
+		r = await c.post('/sensors/ingest', headers={'authorization': f'Bearer {token}'}, json={
+			'kind': 'cough', 'subject_ref': 'U1', 'value': 40, 'quality': 0.9, 'county': 'Nairobi'})
+		out = r.json()
+		assert r.status_code == 200, out
+		assert out['verdict']['band'] == 'alert'
+		assert out['disclosure'] and out['limitations'] and out['confidence'] == 'good'
+		assert out['seek_clinician'] is True
