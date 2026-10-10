@@ -1086,6 +1086,22 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def sync_flush() -> dict[str, int]:
 		return (await sync.flush(0)).model_dump(mode='json')
 
+	@app.get('/sync/state')
+	async def sync_state(connection: str = 'offline') -> dict[str, object]:
+		"""§16.1 principle 4 / ACC-003: what the offline indicator shows.
+
+		Unscoped because it names no person — it is the state of *this* handset's queue, which the
+		client reads to draw its own banner. `durable` is computed from whether the deployment has
+		a store, so an indicator cannot claim a queued write survives a restart in a build where it
+		does not.
+		"""
+		try:
+			conn = ConnectionClass(connection)
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=f'unknown connection class {connection}') from exc
+		await sync.load()
+		return sync.offline_state(conn).model_dump(mode='json')
+
 	@app.get('/sync/conflicts')
 	async def sync_conflicts(_subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
 		"""§16.3's appeal surface: the writes the server overruled, and whether each can be appealed.

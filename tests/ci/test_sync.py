@@ -265,3 +265,64 @@ async def test_the_appeal_surface_is_reachable_and_carries_no_spec_code() -> Non
 		assert (await c.post('/sync/conflicts/OP-NOPE/appeal', json={'note': 'x'}, headers=h)).status_code == 404
 		body = str(out)
 		assert re.search(r'\b(?:SENS|SEC|ACC|REC|MON|LOC|COM|ALT|AI|CHAN|INF|TRI|FND|MED|EMG)-\d{3}\b', body) is None
+
+
+# --- §16.1 principle 4 / ACC-003: the offline indicator --------------------------------------
+
+async def test_the_indicator_counts_what_is_actually_queued() -> None:
+	"""§16.1 principle 4 and ACC-003's "clear offline indicator in the UI". The numbers are read
+	from the queue rather than passed in, so an indicator cannot disagree with the queue it shows."""
+	svc = SyncService()
+	await svc.enqueue(SyncOp(op_id='OP-QUEUE001', dataset='symptom_logs', client_ts=1, payload={'a': 'b'}))
+	await svc.enqueue(SyncOp(op_id='OP-QUEUE002', dataset='medication', client_ts=2, payload={'a': 'c'}))
+	offline = svc.offline_state(ConnectionClass.offline)
+	assert offline.connection is ConnectionClass.offline and offline.pending == 2
+	assert 'saved on this phone' in offline.detail, offline.detail
+	on_wifi = svc.offline_state(ConnectionClass.wifi)
+	assert on_wifi.pending == 2 and on_wifi.label == 'Not yet sent'
+	await svc.flush(5000)
+	assert svc.offline_state(ConnectionClass.wifi).label == 'Up to date'
+	assert svc.offline_state(ConnectionClass.wifi).last_synced_at_ms == 5000
+
+
+async def test_the_indicator_says_when_a_write_was_overruled() -> None:
+	"""A person whose reading the health service kept needs to be told, not shown "up to date"."""
+	svc = SyncService()
+	await svc.enqueue(SyncOp(op_id='OP-OVERRUL1', dataset='immunisation', client_ts=1, payload={'d': '1'}))
+	svc._server_state['immunisation'] = {'OP-OVERRUL1': SyncOp(  # noqa: SLF001
+		op_id='OP-OVERRUL1', dataset='immunisation', client_ts=1, server_ts=9, payload={'d': '2'})}
+	await svc.flush(0)
+	st = svc.offline_state(ConnectionClass.wifi)
+	assert st.label == 'Needs your attention' and st.open_conflicts == 1
+	assert 'kept instead of yours' in st.detail, st.detail
+
+
+async def test_durability_is_computed_from_whether_a_store_exists() -> None:
+	"""§16.1 principle 5 is "every queued write survives app restart and device reboot". A service
+	with no store does not keep that promise, and the indicator must say so rather than reassure —
+	`durable` is read off the store, not stated as a constant."""
+	import tempfile
+	from afya.persistence.service import SqliteStore
+	bare = SyncService()
+	assert bare.offline_state(ConnectionClass.offline).durable is False
+	assert 'lost if the app closes' in bare.offline_state(ConnectionClass.offline).detail
+	with tempfile.TemporaryDirectory() as d:
+		backed = SyncService(SqliteStore(f'{d}/s.db'))
+		st = backed.offline_state(ConnectionClass.offline)
+		assert st.durable is True and 'lost if the app closes' not in st.detail
+
+
+async def test_the_indicator_route_is_public_and_carries_no_spec_code() -> None:
+	"""It names no person — it is the state of the handset's own queue — so it needs no token, and
+	what it serves is copy a user reads, so no spec code may appear in it."""
+	import httpx
+	import re
+	from afya.service import create_app
+	app = create_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		out = (await c.get('/sync/state')).json()
+		assert out['label'] == 'Offline' and out['durable'] is False
+		assert (await c.get('/sync/state', params={'connection': 'nonsense'})).status_code == 422
+		assert (await c.get('/sync/state', params={'connection': 'wifi'})).json()['label'] == 'Up to date'
+		body = str(out)
+		assert re.search(r'\b(?:SENS|SEC|ACC|REC|MON|LOC|COM|ALT|AI|CHAN|INF|TRI|FND|MED|EMG)-\d{3}\b', body) is None

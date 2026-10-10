@@ -23,9 +23,10 @@ from afya.registry.service import FeatureRegistry
 # These are capabilities the device performs or the deployment holds, not screens a person opens;
 # naming them here is what makes the gap a decision rather than an oversight.
 ON_DEVICE: dict[str, str] = {
-	# The three cross-cutting architecture properties. There is no call to make: the app either is
-	# offline-first, processes on-device and can be used pseudonymously, or it is not.
-	'ACC-003': 'offline-first is a property of every screen, not an action',
+	# The two remaining cross-cutting architecture properties. There is no call to make: the app
+	# either processes on-device and can be used pseudonymously, or it is not. (ACC-003's
+	# offline-first property has one call after all — `offline_state` serves the sync indicator
+	# §16.1 principle 4 requires — so it is no longer listed here.)
 	'SEC-002': 'on-device processing means the raw data never reaches a route',
 	'SEC-004': 'pseudonymous use is the absence of an account, not an action',
 	# On-device sensing and device integration: the raw signal is consumed locally and only a

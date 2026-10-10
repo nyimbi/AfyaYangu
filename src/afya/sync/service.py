@@ -5,7 +5,8 @@ import json
 from afya.logmixin import LogMixin
 from afya.sync.views import (
 	POLICY_BY_CONNECTION, RULE_BY_DATASET, AppealState, ConflictRecord, ConflictStrategy,
-	ConflictRule, ConnectionClass, STRATEGY_MATRIX, SyncBatch, SyncOp, SyncPolicy, SyncStatus,
+	ConflictRule, ConnectionClass, OfflineState, STRATEGY_MATRIX, SyncBatch, SyncOp, SyncPolicy,
+	SyncStatus,
 )
 
 
@@ -53,6 +54,7 @@ class SyncService(LogMixin):
 		# appeal a server-authoritative overwrite, which is only possible if the overruled value is
 		# still held somewhere after the queue drops it.
 		self._conflicts: dict[str, ConflictRecord] = {}
+		self._last_synced_at_ms: int | None = None
 		assert self._queue == {} and self._server_state == {}
 
 	async def load(self) -> int:
@@ -92,6 +94,36 @@ class SyncService(LogMixin):
 
 	def conflicts(self, subject_ref: str | None = None) -> list[ConflictRecord]:
 		return sorted(self._conflicts.values(), key=lambda c: (c.dataset, c.op_id))
+
+	def offline_state(self, connection: ConnectionClass) -> OfflineState:
+		"""§16.1 principle 4, computed. `durable` reports whether the queue is actually backed by a
+		store — a service with none keeps §16.1's promise only until the process exits, and saying
+		so is the difference between an indicator and a reassurance."""
+		pending = len([o for o in self._queue.values() if not o.synced])
+		open_conflicts = self.open_conflicts()
+		if connection is ConnectionClass.offline:
+			label = 'Offline'
+			detail = (
+				f'{pending} change{"" if pending == 1 else "s"} saved on this phone and will send '
+				'when you have a connection.' if pending
+				else 'You are offline. Everything you entered has been sent.'
+			)
+		elif pending:
+			label = 'Not yet sent'
+			detail = f'{pending} change{"" if pending == 1 else "s"} waiting to send.'
+		elif open_conflicts:
+			label = 'Needs your attention'
+			detail = f'{len(open_conflicts)} change{"" if len(open_conflicts) == 1 else "s"} the health service kept instead of yours.'
+		else:
+			label = 'Up to date'
+			detail = 'Everything you entered has been sent.'
+		if not self._store:
+			detail += ' This device is not keeping a copy, so unsent changes are lost if the app closes.'
+		return OfflineState(
+			connection=connection, label=label, pending=pending, conflicts=len(self._conflicts),
+			open_conflicts=len(open_conflicts), durable=self._store is not None,
+			last_synced_at_ms=self._last_synced_at_ms, detail=detail,
+		)
 
 	def open_conflicts(self) -> list[ConflictRecord]:
 		"""Conflicts still needing someone's attention — §16.3's appeal surface."""
@@ -230,5 +262,7 @@ class SyncService(LogMixin):
 						op.attempt += 1
 						await self._store.save_sync_op(op)
 		pending = len([o for o in self._queue.values() if not o.synced])
+		if synced:
+			self._last_synced_at_ms = now_ms
 		self._log_info('flush done', synced=synced, pending=pending, conflicts=len(self._conflicts))
 		return SyncStatus(pending=pending, synced=synced, conflicts=len(self._conflicts))

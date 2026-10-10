@@ -178,3 +178,22 @@ class SyncStatus(BaseModel):
 	pending: int
 	synced: int
 	conflicts: int
+
+
+class OfflineState(BaseModel):
+	"""§16.1 principle 4 / ACC-003's "clear offline indicator in the UI", as the data behind it.
+
+	The indicator is the one place a person learns whether their work is safe, so what it renders
+	is computed from the queue rather than asserted: `durable` is False when no store is attached,
+	which means §16.1's "every queued write survives app restart" does not hold in that deployment
+	and the user should be told rather than reassured.
+	"""
+	model_config = MODEL_CONFIG
+	connection: ConnectionClass
+	label: str = Field(min_length=1)
+	pending: int = Field(ge=0)
+	conflicts: int = Field(ge=0)
+	open_conflicts: int = Field(ge=0)
+	durable: bool
+	last_synced_at_ms: int | None = None
+	detail: str = Field(min_length=1)
