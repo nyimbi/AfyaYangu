@@ -1,5 +1,6 @@
 """Surveillance service — signal aggregation, geofence registry, PHEOC activation gate, append-only PET store."""
 import statistics
+from typing import Any
 
 from afya.logmixin import LogMixin
 from afya.registry.service import FeatureRegistry
@@ -35,8 +36,9 @@ def estimate_breath_rate(series: list[float], fps: float = 30.0) -> float:
 
 
 class SurveillanceService(LogMixin):
-	def __init__(self, registry: FeatureRegistry) -> None:
+	def __init__(self, registry: FeatureRegistry, privacy: Any | None = None) -> None:
 		self._registry = registry
+		self._privacy = privacy  # §24.7: the DPO's DPIA is the key this gate reads, not a boolean
 		self._tokens: list[ProximityToken] = []
 		self._geofences: list[Geofence] = []
 		assert self._tokens == [] and self._geofences == []
@@ -52,8 +54,18 @@ class SurveillanceService(LogMixin):
 		own = set(own_tokens)
 		return len([t for t in self._tokens if t.token in own and now_ms - t.seen_at_ms <= window_ms])
 
-	async def activate_tier4(self, authorized_by_pheoc: bool, dpia_reviewed: bool, flag_enabled: bool, bulletin: str | None = None) -> bool:
+	def assess_tier4(self, inp: Any) -> Any:
+		"""The DPIA for the activation being requested. §24.7 puts the DPIA before each Tier-4
+		activation, and the risk the gate exists for is the one `raw_sensor_data_retained` names —
+		so the flag is read from the assessment, not asserted by the caller."""
+		return self._privacy.assess_dpia(inp) if self._privacy is not None else None
+
+	async def activate_tier4(self, authorized_by_pheoc: bool, dpia_reviewed: bool, flag_enabled: bool, bulletin: str | None = None, dpia: Any | None = None) -> bool:
 		from afya.registry.service import Tier4Activation
+		if dpia is not None and getattr(dpia, 'blocked', False):
+			# A blocked DPIA is not "reviewed": §17.2's data-minimisation violation cannot be
+			# acknowledged away by a caller passing dpia_reviewed=True alongside it.
+			dpia_reviewed = False
 		activation = Tier4Activation(authorized_by_pheoc=authorized_by_pheoc, dpia_reviewed=dpia_reviewed, flag_enabled=flag_enabled, bulletin_text=bulletin)
 		self._registry.activate(activation)
 		active = self._registry.tier4_active()

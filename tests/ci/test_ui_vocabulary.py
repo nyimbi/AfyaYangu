@@ -10,6 +10,7 @@ code that reaches a screen through any route is caught, not just one written int
 """
 import re
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -18,6 +19,7 @@ from afya.mobile.actions import (
 	DORMANT_SLUGS,
 	FEATURE_OF,
 	FRIENDLY_COPY,
+	OPERATOR_SCOPES,
 	available,
 	catalogue,
 	dormant_slugs,
@@ -29,6 +31,20 @@ from afya.service import create_app
 FEATURE_CODE = re.compile(r'\b(?:CHAN|INF|TRI|FND|MED|EMG|REC|MON|SENS|LOC|COM|ALT|AI|ACC|SEC)-\d{3}\b')
 
 REPO = Path(__file__).resolve().parents[2]
+
+
+def _outbreak_app() -> tuple[Any, dict[str, str]]:
+	"""The app and an operator's token for it.
+
+	The token must come from the *same* service instance the app was built with — `AuthService`
+	holds issued tokens in memory, so a token minted on a fresh `build_services()` is unknown to a
+	separately built app and every request reads as unauthenticated.
+	"""
+	from afya.privacy.views import RBACRole
+	from afya.service import build_services
+	services = build_services()
+	ops = services['auth'].provision_staff('ops-0', RBACRole.sysadmin, registrar='MoH ops').access_token  # type: ignore[union-attr]
+	return create_app(services), {'authorization': f'Bearer {ops}'}
 
 
 def _silent_wav(seconds: int = 2) -> bytes:
@@ -130,13 +146,17 @@ async def test_dormant_capabilities_are_withheld_until_activation() -> None:
 	assert len(available(False)) < len(available(True)), 'activation must reveal something'
 	assert {a.id for a in available(True)} - {a.id for a in available(False)} == set(hidden)
 
-	app = create_app()
+	app, h = _outbreak_app()
 	transport = httpx.ASGITransport(app=app)
 	async with httpx.AsyncClient(transport=transport, base_url='http://t') as c:
-		before = {a['id'] for a in (await c.get('/mobile/actions')).json()}
+		# Read with the operator's token: the activation control is itself an operator action, and
+		# the catalogue withholds what a caller's role cannot reach. A citizen sees neither it nor
+		# anything it unlocks, which is the property the next test asserts.
+		before = {a['id'] for a in (await c.get('/mobile/actions', headers=h)).json()}
 		assert not (before & hidden), 'dormant capabilities served before activation'
-		await c.post('/tier4/activate', json={'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True})
-		after = {a['id'] for a in (await c.get('/mobile/actions')).json()}
+		await c.post('/tier4/activate', headers=h,
+		             json={'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True})
+		after = {a['id'] for a in (await c.get('/mobile/actions', headers=h)).json()}
 		assert after - before == set(hidden), 'activation must unlock exactly the dormant set'
 
 
@@ -257,3 +277,69 @@ def test_clients_do_not_read_the_code_bearing_registry(client_dir: str) -> None:
 			if re.search(r'["\']features["\']', line) and 'mobile' not in line:
 				bad.append(f'{src.relative_to(REPO)}:{line_no}: {stripped[:70]}')
 	assert bad == [], f'clients read the code-bearing /features registry: {bad}'
+
+
+async def test_an_operator_control_is_not_offered_to_a_citizen() -> None:
+	"""The other half of §11.1's rule, on the other axis.
+
+	Dormancy withholds a control whose *feature* is dark. This is the same failure on the caller's
+	axis: `publish_content` writes what the Ministry says and `content_governance` reads who signed
+	it off, and both are guarded on an operator dataset. A citizen token calling them gets a 403,
+	so serving the controls to a citizen offers four screens that refuse — the exact thing the
+	dormancy rule exists to prevent, wearing a different hat.
+
+	The list is crossed against the routes' real guards in `test_operator_scopes_match_the_routes`,
+	so a guard that changes cannot leave a stale control behind.
+	"""
+	app, h = _outbreak_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		await c.post('/tier4/activate', headers=h,
+		             json={'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True})
+		anon = (await c.post('/auth/anonymous', json={'subject_ref': 'U1'})).json()['token']
+		citizen = {a['id'] for a in (await c.get('/mobile/actions', headers={'authorization': f'Bearer {anon}'})).json()}
+		operator = {a['id'] for a in (await c.get('/mobile/actions', headers=h)).json()}
+		assert not (citizen & set(OPERATOR_SCOPES)), 'operator controls served to a citizen'
+		# Each control is reachable by *a* role holding its scope. §17.4 splits the two operator
+		# scopes across different roles, so this is asserted per scope rather than against one token.
+		for slug, scope in OPERATOR_SCOPES.items():
+			assert slug in {a.id for a in available(True, frozenset({scope}))}, \
+				f'{slug} is unreachable even by a role holding {scope}'
+		assert 'publish_content' in operator, 'the operator token must reach what its scope opens'
+		# And the control really would have refused: the claim is about the route, not the label.
+		refused = await c.post('/info/content', headers={'authorization': f'Bearer {anon}'}, json={})
+		assert refused.status_code == 403
+
+
+def test_operator_scopes_match_the_routes() -> None:
+	"""The catalogue's operator list must name the scope each route actually checks.
+
+	A control withheld under the wrong scope is offered to someone who will be refused, or hidden
+	from someone who could have used it. Read off the route's own dependency rather than restated.
+	"""
+	from afya.service import build_services
+	import inspect
+	app = create_app(build_services())
+	scopes = {'infrastructure', 'audit_logs', 'county_aggregate', 'national_aggregate', 'assigned'}
+	by_path: dict[str, str] = {}
+
+	def walk(routes: object) -> None:
+		for r in routes:  # type: ignore[attr-defined]
+			if hasattr(r, 'routes'):
+				walk(r.routes)
+				continue
+			ep = getattr(r, 'endpoint', None)
+			if ep is None:
+				continue
+			dep = next((p.default for p in inspect.signature(ep).parameters.values()
+			            if type(p.default).__name__ == 'Depends'), None)
+			for cell in getattr(getattr(dep, 'dependency', None), '__closure__', None) or ():
+				if isinstance(cell.cell_contents, str) and cell.cell_contents in scopes:
+					by_path[getattr(r, 'path', '')] = cell.cell_contents
+
+	walk(app.routes)
+	if True:
+		for action in catalogue():
+			if action.id not in OPERATOR_SCOPES:
+				continue
+			assert by_path.get(action.path) == OPERATOR_SCOPES[action.id], \
+				f'{action.id}: catalogue says {OPERATOR_SCOPES[action.id]}, route {action.path} checks {by_path.get(action.path)}'

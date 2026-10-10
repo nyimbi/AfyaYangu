@@ -42,7 +42,7 @@ from afya.facilities.views import Booking, Facility, NearestRequest
 from afya.info.service import InfoService
 from afya.info.views import WORKFLOW, ContentItem, CountyRisk
 from afya.privacy.service import PrivacyService
-from afya.privacy.views import ConsentRecord, DPIAInput, RBACRole
+from afya.privacy.views import _SCOPE, ConsentRecord, DPIAInput, RBACRole
 from afya.records.service import RecordsService
 from afya.records.views import GrowthRecord, ImmunisationRecord, LabResult, WalletMember
 from afya.ml.cough import SR as WAV_SR, YamnetCoughEngine
@@ -129,6 +129,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	registry = FeatureRegistry()
 	sms_port = AtSmsRestSend(cfg.at_base_url, cfg.at_api_key, cfg.at_username, client) if cfg.at_api_key else AfricaTalkingSmsPort(cfg.at_base_url, cfg.at_api_key or 'dev-key')
 	store = SqliteStore(db_path) if db_path else None
+	privacy_svc = PrivacyService(store)
 	try:
 		from afya.ml.cough import YamnetCoughEngine as YCE
 		cough_engine: object = YCE()
@@ -138,8 +139,10 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'registry': registry,
 		'store': store,
 		'cough_engine': cough_engine,
+		# §24.7: the Tier-4 gate reads the DPO's DPIA, so the two services are wired, not independent.
+		'privacy': privacy_svc,
 		'triage': TriageService(registry),
-		'surveillance': SurveillanceService(registry),
+		'surveillance': SurveillanceService(registry, privacy_svc),
 		'sensors': SensorService(registry),
 		'medicine': MedicineService(PPBClient(cfg.ppb_url, client, '')),
 		'facilities': FacilityService(),
@@ -156,7 +159,6 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'insurance': InsuranceService(InlineSHAPort()),
 		'places': PlacesService(),
 		'evidence': EvidenceService(registry, FileSystemEvidenceStore('var/evidence')),
-		'privacy': PrivacyService(store),
 		'sync': SyncService(store),
 		'monitoring': MonitoringService(),
 		'community': CommunityService(),
@@ -1059,17 +1061,31 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return privacy.assess_dpia(inp).model_dump(mode='json')
 
 	# --- tier4 + surveillance ---
+	# Turning on the outbreak capabilities is an operations action, not something a client asks for.
+	# §11.1's three keys are held by PHEOC (authorisation), the DPO (the DPIA) and the flag; §17.4
+	# puts infrastructure in the sysadmin's hands, and the caller's role is checked against the same
+	# `_SCOPE` map every other route uses rather than a second list that could drift.
 	@app.post('/tier4/activate')
-	async def tier4_activate(auth: Tier4Activation) -> dict[str, object]:
+	async def tier4_activate(auth: Tier4Activation, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
 		"""§11.1: all three keys or nothing. The response names what is missing and what the
-		activation unlocks, so a refusal is diagnosable instead of a bare false."""
+		activation unlocks, so a refusal is diagnosable instead of a bare false.
+
+		`dpia_reviewed` is not taken on the caller's word: the DPIA is assessed from the deployment
+		described in the request, and a blocked assessment cannot be acknowledged away — §17.2's
+		data-minimisation violation is the risk this key exists to hold shut.
+		"""
+		report = surveillance.assess_tier4(auth.dpia_input) if auth.dpia_input is not None else None
 		active = await surveillance.activate_tier4(
-			auth.authorized_by_pheoc, auth.dpia_reviewed, auth.flag_enabled, auth.bulletin_text,
+			auth.authorized_by_pheoc, auth.dpia_reviewed, auth.flag_enabled, auth.bulletin_text, dpia=report,
 		)
 		return {
 			'activated': active,
-			'unmet_keys': auth.unmet_keys(),
+			# Read off the activation that ran, not off the request: a DPIA the assessment blocked
+			# changes which key is missing, and a refusal that named the caller's own claims would
+			# report every key held while nothing turned on.
+			'unmet_keys': registry.activation.unmet_keys(),
 			'unlocked_features': [s.id for s in registry.by_tier(Tier.tier4)] if active else [],
+			'dpia_risks': list(report.risks) if report is not None else [],
 			'message': (
 				'Outbreak capabilities are live for this event.'
 				if active else 'Outbreak capabilities stay dark until all three keys are held.'
@@ -1112,11 +1128,26 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		]
 
 	@app.get('/mobile/actions')
-	async def mobile_actions() -> list[dict[str, object]]:
-		"""Dormant outbreak capabilities are withheld until PHEOC activates the event, so a person
-		never sees a control that would refuse them (§11.1)."""
+	async def mobile_actions(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+		"""What this caller may actually do.
+
+		Two filters, both against showing a control that would refuse. Dormant outbreak capabilities
+		are withheld until PHEOC activates the event (§11.1). And an operator control is withheld
+		from a caller whose role does not hold the dataset its route checks — a health-information
+		form offered to a citizen token is a 403 waiting to happen, which is the same failure.
+
+		No token means a citizen: the app's own screens work unauthenticated, so the citizen set is
+		the default rather than a refusal.
+		"""
 		from afya.mobile.actions import available
-		return [act.model_dump(mode='json') for act in available(registry.tier4_active())]
+		scopes: frozenset[str] = frozenset()
+		if authorization:
+			try:
+				_subject, role = require_token(authorization)
+				scopes = frozenset(_SCOPE.get(role, set()))
+			except HTTPException:
+				scopes = frozenset()
+		return [act.model_dump(mode='json') for act in available(registry.tier4_active(), scopes)]
 
 	@app.get('/places/nearest')
 	async def places_nearest(lat: float, lon: float, kinds: list[str] | None = None, limit: int = 5) -> list[dict[str, object]]:

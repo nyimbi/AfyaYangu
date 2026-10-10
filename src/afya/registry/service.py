@@ -5,6 +5,7 @@ from afya.logmixin import LogMixin
 from pydantic import BaseModel, ConfigDict, Field
 
 from afya.ids import uuid7str
+from afya.privacy.views import DPIAInput
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -36,6 +37,9 @@ class Tier4Activation(BaseModel):
 	dpia_reviewed: bool
 	flag_enabled: bool
 	bulletin_text: str | None = None
+	# §24.7: the DPIA precedes each Tier-4 activation. Carried here rather than in a second model
+	# so the gate and the assessment of what it turns on cannot be described separately.
+	dpia_input: DPIAInput | None = None
 
 	def is_active(self) -> bool:
 		return self.authorized_by_pheoc and self.dpia_reviewed and self.flag_enabled

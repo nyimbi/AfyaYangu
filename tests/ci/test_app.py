@@ -1,7 +1,8 @@
 import httpx
 import pytest
 
-from afya.service import create_app
+from afya.privacy.views import RBACRole
+from afya.service import build_services, create_app
 
 
 @pytest.fixture
@@ -82,14 +83,32 @@ async def test_records_and_privacy_endpoints(client: httpx.AsyncClient) -> None:
 	assert dpia['blocked'] is True
 
 
-async def test_tier4_activation_gate(client: httpx.AsyncClient) -> None:
-	denied = (await client.post('/tier4/activate', json={'authorized_by_pheoc': False, 'dpia_reviewed': True, 'flag_enabled': True})).json()
-	assert denied['activated'] is False
-	assert denied['unmet_keys'] == ['pheoc_authorization'], 'the refusal must name the missing key'
-	assert denied['unlocked_features'] == [], 'nothing unlocks on a partial gate'
-	granted = (await client.post('/tier4/activate', json={'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True})).json()
-	assert granted['activated'] is True
-	assert granted['unmet_keys'] == []
-	assert granted['unlocked_features'], 'activation must name what it turned on'
-	assert (await client.get('/health')).json()['tier4'] is True
-	assert (await client.post('/triage/evd', json={'symptoms': ['fever'], 'temperature_c': 39.2, 'ebola_contact': True})).json()['risk_level'] == 'high'
+async def test_tier4_activation_gate() -> None:
+	# Turning on the outbreak capabilities is an operations action: the sysadmin's token, checked
+	# through the same `_SCOPE` map every other route uses. Without that guard this route was
+	# reachable by anyone, and its three keys were a body the caller filled in about itself.
+	svc = build_services()
+	ops = svc['auth'].provision_staff('ops-0', RBACRole.sysadmin, registrar='MoH ops').access_token  # type: ignore[union-attr]
+	h = {'authorization': f'Bearer {ops}'}
+	app = create_app(svc)
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://testserver') as client:
+		assert (await client.post('/tier4/activate', json={'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True})).status_code in (401, 403)
+		denied = (await client.post('/tier4/activate', json={'authorized_by_pheoc': False, 'dpia_reviewed': True, 'flag_enabled': True}, headers=h)).json()
+		assert denied['activated'] is False
+		assert denied['unmet_keys'] == ['pheoc_authorization'], 'the refusal must name the missing key'
+		assert denied['unlocked_features'] == [], 'nothing unlocks on a partial gate'
+		# §17.2: a DPIA that finds raw sensor retention cannot be acknowledged away by the caller
+		# passing dpia_reviewed=True alongside it — the assessment blocks the key it describes.
+		blocked = (await client.post('/tier4/activate', headers=h, json={
+			'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True,
+			'dpia_input': {'raw_sensor_data_retained': True},
+		})).json()
+		assert blocked['activated'] is False and blocked['unmet_keys'] == ['dpia_review'], \
+			'a blocked DPIA must hold the key shut however the caller describes it'
+		assert blocked['dpia_risks'], 'the refusal must say what the assessment found'
+		granted = (await client.post('/tier4/activate', json={'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True}, headers=h)).json()
+		assert granted['activated'] is True
+		assert granted['unmet_keys'] == []
+		assert granted['unlocked_features'], 'activation must name what it turned on'
+		assert (await client.get('/health')).json()['tier4'] is True
+		assert (await client.post('/triage/evd', json={'symptoms': ['fever'], 'temperature_c': 39.2, 'ebola_contact': True})).json()['risk_level'] == 'high'

@@ -131,6 +131,17 @@ FEATURE_OF: dict[str, str] = {
 	'chw_case_load': 'COM-101', 'chw_ppe_reminder': 'COM-101',
 }
 
+# Actions whose route is guarded on an operator dataset, and the scope that opens it. Everything
+# not listed is a citizen action reachable with a citizen token. `OPERATOR_SCOPES` is the mobile
+# mirror of the guard each route carries; `test_ui_vocabulary.py` crosses the two so a route whose
+# guard changes cannot leave a control behind that 403s.
+OPERATOR_SCOPES: dict[str, str] = {
+	'activate_outbreak_mode': 'infrastructure',
+	'publish_content': 'infrastructure',
+	'advance_content': 'infrastructure',
+	'content_governance': 'audit_logs',
+}
+
 # Slugs withheld until PHEOC activates the outbreak event (§11.1). Grouped by the feature that
 # governs them; every Tier-4 feature that has an action appears here in full. The registry is the
 # backstop — `available()` also derives dormancy from the tier model, so a Tier-4 feature added
@@ -384,11 +395,24 @@ def dormant_slugs() -> frozenset[str]:
 	return DORMANT_SLUGS | frozenset(slug for slug, feat in FEATURE_OF.items() if feat in tier4)
 
 
-def available(tier4_active: bool) -> list[MobileAction]:
-	"""Actions the client may show right now. Dormant outbreak capabilities stay hidden until
-	PHEOC activates the event, so a person never sees a switch that would refuse them."""
+def available(tier4_active: bool, scopes: frozenset[str] | None = None) -> list[MobileAction]:
+	"""Actions the client may show right now.
+
+	Two ways a control is withheld, for the same reason — a person must never see a switch that
+	would refuse them. Dormant outbreak capabilities stay hidden until PHEOC activates the event
+	(§11.1). And an operator control is hidden from a caller whose role does not hold the §17.4
+	dataset its route checks: `publish_content` is not a citizen action, and offering a health-
+	information form to a phone that will get a 403 is the dormancy bug wearing a different hat.
+
+	`scopes` is the caller's scope set. `None` means "show everything", which is what the
+	catalogue's own tests and the operator tooling want; a request supplies the real set.
+	"""
 	hidden = dormant_slugs()
-	rows = [a for a in catalogue() if tier4_active or a.id not in hidden]
+	rows = [
+		a for a in catalogue()
+		if (tier4_active or a.id not in hidden)
+		and (scopes is None or OPERATOR_SCOPES.get(a.id) is None or OPERATOR_SCOPES[a.id] in scopes)
+	]
 	assert rows, 'catalogue must never be empty'
 	return rows
 
