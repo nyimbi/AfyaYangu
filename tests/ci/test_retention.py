@@ -131,3 +131,29 @@ def test_transparency_report_carries_suppression_and_raw_sensor_notes() -> None:
 def test_transparency_report_requires_period() -> None:
 	with pytest.raises(AssertionError, match='reporting period required'):
 		RetentionService().transparency_report('')
+
+
+def test_export_returns_everything_held_and_names_what_it_leaves_out() -> None:
+	"""§SEC-005 "export all personal data at any time" — a right with no route is not a right.
+
+	The export must agree with the dashboard (same register), and must not read as more complete
+	than it is: an incomplete export a person hands to a regulator is worse than none.
+	"""
+	svc = RetentionService()
+	svc.record_holding('U9', 'symptom_logs', 4)
+	svc.record_holding('U9', 'photos', 2)
+	svc.record_share('U9', 'Nairobi PHEOC', 'symptom counts', '2026-10-01T09:00:00Z')
+	out = svc.export('U9', at_iso='2026-10-10T12:00:00Z', channel='native')
+	assert out.holdings == svc.inventory('U9').held == {'symptom_logs': 4, 'photos': 2}
+	assert out.shared_with == svc.inventory('U9').shared_with
+	assert out.exported_at_iso == '2026-10-10T12:00:00Z' and out.channel == 'native'
+	assert out.caveats, 'an export must state what it does not contain'
+	assert any('never leave the handset' in c for c in out.caveats)
+	# Another subject's holdings never appear.
+	assert svc.export('U10', at_iso='2026-10-10T12:00:00Z').holdings == {}
+
+
+def test_export_requires_the_moment_it_was_taken() -> None:
+	svc = RetentionService()
+	with pytest.raises(AssertionError, match='must carry the moment'):
+		svc.export('U9', at_iso='')

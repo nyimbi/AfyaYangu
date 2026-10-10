@@ -9,7 +9,7 @@ Two rules are load-bearing and enforced here:
 from afya.logmixin import LogMixin
 from afya.retention.views import (
 	ENCRYPTION_STANDARD, RETENTION_TABLE, DataInventory, DeletionReceipt, DeletionRequest,
-	EncryptionPosture, RetentionPolicy, TransparencyReport,
+	EncryptionPosture, PersonalDataExport, RetentionPolicy, TransparencyReport,
 )
 
 # Types a user may always delete outright, and types that survive a blanket request.
@@ -103,6 +103,31 @@ class RetentionService(LogMixin):
 		self._deletions.append(receipt)
 		self._log_warn('deletion request processed', subject=req.subject_ref, channel=req.channel, deleted=len(receipt.deleted_types))
 		return receipt
+
+	def export(self, subject_ref: str, at_iso: str, channel: str = 'native') -> PersonalDataExport:
+		"""§SEC-005: everything held about a subject, with what it does not contain stated plainly.
+
+		Built from the same register the dashboard reads, so the two cannot disagree. The caveats are
+		not decoration: an export a person hands to a regulator must not read as more complete than it
+		is, and the raw sensor streams never left the handset to be exported in the first place.
+		"""
+		assert at_iso, 'an export must carry the moment it was taken'
+		inv = self.inventory(subject_ref)
+		deletions = [
+			{'deleted_types': ', '.join(d.deleted_types) or 'none', 'retained_types': ', '.join(d.retained_types) or 'none'}
+			for d in self._deletions if d.subject_ref == subject_ref
+		]
+		caveats = [
+			'Raw sensor streams (microphone, camera, accelerometer) never leave the handset; only derived '
+			'rates, counts and verdicts are held, and those appear above as counts.',
+			'This export covers data this service holds about you. Case reports and consent records kept '
+			'under a legal obligation are named where they are held but their contents are not included.',
+		]
+		self._log_info('personal data exported', subject=subject_ref, channel=channel, types=len(inv.held))
+		return PersonalDataExport(
+			subject_ref=subject_ref, exported_at_iso=at_iso, channel=channel,
+			holdings=inv.held, shared_with=inv.shared_with, deletions=deletions, caveats=caveats,
+		)
 
 	def purge_expired(self, subject_ref: str, age_days: dict[str, int]) -> list[str]:
 		"""Apply the automatic clocks. `age_days` is how old each holding is."""

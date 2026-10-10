@@ -1362,6 +1362,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def retention_inventory(subject_ref: str, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return retention.inventory(subject_ref).model_dump(mode='json')
 
+	@app.get('/retention/export/{subject_ref}')
+	async def retention_export(subject_ref: str, at_iso: str, channel: str = 'native', _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§SEC-005 "export all personal data at any time". A right with no route is not a right."""
+		try:
+			return retention.export(subject_ref, at_iso, channel).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
 	@app.post('/retention/delete')
 	async def retention_delete(req: DeletionRequest, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return (await retention.delete(req)).model_dump(mode='json')

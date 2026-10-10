@@ -38,6 +38,24 @@ class DataInventory(BaseModel):
 	export_available: bool = True
 
 
+class PersonalDataExport(BaseModel):
+	"""§SEC-005 "export all personal data at any time".
+
+	An export that overstated its own coverage would be worse than none: a person could hand it to
+	a regulator believing it complete. It therefore carries `caveats`, and it is built from the same
+	register the dashboard reads, so what a person sees and what they can download cannot disagree.
+	"""
+	model_config = MODEL_CONFIG
+	subject_ref: str
+	exported_at_iso: str
+	channel: str
+	format: str = 'json'
+	holdings: dict[str, int]
+	shared_with: list[dict[str, str]]
+	deletions: list[dict[str, str]]
+	caveats: list[str]
+
+
 class DeletionRequest(BaseModel):
 	model_config = MODEL_CONFIG
 	subject_ref: str
