@@ -552,6 +552,30 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except PermissionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
 
+	# §13.1's capability matrix. The rows name no person and no reading, so the matrix is public —
+	# a prospective user deciding whether the app suits their handset is exactly who it is for. The
+	# audit view is evidence about the build, so it takes the auditor's scope like its siblings.
+	@app.get('/sensors/capabilities')
+	async def sensors_capabilities() -> dict[str, object]:
+		return {'sensors': sensors.capabilities(), 'platforms': {
+			p: sensors.absent_on(p) for p in ('android', 'ios')
+		}}
+
+	@app.get('/sensors/coverage')
+	async def sensors_coverage(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""Whether §13.1 and §13.2 agree, and whether every sensor row cites a feature that exists.
+
+		Two ways the tables can disagree, both silent without this: a sensor that can be absent with
+		no fallback excludes a user, and a sensor row citing an unbuilt feature describes hardware
+		acquired for a capability nobody shipped.
+		"""
+		return {
+			'missing_fallbacks': sensors.missing_fallbacks(),
+			'unregistered_sensor_features': sensors.unregistered_sensor_features(),
+			'raw_streams_retained': sensors.raw_streams_retained(),
+			'sensor_count': len(sensors.sensors()),
+		}
+
 	# --- facilities ---
 	# The facility registry is what every locator screen reads. An anonymous caller could add a
 	# facility to it, and the nearest-facility answer changed for everyone. §17.4's
