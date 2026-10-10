@@ -61,6 +61,8 @@ from afya.triage.views import DiaryEntry, TriageInput, TriageResult
 from afya.access.service import AccessService
 from afya.access.views import AccessProfile, VoiceRequest
 from afya.ai.service import AIService
+from afya.analytics.service import AnalyticsService
+from afya.analytics.views import DASHBOARDS, DashboardId
 from afya.ai.views import AggregateCell, FairnessAudit, RedressRequest, RiskInputs, WarningSignal
 from afya.alerting.service import AlertingService
 from afya.alerting.views import ExposureAck, FeedItem, FeedPage, FamilyStatus
@@ -160,6 +162,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'realtime': RealtimeService(),
 		'location': LocationService(),
 		'ai': AIService(),
+		'analytics': AnalyticsService(),
 		'access': AccessService(),
 		'retention': RetentionService(),
 		'governance': GovernanceService(),
@@ -211,6 +214,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	realtime: RealtimeService = svc['realtime']  # type: ignore[assignment]
 	location: LocationService = svc['location']  # type: ignore[assignment]
 	ai: AIService = svc['ai']  # type: ignore[assignment]
+	analytics: AnalyticsService = svc['analytics']  # type: ignore[assignment]
 	access: AccessService = svc['access']  # type: ignore[assignment]
 	retention: RetentionService = svc['retention']  # type: ignore[assignment]
 	governance: GovernanceService = svc['governance']  # type: ignore[assignment]
@@ -288,6 +292,25 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			if not await privacy.check_access_logged(AccessRequest(role=role, dataset=dataset)):
 				raise HTTPException(status_code=403, detail=f'role {role.value} may not read {dataset}')
 			return subject
+		return guard
+
+	def require_any_scope(datasets: tuple[str, ...]):  # type: ignore[no-untyped-def]
+		"""Route guard for a route §17.4 lets more than one role read, each through its own scope.
+
+		§19.4 names PHEOC, county health teams and MoH as the readers of the public-health
+		dashboards, and §17.4 gives those three different scopes: `county_aggregate` to the county
+		officer, `national_aggregate` to the PHEOC analyst. Guarding the dashboard on either one
+		alone locks out two thirds of the audience the spec names — so the guard takes the set, and
+		still requires the token's role to hold *one of* them through the same `_SCOPE` map rather
+		than widening any role. Each attempt is logged with the dataset that was actually tried.
+		"""
+		async def guard(authorization: str | None = Header(default=None)) -> str:
+			subject, role = require_token(authorization)
+			from afya.privacy.views import AccessRequest
+			for dataset in datasets:
+				if await privacy.check_access_logged(AccessRequest(role=role, dataset=dataset)):
+					return subject
+			raise HTTPException(status_code=403, detail=f'role {role.value} may read none of {list(datasets)}')
 		return guard
 
 	def require_self(subject_from_request=None, *, names_subject: bool = True):  # type: ignore[no-untyped-def]
@@ -1529,6 +1552,36 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/location/traveller/declare')
 	async def location_declare_traveller(decl: TravelerDeclaration, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return (await location.self_declare(decl)).model_dump(mode='json')
+
+	# --- §19.4 public-health dashboards --------------------------------------------------------
+	# Nine dashboards the spec names for PHEOC, county health teams and MoH. Every row is a count
+	# over a group with a min-cell-10 rule enforced at the boundary, and the read is audit logged
+	# because §19.4 says so — "role-based, audit logged" is a property of the route, not a promise.
+
+	# §19.4's readers span two §17.4 scopes: the county officer holds `county_aggregate` and the
+	# PHEOC analyst `national_aggregate`. Guarding on either alone locks out a named audience.
+	_ANALYTICS_SCOPES = ('county_aggregate', 'national_aggregate')
+
+	@app.get('/analytics/dashboards')
+	async def analytics_catalogue(_subject: str = Depends(require_any_scope(_ANALYTICS_SCOPES))) -> dict[str, object]:
+		"""The nine §19.4 dashboards, their granularity, and who may read them."""
+		return {
+			'dashboards': [{'id': d.value, 'title': t, 'granularity': g} for d, t, g in DASHBOARDS],
+			'access': analytics.access().model_dump(mode='json'),
+		}
+
+	@app.get('/analytics/dashboards/{dashboard}')
+	async def analytics_dashboard(dashboard: str, as_at_iso: str = '2026-10-10',
+			_subject: str = Depends(require_any_scope(_ANALYTICS_SCOPES))) -> dict[str, object]:
+		"""One dashboard. `as_at_iso` is stamped on the report so a reader knows what day it is.
+
+		An unknown dashboard is a 422 naming the ones that exist, rather than a 404 that leaves a
+		caller guessing at the spelling."""
+		try:
+			which = DashboardId(dashboard)
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=f'unknown dashboard {dashboard!r}; one of {[d.value for d in DashboardId]}') from exc
+		return analytics.dashboard(which, as_at_iso).model_dump(mode='json')
 
 	# --- AI & analytics (§19, §11.7) ---
 	@app.post('/ai/hotspots')
