@@ -142,3 +142,16 @@ extension BackendClient {
 		return "OSM import: \(obj?["imported"] ?? 0) places (total \(obj?["total"] ?? 0))"
 	}
 }
+
+
+struct FriendlyFeatureDTO: Codable, Identifiable {
+	let id: String
+	let title: String
+	let description: String
+}
+
+extension BackendClient {
+	func friendlyFeatures() async throws -> [FriendlyFeatureDTO] {
+		try JSONDecoder().decode([FriendlyFeatureDTO].self, from: try await send(path: "mobile/features"))
+	}
+}

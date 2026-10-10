@@ -55,9 +55,9 @@ class SurveillanceService(LogMixin):
 	async def activate_tier4(self, authorized_by_pheoc: bool, dpia_reviewed: bool, flag_enabled: bool, bulletin: str | None = None) -> bool:
 		from afya.registry.service import Tier4Activation
 		activation = Tier4Activation(authorized_by_pheoc=authorized_by_pheoc, dpia_reviewed=dpia_reviewed, flag_enabled=flag_enabled, bulletin_text=bulletin)
-		self._registry.__init__(activation)
+		self._registry.activate(activation)
 		active = self._registry.tier4_active()
-		self._log_warn('tier4 gate evaluated', active=active)
+		self._log_warn('tier4 gate evaluated', active=active, unmet=activation.unmet_keys())
 		return active
 
 	async def set_geofence(self, fence: Geofence) -> Geofence:

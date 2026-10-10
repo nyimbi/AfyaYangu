@@ -81,8 +81,12 @@ async def test_records_and_privacy_endpoints(client: httpx.AsyncClient) -> None:
 
 async def test_tier4_activation_gate(client: httpx.AsyncClient) -> None:
 	denied = (await client.post('/tier4/activate', json={'authorized_by_pheoc': False, 'dpia_reviewed': True, 'flag_enabled': True})).json()
-	assert denied == {'activated': False}
+	assert denied['activated'] is False
+	assert denied['unmet_keys'] == ['pheoc_authorization'], 'the refusal must name the missing key'
+	assert denied['unlocked_features'] == [], 'nothing unlocks on a partial gate'
 	granted = (await client.post('/tier4/activate', json={'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True})).json()
-	assert granted == {'activated': True}
+	assert granted['activated'] is True
+	assert granted['unmet_keys'] == []
+	assert granted['unlocked_features'], 'activation must name what it turned on'
 	assert (await client.get('/health')).json()['tier4'] is True
 	assert (await client.post('/triage/evd', json={'symptoms': ['fever'], 'temperature_c': 39.2, 'ebola_contact': True})).json()['risk_level'] == 'high'

@@ -34,7 +34,7 @@ class MainActivity : Activity() {
 		statusText = TextView(ctx).apply { textSize = 16f; setPadding(16, 24, 16, 8) }
 		resultText = TextView(ctx).apply { textSize = 14f; setPadding(16, 8, 16, 24) }
 		val contactSwitch = Switch(ctx).apply {
-			text = "Contact with EVD patient / affected area?"
+			text = "Contact with an Ebola patient or affected area?"
 			setPadding(16, 8, 16, 8)
 			setOnCheckedChangeListener { _, v -> ebolaContact = v }
 		}
@@ -47,7 +47,7 @@ class MainActivity : Activity() {
 				})
 			}
 		}
-		val sos = Button(ctx).apply { text = "Call 719 (toll-free, 24/7)" }
+		val sos = Button(ctx).apply { text = "Call 719 now (free, 24/7)" }
 		val features = Button(ctx).apply { text = "Features" ; setOnClickListener { startActivity(android.content.Intent(ctx, FeaturesActivity::class.java)) } }
 		val root = LinearLayout(ctx).apply {
 			orientation = LinearLayout.VERTICAL

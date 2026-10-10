@@ -42,7 +42,7 @@ struct EvidenceUploadView: View {
 
 	var body: some View {
 		Form {
-			Section("SENS-004 Evidence") {
+			Section("Show a nurse your concern") {
 				TextField("What did you observe?", text: $note)
 				Picker("Type", selection: $kind) {
 					Text("Rash").tag("rash")
@@ -59,7 +59,7 @@ struct EvidenceUploadView: View {
 						if let data = try? await item.loadTransferable(type: Data.self) { imageData = data }
 					}
 				}
-				Button("Submit photo + note") {
+				Button("Send for review") {
 					guard let data = imageData else { status = "Attach a photo first"; return }
 					Task {
 						do {

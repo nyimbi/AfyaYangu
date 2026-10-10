@@ -58,7 +58,7 @@ The **three-key activation gate** is enforced at every layer: PHEOC authorizatio
 - **Offline-first + conflict rules:** every write lands locally first; the sync queue uses the spec's conflict matrix (last-write-wins for personal data, server-authoritative for case reports/immunisations/content, append-only for proximity tokens) with bounded exponential backoff; nothing is lost across restarts.
 - **Clinical safety rails:** PPB-backed medicine verification (fail-closed: unreachable registry ⇒ "verify manually"), interaction table with severity bands, weight-based dosing with paediatric warnings, 21-day observation window caps, EPI schedule gap detection for children (guardian-consent enforced for minors).
 
-## 5a · Fully implemented feature table (58 registered + 2 insurance)
+## 5a · Fully implemented feature table (97 registered + 2 insurance)
 
 | ID | Feature | Tier | Implementation |
 |---|---|---|---|
@@ -129,10 +129,56 @@ The **three-key activation gate** is enforced at every layer: PHEOC authorizatio
 | SENS-007 | Sleep and Activity Monitoring | T2 | sleep band ingest |
 | SENS-008 | Environmental Ambient Sensing | T4* | ambient PM2.5 band |
 | SENS-009 | Steps and Activity | T2 | activity ingest (registered) |
+| SENS-010 | Sensor Fusion | T2 | multi-sensor derived-metric fusion (registered) |
+| | **Monitoring & reminders** | | |
+| MON-001 | Child Immunisation Tracker | T2 | /monitoring/child/* — EPI schedule, catch-up, per-dose status |
+| MON-002 | Pregnancy and Antenatal Care Tracker | T2 | /maternal/* ANC schedule + danger signs |
+| MON-003 | Chronic Disease Log | T2 | /monitoring/chronic/* — peak flow zones, weight, clinician report |
+| MON-004 | Medication Reminders | T2 | /monitoring/medication/* — adherence + refill detection |
+| MON-005 | Water Quality Alerts | T3 | /environment/water |
+| MON-006 | Air Quality Index | T3 | /environment/air |
+| MON-007 | Vector Control | T3 | /monitoring/vector-risk + breeding-site reports |
+| MON-008 | Nutrition and Food Safety | T3 | /monitoring/nutrition + food alerts |
+| MON-009 | Contact Monitoring (21-day) | T4* | /monitoring/contact/* — diary, fever escalation |
+| | **Community & rumours** | | |
+| COM-005 | Community Issue Reporting | T1 | /community/issues — routed to the county authority |
+| COM-101 | CHW Case Reporting | T2 | /community/cases + /chw/* — automatic officer alert |
+| COM-102 | Peer-to-Peer Alerting | T4* | /community/peer-alert — verified senders only |
+| COM-103 | Contact Tracing Support | T4* | /community/contacts + tracing prompts |
+| COM-104 | Misinformation Tracking | T1 | /community/misinformation + cluster detection |
+| | **Alerting** | | |
+| ALT-001 | Unified Alert Feed | T1 | /alerting/feed — verified items only |
+| ALT-002 | Family Safety Board | T2 | /alerting/family/* |
+| ALT-003 | Alert Preferences | T1 | /alerting/preferences — critical categories have no off switch |
+| ALT-004 | Exposure Notification | T4* | /alerting/exposure — acknowledgement + callback offer |
+| | **Location** | | |
+| LOC-002 | Privacy-Preserving Proximity | T4* | /location/proximity/* — rotating EBID, proxied declarations |
+| LOC-003 | Location History | T4* | /location/history/* — geohash-only, 5-char cell on share, purge |
+| LOC-004 | Check-In Points | T4* | /location/checkin/* — QR/NFC/manual, per-kind guidance |
+| LOC-005 | Border and Travel | T4* | /location/border + /location/traveller/* — 1/3/7/14/21-day schedule |
+| | **AI and analytics** | | |
+| AI-001 | Outbreak Hotspot Prediction | T4* | /ai/hotspots — small-cell suppression, per-hotspot reason |
+| AI-002 | Personal Risk Score | T4* | /ai/risk-score — computed on device, never uploaded |
+| AI-003 | Early Warning Signal | T4* | /ai/early-warning — routes to a human, never auto-publishes |
+| AI-004 | Model Governance | T2 | /ai/models + fairness audit over 4 axes |
+| AI-005 | Algorithmic Redress | T2 | /ai/redress — always human reviewed |
+| | **Access and fairness** | | |
+| ACC-001 | Accessible UI | T1 | /access/screens — 48dp targets, pictograms, read-aloud |
+| ACC-002 | Multilingual and Voice | T1 | /access/languages + /access/voice — 13 languages, offline |
+| ACC-003 | Low-Literacy Support | T1 | simple mode + spoken replies |
+| ACC-004 | Battery and Data Economy | T1 | /access/battery — <=5%/day per intensity |
+| ACC-005 | Device Compatibility | T1 | /access/compatibility — Android Go, no Play Services |
+| | **Privacy and security** | | |
+| SEC-001 | Consent Management | T1 | /privacy/consent + /privacy/dpia |
+| SEC-002 | Data Minimisation | T1 | raw sensor data never leaves the handset (enforced by model shape) |
+| SEC-003 | Encryption | T1 | /retention/encryption — AES-256 at rest, TLS 1.3 |
+| SEC-004 | Audit Logging | T1 | per-service structured logs |
+| SEC-005 | Retention and Deletion | T1 | /retention/* — finite windows, DELETE MY DATA on any channel |
+| SEC-006 | Transparency | T1 | /retention/inventory + /retention/transparency |
 | INS-001 | SHA cover check | T2 | POST /insurance/sha-check |
 | INS-002 | price transparency | T2 | POST /insurance/prices + GET quote |
 
-*T4 = dormant behind the three-key gate (PHEOC + DPIA + flag). Tests: 117 green in `tests/ci` incl. per-domain contract tests.
+*T4 = dormant behind the three-key gate (PHEOC + DPIA + flag). 97 features registered across all 15 spec namespaces; every id in the spec resolves (tests/ci/test_spec_coverage.py). Spec ids never reach a screen — served payloads carry semantic slugs only (tests/ci/test_ui_vocabulary.py).*
 
 ## 6 · Product management & phasing
 
@@ -167,7 +213,7 @@ The **three-key activation gate** is enforced at every layer: PHEOC authorizatio
 
 ## 9 · What is implemented here
 
-A working vertical of the spec: FastAPI backend core (30+ endpoints, 45-feature registry, all 9 sensor families, tier-4 gate, Postgres+SQLite persistence, vendor gateway clients), **fully native** SwiftUI iOS + Kotlin Android clients (offline-first, evidence upload, feature screens), and YAMNet ONNX cough analysis — with **109 backend tests, pyright-clean types, iOS XCTest and Android JVM suites green**.
+A working vertical of the spec: FastAPI backend core (156 operations over 154 paths, 97-feature registry, all 10 sensor families, tier-4 gate, Postgres+SQLite persistence, vendor gateway clients), **fully native** SwiftUI iOS + Kotlin Android clients (offline-first, evidence upload, feature screens), and YAMNet ONNX cough analysis — with **backend tests green, pyright-clean types, iOS XCTest and Android JVM suites green**.
 
 Full engineering map (spec § → module → test): [`docs/buildout.md`](docs/buildout.md) · ML provenance/decisions: [`docs/ml-models.md`](docs/ml-models.md) · full product spec: [`docs/spec.md`](docs/spec.md).
 

@@ -22,6 +22,7 @@ class PlacesActivity : Activity(), LocationListener {
 
 	private val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
 	private var pendingKind: String? = null
+	private var demo = false
 	private lateinit var out: TextView
 	private lateinit var client: BackendClient
 
@@ -33,7 +34,7 @@ class PlacesActivity : Activity(), LocationListener {
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 		client = BackendClient(this)
-		out = TextView(this).apply { textSize = 13f; setPadding(16, 8, 16, 24); text = "Pick a place type (uses your GPS)" }
+		out = TextView(this).apply { textSize = 13f; setPadding(16, 8, 16, 24); text = "What are you looking for? Uses your GPS." }
 		val kinds = LinearLayout(this).apply {
 			orientation = LinearLayout.VERTICAL
 			for (k in listOf("pharmacy", "hospital", "clinic", "school", "water_point")) {
@@ -43,7 +44,10 @@ class PlacesActivity : Activity(), LocationListener {
 				})
 			}
 			addView(Button(this@PlacesActivity).apply {
-				text = "Import OpenStreetMap places here"; setOnClickListener { pendingKind = null; locate() }
+				text = "Bring in places from OpenStreetMap"; setOnClickListener { pendingKind = null; locate() }
+			})
+			addView(Button(this@PlacesActivity).apply {
+				text = "Try Nairobi centre (demo location)"; setOnClickListener { demo = true; onLocationReady(demoLoc()) }
 			})
 		}
 		setContentView(ScrollView(this).apply {
@@ -55,7 +59,12 @@ class PlacesActivity : Activity(), LocationListener {
 		})
 	}
 
+	private fun demoLoc(): Location = Location(LocationManager.PASSIVE_PROVIDER).apply {
+		latitude = -1.2921; longitude = 36.8219; accuracy = 15f
+	}
+
 	private fun locate() {
+		if (demo) return onLocationReady(demoLoc())
 		if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
 			requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), PERMISSION_REQ)
 			return

@@ -25,3 +25,6 @@ ios/build/
 android/build/
 *.xcbuilddata/
 DerivedData/
+
+# zvec-grep workspace index cache
+.zvec-grep/

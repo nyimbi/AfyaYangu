@@ -39,20 +39,20 @@ class FeaturesActivity : Activity() {
 			val chwOut = TextView(ctx).apply { text = "loading..." }
 			val sensorOut = TextView(ctx).apply { text = "loading..." }
 			val evBtn = android.widget.Button(ctx).apply {
-				text = "SENS-004 Evidence submission"
+				text = "Show a nurse your concern"
 				setOnClickListener { ctx.startActivity(android.content.Intent(ctx, EvidenceActivity::class.java)) }
 			}
 			val root = LinearLayout(ctx).apply {
 				orientation = LinearLayout.VERTICAL
 				addView(evBtn)
-				addView(section(ctx, "FND-001 Facility Finder", finderOut))
-				addView(section(ctx, "REC-001 Family Health Wallet", walletOut))
-				addView(section(ctx, "TRI-002 Symptom Diary", diaryOut))
-				addView(section(ctx, "CHAN-005 CHW tasks", chwOut))
-				addView(section(ctx, "Sensors ingest (fall, 5.5 g demo)", sensorOut))
+				addView(section(ctx, "Find care near me", finderOut))
+				addView(section(ctx, "Family health wallet", walletOut))
+				addView(section(ctx, "My 21-day diary", diaryOut))
+				addView(section(ctx, "Community health worker tasks", chwOut))
+				addView(section(ctx, "Motion check-in", sensorOut))
 				takeIf { true }?.let {
 					val placesBtn = android.widget.Button(ctx).apply {
-						text = "Maps: pharmacies / hospitals / schools (OpenStreetMap)"
+						text = "Maps & directions (OpenStreetMap)"
 						setOnClickListener { ctx.startActivity(android.content.Intent(ctx, PlacesActivity::class.java)) }
 					}
 					addView(placesBtn)

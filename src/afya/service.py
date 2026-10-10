@@ -53,6 +53,32 @@ from afya.sync.views import SyncOp
 from afya.triage.service import TriageService
 from afya.triage.views import DiaryEntry, TriageInput, TriageResult
 
+# spec-coverage domains (§9.1, §9.6, §10.2-10.4, §11.4-11.5, §12, §17, §19)
+from afya.access.service import AccessService
+from afya.access.views import AccessProfile, VoiceRequest
+from afya.ai.service import AIService
+from afya.ai.views import AggregateCell, FairnessAudit, RedressRequest, RiskInputs, WarningSignal
+from afya.alerting.service import AlertingService
+from afya.alerting.views import ExposureAck, FeedItem, FamilyStatus
+from afya.chw.service import ChwService
+from afya.chw.views import ActivityLogEntry, ChwCase, ChwProfile
+from afya.community.service import CommunityService
+from afya.community.views import (
+	CaseReport, CaseStatus, CommunityIssue, ContactEntry, ContactList, MisinfoSubmission, PeerAlert,
+)
+from afya.location.service import LocationService
+from afya.location.views import (
+	BorderPost, CheckIn, CheckInPoint, EncounterToken, ExposureDeclaration, LocationPoint,
+	TravelerDeclaration,
+)
+from afya.monitoring.service import MonitoringService
+from afya.monitoring.views import (
+	AdherenceEvent, ConditionProfile, FoodSafetyAlert, MedSchedule, MonitoringDay, PeakFlowReading,
+	WeightReading,
+)
+from afya.retention.service import RetentionService
+from afya.retention.views import DeletionRequest
+
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 APP_VERSION = '2.0.0'
@@ -110,6 +136,14 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'evidence': EvidenceService(registry, FileSystemEvidenceStore('var/evidence')),
 		'privacy': PrivacyService(store),
 		'sync': SyncService(store),
+		'monitoring': MonitoringService(),
+		'community': CommunityService(),
+		'alerting': AlertingService(),
+		'location': LocationService(),
+		'ai': AIService(),
+		'access': AccessService(),
+		'retention': RetentionService(),
+		'chw': ChwService(),
 	}
 
 
@@ -138,6 +172,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	privacy: PrivacyService = svc['privacy']  # type: ignore[assignment]
 	sync: SyncService = svc['sync']  # type: ignore[assignment]
 	medicine: MedicineService = svc['medicine']  # type: ignore[assignment]
+	monitoring: MonitoringService = svc['monitoring']  # type: ignore[assignment]
+	community: CommunityService = svc['community']  # type: ignore[assignment]
+	alerting: AlertingService = svc['alerting']  # type: ignore[assignment]
+	location: LocationService = svc['location']  # type: ignore[assignment]
+	ai: AIService = svc['ai']  # type: ignore[assignment]
+	access: AccessService = svc['access']  # type: ignore[assignment]
+	retention: RetentionService = svc['retention']  # type: ignore[assignment]
+	chw: ChwService = svc['chw']  # type: ignore[assignment]
 	app = FastAPI(title='Afya Yangu / Mlinzi', version=APP_VERSION)
 
 	@app.get('/health', response_model=HealthResponse)
@@ -518,10 +560,21 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- tier4 + surveillance ---
 	@app.post('/tier4/activate')
-	async def tier4_activate(auth: Tier4Activation) -> dict[str, bool]:
-		return {'activated': await surveillance.activate_tier4(
+	async def tier4_activate(auth: Tier4Activation) -> dict[str, object]:
+		"""§11.1: all three keys or nothing. The response names what is missing and what the
+		activation unlocks, so a refusal is diagnosable instead of a bare false."""
+		active = await surveillance.activate_tier4(
 			auth.authorized_by_pheoc, auth.dpia_reviewed, auth.flag_enabled, auth.bulletin_text,
-		)}
+		)
+		return {
+			'activated': active,
+			'unmet_keys': auth.unmet_keys(),
+			'unlocked_features': [s.id for s in registry.by_tier(Tier.tier4)] if active else [],
+			'message': (
+				'Outbreak capabilities are live for this event.'
+				if active else 'Outbreak capabilities stay dark until all three keys are held.'
+			),
+		}
 
 	@app.post('/surveillance/geofence')
 	async def surveillance_geofence(fence: Geofence) -> dict[str, bool]:
@@ -535,10 +588,20 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def surveillance_signal(history: list[CountySignal]) -> dict[str, object]:
 		return surveillance.weekly_signal(history).model_dump(mode='json')
 
+	@app.get('/mobile/features')
+	async def mobile_features() -> list[dict[str, object]]:
+		from afya.mobile.actions import FRIENDLY_COPY
+		return [
+			{'id': fid, 'title': t, 'description': d}
+			for fid, (t, d) in FRIENDLY_COPY.items()
+		]
+
 	@app.get('/mobile/actions')
 	async def mobile_actions() -> list[dict[str, object]]:
-		from afya.mobile.actions import catalogue
-		return [act.model_dump(mode='json') for act in catalogue()]
+		"""Dormant outbreak capabilities are withheld until PHEOC activates the event, so a person
+		never sees a control that would refuse them (§11.1)."""
+		from afya.mobile.actions import available
+		return [act.model_dump(mode='json') for act in available(registry.tier4_active())]
 
 	@app.get('/places/nearest')
 	async def places_nearest(lat: float, lon: float, kinds: list[str] | None = None, limit: int = 5) -> list[dict[str, object]]:
@@ -555,5 +618,488 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		for p in rows:
 			await places.upsert(p)
 		return {'imported': len(rows), 'total': places.count()}
+
+	# --- monitoring & reminders (§9.1 MON-001..004, §10.2 MON-005..008, §11.3 MON-009) ---
+	@app.post('/monitoring/child')
+	async def monitoring_child(member_ref: str, dob_iso: str) -> dict[str, bool]:
+		await monitoring.register_child(member_ref, dob_iso)
+		return {'ok': True}
+
+	@app.get('/monitoring/child/{member_ref}/schedule')
+	async def monitoring_schedule(member_ref: str, today_iso: str = '2026-10-10') -> list[dict[str, object]]:
+		try:
+			return [r.model_dump(mode='json') for r in monitoring.schedule(member_ref, today_iso)]
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.get('/monitoring/child/{member_ref}/catch-up')
+	async def monitoring_catch_up(member_ref: str, today_iso: str = '2026-10-10') -> dict[str, object]:
+		try:
+			return monitoring.catch_up(member_ref, today_iso).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.post('/monitoring/child/{member_ref}/dose')
+	async def monitoring_dose(member_ref: str, vaccine: str, dose_no: int, given_iso: str) -> dict[str, bool]:
+		try:
+			await monitoring.record_dose(member_ref, vaccine, dose_no, given_iso)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'ok': True}
+
+	@app.post('/monitoring/medication')
+	async def monitoring_medication(sched: MedSchedule) -> dict[str, str]:
+		out = await monitoring.add_schedule(sched)
+		return {'schedule_id': out.schedule_id}
+
+	@app.post('/monitoring/medication/adherence')
+	async def monitoring_adherence(event: AdherenceEvent) -> dict[str, object]:
+		try:
+			return (await monitoring.record_adherence(event)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/monitoring/chronic/peak-flow')
+	async def monitoring_peak_flow(r: PeakFlowReading) -> dict[str, object]:
+		return await monitoring.log_peak_flow(r)
+
+	@app.post('/monitoring/chronic/weight')
+	async def monitoring_weight(r: WeightReading) -> dict[str, object]:
+		return await monitoring.log_weight(r)
+
+	@app.post('/monitoring/chronic/conditions')
+	async def monitoring_conditions(p: ConditionProfile) -> dict[str, bool]:
+		try:
+			await monitoring.set_conditions(p)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'ok': True}
+
+	@app.get('/monitoring/chronic/{subject_ref}/report')
+	async def monitoring_report(subject_ref: str) -> dict[str, object]:
+		return monitoring.shareable_report(subject_ref)
+
+	@app.post('/monitoring/vector-risk')
+	async def monitoring_vector_risk(county: str, rainfall_mm_72h: float, livestock_adjacent: bool = False) -> dict[str, object]:
+		return monitoring.vector_risk(county, rainfall_mm_72h, livestock_adjacent).model_dump(mode='json')
+
+	@app.post('/monitoring/breeding-site')
+	async def monitoring_breeding_site(county: str, lat: float, lon: float, description: str) -> dict[str, object]:
+		return await monitoring.report_breeding_site(county, lat, lon, description)
+
+	@app.post('/monitoring/food-alert')
+	async def monitoring_food_alert(alert: FoodSafetyAlert) -> dict[str, object]:
+		return (await monitoring.issue_food_alert(alert)).model_dump(mode='json')
+
+	@app.get('/monitoring/food-alerts/{county}')
+	async def monitoring_food_alerts(county: str) -> list[dict[str, object]]:
+		return [a.model_dump(mode='json') for a in monitoring.food_alerts(county)]
+
+	@app.get('/monitoring/nutrition/{age_months}')
+	async def monitoring_nutrition(age_months: int) -> dict[str, object]:
+		try:
+			return monitoring.nutrition_guidance(age_months).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/monitoring/contact/enrol')
+	async def monitoring_enrol(subject_ref: str, officer: str | None = None) -> dict[str, object]:
+		try:
+			registry.get('MON-009')
+		except KeyError as exc:
+			raise HTTPException(status_code=404, detail='unknown feature') from exc
+		if not registry.tier4_active():
+			raise HTTPException(status_code=403, detail='contact monitoring is dormant until PHEOC activates the outbreak event')
+		return monitoring.enrol(subject_ref, officer).model_dump(mode='json')
+
+	@app.post('/monitoring/contact/day')
+	async def monitoring_day(entry: MonitoringDay) -> dict[str, object]:
+		try:
+			return (await monitoring.log_day(entry)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/monitoring/contact/{subject_ref}/diary')
+	async def monitoring_diary(subject_ref: str) -> dict[str, object]:
+		return {
+			'entries': [e.model_dump(mode='json') for e in monitoring.diary(subject_ref)],
+			'missing_days': monitoring.adherence_reminder_days(subject_ref),
+		}
+
+	# --- community (§10.4 COM-005, §11.4 COM-101..104) ---
+	@app.post('/community/issues')
+	async def community_issue(issue: CommunityIssue) -> dict[str, object]:
+		return (await community.report_issue(issue)).model_dump(mode='json')
+
+	@app.get('/community/issues/{county}')
+	async def community_issues(county: str) -> list[dict[str, object]]:
+		return community.issues_by_county(county)
+
+	@app.post('/community/issues/{issue_id}/resolve')
+	async def community_resolve(issue_id: str) -> dict[str, str]:
+		try:
+			return {'status': (await community.resolve_issue(issue_id)).value}
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.post('/community/cases')
+	async def community_case(report: CaseReport) -> dict[str, object]:
+		try:
+			return (await community.submit_case(report)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/community/cases/{report_id}/advance')
+	async def community_advance(report_id: str, status: CaseStatus) -> dict[str, str]:
+		try:
+			return {'status': (await community.advance_case(report_id, status)).value}
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/community/ppe-reminder')
+	async def community_ppe() -> dict[str, str]:
+		return {'reminder': community.ppe_reminder()}
+
+	@app.post('/community/peer-alert')
+	async def community_peer_alert(alert: PeerAlert) -> dict[str, object]:
+		try:
+			return (await community.send_peer_alert(alert)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/community/tracing-prompts')
+	async def community_prompts() -> list[str]:
+		return community.tracing_prompts()
+
+	@app.post('/community/contacts')
+	async def community_contacts(contacts: ContactList) -> dict[str, object]:
+		return (await community.save_contacts(contacts)).model_dump(mode='json')
+
+	@app.post('/community/contacts/{subject_ref}/entry')
+	async def community_contact_entry(subject_ref: str, entry: ContactEntry) -> dict[str, object]:
+		return community.add_contact(subject_ref, entry).model_dump(mode='json')
+
+	@app.post('/community/misinformation')
+	async def community_misinfo(submission: MisinfoSubmission) -> dict[str, object]:
+		return (await community.flag_misinfo(submission)).model_dump(mode='json')
+
+	@app.get('/community/misinformation/clusters')
+	async def community_clusters() -> list[dict[str, object]]:
+		return [c.model_dump(mode='json') for c in community.clusters()]
+
+	# --- alerting (§9.6 ALT-003, §10.3 ALT-001/002, §11.8 ALT-004) ---
+	@app.post('/alerting/feed')
+	async def alerting_publish(item: FeedItem) -> dict[str, object]:
+		try:
+			return (await alerting.publish(item)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/alerting/feed')
+	async def alerting_feed(county: str | None = None) -> list[dict[str, object]]:
+		return [i.model_dump(mode='json') for i in alerting.feed(county)]
+
+	@app.post('/alerting/preferences')
+	async def alerting_preference(subject_ref: str, category: str, enabled: bool) -> dict[str, object]:
+		try:
+			return alerting.set_preference(subject_ref, category, enabled).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/alerting/preferences/{subject_ref}')
+	async def alerting_preferences(subject_ref: str) -> dict[str, object]:
+		return alerting.preferences(subject_ref).model_dump(mode='json')
+
+	@app.post('/alerting/family/link')
+	async def alerting_family_link(family_ref: str, members: list[str]) -> dict[str, object]:
+		return alerting.link_family(family_ref, members).model_dump(mode='json')
+
+	@app.post('/alerting/family/check-in')
+	async def alerting_check_in(subject_ref: str, family_ref: str, at_iso: str) -> dict[str, object]:
+		try:
+			return (await alerting.check_in(subject_ref, family_ref, at_iso)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/alerting/family/{family_ref}')
+	async def alerting_family(family_ref: str) -> dict[str, object]:
+		return alerting.family_board(family_ref).model_dump(mode='json')
+
+	@app.post('/alerting/exposure')
+	async def alerting_exposure(subject_ref: str, case_ref: str | None = None) -> dict[str, object]:
+		if not registry.tier4_active():
+			raise HTTPException(status_code=403, detail='exposure notification is dormant until PHEOC activates the event')
+		return (await alerting.notify_exposure(subject_ref, case_ref)).model_dump(mode='json')
+
+	@app.post('/alerting/exposure/ack')
+	async def alerting_exposure_ack(ack: ExposureAck) -> dict[str, object]:
+		try:
+			return (await alerting.acknowledge(ack)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	# --- location & proximity (§11.5 LOC-002..005) ---
+	@app.post('/location/proximity/ebid')
+	async def location_ebid(seed: str, now_ms: int) -> dict[str, object]:
+		return location.rotate_ebid(seed, now_ms).model_dump(mode='json')
+
+	@app.post('/location/proximity/encounter')
+	async def location_encounter(token: EncounterToken) -> dict[str, bool]:
+		if not registry.tier4_active():
+			raise HTTPException(status_code=403, detail='proximity logging is dormant until PHEOC activates the event')
+		await location.log_encounter(token)
+		return {'ok': True}
+
+	@app.post('/location/proximity/declare')
+	async def location_declare(decl: ExposureDeclaration) -> dict[str, bool]:
+		try:
+			await location.declare_exposure(decl)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'ok': True}
+
+	@app.post('/location/proximity/check')
+	async def location_check(own_pets: list[str], window_days: int = 21, now_ms: int | None = None) -> dict[str, object]:
+		return location.check_exposure(own_pets, window_days, now_ms).model_dump(mode='json')
+
+	@app.post('/location/history/enable')
+	async def location_enable(subject_ref: str, window_days: int = 21) -> dict[str, object]:
+		try:
+			return location.enable_history(subject_ref, window_days).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/location/history/point')
+	async def location_point(subject_ref: str, point: LocationPoint) -> dict[str, int]:
+		try:
+			return {'points': location.log_location(subject_ref, point)}
+		except AssertionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+	@app.get('/location/history/{subject_ref}/report')
+	async def location_report(subject_ref: str, share: bool = False) -> dict[str, object]:
+		try:
+			return location.build_report(subject_ref, share).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.delete('/location/history/{subject_ref}')
+	async def location_purge(subject_ref: str) -> dict[str, int]:
+		return {'purged': location.purge_history(subject_ref)}
+
+	@app.post('/location/checkin/point')
+	async def location_checkin_point(point: CheckInPoint) -> dict[str, str]:
+		await location.register_point(point)
+		return {'token': point.token}
+
+	@app.post('/location/checkin')
+	async def location_checkin(checkin: CheckIn) -> dict[str, object]:
+		try:
+			return (await location.check_in(checkin)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/location/checkin/points')
+	async def location_checkin_points(county: str | None = None) -> list[dict[str, object]]:
+		return [
+			p.model_dump(mode='json') for p in location.points()
+			if county is None or p.county == county
+		]
+
+	@app.get('/location/checkin/{subject_ref}')
+	async def location_checkins(subject_ref: str) -> list[dict[str, object]]:
+		return [c.model_dump(mode='json') for c in location.checkins_for(subject_ref)]
+
+	@app.post('/location/border')
+	async def location_border(post: BorderPost) -> dict[str, bool]:
+		await location.register_border(post)
+		return {'ok': True}
+
+	@app.get('/location/border/{post_id}')
+	async def location_border_status(post_id: str) -> dict[str, object]:
+		try:
+			return location.border_status(post_id).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.get('/location/travel-advisory')
+	async def location_advisory(destination: str, origin_country: str) -> dict[str, str]:
+		return {'advisory': location.advisory(destination, origin_country)}
+
+	@app.post('/location/traveller/declare')
+	async def location_declare_traveller(decl: TravelerDeclaration) -> dict[str, object]:
+		return (await location.self_declare(decl)).model_dump(mode='json')
+
+	# --- AI & analytics (§19, §11.7) ---
+	@app.post('/ai/hotspots')
+	async def ai_hotspots(cells: list[AggregateCell]) -> dict[str, object]:
+		try:
+			return ai.hotspots(cells).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/ai/risk-score')
+	async def ai_risk(inp: RiskInputs) -> dict[str, object]:
+		return ai.personal_risk(inp).model_dump(mode='json')
+
+	@app.post('/ai/early-warning')
+	async def ai_warning(county: str, disease: str, signals: list[WarningSignal]) -> dict[str, object]:
+		try:
+			return ai.assess_warning(county, disease, signals).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/ai/models')
+	async def ai_models() -> list[dict[str, object]]:
+		return [m.model_dump(mode='json') for m in ai.model_cards()]
+
+	@app.post('/ai/fairness-audit')
+	async def ai_audit(audit: FairnessAudit) -> dict[str, object]:
+		try:
+			return ai.audit_fairness(audit.model_id, audit.axes, audit.unmet_axes).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/ai/redress')
+	async def ai_redress(req: RedressRequest) -> dict[str, object]:
+		return ai.file_redress(req).model_dump(mode='json')
+
+	# --- accessibility (§12.1) ---
+	@app.post('/access/profile')
+	async def access_profile(profile: AccessProfile) -> dict[str, bool]:
+		try:
+			access.set_profile(profile)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'ok': True}
+
+	@app.get('/access/screens')
+	async def access_screens(simple_mode: bool = False) -> list[dict[str, object]]:
+		return [s.model_dump(mode='json') for s in access.screens(simple_mode)]
+
+	@app.get('/access/languages')
+	async def access_languages(tier: int | None = None) -> list[dict[str, object]]:
+		return access.languages(tier)
+
+	@app.post('/access/voice')
+	async def access_voice(req: VoiceRequest) -> dict[str, object]:
+		try:
+			return access.transcribe(req).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/access/battery')
+	async def access_battery(subject_ref: str = 'U1', intensity: str = 'balanced', battery_saver: bool = False) -> dict[str, object]:
+		try:
+			return access.battery_profile(subject_ref, intensity, battery_saver).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/access/compatibility/{platform}')
+	async def access_compat(platform: str) -> dict[str, object]:
+		try:
+			return access.compatibility(platform).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	# --- retention, encryption, transparency (§17, SEC-003/005/006) ---
+	@app.get('/retention/policy')
+	async def retention_policy() -> list[dict[str, object]]:
+		return [p.model_dump(mode='json') for p in retention.retention_table()]
+
+	@app.post('/retention/holding')
+	async def retention_holding(subject_ref: str, data_type: str, count: int) -> dict[str, int]:
+		try:
+			return {'count': retention.record_holding(subject_ref, data_type, count)}
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/retention/share')
+	async def retention_share(subject_ref: str, with_who: str, what: str, when_iso: str) -> dict[str, bool]:
+		retention.record_share(subject_ref, with_who, what, when_iso)
+		return {'ok': True}
+
+	@app.get('/retention/inventory/{subject_ref}')
+	async def retention_inventory(subject_ref: str) -> dict[str, object]:
+		return retention.inventory(subject_ref).model_dump(mode='json')
+
+	@app.post('/retention/delete')
+	async def retention_delete(req: DeletionRequest) -> dict[str, object]:
+		return (await retention.delete(req)).model_dump(mode='json')
+
+	@app.post('/retention/purge-expired')
+	async def retention_purge(subject_ref: str, age_days: dict[str, int]) -> dict[str, object]:
+		try:
+			return {'expired': retention.purge_expired(subject_ref, age_days)}
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/retention/encryption')
+	async def retention_encryption() -> dict[str, object]:
+		return retention.encryption_posture().model_dump(mode='json')
+
+	@app.get('/retention/transparency')
+	async def retention_transparency(period: str, subject_ref: str | None = None) -> dict[str, object]:
+		return retention.transparency_report(period, subject_ref).model_dump(mode='json')
+
+	# --- CHW trust layer (§5 CHAN-005, §11.4 COM-101) ---
+	@app.post('/chw/provision')
+	async def chw_provision(profile: ChwProfile) -> dict[str, bool]:
+		try:
+			await chw.provision(profile)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'ok': True}
+
+	# Static paths must precede /chw/{chw_ref}: FastAPI matches in declaration order, so a
+	# parameterised route declared first swallows /chw/training and friends.
+	@app.get('/chw/training')
+	async def chw_training() -> list[dict[str, object]]:
+		return chw.training()
+
+	@app.get('/chw/job-aid/{topic}')
+	async def chw_job_aid(topic: str) -> dict[str, str]:
+		try:
+			return {'job_aid': chw.job_aid(topic)}
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.get('/chw/ppe-reminder')
+	async def chw_ppe() -> dict[str, str]:
+		return {'reminder': chw.ppe_reminder()}
+
+	@app.get('/chw/{chw_ref}')
+	async def chw_get(chw_ref: str) -> dict[str, object]:
+		try:
+			return chw.profile(chw_ref).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.get('/chw/{chw_ref}/case-load')
+	async def chw_case_load(chw_ref: str) -> dict[str, int]:
+		return {'open_cases': chw.case_load(chw_ref)}
+
+	@app.post('/chw/{chw_ref}/cases')
+	async def chw_case(chw_ref: str, case: ChwCase) -> dict[str, object]:
+		try:
+			return (await chw.assign_case(chw_ref, case)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.get('/chw/{chw_ref}/cases')
+	async def chw_cases(chw_ref: str) -> list[dict[str, object]]:
+		return [c.model_dump(mode='json') for c in chw.cases(chw_ref)]
+
+	@app.post('/chw/activity')
+	async def chw_activity(entry: ActivityLogEntry) -> dict[str, bool]:
+		try:
+			await chw.log_activity(entry)
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+		return {'ok': True}
+
+	@app.get('/chw/{chw_ref}/activity')
+	async def chw_activity_summary(chw_ref: str, period: str = '2026-W41') -> dict[str, object]:
+		return chw.activity_summary(chw_ref, period).model_dump(mode='json')
 
 	return app
