@@ -87,6 +87,7 @@ from afya.realtime.views import KNOWN_CATEGORIES, SocketSubscription, now_iso
 from afya.retention.service import RetentionService
 from afya.retention.views import DeletionRequest
 from afya.governance.service import GovernanceService
+from afya.security.service import SecurityService
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -161,6 +162,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'access': AccessService(),
 		'retention': RetentionService(),
 		'governance': GovernanceService(),
+		'security': SecurityService(),
 		'chw': ChwService(),
 		'auth': AuthService(),
 		# §18: the national systems. Every client is constructed whether or not its vendor is
@@ -211,6 +213,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	access: AccessService = svc['access']  # type: ignore[assignment]
 	retention: RetentionService = svc['retention']  # type: ignore[assignment]
 	governance: GovernanceService = svc['governance']  # type: ignore[assignment]
+	security: SecurityService = svc['security']  # type: ignore[assignment]
 	chw: ChwService = svc['chw']  # type: ignore[assignment]
 	auth: AuthService = svc['auth']  # type: ignore[assignment]
 	# §18: the national systems. `jali` may be the offline port, which is why it is typed as the
@@ -1892,6 +1895,40 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'decisions': [d.model_dump(mode='json') for d in decisions],
 			'violations': [d.model_dump(mode='json') for d in decisions if not d.allowed],
 		}
+
+	# --- §17.5 security controls, scans and disclosure ----------------------------------------
+	# §17.5 is a table of eleven controls; this makes each one name where it is enforced, and holds
+	# the recurring scan obligations so "monthly" is a date rather than an intention.
+
+	@app.get('/security/controls')
+	async def security_controls(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""The §17.5 control table with each row's enforcement named. Auditor-scoped: this is the
+		evidence a reviewer asks for, and it names no secret."""
+		return {'controls': [c.model_dump(mode='json') for c in security.controls()]}
+
+	@app.get('/security/posture')
+	async def security_posture(today_iso: str = '2026-10-10', _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""Control table, CI-enforced commands, scan obligations and open findings. An obligation
+		never performed is overdue, not exempt."""
+		from datetime import date as _date
+		return security.posture(_date.fromisoformat(today_iso)).model_dump(mode='json')
+
+	@app.post('/security/scans')
+	async def security_record_scan(scan: dict[str, object], _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Record a completed scan. The outcome is what makes the monthly cadence a fact rather than
+		a schedule — a scan with critical findings is logged loudly."""
+		from afya.security.views import VulnerabilityScan
+		try:
+			recorded = security.record_scan(VulnerabilityScan.model_validate(scan))
+		except (AssertionError, ValidationError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return recorded.model_dump(mode='json')
+
+	@app.get('/security/disclosure')
+	async def security_disclosure() -> dict[str, object]:
+		"""§17.5 bug bounty: the public programme and its responsible-disclosure terms. Open by
+		design — a disclosure policy nobody can read is not a disclosure policy."""
+		return security.disclosure_policy().model_dump(mode='json')
 
 	# --- §15.5 versioning: `/v1/` beside the bare paths --------------------------------------
 	# Both spellings reach the same routes. `v1` is the only version, so pinning it changes

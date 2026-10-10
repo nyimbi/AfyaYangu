@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Types
+        run: uv run pyright
+
+      - name: Tests
+        run: uv run pytest -q tests/ci
+
+      # §17.5 "Secure development — SAST, DAST, dependency scanning in CI". These two commands are
+      # named in afya/security/service.py's control table; test_security.py asserts the workflow
+      # runs exactly them, so a control cannot claim CI enforcement the workflow does not provide.
+      - name: SAST
+        run: uvx bandit -r src/afya -q --severity-level medium
+
+      - name: Dependency scanning
+        run: uvx pip-audit
