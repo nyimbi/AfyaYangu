@@ -228,6 +228,7 @@ extension String {
 struct ActionsView: View {
 	@State private var actions: [MobileActionDTO] = []
 	@State private var loadError = false
+	@State private var queued = 0
 
 	private var groups: [String] {
 		var order: [String] = []
@@ -237,6 +238,12 @@ struct ActionsView: View {
 
 	var body: some View {
 		List {
+			if queued > 0 {
+				Section {
+					Label("\(queued) change(s) saved on this phone, waiting to send", systemImage: "tray.and.arrow.up")
+						.font(.footnote).foregroundStyle(.secondary)
+				}
+			}
 			if actions.isEmpty {
 				Text(loadError ? "Could not load services. Check your connection and pull to refresh." : "Loading services…")
 					.foregroundStyle(.secondary)
@@ -261,6 +268,9 @@ struct ActionsView: View {
 		} catch {
 			loadError = true
 		}
+		// §16.1: a network that just came back is the moment to send what was saved.
+		_ = await AppState.sharedClient.flushQueue()
+		queued = await AppState.sharedClient.queuedCount()
 	}
 }
 
@@ -348,7 +358,7 @@ struct ActionFormView: View {
 		failed = false
 		Task {
 			do {
-				let data = try await AppState.sharedClient.invoke(action, values: values, file: fileData)
+				let data = try await AppState.sharedClient.submitOrQueue(action, values: values, file: fileData)
 				result = Self.pretty(data)
 			} catch {
 				failed = true

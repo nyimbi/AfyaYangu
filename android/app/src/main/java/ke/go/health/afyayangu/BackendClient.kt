@@ -45,23 +45,47 @@ class BackendClient(private val context: Context) {
 		return s to t
 	}
 
-	private fun request(path: String, body: String?, authorize: Boolean = true): String {
+	/** A non-2xx response, carrying the code so a caller can tell "refused" from "try again later". */
+	class HttpError(val code: Int, val body: String) : Exception("HTTP $code")
+
+	private fun request(
+		path: String,
+		body: String?,
+		authorize: Boolean = true,
+		method: String? = null,
+		idempotencyKey: String? = null,
+	): String {
 		val conn = URL(BASE + path).openConnection() as HttpURLConnection
 		conn.connectTimeout = 8000
 		conn.readTimeout = 8000
 		if (authorize) conn.setRequestProperty("authorization", "Bearer ${ensureSession().second}")
-		if (body == null) {
-			conn.requestMethod = "GET"
-		} else {
-			conn.requestMethod = "POST"
+		// The server replays the first response for a repeated key whose body is byte-identical
+		// (§15.5), which is what makes replaying a queued write safe: the retry cannot double-write.
+		idempotencyKey?.let { conn.setRequestProperty("idempotency-key", it) }
+		// The verb is explicit when given. Inferring it from a non-null body is what sent every
+		// DELETE as a POST, since the caller had to pass *something* to avoid a GET.
+		val verb = method ?: if (body == null) "GET" else "POST"
+		conn.requestMethod = verb
+		if (body != null && verb != "GET") {
 			conn.doOutput = true
 			conn.setRequestProperty("content-type", "application/json")
 			conn.outputStream.use { it.write(body.toByteArray()) }
 		}
-		return conn.inputStream.use { ins ->
-			ByteArrayOutputStream().apply { ins.copyTo(this) }.toString()
+		val code = conn.responseCode
+		val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+		val text = stream?.use { ins -> ByteArrayOutputStream().apply { ins.copyTo(this) }.toString() } ?: ""
+		if (code !in 200..299) throw HttpError(code, text)
+		return text
+	}
 
-		}
+	/** Whether the backend is reachable right now. A short probe, so a submit does not hang. */
+	fun online(): Boolean = try {
+		val conn = URL(BASE + "health").openConnection() as HttpURLConnection
+		conn.connectTimeout = 1500
+		conn.readTimeout = 1500
+		conn.responseCode in 200..299
+	} catch (e: Exception) {
+		false
 	}
 
 	private fun cached(key: String): String? =
@@ -213,8 +237,8 @@ class BackendClient(private val context: Context) {
 
 	fun actions(): List<CatalogueAction> = parseActions(JSONArray(request("mobile/actions", null)))
 
-	/** Calls one catalogue action. `pathValues` fills {placeholders}; `query`/`body` carry the rest. */
-	fun perform(method: String, path: String, pathValues: Map<String, String>, params: JSONObject): String {
+	/** Calls one catalogue action. `pathValues` fills {placeholders}; `params` carries the rest. */
+	fun perform(method: String, path: String, pathValues: Map<String, String>, params: JSONObject, idempotencyKey: String? = null): String {
 		// The subject is the device's, not a form field: a personal-data route binds the subject it
 		// is given to the token, so anything else is a 403 by construction. Overwriting whatever the
 		// form collected is what keeps the client unable to name a stranger.
@@ -235,9 +259,92 @@ class BackendClient(private val context: Context) {
 				}
 				request(resolved + if (q.isEmpty()) "" else "?$q", null)
 			}
-			"DELETE" -> request(resolved, "{}")
-			else -> request(resolved, params.toString())
+			"DELETE" -> request(resolved, null, method = "DELETE", idempotencyKey = idempotencyKey)
+			else -> request(resolved, params.toString(), method = "POST", idempotencyKey = idempotencyKey)
 		}
+	}
+
+	// --- §16.1 offline queue: a write made with no network is kept, not lost -----------------
+
+	/**
+	 * Perform a write, or queue it if the network is down.
+	 *
+	 * §16.1 promises the client works offline; a write that threw while offline was simply lost,
+	 * which is the promise broken in the direction that looks like it works. A queued op carries an
+	 * idempotency key derived from its content, so replaying it after a restart cannot double-write:
+	 * the server returns the first response for a repeated key with an identical body (§15.5).
+	 */
+	fun performOrQueue(actionId: String, method: String, path: String, pathValues: Map<String, String>, params: JSONObject): String {
+		if (method == "GET") return perform(method, path, pathValues, params)
+		if (!online()) {
+			queue(actionId, method, path, pathValues, params)
+			return "{\"queued\":true}"
+		}
+		return try {
+			perform(method, path, pathValues, params)
+		} catch (e: HttpError) {
+			// A 5xx is the server failing, which a retry may fix; a 4xx is the server refusing this
+			// request, which a retry will not. Only the first is queued.
+			if (e.code in 500..599) {
+				queue(actionId, method, path, pathValues, params)
+				return "{\"queued\":true}"
+			}
+			throw e
+		}
+	}
+
+	private fun queue(actionId: String, method: String, path: String, pathValues: Map<String, String>, params: JSONObject) {
+		// The key is derived from the op's own content, so the same op always carries the same key
+		// and a replay after a restart is recognised as a repeat rather than a second write.
+		val material = "$method $path $pathValues ${params}"
+		val key = "q-" + Integer.toHexString(material.hashCode())
+		val entry = JSONObject()
+			.put("action_id", actionId)
+			.put("method", method)
+			.put("path", path)
+			.put("path_values", JSONObject(pathValues as Map<*, *>))
+			.put("params", params)
+			.put("key", key)
+		val arr = JSONArray(prefs.getString("queue", "[]"))
+		arr.put(entry)
+		prefs.edit().putString("queue", arr.toString()).apply()
+	}
+
+	fun queuedCount(): Int = JSONArray(prefs.getString("queue", "[]")).length()
+
+	/**
+	 * Replay the queue. Stops at the first op that is still unreachable so ordering is preserved;
+	 * an op the server *refuses* (4xx) is dropped rather than blocking the queue behind it forever.
+	 */
+	fun flushQueue(): Int {
+		val arr = JSONArray(prefs.getString("queue", "[]"))
+		if (arr.length() == 0) return 0
+		val remaining = JSONArray()
+		var sent = 0
+		var stopped = false
+		for (i in 0 until arr.length()) {
+			val e = arr.getJSONObject(i)
+			if (stopped) {
+				remaining.put(e)
+				continue
+			}
+			val pathValues = e.getJSONObject("path_values").let { pv ->
+				pv.keys().asSequence().associateWith { pv.getString(it) }
+			}
+			try {
+				perform(e.getString("method"), e.getString("path"), pathValues, e.getJSONObject("params"), e.getString("key"))
+				sent++
+			} catch (err: HttpError) {
+				if (err.code in 400..499) continue // refused: dropping it is honest, retrying it is not
+				remaining.put(e)
+				stopped = true
+			} catch (err: Exception) {
+				remaining.put(e)
+				stopped = true
+			}
+		}
+		prefs.edit().putString("queue", remaining.toString()).apply()
+		return sent
 	}
 
 	fun importOsmPlaces(lat: Double, lon: Double): String {

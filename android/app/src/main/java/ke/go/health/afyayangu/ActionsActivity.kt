@@ -28,14 +28,17 @@ class ActionsActivity : Activity() {
 	private val executor = Executors.newSingleThreadExecutor()
 	private lateinit var client: BackendClient
 	private lateinit var out: TextView
+	private lateinit var queueNote: TextView
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 		client = BackendClient(this)
 		out = TextView(this).apply { textSize = 14f; setPadding(16, 8, 16, 24); text = "Loading actions…" }
+		queueNote = TextView(this).apply { textSize = 13f; setPadding(16, 4, 16, 4) }
 		setContentView(ScrollView(this).apply {
 			addView(LinearLayout(this@ActionsActivity).apply {
 				orientation = LinearLayout.VERTICAL
+				addView(queueNote)
 				addView(out)
 			})
 		})
@@ -125,9 +128,30 @@ class ActionsActivity : Activity() {
 		// person the worker named — a contact being notified — is left alone.
 		if (a.fields.any { it.clientSupplied } && !params.has("subject_ref")) params.put("subject_ref", client.subjectRef())
 		executor.execute {
-			val res = runCatching { client.perform(a.method, a.path, pathValues, params) }
+			// §16.1: a write with no network is queued, not lost. `performOrQueue` keeps it and
+			// replays it on the next successful submit or resume.
+			val res = runCatching { client.performOrQueue(a.id, a.method, a.path, pathValues, params) }
 			runOnUiThread {
 				out.text = res.fold({ pretty(it) }, { "Request failed: ${it.message}" })
+				refreshQueueNote()
+			}
+		}
+	}
+
+	/** §16.1: how many writes are waiting for a network, shown so a user knows nothing was lost. */
+	private fun refreshQueueNote() {
+		val n = client.queuedCount()
+		queueNote.text = if (n == 0) "" else "$n change(s) saved on this phone, waiting to send"
+	}
+
+	/** Replay anything queued when the screen comes back, since that is when a network often does. */
+	override fun onResume() {
+		super.onResume()
+		executor.execute {
+			val sent = runCatching { client.flushQueue() }.getOrDefault(0)
+			runOnUiThread {
+				if (sent > 0) out.text = "Sent $sent saved change(s)."
+				refreshQueueNote()
 			}
 		}
 	}

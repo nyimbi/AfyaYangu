@@ -188,6 +188,28 @@ extension BackendClient {
 	// Invoke a catalogue action: path params substitute into the URL, other fields go in the
 	// query string (GET) or JSON body (POST/DELETE); a file field switches to multipart.
 	func invoke(_ action: MobileActionDTO, values: [String: String], file: Data?) async throws -> Data {
+		let (req, _) = try await buildRequest(action, values: values, file: file)
+		return try await send(req: req)
+	}
+
+	/// §16.1: submit, or keep the write if the network is down. A GET is never queued, and neither
+	/// is a file upload — its multipart boundary differs every time, so a replayed body would not be
+	/// byte-identical and the server's idempotency check would not recognise it as a repeat.
+	func submitOrQueue(_ action: MobileActionDTO, values: [String: String], file: Data?) async throws -> Data {
+		if action.method == "GET" || action.fields.contains(where: { $0.type == "file" }) {
+			return try await invoke(action, values: values, file: file)
+		}
+		if !(await online()) {
+			let (req, body) = try await buildRequest(action, values: values, file: file)
+			enqueue(method: action.method, url: req.url!.absoluteString, body: body)
+			return Data("{\"queued\":true}".utf8)
+		}
+		return try await invoke(action, values: values, file: file)
+	}
+
+	/// Build the request an action describes, plus the exact body text (empty for GET/multipart), so
+	/// a failed write can be queued and later replayed byte-identically.
+	private func buildRequest(_ action: MobileActionDTO, values: [String: String], file: Data?) async throws -> (URLRequest, String) {
 		// The subject is the device's, not a form field: a personal-data route binds the subject it
 		// is given to the token, so anything else is refused by construction. The server marks the
 		// field; a worker action's subject is unmarked and names someone else deliberately.
@@ -214,15 +236,18 @@ extension BackendClient {
 		if !query.isEmpty { comps.queryItems = query }
 		var req = URLRequest(url: comps.url!)
 		req.httpMethod = action.method
+		var bodyText = ""
 		if action.method != "GET", action.fields.contains(where: { $0.type == "file" }), let file {
 			let boundary = "afya-\(UUID().uuidString)"
 			req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "content-type")
 			req.httpBody = Self.multipart(boundary: boundary, fields: body, file: file)
 		} else if action.method != "GET", !body.isEmpty {
 			req.setValue("application/json", forHTTPHeaderField: "content-type")
-			req.httpBody = try JSONSerialization.data(withJSONObject: body)
+			let data = try JSONSerialization.data(withJSONObject: body)
+			req.httpBody = data
+			bodyText = String(decoding: data, as: UTF8.self)
 		}
-		return try await send(req: req)
+		return (req, bodyText)
 	}
 
 	private static func placeholders(in path: String) -> [String] {
