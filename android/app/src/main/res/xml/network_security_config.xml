@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	§SEC-003 "TLS 1.3 in transit" cannot coexist with `usesCleartextTraffic="true"`, which permits
+	plain HTTP to any host. Cleartext is permitted here only to loopback, which is how the documented
+	demo path reaches a server on the developer's machine (`adb reverse tcp:8000`); every other host,
+	including any that a build might be pointed at later, is HTTPS-only. A blanket exception kept for
+	the demo's sake is how a cleartext client ships.
+-->
+<network-security-config>
+	<base-config cleartextTrafficPermitted="false" />
+	<domain-config cleartextTrafficPermitted="true">
+		<domain includeSubdomains="false">localhost</domain>
+		<domain includeSubdomains="false">127.0.0.1</domain>
+		<domain includeSubdomains="false">10.0.2.2</domain>
+	</domain-config>
+</network-security-config>

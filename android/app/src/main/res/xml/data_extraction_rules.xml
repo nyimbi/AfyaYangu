@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	Android 12+ prefers this over `fullBackupContent`, for both cloud backup and device-to-device
+	transfer. The bearer token, session subject and cached responses live in the one `afya`
+	SharedPreferences file and are excluded from both, for the same reason as `backup_rules.xml`.
+-->
+<data-extraction-rules>
+	<cloud-backup>
+		<exclude domain="sharedpref" path="afya.xml" />
+	</cloud-backup>
+	<device-transfer>
+		<exclude domain="sharedpref" path="afya.xml" />
+	</device-transfer>
+</data-extraction-rules>

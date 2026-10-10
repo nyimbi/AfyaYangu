@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	The bearer token and the device's session subject are credentials; the cached responses are
+	personal data. Neither belongs in a cloud backup a user did not ask for, so `afya` — the one
+	SharedPreferences file holding all of it — is excluded. The emergency card is deliberately
+	written into the same file and is therefore not backed up either: it is the one item a user
+	might want restored, and keeping it out of the cloud is the honest trade for a health app.
+-->
+<full-backup-content>
+	<exclude domain="sharedpref" path="afya.xml" />
+</full-backup-content>
