@@ -425,3 +425,97 @@ def test_every_operator_action_is_marked_and_every_marked_action_is_guarded() ->
 		if (a.method, a.path) in by_route and a.id not in OPERATOR_SCOPES
 	)
 	assert unmarked == [], f'actions reachable only by an operator scope, but not marked: {unmarked}'
+
+
+# Write routes that legitimately carry no guard, each for a reason that is about *how a person
+# reaches the service* rather than about the data. Named explicitly so "unguarded write" cannot
+# quietly come to mean "nobody looked at it".
+UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
+	('POST', '/auth/anonymous'),      # issues the token; requiring one is a deadlock
+	('POST', '/auth/pkce/authorize'), # starts the PKCE flow, before any token exists
+	('POST', '/auth/pkce/token'),     # redeems the code; the verifier is the proof
+	('POST', '/auth/revoke'),         # revokes the presented token; a bad one revokes nothing
+	('POST', '/channels/sms'),        # the telco's inbound webhook, authenticated by signature
+	('POST', '/channels/ussd'),       # the aggregator's inbound USSD session
+	('POST', '/channels/whatsapp'),   # the WhatsApp Business webhook
+	('POST', '/sync/batch'),          # a device's own queued ops, keyed by its device id
+	('POST', '/sync/delta'),
+	('POST', '/sync/flush'),
+	('POST', '/sync/ops'),
+	('POST', '/ml/cough/analyze'),    # a pure computation: audio in, verdict out, nothing stored
+	('POST', '/triage/diagnose'),     # the same: no subject, no record, no shared state
+	('POST', '/triage/preliminary'),
+	('POST', '/triage/evd'),
+	('POST', '/ai/risk-score'),       # derived on-device score; the caller supplies the inputs
+	('POST', '/ai/fairness-audit'),
+	('POST', '/facilities/nearest'),  # a read expressed as a POST: a coordinate in, a list out
+	('POST', '/facilities/{facility_id}/booking'),
+	('POST', '/facilities/{facility_id}/correction'),
+	('POST', '/facilities/{facility_id}/wait'),
+	('POST', '/insurance/prices'),
+	('POST', '/insurance/sha-check'),
+	('POST', '/medicine/dose'),
+	('POST', '/medicine/interactions'),
+	('POST', '/medicine/verify'),
+	('POST', '/medicine/stock'),      # a crowd-sourced stock report; `reported_by` is the claim
+	('POST', '/environment/air'),
+	('POST', '/environment/flood'),
+	('POST', '/environment/water'),
+	('POST', '/monitoring/breeding-site'),
+	('POST', '/monitoring/vector-risk'),
+	('POST', '/monitoring/medication/adherence'),
+	('POST', '/community/issues'),    # a citizen's own report of a problem where they live
+	('POST', '/community/misinformation'),
+	('POST', '/emergency/sos'),       # an emergency must not wait for a token
+	('POST', '/emergency/fall'),
+	('POST', '/emergency/card/qr'),
+	('POST', '/blood/donors'),        # a donor enrols themselves
+	('POST', '/blood/match'),
+	('POST', '/privacy/dpia'),        # a self-assessment of a proposed use; stores nothing
+	('POST', '/location/border'),
+	('POST', '/location/checkin/point'),
+	('POST', '/location/proximity/check'),
+	('POST', '/location/proximity/declare'),
+	('POST', '/location/proximity/ebid'),
+	('POST', '/location/proximity/encounter'),
+	('POST', '/maternal/danger'),
+	('POST', '/channels/chw/tasks/{task_id}/done'),  # CHW closes a task by its id
+})
+
+
+def test_every_unguarded_write_is_named_and_justified() -> None:
+	"""A write with no guard at all is the shape of the bug this file found three times over.
+
+	`POST /tier4/activate`, `POST /alerts` and `POST /alerting/feed` each had no guard and each
+	wrote state every other user read. The IDOR gate walks routes that name a subject and the
+	operator-marking gate walks routes a catalogue action points at; neither asks the plainest
+	question, which is which writes carry no guard. This asks it, against a named list so a new
+	one has to be argued for rather than appearing.
+	"""
+	from afya.service import build_services
+	import inspect
+	app = create_app(build_services())
+	seen: set[tuple[str, str]] = set()
+	unguarded: set[tuple[str, str]] = set()
+
+	def walk(routes: object) -> None:
+		for r in routes:  # type: ignore[attr-defined]
+			if hasattr(r, 'routes'):
+				walk(r.routes)
+				continue
+			ep = getattr(r, 'endpoint', None)
+			if ep is None:
+				continue
+			if any(type(p.default).__name__ == 'Depends' for p in inspect.signature(ep).parameters.values()):
+				continue
+			for method in getattr(r, 'methods', None) or []:
+				if method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+					unguarded.add((method, getattr(r, 'path', '')))
+
+	walk(app.routes)
+	unjustified = sorted(unguarded - UNGATED_WRITES)
+	assert unjustified == [], f'write routes with no guard and no justification: {unjustified}'
+	# And the list cannot rot in the other direction: a route that has since been guarded, or
+	# removed, must come off it, or the list stops meaning anything.
+	stale = sorted(UNGATED_WRITES - unguarded)
+	assert stale == [], f'listed as unguarded but now guarded or gone: {stale}'

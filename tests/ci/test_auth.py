@@ -250,7 +250,9 @@ async def test_aggregate_analytics_are_not_readable_by_a_chw(client: httpx.Async
 
 async def test_idempotency_key_replays_over_http(client: httpx.AsyncClient) -> None:
 	body = {'facility_id': 'F9', 'name': 'Test', 'kind': 'ed', 'county': 'Nairobi', 'lat': -1.3, 'lon': 36.8, 'ed_status': 'operational'}
-	headers = {'Idempotency-Key': 'idem-http-1'}
+	# The facility registry is maintained by the county health team, so the write carries its scope.
+	headers = {'Idempotency-Key': 'idem-http-1',
+	           'authorization': f"Bearer {await _worker(client, 'county_officer')}"}
 	first = await client.post('/facilities', json=body, headers=headers)
 	second = await client.post('/facilities', json=body, headers=headers)
 	assert first.status_code == second.status_code == 200
@@ -259,7 +261,8 @@ async def test_idempotency_key_replays_over_http(client: httpx.AsyncClient) -> N
 
 async def test_idempotency_key_reuse_with_new_body_is_a_conflict(client: httpx.AsyncClient) -> None:
 	body = {'facility_id': 'F9', 'name': 'Test', 'kind': 'ed', 'county': 'Nairobi', 'lat': -1.3, 'lon': 36.8, 'ed_status': 'operational'}
-	headers = {'Idempotency-Key': 'idem-http-2'}
+	headers = {'Idempotency-Key': 'idem-http-2',
+	           'authorization': f"Bearer {await _worker(client, 'county_officer')}"}
 	await client.post('/facilities', json=body, headers=headers)
 	changed = {**body, 'name': 'Different'}
 	assert (await client.post('/facilities', json=changed, headers=headers)).status_code == 409

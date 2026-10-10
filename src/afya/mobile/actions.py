@@ -156,6 +156,10 @@ OPERATOR_SCOPES: dict[str, str] = {
 	# County-level analysis and the provisioning of workers.
 	'early_warning': 'county_aggregate', 'hotspots': 'county_aggregate',
 	'provision_chw': 'infrastructure', 'transparency_report': 'audit_logs',
+	# The authority's own records: the facility registry every locator reads, the risk zones every
+	# device inside them is told about, the county's fever and hotline counts, and the public
+	# food-safety warning. Each is guarded on the county health team's scope.
+	'food_alert': 'county_aggregate',
 }
 
 # Slugs withheld until PHEOC activates the outbreak event (§11.1). Grouped by the feature that

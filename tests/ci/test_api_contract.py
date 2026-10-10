@@ -100,7 +100,8 @@ async def versioned_paths_are_served(client: httpx.AsyncClient) -> None:
 
 async def idempotency_key_replays_a_write(client: httpx.AsyncClient) -> None:
 	body = {'facility_id': 'F-IDEM', 'name': 'Test', 'kind': 'ed', 'county': 'Nairobi', 'lat': -1.3, 'lon': 36.8, 'ed_status': 'operational'}
-	headers = {'Idempotency-Key': 'contract-idem-1'}
+	headers = {'Idempotency-Key': 'contract-idem-1',
+	           'authorization': f"Bearer {await _county_officer(client)}"}
 	first = await client.post('/facilities', json=body, headers=headers)
 	second = await client.post('/facilities', json=body, headers=headers)
 	assert first.status_code == 200 and first.text == second.text
@@ -136,3 +137,17 @@ async def pkce_flow_issues_a_worker_token(client: httpx.AsyncClient) -> None:
 async def anonymous_token_is_issued(client: httpx.AsyncClient) -> None:
 	out = (await client.post('/auth/anonymous', json={})).json()
 	assert out['token'] and out['subject_ref'].startswith('anon-')
+
+
+async def _county_officer(c: httpx.AsyncClient) -> str:
+	"""The facility registry is the county health team's to maintain, so its writes carry that
+	scope. Minted through the app's own PKCE flow, which is how §17.4 issues the role."""
+	from afya.auth.views import s256
+	verifier = 'v' * 64
+	authz = (await c.post('/auth/pkce/authorize', json={
+		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234',
+	})).json()
+	return (await c.post('/auth/pkce/token', params={'role': 'county_officer'}, json={
+		'authorization_code': authz['authorization_code'], 'client_id': 'app',
+		'redirect_uri': 'afya://cb', 'code_verifier': verifier,
+	})).json()['access_token']

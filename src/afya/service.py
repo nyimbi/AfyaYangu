@@ -545,8 +545,11 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 	# --- facilities ---
+	# The facility registry is what every locator screen reads. An anonymous caller could add a
+	# facility to it, and the nearest-facility answer changed for everyone. §17.4's
+	# `county_aggregate` is the county health team's scope, which is who maintains the registry.
 	@app.post('/facilities')
-	async def facility_upsert(fac: Facility) -> dict[str, bool]:
+	async def facility_upsert(fac: Facility, _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, bool]:
 		await facilities.upsert(fac)
 		return {'ok': True}
 
@@ -1095,16 +1098,20 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			),
 		}
 
+	# A geofence is a risk zone every device inside it is told about. An anonymous caller could
+	# declare a high-alert outbreak zone over Nairobi and every phone there would read it.
 	@app.post('/surveillance/geofence')
-	async def surveillance_geofence(fence: Geofence) -> dict[str, bool]:
+	async def surveillance_geofence(fence: Geofence, _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, bool]:
 		try:
 			await surveillance.set_geofence(fence)
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return {'ok': True}
 
+	# The county's own fever and hotline counts. These are the numbers the early-warning z-score
+	# is computed from, so an unguarded write is an outbreak signal anyone can fabricate.
 	@app.post('/surveillance/signal')
-	async def surveillance_signal(history: list[CountySignal]) -> dict[str, object]:
+	async def surveillance_signal(history: list[CountySignal], _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
 		return surveillance.weekly_signal(history).model_dump(mode='json')
 
 	@app.get('/surveillance/geofences-at')
@@ -1183,7 +1190,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return await places_nearest(lat, lon, kinds=[PlaceKind.vaccination_point.value], limit=limit)
 
 	@app.post('/places/import-osm')
-	async def places_import_osm(county_lat: float, county_lon: float) -> dict[str, int]:
+	async def places_import_osm(county_lat: float, county_lon: float, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, int]:
 		client = OverpassClient()
 		rows = await client.fetch_places(county_lat, county_lon)
 		for p in rows:
@@ -1273,8 +1280,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def monitoring_breeding_site(county: str, lat: float, lon: float, description: str) -> dict[str, object]:
 		return await monitoring.report_breeding_site(county, lat, lon, description)
 
+	# A food-safety alert is a public warning about a named product; the county issues it.
 	@app.post('/monitoring/food-alert')
-	async def monitoring_food_alert(alert: FoodSafetyAlert) -> dict[str, object]:
+	async def monitoring_food_alert(alert: FoodSafetyAlert, _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
 		return (await monitoring.issue_food_alert(alert)).model_dump(mode='json')
 
 	@app.get('/monitoring/food-alerts/{county}')
@@ -1946,8 +1954,10 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		everyone); it is the *write* side, JALI's, that has to be authenticated, which it is."""
 		return await jali.corrections(since)
 
+	# The ADaM twin of this route carries `assigned`; a summary of one person's assessment
+	# pushed to a national system without a guard is the same disclosure with the guard missing.
 	@app.post('/integrations/jali/assessments')
-	async def jali_share_assessment(summary: dict[str, object]) -> dict[str, bool]:
+	async def jali_share_assessment(summary: dict[str, object], _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
 		try:
 			await jali.share_assessment(dict(summary))
 		except AssertionError as exc:

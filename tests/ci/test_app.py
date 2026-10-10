@@ -5,6 +5,19 @@ from afya.privacy.views import RBACRole
 from afya.service import build_services, create_app
 
 
+async def _county_officer(c: httpx.AsyncClient) -> str:
+	"""A county health team token, through the app's own PKCE flow (§17.4)."""
+	from afya.auth.views import s256
+	verifier = 'v' * 64
+	authz = (await c.post('/auth/pkce/authorize', json={
+		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234',
+	})).json()
+	return (await c.post('/auth/pkce/token', params={'role': 'county_officer'}, json={
+		'authorization_code': authz['authorization_code'], 'client_id': 'app',
+		'redirect_uri': 'afya://cb', 'code_verifier': verifier,
+	})).json()['access_token']
+
+
 @pytest.fixture
 async def client() -> httpx.AsyncClient:
 	transport = httpx.ASGITransport(app=create_app())
@@ -33,7 +46,9 @@ async def test_triage_evd_forbidden_when_dormant(client: httpx.AsyncClient) -> N
 
 
 async def test_facility_nearest_and_status(client: httpx.AsyncClient) -> None:
-	await client.post('/facilities', json={'facility_id': 'F1', 'name': 'KNH', 'kind': 'ed', 'county': 'Nairobi', 'lat': -1.3, 'lon': 36.8, 'ed_status': 'operational'})
+	# The registry is the county health team's to maintain; reading the locator is open to anyone.
+	await client.post('/facilities', headers={'authorization': f'Bearer {await _county_officer(client)}'},
+	                  json={'facility_id': 'F1', 'name': 'KNH', 'kind': 'ed', 'county': 'Nairobi', 'lat': -1.3, 'lon': 36.8, 'ed_status': 'operational'})
 	out = (await client.post('/facilities/nearest', json={'lat': -1.29, 'lon': 36.8, 'kind': 'ed', 'limit': 1})).json()
 	assert out[0]['facility']['facility_id'] == 'F1'
 	st = (await client.get('/facilities/F1/ed-status')).json()
