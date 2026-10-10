@@ -1520,8 +1520,20 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return (await community.flag_misinfo(submission)).model_dump(mode='json')
 
 	@app.get('/community/misinformation/clusters')
-	async def community_clusters() -> list[dict[str, object]]:
-		return [c.model_dump(mode='json') for c in community.clusters()]
+	async def community_clusters(now_ms: int | None = None) -> list[dict[str, object]]:
+		"""`now_ms` is the caller's clock, for the same reason `/location/check` takes one: §6.4's
+		deadlines are computed from the detection instant, and a view that can only read the wall
+		clock cannot be asked what the response looked like at 5 hours."""
+		return [c.model_dump(mode='json') for c in community.clusters(now_ms)]
+
+	@app.get('/community/misinformation/protocol')
+	async def community_protocol() -> dict[str, object]:
+		"""§6.4's six steps with their owners and SLAs, and the readiness of the myth library.
+
+		Served rather than documented because two of the six myth categories §6.4 names have no
+		correction drafted, and a coverage report that exists only in a test is one an operator
+		cannot read. The response is PHEOC's own working document, not citizen copy."""
+		return {'steps': community.protocol_steps(), 'coverage': community.protocol_coverage()}
 
 	# --- alerting (§9.6 ALT-003, §10.3 ALT-001/002, §11.8 ALT-004) ---
 	# The feed is the durable broadcast behind the socket. Writing it is publishing to everyone.

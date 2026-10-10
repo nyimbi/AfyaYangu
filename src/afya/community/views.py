@@ -168,3 +168,9 @@ class MisinfoCluster(BaseModel):
 	counties: list[str]
 	correction: str | None = None
 	status: str = Field(pattern=r'^(aggregating|verified|correction_published)$')
+	# §6.4's clock, on the cluster rather than beside it. `reports` and `velocity` say how loud a
+	# rumour is; neither says how long the response has been running, so a cluster could read
+	# `spiking` for a week with nothing anywhere showing that the four-hour triage was never done.
+	detected_at_ms: int | None = None
+	next_due_at_ms: int | None = None
+	response_overdue: bool = False

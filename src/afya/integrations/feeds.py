@@ -102,11 +102,19 @@ def build_geofence_feed(events: list[dict[str, Any]]) -> tuple[list[dict[str, An
 
 def build_misinformation_feed(clusters: list[MisinfoCluster]) -> tuple[list[dict[str, Any]], int]:
 	"""App → PHEOC, topic and county, hourly. The cluster is already a topic, so no per-person data
-	can appear here; the correction text is included because the dashboard is also a publishing surface."""
+	can appear here; the correction text is included because the dashboard is also a publishing surface.
+
+	The §6.4 clock travels with the row. PHEOC is the owner of step 2 and the reader of this feed, so
+	the one place that can act on a breached four-hour triage is the one place that must see it — a
+	cluster that arrives `spiking` with no due time is a rumour PHEOC has no way to know is late.
+	"""
 	rows = [
 		{
 			'topic': c.topic, 'reports': c.reports, 'velocity': c.velocity, 'counties': c.counties,
-			'status': c.status, 'correction': c.correction, 'granularity': FEED_GRANULARITY['misinformation_flags'],
+			'status': c.status, 'correction': c.correction,
+			'detected_at_ms': c.detected_at_ms, 'next_due_at_ms': c.next_due_at_ms,
+			'response_overdue': c.response_overdue,
+			'granularity': FEED_GRANULARITY['misinformation_flags'],
 		}
 		for c in clusters
 	]

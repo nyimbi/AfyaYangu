@@ -155,7 +155,10 @@ def _corpus() -> list[tuple[str, str, Subject]]:
 	svc = InfoService()
 	items = list(library_texts(svc.all_items()))
 	items += tree_texts(svc.TREE)
-	items += [(f'corr:{k}', v, Subject.content) for k, v in CORRECTION_LIBRARY.items()]
+	# A correction answers "is this true", not "what should I do" — `cure_claim` is a factual
+	# correction with no disposition in it, and §6.2.1 does not govern it. Judging these as answers
+	# failed nine correct strings, which is the failure mode this file exists to avoid.
+	items += [(f'corr:{k}:{lang}', v, Subject.content) for k, texts in CORRECTION_LIBRARY.items() for lang, v in texts.items()]
 	items += [(f'rec:{lang}:{k}', v, Subject.answer) for lang, d in TRIAGE_RECS.items() for k, v in d.items()]
 	items += [(f'recmap:{k}', v, Subject.answer) for k, v in RECMAP.items()]
 	items += [(f'risk:{k.value}', v, Subject.answer) for k, v in RECOMMENDATIONS.items()]

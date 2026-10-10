@@ -4,6 +4,8 @@ COM-101 case reports are server-authoritative (§16.3) and mirror AVADAR: submis
 automatic alert to the disease surveillance officer, and the report moves through
 reported -> investigated -> lab_result -> closed.
 """
+from afya.auth.views import now_ms
+from afya.community.protocol import PROTOCOL, ResponseClock, coverage, response_clock
 from afya.community.views import (
 	ISSUE_ROUTING, CaseReport, CaseReportView, CaseStatus, CommunityIssue, ContactEntry, ContactList,
 	ContactTracingSummary, IssueReceipt, IssueStatus, MisinfoCluster, MisinfoSubmission, PeerAlert,
@@ -11,17 +13,51 @@ from afya.community.views import (
 )
 from afya.info.principles import Subject, judge
 from afya.logmixin import LogMixin
+from afya.strings import SUPPORTED_LANGS
 
 # Misinformation topics with a pre-drafted, source-attributed correction (§6.4 response protocol).
-CORRECTION_LIBRARY: dict[str, str] = {
-	'cure_claim': 'No herbal or religious remedy cures Ebola. Only supportive care in a treatment unit improves survival — MoH/PHEOC.',
-	'transmission_claim': 'Ebola spreads through direct contact with blood or body fluids of a sick or dead person. It is not airborne and not spread by food — WHO.',
-	'vaccine_claim': 'Approved Ebola vaccines are tested and free at designated points. Vaccination protects your family — MoH.',
-	'burial_claim': 'Safe and dignified burial protects the family while respecting the deceased. Burial teams are trained and free — MoH/PHEOC.',
-	'denial_claim': 'Ebola is real and Kenya has activated its response. Reporting symptoms early saves lives — PHEOC.',
-	'unknown': 'This claim is under verification by MoH. Treat unverified health claims as unconfirmed and follow official channels.',
+#
+# Every correction carries both languages. §6.4's step 4 says the correction is drafted "in all
+# relevant languages" and §6.2.4 forbids publishing English-only for a life-safety message, so an
+# English-only correction is one the audience §3.3 principle 8 puts first cannot read. The table was
+# a bare `str` per topic until §6.4 was built; `coverage()` now reports any that go missing.
+#
+# The attributions are separated by a hyphen and not an em dash. §6.4 step 5 publishes "all channels
+# simultaneously", and SMS is one of the channels §6.2.6 names — a character outside GSM-7 cannot be
+# sent as a plain SMS, so every one of these six corrections was unpostable on a channel the section
+# requires. `tests/ci/test_misinfo_protocol.py` holds that shut.
+CORRECTION_LIBRARY: dict[str, dict[str, str]] = {
+	'cure_claim': {
+		'en': 'No herbal or religious remedy cures Ebola. Only supportive care in a treatment unit improves survival - MoH/PHEOC.',
+		'sw': 'Hakuna dawa ya miti shamba wala ya kidini inayotibu Ebola. Huduma katika kituo cha matibabu pekee huongeza nafasi ya kupona - Wizara ya Afya/PHEOC.',
+	},
+	'transmission_claim': {
+		'en': 'Ebola spreads through direct contact with blood or body fluids of a sick or dead person. It is not airborne and not spread by food - WHO.',
+		'sw': 'Ebola huenea kwa kugusa damu au majimaji ya mwili ya mtu mgonjwa au aliyefariki. Hauenei kwa hewa wala kwa chakula - WHO.',
+	},
+	'vaccine_claim': {
+		'en': 'Approved Ebola vaccines are tested and free at designated points. Vaccination protects your family - MoH.',
+		'sw': 'Chanjo za Ebola zilizoidhinishwa zimepimwa na ni bure katika vituo vilivyotajwa. Chanjo inalinda familia yako - Wizara ya Afya.',
+	},
+	'burial_claim': {
+		'en': 'Safe and dignified burial protects the family while respecting the deceased. Burial teams are trained and free - MoH/PHEOC.',
+		'sw': 'Mazishi salama na ya heshima hulinda familia na kumheshimu marehemu. Timu za mazishi zimefundishwa na hazina malipo - Wizara ya Afya/PHEOC.',
+	},
+	'denial_claim': {
+		'en': 'Ebola is real and Kenya has activated its response. Reporting symptoms early saves lives - PHEOC.',
+		'sw': 'Ebola ni kweli na Kenya imeanzisha mwitikio wake. Kuripoti dalili mapema huokoa maisha - PHEOC.',
+	},
+	'unknown': {
+		'en': 'This claim is under verification by MoH. Treat unverified health claims as unconfirmed and follow official channels.',
+		'sw': 'Madai haya yanachunguzwa na Wizara ya Afya. Chukulia madai ya afya yasiyothibitishwa kama hayajathibitishwa na fuata njia rasmi.',
+	},
 }
 
+# The clock starts when a rumour is first seen. A submission carries no timestamp of its own — the
+# flagger is a member of the public and their phone's clock is not evidence — so detection is the
+# server's receipt of the first report for that topic. Held per service instance rather than at
+# module scope: two services in one process are two deployments, and a shared detection time would
+# make one deployment's response look started by another's first report.
 SPIKING_THRESHOLD = 25
 RISING_THRESHOLD = 8
 
@@ -45,6 +81,7 @@ class CommunityService(LogMixin):
 		self._peer_alerts: list[PeerAlert] = []
 		self._contacts: dict[str, ContactList] = {}
 		self._misinfo: list[MisinfoSubmission] = []
+		self._detected: dict[str, int] = {}
 		assert self._issues == {} and self._cases == {}
 
 	# --- COM-005 community reporting ------------------------------------------------------
@@ -164,28 +201,71 @@ class CommunityService(LogMixin):
 
 	# --- COM-104 misinformation tracker ---------------------------------------------------
 
-	async def flag_misinfo(self, submission: MisinfoSubmission) -> MisinfoCluster:
+	async def flag_misinfo(self, submission: MisinfoSubmission, at_ms: int | None = None) -> MisinfoCluster:
+		"""Record a rumour and return its cluster, with §6.4's clock attached.
+
+		The first report for a topic starts the clock. `at_ms` is injectable for the same reason
+		§24.8's breach deadline is computed from a supplied instant rather than read from the wall:
+		a clock nobody can move is a clock nobody can test, and a deadline asserted is not a deadline
+		measured.
+		"""
+		seen_at = at_ms if at_ms is not None else now_ms()
 		self._misinfo.append(submission)
 		self._log_info('misinformation flagged', medium=submission.medium, county=submission.county)
 		# The cluster for the topic just flagged, not the busiest topic overall: someone reporting a
 		# rumour must be shown the correction for that rumour, never one about a different subject.
-		return self._cluster_for(submission.topic or 'unknown')
+		return self._cluster_for(submission.topic or 'unknown', seen_at, at_ms)
 
-	def _cluster_for(self, topic: str) -> MisinfoCluster:
+	def _cluster_for(self, topic: str, seen_at: int, at_ms: int | None = None) -> MisinfoCluster:
 		rows = [s for s in self._misinfo if (s.topic or 'unknown') == topic]
 		counties = sorted({s.county for s in rows})
 		n = len(rows)
 		velocity = 'spiking' if n >= SPIKING_THRESHOLD else ('rising' if n >= RISING_THRESHOLD else 'slow')
+		detected = self._detected.setdefault(topic, seen_at)
+		clock = response_clock(topic, detected, at_ms if at_ms is not None else seen_at)
+		due = clock.next_due_ms
 		return MisinfoCluster(
 			topic=topic, reports=max(1, n), velocity=velocity, counties=counties,
-			correction=CORRECTION_LIBRARY.get(topic, CORRECTION_LIBRARY['unknown']),
+			correction=self.correction_for(topic),
 			status='correction_published' if velocity in ('rising', 'spiking') else 'aggregating',
+			detected_at_ms=detected, next_due_at_ms=due, response_overdue=clock.breached,
 		)
 
-	def clusters(self) -> list[MisinfoCluster]:
+	def clusters(self, at_ms: int | None = None) -> list[MisinfoCluster]:
+		now = at_ms if at_ms is not None else now_ms()
 		topics = sorted({s.topic or 'unknown' for s in self._misinfo})
-		out = [self._cluster_for(t) for t in topics]
+		out = [self._cluster_for(t, now, at_ms) for t in topics]
 		return sorted(out, key=lambda c: -c.reports)
 
-	def correction_for(self, topic: str) -> str:
-		return CORRECTION_LIBRARY.get(topic, CORRECTION_LIBRARY['unknown'])
+	def correction_for(self, topic: str, lang: str = 'en') -> str:
+		"""The pre-drafted correction for a topic, in the reader's language.
+
+		An unknown topic falls back to `unknown`, which is itself a correction — "under verification"
+		is the honest answer §6.2.8 asks for, and it is better than silence. A topic known to the
+		library but missing a language falls back to English and says so rather than returning a
+		string that pretends to be Swahili; `coverage()` is what surfaces that gap to an operator.
+		"""
+		assert lang in SUPPORTED_LANGS, f'unsupported lang {lang}'
+		texts = CORRECTION_LIBRARY.get(topic, CORRECTION_LIBRARY['unknown'])
+		return texts.get(lang) or texts['en']
+
+	# --- §6.4 the response protocol, as a clock and as coverage ---------------------------------
+
+	def response_clock(self, topic: str, at_ms: int | None = None, completed_through: int = 0) -> ResponseClock:
+		"""Where this topic's response stands. A topic never flagged has no clock, which is an
+		assertion rather than a zero: a response that never started is not a response that is on time."""
+		assert topic in self._detected, f'no rumour detected for {topic!r}'
+		return response_clock(topic, self._detected[topic], at_ms if at_ms is not None else now_ms(),
+		                      completed_through)
+
+	def protocol_steps(self) -> list[dict[str, object]]:
+		return [
+			{'step': s.step, 'action': s.action, 'owner': s.owner, 'sla_label': s.sla_label,
+			 'sla_hours': s.sla_hours}
+			for s in PROTOCOL
+		]
+
+	def protocol_coverage(self) -> dict[str, object]:
+		"""§6.4's readiness, as the served view of it. The gaps are named, not counted — an operator
+		who reads "undrafted: conspiracy" knows what to draft, and one who reads a number does not."""
+		return coverage(CORRECTION_LIBRARY).model_dump(mode='json')
