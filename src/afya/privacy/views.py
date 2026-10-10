@@ -55,6 +55,24 @@ class AccessRequest(BaseModel):
 	dataset: str
 
 
+class Principal(BaseModel):
+	"""Who the request is, as resolved from its token (§17 RBAC).
+
+	Both halves travel together because a route that serves personal data needs the role as well
+	as the subject: `self` scope alone cannot distinguish a citizen reading their own record from
+	one naming a stranger's.
+	"""
+
+	model_config = MODEL_CONFIG
+	subject_ref: str
+	role: RBACRole
+
+
+# Roles that act only for themselves. A worker role reaches other people's records through its own
+# scoped routes, never by naming a subject on a citizen endpoint.
+CITIZEN_ROLES: frozenset[RBACRole] = frozenset({RBACRole.citizen_anonymous, RBACRole.citizen_identified})
+
+
 class DPIAInput(BaseModel):
 	model_config = MODEL_CONFIG
 	processing_id: str = Field(default_factory=uuid7str)

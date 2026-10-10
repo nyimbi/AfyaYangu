@@ -10,16 +10,46 @@ import java.net.URL
 data class HealthDTO(val status: String, val version: String, val tier4: Boolean)
 data class FeatureDTO(val id: String, val name: String)
 data class TriageResultDTO(val riskLevel: String, val recommendation: String, val escalate719: Boolean)
-data class ActionField(val name: String, val label: String, val type: String, val options: List<String>?, val placeholder: String?, val required: Boolean)
+data class ActionField(val name: String, val label: String, val type: String, val options: List<String>?, val placeholder: String?, val required: Boolean, val clientSupplied: Boolean)
 data class CatalogueAction(val id: String, val title: String, val group: String, val method: String, val path: String, val fields: List<ActionField>)
 
 // Offline-first: last good response cached in SharedPreferences (spec 16.1).
 class BackendClient(private val context: Context) {
 
-	private fun request(path: String, body: String?): String {
+	/**
+	 * The citizen's session: an anonymous bearer token and the subject it was issued for.
+	 *
+	 * The personal-data routes bind the subject they name to the token that named it (§17), so a
+	 * client that presents no token gets a 401 and a client that names a subject other than its
+	 * own gets a 403. The subject is therefore the *device's*, obtained once and reused — never
+	 * whatever a form field happens to contain.
+	 */
+	private val prefs get() = context.getSharedPreferences("afya", Context.MODE_PRIVATE)
+
+	@Volatile private var token: String? = null
+	@Volatile private var subject: String? = null
+
+	fun subjectRef(): String = subject ?: prefs.getString("session.subject", null) ?: ensureSession().first
+
+	/** Returns (subject, token), obtaining one if the device has none or the token expired. */
+	private fun ensureSession(): Pair<String, String> {
+		subject?.let { s -> token?.let { t -> return s to t } }
+		val known = prefs.getString("session.subject", null)
+		val body = if (known == null) "{}" else JSONObject().put("subject_ref", known).toString()
+		val out = JSONObject(request("auth/anonymous", body, authorize = false))
+		val s = out.getString("subject_ref")
+		val t = out.getString("token")
+		subject = s
+		token = t
+		prefs.edit().putString("session.subject", s).putString("session.token", t).apply()
+		return s to t
+	}
+
+	private fun request(path: String, body: String?, authorize: Boolean = true): String {
 		val conn = URL(BASE + path).openConnection() as HttpURLConnection
 		conn.connectTimeout = 8000
 		conn.readTimeout = 8000
+		if (authorize) conn.setRequestProperty("authorization", "Bearer ${ensureSession().second}")
 		if (body == null) {
 			conn.requestMethod = "GET"
 		} else {
@@ -135,7 +165,7 @@ class BackendClient(private val context: Context) {
 	}
 
 	fun ingest(kind: String, value: Double, county: String): String {
-		val body = JSONObject().put("kind", kind).put("subject_ref", "U1").put("value", value).put("county", county).toString()
+		val body = JSONObject().put("kind", kind).put("subject_ref", subjectRef()).put("value", value).put("county", county).toString()
 		val v = JSONObject(request("sensors/ingest", body))
 		return v.getString("band") + ": " + v.getString("detail")
 	}
@@ -146,10 +176,11 @@ class BackendClient(private val context: Context) {
 		conn.doOutput = true
 		conn.connectTimeout = 10000
 		conn.readTimeout = 15000
+		conn.setRequestProperty("authorization", "Bearer ${ensureSession().second}")
 		conn.setRequestProperty("content-type", "multipart/form-data; boundary=$boundary")
 		conn.outputStream.use { os ->
 			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"kind\"\r\n\r\n$kind\r\n").toByteArray())
-			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"subject_ref\"\r\n\r\nU1\r\n").toByteArray())
+			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"subject_ref\"\r\n\r\n${subjectRef()}\r\n").toByteArray())
 			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"county\"\r\n\r\nNairobi\r\n").toByteArray())
 			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\n$note\r\n").toByteArray())
 			os.write("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".toByteArray())
@@ -184,8 +215,19 @@ class BackendClient(private val context: Context) {
 
 	/** Calls one catalogue action. `pathValues` fills {placeholders}; `query`/`body` carry the rest. */
 	fun perform(method: String, path: String, pathValues: Map<String, String>, params: JSONObject): String {
+		// The subject is the device's, not a form field: a personal-data route binds the subject it
+		// is given to the token, so anything else is a 403 by construction. Overwriting whatever the
+		// form collected is what keeps the client unable to name a stranger.
+		val mine = subjectRef()
+		val filled = HashMap(pathValues)
+		if (path.contains("{subject_ref}")) filled["subject_ref"] = mine
+		// Overwrite unconditionally: the caller has already decided this action takes a subject, so
+		// whatever the form held must not survive.
+		if (params.has("subject_ref") || path.contains("{subject_ref}") || pathValues.containsKey("subject_ref")) {
+			params.put("subject_ref", mine)
+		}
 		var resolved = path
-		for ((k, v) in pathValues) resolved = resolved.replace("{$k}", v)
+		for ((k, v) in filled) resolved = resolved.replace("{$k}", v)
 		return when (method) {
 			"GET" -> {
 				val q = params.keys().asSequence().joinToString("&") { k ->
@@ -222,6 +264,7 @@ class BackendClient(private val context: Context) {
 					f.optJSONArray("options")?.let { o -> (0 until o.length()).map { o.getString(it) } },
 					ph,
 					f.optBoolean("required", false),
+					f.optBoolean("client_supplied", false),
 				)
 			}
 			CatalogueAction(a.getString("id"), a.getString("title"), a.getString("group"), a.getString("method"), a.getString("path"), fields)

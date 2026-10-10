@@ -69,7 +69,11 @@ class ActionsActivity : Activity() {
 		val inputs = LinkedHashMap<String, android.view.View>()
 		val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 		box.addView(TextView(this).apply { text = a.title; textSize = 16f; setPadding(16, 12, 16, 4) })
-		for (f in a.fields) box.addView(fieldView(f, inputs))
+		// A client-supplied field is the device's own subject, filled by the client. It is not drawn:
+		// the catalogue marks it because the route binds it to the token, so a field asking "who is
+		// this for?" would offer a control the server refuses by construction. The only honest thing
+		// to show is nothing.
+		for (f in a.fields) if (!f.clientSupplied) box.addView(fieldView(f, inputs))
 		box.addView(Button(this).apply {
 			text = if (a.method == "GET") "Run" else "Submit"
 			setOnClickListener { submit(a, inputs) }
@@ -116,6 +120,10 @@ class ActionsActivity : Activity() {
 			if (f.type == "path") pathValues[f.name] = raw
 			else params.put(f.name, typed(f.type, raw))
 		}
+		// A client-supplied subject is the device's, whatever the transport (query, path or body).
+		// `perform` overwrites it in all three; a worker action's subject is not marked, so the
+		// person the worker named — a contact being notified — is left alone.
+		if (a.fields.any { it.clientSupplied } && !params.has("subject_ref")) params.put("subject_ref", client.subjectRef())
 		executor.execute {
 			val res = runCatching { client.perform(a.method, a.path, pathValues, params) }
 			runOnUiThread {

@@ -63,8 +63,9 @@ struct EvidenceUploadView: View {
 					guard let data = imageData else { status = "Attach a photo first"; return }
 					Task {
 						do {
+							let mine = (try? await AppState.sharedClient.subjectRef()) ?? "U1"
 							let out = try await MultipartBody.upload(
-								client: AppState.sharedClient, kind: kind, subjectRef: "U1", county: "Nairobi",
+								client: AppState.sharedClient, kind: kind, subjectRef: mine, county: "Nairobi",
 								note: note, mime: "image/jpeg", data: data)
 							let obj = (try? JSONSerialization.jsonObject(with: out)) as? [String: Any]
 							status = obj?["deduped"] != nil

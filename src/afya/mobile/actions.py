@@ -1,9 +1,15 @@
 """Server-driven mobile action catalogue — the generic mechanism that exposes every backend feature.
 
 GET /mobile/actions returns every usable action (id, title, group, method, path, fields);
-a field is {name,label,type,options,placeholder} with type in:
+a field is {name,label,type,options,placeholder,required,client_supplied} with type in:
 	text, int, decimal, bool, select, textarea, list (comma text -> array), file, path (URL path param).
 Apps render one generic form per action — no per-feature code, no app release needed to add features.
+
+A field marked `client_supplied` is the device's own identity, not a question: the client fills it
+from its session and does not draw it. On a personal-data route the server binds the subject it is
+given to the token that gave it (§17), so a form that let a person type someone else's subject would
+be offering a control that is refused by construction — the §11.1 defect this flag exists to
+prevent. The field is carried, not dropped, because the client still has to send it.
 
 IDENTIFIERS ARE SLUGS, NOT SPEC CODES. Nothing a person reads may contain a code such as
 "REC-004": ids, titles, labels, placeholders and descriptions are all plain language. The spec
@@ -29,6 +35,10 @@ class MobileField(BaseModel):
 	options: list[str] | None = None
 	placeholder: str | None = None
 	required: bool = False
+	# True when the client must supply this field from its own identity and must not draw it. A
+	# personal-data route binds the subject it is given to the token that gave it (§17), so a form
+	# offering to type a subject would offer a control the server refuses — the §11.1 defect.
+	client_supplied: bool = False
 
 
 class MobileAction(BaseModel):
@@ -151,8 +161,17 @@ def tier4_feature_ids() -> frozenset[str]:
 	return frozenset(f.id for f in FeatureRegistry().by_tier(Tier.tier4))
 
 
-def _f(name: str, label: str, type_: str = 'text', options: list[str] | None = None, ph: str | None = None) -> MobileField:
-	return MobileField(name=name, label=label, type=cast(FieldType, type_), options=options, placeholder=ph, required=type_ == 'path')
+def _f(name: str, label: str, type_: str = 'text', options: list[str] | None = None, ph: str | None = None, client_supplied: bool = False) -> MobileField:
+	return MobileField(name=name, label=label, type=cast(FieldType, type_), options=options, placeholder=ph, required=type_ == 'path', client_supplied=client_supplied)
+
+
+def _s(type_: str = 'text') -> MobileField:
+	"""The caller's own subject: carried so the client can send it, marked so no form draws it.
+
+	Every route that carries one binds it to the token (§17), so a person typing a different subject
+	would be offered a control the server refuses. The label is never shown.
+	"""
+	return _f('subject_ref', 'Me', type_, client_supplied=True)
 
 
 def _a(id: str, title: str, group: str, method: str, path: str, fields: list[MobileField]) -> MobileAction:
@@ -168,7 +187,7 @@ def catalogue() -> list[MobileAction]:
 		_a('febrile_triage', 'Check a fever', 'Triage', 'POST', '/triage/preliminary', triage_fields),
 		_a('evd_triage', 'Ebola check', 'Triage', 'POST', '/triage/evd', triage_fields),
 		_a('differential', 'What illness could this be?', 'Triage', 'POST', '/triage/diagnose', triage_fields),
-		_a('symptom_diary', 'Log how I feel today', 'Triage', 'POST', '/triage/diary', [_f('entry_id', 'Entry number', ph='generated for you'), _f('subject_ref', 'Who is this for?'), _f('day', 'Day (1-21)', 'int'), _f('symptoms', 'Symptoms', 'list'), _f('temperature_c', 'Temperature °C', 'decimal')]),
+		_a('symptom_diary', 'Log how I feel today', 'Triage', 'POST', '/triage/diary', [_f('entry_id', 'Entry number', ph='generated for you'), _s(), _f('day', 'Day (1-21)', 'int'), _f('symptoms', 'Symptoms', 'list'), _f('temperature_c', 'Temperature °C', 'decimal')]),
 		# Facilities
 		_a('nearest_facilities', 'Find care near me', 'Facilities', 'POST', '/facilities/nearest', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('kind', 'Type of place', 'select', FACILITY_KINDS), _f('limit', 'How many results', 'int')]),
 		_a('ed_status', 'How busy is the emergency unit?', 'Facilities', 'GET', '/facilities/{facility_id}/ed-status', [_f('id', 'Facility', 'path')]),
@@ -191,23 +210,23 @@ def catalogue() -> list[MobileAction]:
 		_a('register_donor', 'Register as a blood donor', 'Records', 'POST', '/blood/donors', [_f('donor_ref', 'Donor reference'), _f('blood_group', 'Blood group', 'select', BLOOD_GROUPS), _f('county', 'County'), _f('last_donation_iso', 'Last donation date', ph='optional')]),
 		_a('find_donors', 'Find blood donors', 'Records', 'POST', '/blood/match', [_f('request_id', 'Request number'), _f('blood_group', 'Group needed', 'select', BLOOD_GROUPS), _f('county', 'County'), _f('urgency', 'How urgent?', 'select', ['routine', 'urgent', 'critical'])]),
 		# Wellbeing
-		_a('wellbeing_check', 'How have I been feeling?', 'Wellbeing', 'POST', '/mental/who5', [_f('subject_ref', 'Who is this for?'), _f('s1', 'Question 1 (0-5)', 'int'), _f('s2', 'Question 2 (0-5)', 'int'), _f('s3', 'Question 3 (0-5)', 'int'), _f('s4', 'Question 4 (0-5)', 'int'), _f('s5', 'Question 5 (0-5)', 'int')]),
+		_a('wellbeing_check', 'How have I been feeling?', 'Wellbeing', 'POST', '/mental/who5', [_s(), _f('s1', 'Question 1 (0-5)', 'int'), _f('s2', 'Question 2 (0-5)', 'int'), _f('s3', 'Question 3 (0-5)', 'int'), _f('s4', 'Question 4 (0-5)', 'int'), _f('s5', 'Question 5 (0-5)', 'int')]),
 		_a('counselling_lines', 'Talk to someone', 'Wellbeing', 'GET', '/mental/lines', []),
 		# Chronic & daily
-		_a('log_bp', 'Log my blood pressure', 'Daily care', 'POST', '/chronic/bp', [_f('subject_ref', 'Who is this for?'), _f('systolic', 'Systolic', 'int'), _f('diastolic', 'Diastolic', 'int'), _f('pulse', 'Pulse', 'int')]),
-		_a('log_glucose', 'Log my blood sugar', 'Daily care', 'POST', '/chronic/glucose', [_f('subject_ref', 'Who is this for?'), _f('mmol_l', 'mmol/L', 'decimal'), _f('fasting', 'Before eating?', 'bool')]),
+		_a('log_bp', 'Log my blood pressure', 'Daily care', 'POST', '/chronic/bp', [_s(), _f('systolic', 'Systolic', 'int'), _f('diastolic', 'Diastolic', 'int'), _f('pulse', 'Pulse', 'int')]),
+		_a('log_glucose', 'Log my blood sugar', 'Daily care', 'POST', '/chronic/glucose', [_s(), _f('mmol_l', 'mmol/L', 'decimal'), _f('fasting', 'Before eating?', 'bool')]),
 		_a('bp_trend', 'Is my blood pressure improving?', 'Daily care', 'GET', '/chronic/{ref}/bp-trend', [_f('ref', 'Who is this for?', 'path')]),
-		_a('track_refill', 'When do I need a refill?', 'Daily care', 'POST', '/chronic/refill', [_f('subject_ref', 'Who is this for?'), _f('drug', 'Medicine'), _f('days_remaining', 'Days of medicine left', 'int')]),
-		_a('peak_flow', 'Log my peak flow', 'Daily care', 'POST', '/monitoring/chronic/peak-flow', [_f('subject_ref', 'Who is this for?'), _f('litres_per_min', 'Litres per minute', 'int'), _f('personal_best', 'My best ever', 'int')]),
-		_a('log_weight', 'Log my weight', 'Daily care', 'POST', '/monitoring/chronic/weight', [_f('subject_ref', 'Who is this for?'), _f('kg', 'Weight in kg', 'decimal')]),
-		_a('condition_profile', 'My ongoing conditions', 'Daily care', 'POST', '/monitoring/chronic/conditions', [_f('subject_ref', 'Who is this for?'), _f('conditions', 'Conditions', 'list', ph='hypertension, diabetes'), _f('hiv_pin_set', 'Extra PIN set for private conditions?', 'bool')]),
-		_a('clinical_report', 'Report to show my clinician', 'Daily care', 'GET', '/monitoring/chronic/{subject_ref}/report', [_f('subject_ref', 'Who is this for?', 'path')]),
+		_a('track_refill', 'When do I need a refill?', 'Daily care', 'POST', '/chronic/refill', [_s(), _f('drug', 'Medicine'), _f('days_remaining', 'Days of medicine left', 'int')]),
+		_a('peak_flow', 'Log my peak flow', 'Daily care', 'POST', '/monitoring/chronic/peak-flow', [_s(), _f('litres_per_min', 'Litres per minute', 'int'), _f('personal_best', 'My best ever', 'int')]),
+		_a('log_weight', 'Log my weight', 'Daily care', 'POST', '/monitoring/chronic/weight', [_s(), _f('kg', 'Weight in kg', 'decimal')]),
+		_a('condition_profile', 'My ongoing conditions', 'Daily care', 'POST', '/monitoring/chronic/conditions', [_s(), _f('conditions', 'Conditions', 'list', ph='hypertension, diabetes'), _f('hiv_pin_set', 'Extra PIN set for private conditions?', 'bool')]),
+		_a('clinical_report', 'Report to show my clinician', 'Daily care', 'GET', '/monitoring/chronic/{subject_ref}/report', [_s('path')]),
 		# Women & maternal
-		_a('log_cycle', 'Log my period', 'Women', 'POST', '/women/cycle', [_f('subject_ref', 'Who is this for?'), _f('start_iso', 'First day of period'), _f('cycle_days', 'Cycle length in days', 'int'), _f('pain_level', 'Pain level (0-10)', 'int')]),
+		_a('log_cycle', 'Log my period', 'Women', 'POST', '/women/cycle', [_s(), _f('start_iso', 'First day of period'), _f('cycle_days', 'Cycle length in days', 'int'), _f('pain_level', 'Pain level (0-10)', 'int')]),
 		_a('cycle_prediction', 'When is my next period?', 'Women', 'GET', '/women/cycle/{ref}/predict', [_f('ref', 'Who is this for?', 'path')]),
-		_a('register_pregnancy', 'Register my pregnancy', 'Maternity', 'POST', '/maternal/pregnancy', [_f('subject_ref', 'Who is this for?'), _f('edd_iso', 'Expected delivery date'), _f('lmp_week', 'Weeks pregnant now', 'int'), _f('delivery_plan_facility_id', 'Where I plan to deliver', ph='optional')]),
+		_a('register_pregnancy', 'Register my pregnancy', 'Maternity', 'POST', '/maternal/pregnancy', [_s(), _f('edd_iso', 'Expected delivery date'), _f('lmp_week', 'Weeks pregnant now', 'int'), _f('delivery_plan_facility_id', 'Where I plan to deliver', ph='optional')]),
 		_a('anc_due', 'Which clinic visits are due?', 'Maternity', 'GET', '/maternal/{ref}/anc-due', [_f('ref', 'Who is this for?', 'path'), _f('gest_week', 'Weeks pregnant', 'int')]),
-		_a('record_anc', 'Record a clinic visit', 'Maternity', 'POST', '/maternal/anc', [_f('subject_ref', 'Who is this for?'), _f('contact_no', 'Visit number (1-8)', 'int'), _f('done_iso', 'Date of visit')]),
+		_a('record_anc', 'Record a clinic visit', 'Maternity', 'POST', '/maternal/anc', [_s(), _f('contact_no', 'Visit number (1-8)', 'int'), _f('done_iso', 'Date of visit')]),
 		_a('danger_signs', 'Check for danger signs', 'Maternity', 'POST', '/maternal/danger', [_f('signs', 'Danger signs', 'list', ph='bleeding, severe_headache')]),
 		# Child immunisation
 		_a('register_child', "Add my child's date of birth", 'Children', 'POST', '/monitoring/child', [_f('member_ref', 'Child'), _f('dob_iso', 'Date of birth')]),
@@ -230,10 +249,10 @@ def catalogue() -> list[MobileAction]:
 		_a('alerts_by_county', 'Alerts for my county', 'Alerts', 'GET', '/alerts/{county}', [_f('county', 'County', 'path')]),
 		_a('publish_feed_item', 'Publish a verified alert', 'Alerts', 'POST', '/alerting/feed', [_f('item_id', 'Item number'), _f('category', 'Category', 'select', ['outbreak', 'weather', 'flood', 'fire', 'road', 'security', 'drug_recall', 'water', 'food_recall', 'service']), _f('headline', 'Headline'), _f('body', 'Message', 'textarea'), _f('source', 'Source'), _f('verified', 'Verified?', 'bool'), _f('published_iso', 'Published on'), _f('county', 'County', ph='optional')]),
 		_a('alert_feed', 'Alerts near me', 'Alerts', 'GET', '/alerting/feed', [_f('county', 'County', ph='optional')]),
-		_a('set_alert_preference', 'Choose which alerts I get', 'Alerts', 'POST', '/alerting/preferences', [_f('subject_ref', 'Who is this for?'), _f('category', 'Alert type'), _f('enabled', 'Turn on?', 'bool')]),
-		_a('alert_preferences', 'My alert settings', 'Alerts', 'GET', '/alerting/preferences/{subject_ref}', [_f('subject_ref', 'Who is this for?', 'path')]),
+		_a('set_alert_preference', 'Choose which alerts I get', 'Alerts', 'POST', '/alerting/preferences', [_s(), _f('category', 'Alert type'), _f('enabled', 'Turn on?', 'bool')]),
+		_a('alert_preferences', 'My alert settings', 'Alerts', 'GET', '/alerting/preferences/{subject_ref}', [_s('path')]),
 		_a('link_family', 'Link my family', 'Alerts', 'POST', '/alerting/family/link', [_f('family_ref', 'Family group'), _f('members', 'Family members', 'list')]),
-		_a('family_check_in', "I'm safe", 'Alerts', 'POST', '/alerting/family/check-in', [_f('subject_ref', 'Who is this?'), _f('family_ref', 'Family group'), _f('at_iso', 'When')]),
+		_a('family_check_in', "I'm safe", 'Alerts', 'POST', '/alerting/family/check-in', [_s(), _f('family_ref', 'Family group'), _f('at_iso', 'When')]),
 		_a('family_board', 'Is my family safe?', 'Alerts', 'GET', '/alerting/family/{family_ref}', [_f('family_ref', 'Family group', 'path')]),
 		# Community
 		_a('report_issue', 'Report a problem in my area', 'Community', 'POST', '/community/issues', [_f('issue_id', 'Report number', ph='generated for you'), _f('kind', 'What is the problem?', 'select', ISSUE_KINDS), _f('county', 'County'), _f('description', 'Describe it', 'textarea'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal')]),
@@ -244,57 +263,57 @@ def catalogue() -> list[MobileAction]:
 		_a('ppe_reminder', 'Protective equipment reminder', 'Community', 'GET', '/community/ppe-reminder', []),
 		_a('peer_alert', 'Warn people nearby', 'Community', 'POST', '/community/peer-alert', [_f('alert_id', 'Alert number'), _f('county', 'County'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('radius_m', 'How far? (metres)', 'int'), _f('headline', 'Headline'), _f('body', 'Message', 'textarea'), _f('verified_by', 'Verified by', 'select', ['County', 'PHEOC', 'MoH'])]),
 		_a('tracing_prompts', 'Help me remember who I met', 'Community', 'GET', '/community/tracing-prompts', []),
-		_a('save_contacts', 'Save my contact list', 'Community', 'POST', '/community/contacts', [_f('subject_ref', 'Who is this for?'), _f('entries', 'People', 'list'), _f('share_consent', 'Share with the health team?', 'bool')]),
-		_a('add_contact', 'Add one person I met', 'Community', 'POST', '/community/contacts/{subject_ref}/entry', [_f('subject_ref', 'Who is this for?', 'path'), _f('description', 'Who was it?'), _f('setting', 'Where?', 'select', CONTACT_SETTINGS), _f('approx_location', 'Roughly where?'), _f('name_unknown', "I don't know their name", 'bool')]),
+		_a('save_contacts', 'Save my contact list', 'Community', 'POST', '/community/contacts', [_s(), _f('entries', 'People', 'list'), _f('share_consent', 'Share with the health team?', 'bool')]),
+		_a('add_contact', 'Add one person I met', 'Community', 'POST', '/community/contacts/{subject_ref}/entry', [_s('path'), _f('description', 'Who was it?'), _f('setting', 'Where?', 'select', CONTACT_SETTINGS), _f('approx_location', 'Roughly where?'), _f('name_unknown', "I don't know their name", 'bool')]),
 		_a('flag_misinformation', 'Report something I heard', 'Community', 'POST', '/community/misinformation', [_f('submission_id', 'Report number', ph='generated for you'), _f('claim', 'What did you hear?', 'textarea'), _f('county', 'County'), _f('medium', 'How did you get it?', 'select', MISINFO_MEDIA), _f('topic', 'Topic', ph='optional')]),
 		_a('misinformation_clusters', 'Rumours going around', 'Community', 'GET', '/community/misinformation/clusters', []),
 		# Outbreak mode
-		_a('enrol_monitoring', 'Start my 21-day check-in', 'Outbreak', 'POST', '/monitoring/contact/enrol', [_f('subject_ref', 'Who is this for?'), _f('officer', 'Monitoring officer', ph='optional')]),
-		_a('monitoring_day', 'Log today (21-day check-in)', 'Outbreak', 'POST', '/monitoring/contact/day', [_f('entry_id', 'Entry number', ph='generated for you'), _f('subject_ref', 'Who is this for?'), _f('day', 'Day (1-21)', 'int'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('symptoms', 'Symptoms', 'list'), _f('household_member', 'Family member', ph='optional')]),
-		_a('monitoring_diary', 'My 21-day diary', 'Outbreak', 'GET', '/monitoring/contact/{subject_ref}/diary', [_f('subject_ref', 'Who is this for?', 'path')]),
-		_a('send_exposure_notice', 'Send an exposure notice', 'Outbreak', 'POST', '/alerting/exposure', [_f('subject_ref', 'Who is this for?'), _f('case_ref', 'Case reference', ph='optional')]),
-		_a('ack_exposure', 'I have read the notice', 'Outbreak', 'POST', '/alerting/exposure/ack', [_f('notification_id', 'Notice number'), _f('subject_ref', 'Who is this for?'), _f('acknowledged_iso', 'When'), _f('request_callback', 'Ask a health worker to call me', 'bool')]),
+		_a('enrol_monitoring', 'Start my 21-day check-in', 'Outbreak', 'POST', '/monitoring/contact/enrol', [_s(), _f('officer', 'Monitoring officer', ph='optional')]),
+		_a('monitoring_day', 'Log today (21-day check-in)', 'Outbreak', 'POST', '/monitoring/contact/day', [_f('entry_id', 'Entry number', ph='generated for you'), _s(), _f('day', 'Day (1-21)', 'int'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('symptoms', 'Symptoms', 'list'), _f('household_member', 'Family member', ph='optional')]),
+		_a('monitoring_diary', 'My 21-day diary', 'Outbreak', 'GET', '/monitoring/contact/{subject_ref}/diary', [_s('path')]),
+		_a('send_exposure_notice', 'Send an exposure notice', 'Outbreak', 'POST', '/alerting/exposure', [_f('subject_ref', 'Person to notify'), _f('case_ref', 'Case reference', ph='optional')]),
+		_a('ack_exposure', 'I have read the notice', 'Outbreak', 'POST', '/alerting/exposure/ack', [_f('notification_id', 'Notice number'), _s(), _f('acknowledged_iso', 'When'), _f('request_callback', 'Ask a health worker to call me', 'bool')]),
 		_a('check_exposure', 'Was I near a case?', 'Outbreak', 'POST', '/location/proximity/check', [_f('own_pets', 'My encounter codes', 'list'), _f('window_days', 'Days to look back', 'int')]),
 		_a('declare_exposure', 'Declare that I tested positive', 'Outbreak', 'POST', '/location/proximity/declare', [_f('declaration_id', 'Declaration number'), _f('pet', 'Encounter code'), _f('declared_at_ms', 'When', 'int'), _f('proxied', 'Send anonymously?', 'bool')]),
 		_a('log_encounter', 'Log someone I passed nearby', 'Outbreak', 'POST', '/location/proximity/encounter', [_f('pet', 'Encounter code'), _f('seen_at_ms', 'When', 'int'), _f('rssi_dbm', 'Signal strength', 'int'), _f('county', 'County')]),
 		_a('rotate_ebid', 'Get a fresh nearby-code', 'Outbreak', 'POST', '/location/proximity/ebid', [_f('seed', 'Private seed'), _f('now_ms', 'Current time', 'int')]),
-		_a('enable_location_history', 'Keep a private location diary', 'Outbreak', 'POST', '/location/history/enable', [_f('subject_ref', 'Who is this for?'), _f('window_days', 'Days to keep', 'int')]),
-		_a('log_location', 'Save where I am', 'Outbreak', 'POST', '/location/history/point', [_f('subject_ref', 'Who is this for?'), _f('point', 'Place', 'text')]),
-		_a('location_report', 'Where I have been', 'Outbreak', 'GET', '/location/history/{subject_ref}/report', [_f('subject_ref', 'Who is this for?', 'path'), _f('share', 'Share with the health team?', 'bool')]),
-		_a('purge_location', 'Delete my location diary', 'Outbreak', 'DELETE', '/location/history/{subject_ref}', [_f('subject_ref', 'Who is this for?', 'path')]),
+		_a('enable_location_history', 'Keep a private location diary', 'Outbreak', 'POST', '/location/history/enable', [_s(), _f('window_days', 'Days to keep', 'int')]),
+		_a('log_location', 'Save where I am', 'Outbreak', 'POST', '/location/history/point', [_s(), _f('point', 'Place', 'text')]),
+		_a('location_report', 'Where I have been', 'Outbreak', 'GET', '/location/history/{subject_ref}/report', [_s('path'), _f('share', 'Share with the health team?', 'bool')]),
+		_a('purge_location', 'Delete my location diary', 'Outbreak', 'DELETE', '/location/history/{subject_ref}', [_s('path')]),
 		_a('checkin_points', 'Check-in points near me', 'Outbreak', 'GET', '/location/checkin/points', [_f('county', 'County', ph='optional')]),
-		_a('checkin_list', 'Where I checked in', 'Outbreak', 'GET', '/location/checkin/{subject_ref}', [_f('subject_ref', 'Who is this for?', 'path')]),
+		_a('checkin_list', 'Where I checked in', 'Outbreak', 'GET', '/location/checkin/{subject_ref}', [_s('path')]),
 		_a('register_checkin_point', 'Set up a check-in point', 'Outbreak', 'POST', '/location/checkin/point', [_f('point_id', 'Point number'), _f('kind', 'What kind of place?', 'select', CHECKIN_KINDS), _f('label', 'Name'), _f('county', 'County'), _f('token', 'Check-in code')]),
-		_a('check_in', 'Check in here', 'Outbreak', 'POST', '/location/checkin', [_f('checkin_id', 'Check-in number'), _f('point_token', 'Check-in code'), _f('subject_ref', 'Who is this for?'), _f('method', 'How?', 'select', CHECKIN_METHODS), _f('at_iso', 'When'), _f('share_with_authority', 'Share with the health team?', 'bool')]),
+		_a('check_in', 'Check in here', 'Outbreak', 'POST', '/location/checkin', [_f('checkin_id', 'Check-in number'), _f('point_token', 'Check-in code'), _s(), _f('method', 'How?', 'select', CHECKIN_METHODS), _f('at_iso', 'When'), _f('share_with_authority', 'Share with the health team?', 'bool')]),
 		_a('register_border', 'Set up a border post', 'Outbreak', 'POST', '/location/border', [_f('post_id', 'Post number'), _f('name', 'Name'), _f('county', 'County'), _f('country_pair', 'Between which countries?'), _f('queue_minutes', 'Queue in minutes', 'int'), _f('screening_required', 'Screening required?', 'bool')]),
 		_a('border_status', 'Border queue', 'Outbreak', 'GET', '/location/border/{post_id}', [_f('post_id', 'Post number', 'path')]),
 		_a('travel_advisory', 'Should I travel?', 'Outbreak', 'GET', '/location/travel-advisory', [_f('destination', 'Where to?'), _f('origin_country', 'Coming from')]),
-		_a('traveller_declare', 'Declare my arrival', 'Outbreak', 'POST', '/location/traveller/declare', [_f('declaration_id', 'Declaration number'), _f('subject_ref', 'Who is this for?'), _f('destination', 'Where are you going?'), _f('arrival_iso', 'Arrival date'), _f('origin_country', 'Coming from'), _f('symptoms', 'Any symptoms?', 'list')]),
+		_a('traveller_declare', 'Declare my arrival', 'Outbreak', 'POST', '/location/traveller/declare', [_f('declaration_id', 'Declaration number'), _s(), _f('destination', 'Where are you going?'), _f('arrival_iso', 'Arrival date'), _f('origin_country', 'Coming from'), _f('symptoms', 'Any symptoms?', 'list')]),
 		_a('hotspots', 'Where might cases appear next?', 'Outbreak', 'POST', '/ai/hotspots', [_f('cells', 'Area data', 'list')]),
 		_a('risk_score', 'What is my personal risk?', 'Outbreak', 'POST', '/ai/risk-score', [_f('symptoms', 'Symptoms', 'list'), _f('exposure_contact', 'Contact with a case?', 'bool'), _f('travel_affected_area', 'Travelled to an affected area?', 'bool'), _f('geofence_entry', 'Entered a risk area?', 'bool'), _f('proximity_encounters', 'Nearby encounters', 'int'), _f('vaccinated', 'Vaccinated?', 'bool')]),
 		_a('early_warning', 'Is something unusual happening?', 'Outbreak', 'POST', '/ai/early-warning', [_f('county', 'County'), _f('disease', 'Disease'), _f('signals', 'Signals', 'list')]),
 		_a('activate_outbreak_mode', 'Activate outbreak mode', 'Outbreak', 'POST', '/tier4/activate', [_f('authorized_by_pheoc', 'PHEOC authorised?', 'bool'), _f('dpia_reviewed', 'Privacy review done?', 'bool'), _f('flag_enabled', 'Switch on?', 'bool')]),
 		# Privacy & transparency
-		_a('record_consent', 'Record my consent', 'Privacy', 'POST', '/privacy/consent', [_f('subject_ref', 'Who is this for?'), _f('purpose', 'What for?'), _f('data_types', 'Which data?', 'list'), _f('retention_days', 'Keep for how many days', 'int'), _f('legal_basis', 'Why are we allowed to?', 'select', ['consent', 'legal_obligation', 'legitimate_interest'])]),
+		_a('record_consent', 'Record my consent', 'Privacy', 'POST', '/privacy/consent', [_s(), _f('purpose', 'What for?'), _f('data_types', 'Which data?', 'list'), _f('retention_days', 'Keep for how many days', 'int'), _f('legal_basis', 'Why are we allowed to?', 'select', ['consent', 'legal_obligation', 'legitimate_interest'])]),
 		_a('dpia_check', 'Check a new data use', 'Privacy', 'POST', '/privacy/dpia', [_f('raw_sensor_data_retained', 'Keeping raw sensor data?', 'bool'), _f('automated_decisions', 'Automatic decisions?', 'bool'), _f('cross_border_transfer', 'Data leaving the country?', 'bool'), _f('children_data', "Children's data?", 'bool'), _f('proximity_logging', 'Proximity logging?', 'bool')]),
 		_a('retention_policy', 'How long is data kept?', 'Privacy', 'GET', '/retention/policy', []),
-		_a('data_inventory', 'What do you know about me?', 'Privacy', 'GET', '/retention/inventory/{subject_ref}', [_f('subject_ref', 'Who is this for?', 'path')]),
-		_a('delete_my_data', 'Delete my data', 'Privacy', 'POST', '/retention/delete', [_f('subject_ref', 'Who is this for?'), _f('data_type', 'Only this type', ph='leave blank for everything'), _f('channel', 'How?', 'select', ['native', 'sms', 'ussd', 'whatsapp'])]),
-		_a('purge_expired', 'Clear what has expired', 'Privacy', 'POST', '/retention/purge-expired', [_f('subject_ref', 'Who is this for?'), _f('age_days', 'How old each record is, by type', 'text')]),
+		_a('data_inventory', 'What do you know about me?', 'Privacy', 'GET', '/retention/inventory/{subject_ref}', [_s('path')]),
+		_a('delete_my_data', 'Delete my data', 'Privacy', 'POST', '/retention/delete', [_s(), _f('data_type', 'Only this type', ph='leave blank for everything'), _f('channel', 'How?', 'select', ['native', 'sms', 'ussd', 'whatsapp'])]),
+		_a('purge_expired', 'Clear what has expired', 'Privacy', 'POST', '/retention/purge-expired', [_s(), _f('age_days', 'How old each record is, by type', 'text')]),
 		_a('encryption_posture', 'How is my data protected?', 'Privacy', 'GET', '/retention/encryption', []),
-		_a('transparency_report', 'Transparency report', 'Privacy', 'GET', '/retention/transparency', [_f('period', 'Period'), _f('subject_ref', 'Who is this for?', ph='optional')]),
-		_a('record_holding', 'Record what is stored', 'Privacy', 'POST', '/retention/holding', [_f('subject_ref', 'Who is this for?'), _f('data_type', 'Data type'), _f('count', 'How many records', 'int')]),
-		_a('record_share', 'Record a data share', 'Privacy', 'POST', '/retention/share', [_f('subject_ref', 'Who is this for?'), _f('with_who', 'Shared with'), _f('what', 'What was shared'), _f('when_iso', 'When')]),
+		_a('transparency_report', 'Transparency report', 'Privacy', 'GET', '/retention/transparency', [_f('period', 'Period'), _f('subject_ref', 'Person the report is about', ph='optional')]),
+		_a('record_holding', 'Record what is stored', 'Privacy', 'POST', '/retention/holding', [_s(), _f('data_type', 'Data type'), _f('count', 'How many records', 'int')]),
+		_a('record_share', 'Record a data share', 'Privacy', 'POST', '/retention/share', [_s(), _f('with_who', 'Shared with'), _f('what', 'What was shared'), _f('when_iso', 'When')]),
 		# Access & fairness
-		_a('access_profile', 'Make the app easier to use', 'Access', 'POST', '/access/profile', [_f('subject_ref', 'Who is this for?'), _f('simple_mode', 'Simple mode', 'bool'), _f('large_text', 'Large text', 'bool'), _f('high_contrast', 'High contrast', 'bool'), _f('read_aloud', 'Read screens aloud', 'bool'), _f('voice_input', 'Speak instead of typing', 'bool'), _f('lang', 'Language')]),
+		_a('access_profile', 'Make the app easier to use', 'Access', 'POST', '/access/profile', [_s(), _f('simple_mode', 'Simple mode', 'bool'), _f('large_text', 'Large text', 'bool'), _f('high_contrast', 'High contrast', 'bool'), _f('read_aloud', 'Read screens aloud', 'bool'), _f('voice_input', 'Speak instead of typing', 'bool'), _f('lang', 'Language')]),
 		_a('ui_screens', 'Screen list', 'Access', 'GET', '/access/screens', [_f('simple_mode', 'Simple mode', 'bool')]),
 		_a('languages', 'Languages', 'Access', 'GET', '/access/languages', [_f('tier', 'Priority tier', 'int')]),
-		_a('voice', 'Speak to the app', 'Access', 'POST', '/access/voice', [_f('subject_ref', 'Who is this for?'), _f('lang', 'Language'), _f('utterance', 'What you said'), _f('offline', 'No network?', 'bool')]),
-		_a('battery_profile', 'Battery use', 'Access', 'GET', '/access/battery', [_f('subject_ref', 'Who is this for?'), _f('intensity', 'Monitoring level', 'select', INTENSITIES), _f('battery_saver', 'Battery saver', 'bool')]),
+		_a('voice', 'Speak to the app', 'Access', 'POST', '/access/voice', [_s(), _f('lang', 'Language'), _f('utterance', 'What you said'), _f('offline', 'No network?', 'bool')]),
+		_a('battery_profile', 'Battery use', 'Access', 'GET', '/access/battery', [_s(), _f('intensity', 'Monitoring level', 'select', INTENSITIES), _f('battery_saver', 'Battery saver', 'bool')]),
 		_a('compatibility', 'Will it work on my phone?', 'Access', 'GET', '/access/compatibility/{platform}', [_f('platform', 'Phone type', 'path')]),
 		_a('model_cards', 'How the AI works', 'Access', 'GET', '/ai/models', []),
 		_a('fairness_audit', 'Check an AI model is fair', 'Access', 'POST', '/ai/fairness-audit', [_f('model_id', 'Model'), _f('axes', 'Axes tested', 'list'), _f('unmet_axes', 'Failures found', 'list')]),
-		_a('file_redress', 'Challenge a decision', 'Access', 'POST', '/ai/redress', [_f('request_id', 'Request number'), _f('subject_ref', 'Who is this for?'), _f('output_kind', 'What are you challenging?', 'select', OUTPUT_KINDS), _f('output_ref', 'Which result?'), _f('challenge', 'Why do you disagree?', 'textarea')]),
+		_a('file_redress', 'Challenge a decision', 'Access', 'POST', '/ai/redress', [_f('request_id', 'Request number'), _s(), _f('output_kind', 'What are you challenging?', 'select', OUTPUT_KINDS), _f('output_ref', 'Which result?'), _f('challenge', 'Why do you disagree?', 'textarea')]),
 		# Health workers
 		_a('provision_chw', 'Register a health worker', 'Health workers', 'POST', '/chw/provision', [_f('chw_ref', 'Health worker'), _f('name', 'Full name'), _f('county', 'County'), _f('community', 'Village or estate'), _f('registry_verified', 'Verified on the national register?', 'bool'), _f('provisioned_by', 'Registered by', 'select', ['County', 'MoH'])]),
 		_a('chw_profile', 'Health worker profile', 'Health workers', 'GET', '/chw/{chw_ref}', [_f('chw_ref', 'Health worker', 'path')]),
@@ -315,7 +334,7 @@ def catalogue() -> list[MobileAction]:
 		_a('whatsapp_send', 'WhatsApp reply', 'Channels', 'POST', '/channels/whatsapp', [_f('from_msisdn', 'Phone number'), _f('body', 'Message')]),
 		_a('queue_sync_op', 'Save for later (offline)', 'Sync', 'POST', '/sync/ops', [_f('op_id', 'Change number'), _f('dataset', 'What kind of change?', 'select', SYNC_DATASETS), _f('client_ts', 'When it happened', 'int')]),
 		_a('flush_sync', 'Send everything now', 'Sync', 'POST', '/sync/flush', []),
-		_a('sensor_ingest', 'Save a reading', 'Sensors', 'POST', '/sensors/ingest', [_f('kind', 'Reading type', 'select', SENS_KINDS), _f('subject_ref', 'Who is this for?'), _f('value', 'Value', 'decimal'), _f('county', 'County')]),
+		_a('sensor_ingest', 'Save a reading', 'Sensors', 'POST', '/sensors/ingest', [_f('kind', 'Reading type', 'select', SENS_KINDS), _s(), _f('value', 'Value', 'decimal'), _f('county', 'County')]),
 		_a('analyse_cough', 'Check a cough recording', 'Sensors', 'POST', '/ml/cough/analyze', [_f('file', 'Recording', 'file')]),
 		_a('submit_evidence', 'Send a photo for review', 'Sensors', 'POST', '/evidence', [_f('file', 'Photo', 'file'), _f('kind', 'What is it?', 'select', EVIDENCE_KINDS), _f('note', 'What did you notice?', 'textarea')]),
 		# Insurance

@@ -166,6 +166,9 @@ struct MobileFieldDTO: Codable, Identifiable {
 	let options: [String]?
 	let placeholder: String?
 	let required: Bool
+	// The device's own subject: the client supplies it and does not draw it. Marked by the server
+	// because the route binds the subject to the token, so a drawn control could only be refused.
+	let client_supplied: Bool?
 }
 
 struct MobileActionDTO: Codable, Identifiable {
@@ -185,6 +188,12 @@ extension BackendClient {
 	// Invoke a catalogue action: path params substitute into the URL, other fields go in the
 	// query string (GET) or JSON body (POST/DELETE); a file field switches to multipart.
 	func invoke(_ action: MobileActionDTO, values: [String: String], file: Data?) async throws -> Data {
+		// The subject is the device's, not a form field: a personal-data route binds the subject it
+		// is given to the token, so anything else is refused by construction. The server marks the
+		// field; a worker action's subject is unmarked and names someone else deliberately.
+		let mine = try await subjectRef()
+		var values = values
+		if action.fields.contains(where: { $0.client_supplied == true }) { values["subject_ref"] = mine }
 		let tokens = Self.placeholders(in: action.path)
 		var taken: Set<String> = []
 		var path = action.path

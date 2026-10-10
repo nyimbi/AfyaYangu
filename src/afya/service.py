@@ -283,6 +283,54 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			return subject
 		return guard
 
+	def require_self(subject_from_request=None, *, names_subject: bool = True):  # type: ignore[no-untyped-def]
+		"""Route guard for a personal-data route: the named subject must be the token's own.
+
+		A `self`-scoped route that reads a `subject_ref` out of the path or body without comparing
+		it to the token is an IDOR — the scope check passes for *every* citizen while the subject
+		is whatever the caller typed. This binds the two: a citizen may act only on their own
+		subject, and a worker role (which reaches people through its own scoped routes) is refused
+		outright rather than allowed to name anyone.
+
+		`subject_from_request` extracts the subject when it is not a path parameter; the default
+		reads path, then query, then a JSON body, then form fields. When `names_subject` is False
+		the route is one that binds the subject itself (a group the caller joins), so only the token
+		and the citizen role are required.
+		"""
+		async def guard(request: Request, authorization: str | None = Header(default=None)) -> str:
+			import inspect
+			subject, role = require_token(authorization)
+			from afya.privacy.views import CITIZEN_ROLES, AccessRequest
+			if not await privacy.check_access_logged(AccessRequest(role=role, dataset='self')):
+				raise HTTPException(status_code=403, detail=f'role {role.value} may not act for a citizen subject')
+			if role not in CITIZEN_ROLES:
+				raise HTTPException(status_code=403, detail='this route acts only for the token holder')
+			if not names_subject:
+				return subject
+			named: object = None
+			if subject_from_request is not None:
+				named = subject_from_request(request)
+				if inspect.isawaitable(named):
+					named = await named
+			else:
+				named = request.path_params.get('subject_ref') or request.query_params.get('subject_ref')
+				if named is None and request.method in ('POST', 'PUT', 'PATCH'):
+					ctype = request.headers.get('content-type', '')
+					try:
+						if 'json' in ctype:
+							body = json.loads(await request.body())
+							named = body.get('subject_ref') if isinstance(body, dict) else None
+						elif 'form' in ctype:
+							named = (await request.form()).get('subject_ref')
+					except ValueError:
+						named = None
+			if named is None:
+				raise HTTPException(status_code=422, detail='this request must name the subject it acts for')
+			if named != subject:
+				raise HTTPException(status_code=403, detail='a token may act only for its own subject')
+			return subject
+		return guard
+
 	def require_webhook(header_name: str = 'x-afya-signature'):  # type: ignore[no-untyped-def]
 		"""Guard for an inbound webhook: a carrier or a peer system has no app token.
 
@@ -381,12 +429,12 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 	@app.post('/triage/diary')
-	async def triage_diary(entry: DiaryEntry) -> dict[str, bool]:
+	async def triage_diary(entry: DiaryEntry, _subject: str = Depends(require_self())) -> dict[str, bool]:
 		await triage.diary_append(entry)
 		return {'accepted': True}
 
 	@app.get('/triage/{ref}/diary')
-	async def triage_diary_list(ref: str) -> list[dict[str, object]]:
+	async def triage_diary_list(ref: str, _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> list[dict[str, object]]:
 		return [e.model_dump(mode='json') for e in triage.diary(ref)]
 
 	# --- sensors (derived metrics only; tier4 gated) ---
@@ -397,7 +445,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'rate_bpm': rate, **verdict.model_dump(mode='json')}
 
 	@app.post('/sensors/ingest')
-	async def sensors_ingest(inp: SenseIngest) -> dict[str, object]:
+	async def sensors_ingest(inp: SenseIngest, _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return (await sensors.ingest(inp)).model_dump(mode='json')
 		except PermissionError as exc:
@@ -558,6 +606,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		subject_ref: str = Form('U1'),
 		county: str = Form('Nairobi'),
 		note: str = Form(''),
+		_subject: str = Depends(require_self()),
 	) -> dict[str, object]:
 		blob = await file.read()
 		import hashlib
@@ -607,7 +656,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- women / maternal / chronic / mental / blood / alerts / insurance ---
 	@app.post('/women/cycle')
-	async def women_cycle(entry: CycleLog) -> dict[str, int]:
+	async def women_cycle(entry: CycleLog, _subject: str = Depends(require_self())) -> dict[str, int]:
 		return {'logs': await women.log(entry)}
 
 	@app.get('/women/cycle/{ref}/predict')
@@ -618,7 +667,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/maternal/pregnancy')
-	async def maternal_register(p: Pregnancy) -> dict[str, bool]:
+	async def maternal_register(p: Pregnancy, _subject: str = Depends(require_self())) -> dict[str, bool]:
 		await maternal.register(p)
 		return {'ok': True}
 
@@ -630,7 +679,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.post('/maternal/anc')
-	async def maternal_anc_record(rec: ANCRecord) -> dict[str, bool]:
+	async def maternal_anc_record(rec: ANCRecord, _subject: str = Depends(require_self())) -> dict[str, bool]:
 		await maternal.record_anc(rec)
 		return {'ok': True}
 
@@ -642,28 +691,28 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/chronic/bp')
-	async def chronic_bp(r: BPReading):
+	async def chronic_bp(r: BPReading, _subject: str = Depends(require_self())) -> dict[str, str]:
 		out = await chronic.bp(r)
 		return {'stage': out.stage}
 
 	@app.post('/chronic/glucose')
-	async def chronic_glucose(r: GlucoseReading):
+	async def chronic_glucose(r: GlucoseReading, _subject: str = Depends(require_self())) -> dict[str, str]:
 		out = await chronic.glucose(r)
 		return {'level': out.level}
 
 	@app.get('/chronic/{ref}/bp-trend')
-	async def chronic_trend(ref: str) -> dict[str, str]:
+	async def chronic_trend(ref: str, _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> dict[str, str]:
 		try:
 			return {'trend': chronic.bp_trend(ref)}
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/chronic/refill')
-	async def chronic_refill(t: RefillTracker) -> dict[str, bool]:
+	async def chronic_refill(t: RefillTracker, _subject: str = Depends(require_self())) -> dict[str, bool]:
 		return {'due': await chronic.set_refill(t)}
 
 	@app.post('/mental/who5')
-	async def mental_who5(w: WHO5) -> dict[str, object]:
+	async def mental_who5(w: WHO5, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return mental.assess(w).model_dump(mode='json')
 
 	@app.get('/mental/lines')
@@ -780,7 +829,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- privacy ---
 	@app.post('/privacy/consent')
-	async def privacy_consent(rec: ConsentRecord) -> dict[str, str]:
+	async def privacy_consent(rec: ConsentRecord, _subject: str = Depends(require_self())) -> dict[str, str]:
 		try:
 			out = await privacy.record_consent(rec)
 		except AssertionError as exc:
@@ -893,15 +942,15 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/monitoring/chronic/peak-flow')
-	async def monitoring_peak_flow(r: PeakFlowReading) -> dict[str, object]:
+	async def monitoring_peak_flow(r: PeakFlowReading, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return await monitoring.log_peak_flow(r)
 
 	@app.post('/monitoring/chronic/weight')
-	async def monitoring_weight(r: WeightReading) -> dict[str, object]:
+	async def monitoring_weight(r: WeightReading, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return await monitoring.log_weight(r)
 
 	@app.post('/monitoring/chronic/conditions')
-	async def monitoring_conditions(p: ConditionProfile) -> dict[str, bool]:
+	async def monitoring_conditions(p: ConditionProfile, _subject: str = Depends(require_self())) -> dict[str, bool]:
 		try:
 			await monitoring.set_conditions(p)
 		except AssertionError as exc:
@@ -909,7 +958,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.get('/monitoring/chronic/{subject_ref}/report')
-	async def monitoring_report(subject_ref: str) -> dict[str, object]:
+	async def monitoring_report(subject_ref: str, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return monitoring.shareable_report(subject_ref)
 
 	@app.post('/monitoring/vector-risk')
@@ -936,7 +985,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/monitoring/contact/enrol')
-	async def monitoring_enrol(subject_ref: str, officer: str | None = None) -> dict[str, object]:
+	async def monitoring_enrol(subject_ref: str, officer: str | None = None, _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			registry.get('MON-009')
 		except KeyError as exc:
@@ -946,14 +995,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return monitoring.enrol(subject_ref, officer).model_dump(mode='json')
 
 	@app.post('/monitoring/contact/day')
-	async def monitoring_day(entry: MonitoringDay) -> dict[str, object]:
+	async def monitoring_day(entry: MonitoringDay, _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return (await monitoring.log_day(entry)).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.get('/monitoring/contact/{subject_ref}/diary')
-	async def monitoring_diary(subject_ref: str) -> dict[str, object]:
+	async def monitoring_diary(subject_ref: str, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return {
 			'entries': [e.model_dump(mode='json') for e in monitoring.diary(subject_ref)],
 			'missing_days': monitoring.adherence_reminder_days(subject_ref),
@@ -1005,11 +1054,11 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return community.tracing_prompts()
 
 	@app.post('/community/contacts')
-	async def community_contacts(contacts: ContactList, _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
+	async def community_contacts(contacts: ContactList, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return (await community.save_contacts(contacts)).model_dump(mode='json')
 
 	@app.post('/community/contacts/{subject_ref}/entry')
-	async def community_contact_entry(subject_ref: str, entry: ContactEntry, _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
+	async def community_contact_entry(subject_ref: str, entry: ContactEntry, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return community.add_contact(subject_ref, entry).model_dump(mode='json')
 
 	@app.post('/community/misinformation')
@@ -1050,29 +1099,37 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return FeedPage(revision=revision, changed=True, items=items).model_dump(mode='json')
 
 	@app.post('/alerting/preferences')
-	async def alerting_preference(subject_ref: str, category: str, enabled: bool) -> dict[str, object]:
+	async def alerting_preference(subject_ref: str, category: str, enabled: bool, _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return alerting.set_preference(subject_ref, category, enabled).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.get('/alerting/preferences/{subject_ref}')
-	async def alerting_preferences(subject_ref: str) -> dict[str, object]:
+	async def alerting_preferences(subject_ref: str, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return alerting.preferences(subject_ref).model_dump(mode='json')
 
 	@app.post('/alerting/family/link')
-	async def alerting_family_link(family_ref: str, members: list[str]) -> dict[str, object]:
+	async def alerting_family_link(family_ref: str, members: list[str], _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		# A group is built around the person creating it: without this a caller could link a
+		# stranger's subject into a group and then read the board that names them.
+		if _subject not in members:
+			raise HTTPException(status_code=403, detail='a family group must include the person creating it')
 		return alerting.link_family(family_ref, members).model_dump(mode='json')
 
 	@app.post('/alerting/family/check-in')
-	async def alerting_check_in(subject_ref: str, family_ref: str, at_iso: str) -> dict[str, object]:
+	async def alerting_check_in(subject_ref: str, family_ref: str, at_iso: str, _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return (await alerting.check_in(subject_ref, family_ref, at_iso)).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.get('/alerting/family/{family_ref}')
-	async def alerting_family(family_ref: str) -> dict[str, object]:
+	async def alerting_family(family_ref: str, _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		# The board names which members are safe and which are unaccounted for, so it is readable
+		# only by someone in the group — not by anyone who guesses the reference.
+		if not alerting.is_member(family_ref, _subject):
+			raise HTTPException(status_code=403, detail='this family board is not yours')
 		return alerting.family_board(family_ref).model_dump(mode='json')
 
 	# --- §15.5 WebSocket: real-time alert delivery -------------------------------------------
@@ -1114,7 +1171,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return (await alerting.notify_exposure(subject_ref, case_ref)).model_dump(mode='json')
 
 	@app.post('/alerting/exposure/ack')
-	async def alerting_exposure_ack(ack: ExposureAck) -> dict[str, object]:
+	async def alerting_exposure_ack(ack: ExposureAck, _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return (await alerting.acknowledge(ack)).model_dump(mode='json')
 		except AssertionError as exc:
@@ -1145,28 +1202,28 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return location.check_exposure(own_pets, window_days, now_ms).model_dump(mode='json')
 
 	@app.post('/location/history/enable')
-	async def location_enable(subject_ref: str, window_days: int = 21) -> dict[str, object]:
+	async def location_enable(subject_ref: str, window_days: int = 21, _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return location.enable_history(subject_ref, window_days).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/location/history/point')
-	async def location_point(subject_ref: str, point: LocationPoint) -> dict[str, int]:
+	async def location_point(subject_ref: str, point: LocationPoint, _subject: str = Depends(require_self())) -> dict[str, int]:
 		try:
 			return {'points': location.log_location(subject_ref, point)}
 		except AssertionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 	@app.get('/location/history/{subject_ref}/report')
-	async def location_report(subject_ref: str, share: bool = False) -> dict[str, object]:
+	async def location_report(subject_ref: str, share: bool = False, _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return location.build_report(subject_ref, share).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.delete('/location/history/{subject_ref}')
-	async def location_purge(subject_ref: str) -> dict[str, int]:
+	async def location_purge(subject_ref: str, _subject: str = Depends(require_self())) -> dict[str, int]:
 		return {'purged': location.purge_history(subject_ref)}
 
 	@app.post('/location/checkin/point')
@@ -1175,7 +1232,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'token': point.token}
 
 	@app.post('/location/checkin')
-	async def location_checkin(checkin: CheckIn) -> dict[str, object]:
+	async def location_checkin(checkin: CheckIn, _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return (await location.check_in(checkin)).model_dump(mode='json')
 		except AssertionError as exc:
@@ -1189,7 +1246,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		]
 
 	@app.get('/location/checkin/{subject_ref}')
-	async def location_checkins(subject_ref: str) -> list[dict[str, object]]:
+	async def location_checkins(subject_ref: str, _subject: str = Depends(require_self())) -> list[dict[str, object]]:
 		return [c.model_dump(mode='json') for c in location.checkins_for(subject_ref)]
 
 	@app.post('/location/border')
@@ -1209,7 +1266,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'advisory': location.advisory(destination, origin_country)}
 
 	@app.post('/location/traveller/declare')
-	async def location_declare_traveller(decl: TravelerDeclaration) -> dict[str, object]:
+	async def location_declare_traveller(decl: TravelerDeclaration, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return (await location.self_declare(decl)).model_dump(mode='json')
 
 	# --- AI & analytics (§19, §11.7) ---
@@ -1243,12 +1300,12 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/ai/redress')
-	async def ai_redress(req: RedressRequest) -> dict[str, object]:
+	async def ai_redress(req: RedressRequest, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return ai.file_redress(req).model_dump(mode='json')
 
 	# --- accessibility (§12.1) ---
 	@app.post('/access/profile')
-	async def access_profile(profile: AccessProfile) -> dict[str, bool]:
+	async def access_profile(profile: AccessProfile, _subject: str = Depends(require_self())) -> dict[str, bool]:
 		try:
 			access.set_profile(profile)
 		except AssertionError as exc:
@@ -1264,14 +1321,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return access.languages(tier)
 
 	@app.post('/access/voice')
-	async def access_voice(req: VoiceRequest) -> dict[str, object]:
+	async def access_voice(req: VoiceRequest, _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return access.transcribe(req).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.get('/access/battery')
-	async def access_battery(subject_ref: str = 'U1', intensity: str = 'balanced', battery_saver: bool = False) -> dict[str, object]:
+	async def access_battery(subject_ref: str = 'U1', intensity: str = 'balanced', battery_saver: bool = False, _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return access.battery_profile(subject_ref, intensity, battery_saver).model_dump(mode='json')
 		except AssertionError as exc:
@@ -1290,27 +1347,27 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return [p.model_dump(mode='json') for p in retention.retention_table()]
 
 	@app.post('/retention/holding')
-	async def retention_holding(subject_ref: str, data_type: str, count: int) -> dict[str, int]:
+	async def retention_holding(subject_ref: str, data_type: str, count: int, _subject: str = Depends(require_self())) -> dict[str, int]:
 		try:
 			return {'count': retention.record_holding(subject_ref, data_type, count)}
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/retention/share')
-	async def retention_share(subject_ref: str, with_who: str, what: str, when_iso: str) -> dict[str, bool]:
+	async def retention_share(subject_ref: str, with_who: str, what: str, when_iso: str, _subject: str = Depends(require_self())) -> dict[str, bool]:
 		retention.record_share(subject_ref, with_who, what, when_iso)
 		return {'ok': True}
 
 	@app.get('/retention/inventory/{subject_ref}')
-	async def retention_inventory(subject_ref: str, _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
+	async def retention_inventory(subject_ref: str, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return retention.inventory(subject_ref).model_dump(mode='json')
 
 	@app.post('/retention/delete')
-	async def retention_delete(req: DeletionRequest, _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
+	async def retention_delete(req: DeletionRequest, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return (await retention.delete(req)).model_dump(mode='json')
 
 	@app.post('/retention/purge-expired')
-	async def retention_purge(subject_ref: str, age_days: dict[str, int]) -> dict[str, object]:
+	async def retention_purge(subject_ref: str, age_days: dict[str, int], _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return {'expired': retention.purge_expired(subject_ref, age_days)}
 		except AssertionError as exc:
@@ -1472,7 +1529,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# §18.2 JALI — a link out, corrections and clinician answers in.
 	@app.post('/integrations/jali/link')
-	async def jali_link(context: str, subject_ref: str, _subject: str = Depends(require_scope('self'))) -> dict[str, str]:
+	async def jali_link(context: str, subject_ref: str, _subject: str = Depends(require_self())) -> dict[str, str]:
 		"""No guard: this is the citizen's own launch, and the link carries a pseudonym the caller
 		already holds. `jali` may be the offline port, in which case the link is empty — an empty
 		link is the honest answer, not a fabricated URL that 404s on the phone."""

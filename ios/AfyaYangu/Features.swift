@@ -175,7 +175,10 @@ struct DiaryView: View {
 			}
 		}
 		.navigationTitle("My Health")
-		.task { entries = (try? await AppState.sharedClient.diary(subjectRef: "U1")) ?? [] }
+		.task {
+			let mine = (try? await AppState.sharedClient.subjectRef()) ?? "U1"
+			entries = (try? await AppState.sharedClient.diary(subjectRef: mine)) ?? []
+		}
 	}
 }
 
@@ -276,7 +279,10 @@ struct ActionFormView: View {
 	var body: some View {
 		Form {
 			Section {
-				ForEach(action.fields) { field in
+				// A client-supplied field is the device's own subject, filled by the client. It is not
+				// drawn: the catalogue marks it because the route binds it to the token, so a field
+				// asking "who is this for?" would offer a control the server refuses by construction.
+				ForEach(action.fields.filter { $0.client_supplied != true }) { field in
 					fieldRow(field)
 				}
 			}
@@ -331,7 +337,7 @@ struct ActionFormView: View {
 	}
 
 	private func run() {
-		let missing = action.fields.filter { $0.required && $0.type != "file" && (values[$0.name] ?? "").isEmpty }
+		let missing = action.fields.filter { $0.required && $0.client_supplied != true && $0.type != "file" && (values[$0.name] ?? "").isEmpty }
 		guard missing.isEmpty else {
 			failed = true
 			result = "Please fill in: " + missing.map(\.label).joined(separator: ", ")

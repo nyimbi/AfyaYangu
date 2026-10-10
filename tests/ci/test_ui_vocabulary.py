@@ -161,12 +161,16 @@ async def test_tier4_refusals_carry_no_codes() -> None:
 	transport = httpx.ASGITransport(app=app)
 	async with httpx.AsyncClient(transport=transport, base_url='http://t') as c:
 		# Each of these is refused while the outbreak gate is closed, and each used to name a code.
+		# A token is presented because these are personal-data routes: the refusal under test is the
+		# feature gate's, so the request must clear the auth guard to reach it.
+		tok = (await c.post('/auth/anonymous', json={'subject_ref': 'U1'})).json()['token']
+		auth = {'authorization': f'Bearer {tok}'}
 		blob = b'\xff\xd8\xff' + b'x' * 2000
 		refusals = [
 			await c.post('/triage/evd', json={'symptoms': ['fever'], 'temperature_c': 39.0, 'ebola_contact': True}),
-			await c.post('/sensors/ingest', json={'kind': 'cough', 'subject_ref': 'U1', 'value': 20.0, 'county': 'Nairobi'}),
+			await c.post('/sensors/ingest', json={'kind': 'cough', 'subject_ref': 'U1', 'value': 20.0, 'county': 'Nairobi'}, headers=auth),
 			await c.post('/evidence', files={'file': ('p.jpg', blob, 'image/jpeg')},
-			             data={'kind': 'rash', 'subject_ref': 'U1', 'county': 'Nairobi'}),
+			             data={'kind': 'rash', 'subject_ref': 'U1', 'county': 'Nairobi'}, headers=auth),
 			# The cough engine refuses independently of the ingest route, so it is its own surface.
 			await c.post('/ml/cough/analyze', files={'file': ('a.wav', _silent_wav(), 'audio/wav')}),
 		]
@@ -189,23 +193,25 @@ async def test_the_symptom_photo_gate_cannot_be_encoded_around() -> None:
 	transport = httpx.ASGITransport(app=app)
 	blob = b'\xff\xd8\xff' + b'x' * 2000
 	async with httpx.AsyncClient(transport=transport, base_url='http://t') as c:
+		tok = (await c.post('/auth/anonymous', json={'subject_ref': 'U1'})).json()['token']
+		auth = {'authorization': f'Bearer {tok}'}
 		as_form = await c.post('/evidence', files={'file': ('p.jpg', blob, 'image/jpeg')},
-		                       data={'kind': 'rash', 'subject_ref': 'U1', 'county': 'Nairobi'})
+		                       data={'kind': 'rash', 'subject_ref': 'U1', 'county': 'Nairobi'}, headers=auth)
 		assert as_form.status_code == 403, as_form.text
 		assert 'rash' not in as_form.text, 'the refusal must not echo what the caller claimed'
 		# The encoding that used to slip through is now refused outright rather than reinterpreted:
 		# a multipart upload with the kind in the query string binds nothing, so it cannot submit a
 		# defaulted kind behind the caller's back.
 		as_query = await c.post('/evidence?kind=rash&subject_ref=U1&county=Nairobi',
-		                        files={'file': ('p.jpg', blob, 'image/jpeg')})
+		                        files={'file': ('p.jpg', blob, 'image/jpeg')}, headers=auth)
 		assert as_query.status_code == 422, as_query.text
 		# And the community kind still passes while dormant, because COM-005 is Tier 3.
 		scene = await c.post('/evidence', files={'file': ('p.jpg', blob, 'image/jpeg')},
-		                     data={'kind': 'scene_photo', 'subject_ref': 'U1', 'county': 'Nairobi'})
+		                     data={'kind': 'scene_photo', 'subject_ref': 'U1', 'county': 'Nairobi'}, headers=auth)
 		assert scene.status_code == 200, scene.text
 		# A content type outside the model's contract is refused, not silently relabelled.
 		bad_mime = await c.post('/evidence', files={'file': ('p.txt', blob, 'text/plain')},
-		                        data={'kind': 'scene_photo', 'subject_ref': 'U1', 'county': 'Nairobi'})
+		                        data={'kind': 'scene_photo', 'subject_ref': 'U1', 'county': 'Nairobi'}, headers=auth)
 		assert bad_mime.status_code == 422, bad_mime.text
 
 

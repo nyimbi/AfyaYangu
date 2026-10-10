@@ -84,8 +84,13 @@ class AlertingService(LogMixin):
 	# --- ALT-002 family safety check-in ---------------------------------------------------
 
 	def link_family(self, family_ref: str, members: list[str]) -> FamilyStatus:
+		assert members, 'a family group needs at least one member'
 		self._family[family_ref] = set(members)
 		return self.family_board(family_ref)
+
+	def is_member(self, family_ref: str, subject_ref: str) -> bool:
+		"""§ALT-002: the board names its members' subjects, so only a member may read it."""
+		return subject_ref in self._family.get(family_ref, set())
 
 	async def check_in(self, subject_ref: str, family_ref: str, at_iso: str) -> FamilyStatus:
 		assert family_ref in self._family, 'unknown family group'
