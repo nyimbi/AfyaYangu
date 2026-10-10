@@ -33,10 +33,15 @@ SPEC = REPO / 'docs' / 'spec.md'
 
 
 def _item(**overrides: object) -> ContentItem:
+	"""A published, governed, *dated* item. The stamp is set because these tests write straight into
+	`_content` rather than through `upsert_content`, and `library()` withholds an item carrying no
+	timestamp (§6.2.3) — without it every assertion here would fail for a reason that has nothing to
+	do with §6.2.4. `test_content_recency.py` is where the undated case belongs."""
 	body: dict[str, object] = {
 		'item_id': 'x', 'title': 't', 'body': 'b', 'lang': 'en', 'harmony_tag': 'official', 'slug': 's',
 		'owner': 'MoH Health Promotion Unit', 'reviewer': 'Clinical advisory group',
 		'reviewed_on_iso': '2026-10-01', 'version': 1, 'stage': ContentStage.published,
+		'updated_at_ms': 1_790_812_800_000,
 	}
 	return ContentItem(**{**body, **overrides})  # type: ignore[arg-type]
 

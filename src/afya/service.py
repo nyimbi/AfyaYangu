@@ -662,15 +662,53 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- info & records ---
 	@app.get('/info/hotlines')
-	async def info_hotlines() -> list[dict[str, str]]:
-		return [h.model_dump(mode='json') for h in info.hotlines()]
+	async def info_hotlines(lang: str = 'en', now_ms: int | None = None) -> list[dict[str, object]]:
+		"""§INF-006's directory, with §6.2.3's stamp on each entry.
+
+		`verified` is an assertion about a number, and one nobody can act on without knowing when it
+		was last checked — so the age travels with it. `updated_line` is None for an entry that has
+		never been verified, which is a fact a client should render rather than infer from silence.
+		"""
+		return [
+			{**h.model_dump(mode='json'), 'updated_line': info.hotline_freshness(h, now_ms, lang)}
+			for h in info.hotlines()
+		]
 
 	@app.get('/info/dashboard/{county}')
-	async def info_dashboard(county: str) -> dict[str, str]:
-		return info.dashboard(county).model_dump(mode='json')
+	async def info_dashboard(county: str, lang: str = 'en', now_ms: int | None = None) -> dict[str, object]:
+		"""§INF-001's county dashboard, with §8.5's "Last updated timestamp".
+
+		`updated_line` is None when the county has never been assessed. `dashboard()` answers an
+		unknown county with a defaulted low-risk row so a client always has something to draw, and
+		without the stamp that default is indistinguishable from an assessment someone made today —
+		which is exactly the undated content §6.2.3 calls destructive.
+		"""
+		risk = info.dashboard(county)
+		return {**risk.model_dump(mode='json'), 'updated_line': info.dashboard_freshness(county, now_ms, lang)}
+
+	@app.post('/info/dashboard/{county}')
+	async def info_set_dashboard(county: str, risk_level: str, active_signals: int, bulletin: str,
+			source: str = '', at_ms: int | None = None,
+			_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Record a county's risk level (§INF-001).
+
+		Without this the dashboard route could only ever answer its default, so §8.5's "Current
+		outbreak status by county" and §6.2.3's "Last updated timestamp" were both unreachable — a
+		served surface with no way to put a fact behind it. Operator-scoped: a risk level is what the
+		county health authority publishes, not something a citizen asserts.
+
+		`at_ms` is the caller's clock, matching every other stamp in this codebase.
+		"""
+		if risk_level not in ('low', 'moderate', 'high'):
+			raise HTTPException(status_code=422, detail=f'unknown risk level {risk_level!r}')
+		risk = await info.set_county_risk(
+			CountyRisk(county=county, risk_level=risk_level, active_signals=active_signals,
+			           bulletin=bulletin, source=source), at_ms)
+		return {**risk.model_dump(mode='json'),
+		        'updated_line': info.dashboard_freshness(county, at_ms, 'en')}
 
 	@app.get('/info/library')
-	async def info_library(lang: str = 'en') -> list[dict[str, object]]:
+	async def info_library(lang: str = 'en', now_ms: int | None = None) -> list[dict[str, object]]:
 		"""§6.2 content library (INF-003/004/008/009/010/015), served by language.
 
 		Served as {slug,title,body,harmony_tag} — never `item_id`, whose seed values embed spec codes
@@ -680,10 +718,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		languages — publishing it English-only is the act the section forbids, and `library()` is
 		where publishing happens. `answers_rank` is served so a client can lead with §6.1's own
 		demand order rather than listing the corpus alphabetically.
+
+		§6.2.3's `updated_line` is "Updated 2 hours ago", built here rather than stored and rather
+		than left to the client: §5.4's single content repository puts this same answer on WhatsApp,
+		USSD and SMS, and only one of those can do date arithmetic. `updated_iso` travels beside it
+		because a relative age is unreadable the moment the page is cached offline (§16.4) and an
+		instant is unreadable at a glance. `now_ms` is the caller's clock, for the reason `/location/check`
+		takes one — a clock nobody can move is a clock nobody can test.
 		"""
 		return [
 			{'slug': c.slug, 'title': c.title, 'body': c.body, 'harmony_tag': c.harmony_tag or '',
-			 'lang': c.lang, 'answers_rank': c.answers_rank}
+			 'lang': c.lang, 'answers_rank': c.answers_rank,
+			 **info.item_freshness(c, now_ms, lang).model_dump(mode='json')}
 			for c in info.library(lang)
 		]
 
@@ -779,7 +825,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			{
 				'item_id': c.item_id, 'slug': c.slug, 'lang': c.lang, 'stage': c.stage.value,
 				'owner': c.owner, 'reviewer': c.reviewer, 'reviewed_on_iso': c.reviewed_on_iso,
-				'version': c.version,
+				'version': c.version, 'updated_at_ms': c.updated_at_ms,
 			}
 			for c in sorted(info.all_items(), key=lambda c: c.item_id)
 		]
@@ -793,6 +839,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			# slug, because a gate that withheld content silently would be worse than the English-only
 			# message it prevents — the audience sees nothing and nobody is told why.
 			'untranslated_life_safety': info.untranslated(),
+			# §6.2.3's audit, the same shape for the same reason: an item held back for carrying no
+			# timestamp is a gap the reviewer has to be able to see, or the withholding is silent.
+			'undated': info.undated(),
 			'content_principles': [
 				{'surface': f.surface, 'verdicts': [v.model_dump(mode='json') for v in f.verdicts]}
 				for f in info.library_audit() + info.tree_audit()

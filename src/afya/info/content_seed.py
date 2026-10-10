@@ -4,6 +4,11 @@ Every row carries the owner, reviewer, review date and version §6.5 requires, a
 because it has been through the workflow. The reviewer is a role, not a person's name: the seed is
 a stand-in for the MoH corpus and must not read as a signed clinical review by anyone real.
 Replace with the MoH-sourced corpus in production.
+
+§6.2.3's timestamp is not set here. `seed_rows()` returns items with no stamp and `InfoService.seed`
+stamps each from its own review date — a corpus that claimed to have been updated when the process
+started would render "Updated just now" for text written in September, which is the untrustworthy
+freshness line §6.2.3 exists to prevent.
 """
 from afya.info.views import ContentItem, ContentStage
 

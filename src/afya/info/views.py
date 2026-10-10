@@ -3,6 +3,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from afya.info.recency import UNDATED_MS
+
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 
@@ -12,6 +14,11 @@ class CountyRisk(BaseModel):
 	risk_level: str = Field(pattern=r'^(low|moderate|high)$')
 	active_signals: int = Field(ge=0)
 	bulletin: str
+	# §6.2.3 and §8.5's "Last updated timestamp" / "Data source attribution". A dashboard is the
+	# surface where an undated figure does the most damage: a county with no signal is answered with
+	# a defaulted low-risk row, and with no stamp that row reads as today's assessment.
+	updated_at_ms: int = Field(default=UNDATED_MS, ge=0)
+	source: str = ''
 
 
 class HotlineInfo(BaseModel):
@@ -20,6 +27,14 @@ class HotlineInfo(BaseModel):
 	number: str
 	hours: str
 	verified: bool = False
+	# §18.4 and §6.2.3. `verified=False` is an assertion about the number that nobody can act on
+	# without knowing when it was last checked, which is why the stamp travels with it.
+	verified_at_ms: int = Field(default=UNDATED_MS, ge=0)
+
+	def model_post_init(self, _context: object) -> None:
+		assert not self.verified or self.verified_at_ms > UNDATED_MS, (
+			f'{self.name}: a number claimed as verified carries the instant it was checked (§6.2.3)'
+		)
 
 
 class ContentStage(str, Enum):
@@ -78,6 +93,14 @@ class ContentItem(BaseModel):
 	# rather than a boolean an author sets, because the person drafting under time pressure is the
 	# last one to mark their own copy as life-safety.
 	answers_rank: int | None = Field(default=None, ge=1, le=10)
+	# §6.2.3 "Timestamp everything." When the item was last written or moved, as an instant. It has
+	# a default because the *service* stamps it — on write, on advance and at seed — and
+	# `upsert_content` overwrites whatever it is handed rather than keeping it. `UNDATED_MS` is the
+	# sentinel for "no time recorded", and `library()` withholds an item carrying it rather than
+	# serving the undated content §6.2.3 calls destructive. The *sentence* a reader sees is not a
+	# field at all: it is computed at serve time, because a stored "2 hours ago" is wrong an hour
+	# later.
+	updated_at_ms: int = Field(default=UNDATED_MS, ge=0)
 
 
 class DecisionNode(BaseModel):

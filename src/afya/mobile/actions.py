@@ -79,7 +79,7 @@ FEATURE_OF: dict[str, str] = {
 	'febrile_triage': 'TRI-001', 'evd_triage': 'TRI-003', 'differential': 'TRI-001', 'symptom_diary': 'TRI-002',
 	'what_should_i_do': 'INF-002', 'health_library': 'INF-003', 'publish_content': 'INF-003',
 	'advance_content': 'INF-003', 'content_governance': 'INF-003',
-	'hotline_directory': 'INF-006', 'county_risk': 'INF-001',
+	'hotline_directory': 'INF-006', 'county_risk': 'INF-001', 'set_county_risk': 'INF-001',
 	'medicine_registry': 'MED-001', 'medicine_recalls': 'MED-001', 'report_suspicious_medicine': 'MED-004',
 	'sha_cover_verify': 'INF-016', 'sha_facilities': 'INF-016', 'sha_benefits': 'INF-016',
 	'nearest_facilities': 'FND-001', 'ed_status': 'FND-002', 'report_wait': 'FND-004', 'book_appointment': 'FND-006',
@@ -160,6 +160,9 @@ OPERATOR_SCOPES: dict[str, str] = {
 	# device inside them is told about, the county's fever and hotline counts, and the public
 	# food-safety warning. Each is guarded on the county health team's scope.
 	'food_alert': 'county_aggregate',
+	# §INF-001: a county's risk level is what the county health authority publishes, not something a
+	# citizen asserts. The read (`county_risk`) is public; this is the write behind it.
+	'set_county_risk': 'infrastructure',
 }
 
 # Slugs withheld until PHEOC activates the outbreak event (§11.1). Grouped by the feature that
@@ -233,6 +236,7 @@ def catalogue() -> list[MobileAction]:
 		_a('health_library', 'Health information', 'Information', 'GET', '/info/library', [_f('lang', 'Language', 'select', ['en', 'sw'])]),
 		_a('hotline_directory', 'Useful phone numbers', 'Information', 'GET', '/info/hotlines', []),
 		_a('county_risk', 'How is my county doing?', 'Information', 'GET', '/info/dashboard/{county}', [_f('county', 'County', 'path')]),
+		_a('set_county_risk', 'Update a county status', 'Information', 'POST', '/info/dashboard/{county}', [_f('county', 'County', 'path'), _f('risk_level', 'Risk level', 'select', ['low', 'moderate', 'high']), _f('active_signals', 'Active signals', 'int'), _f('bulletin', 'What should people do?', 'textarea'), _f('source', 'Source', ph='county health office')]),
 		_a('service_status', 'Are services open today?', 'Information', 'GET', '/alerting/service-status', [_f('county', 'County', ph='optional')]),
 		_a('testing_sites', 'Where can I get tested?', 'Facilities', 'GET', '/places/testing-sites', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('limit', 'How many results', 'int')]),
 		_a('vaccination_points', 'Where can I get vaccinated?', 'Facilities', 'GET', '/places/vaccination-points', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('limit', 'How many results', 'int')]),
@@ -442,6 +446,7 @@ def available(tier4_active: bool, scopes: frozenset[str] | None = None) -> list[
 # slug -> (screen-visible title, one-line human description). No spec codes anywhere.
 FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'county_risk': ('How is my county doing?', 'Official risk status and guidance where you live'),
+	'set_county_risk': ('Update a county status', 'Set the risk level and guidance people in a county see'),
 	'decision_tree': ('Should I see a doctor?', 'Plain-language help deciding your next step'),
 	'hotlines': ('Who can I call?', 'Hotline numbers that are free and answered'),
 	'febrile_triage': ('Check my fever', 'Quick check: treat malaria first unless there is Ebola contact risk'),

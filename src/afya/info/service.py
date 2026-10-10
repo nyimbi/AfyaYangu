@@ -4,13 +4,22 @@ The library serves only what §6.5's workflow has published, and every item carr
 reviewer, review date and version that section requires. Content is the one thing this app says on
 the Ministry's behalf, so an item nobody reviewed must not be servable — `library()` filters on the
 stage rather than trusting the caller to have advanced it.
+
+§6.2.3's "Timestamp everything" is stamped here rather than accepted from a writer. `ContentItem` is
+`extra='forbid'`, so a posted `updated_at_ms` is refused and the service sets it on write, on advance
+and at seed; `library()` withholds an item carrying no stamp, because undated content is the thing
+the section calls destructive. The relative age is computed at serve time against the caller's clock
+— see `afya.info.recency` for why the line is built server-side and never stored.
 """
 from datetime import date
+
+from afya.auth.views import now_ms
 from afya.info.content_seed import seed_rows
 from afya.info.principles import Finding, Subject, Verdict, judge, judge_corpus, library_texts, tree_texts
 from afya.info.questions import (
 	QUESTION_BY_RANK, REQUIRED_LANGS, RANKED_QUESTIONS, RankedQuestion, is_life_safety,
 )
+from afya.info.recency import UNDATED_MS, ServedFreshness, freshness, freshness_line, midnight_ms
 from afya.info.views import WORKFLOW, ContentItem, ContentStage, CountyRisk, DecisionNode, HotlineInfo
 from afya.logmixin import LogMixin
 
@@ -23,6 +32,7 @@ def _days_since(iso: str, today_iso: str) -> int:
 	"""Whole days from a review date to today. Parsed here so an unparseable date is a loud error
 	rather than a silently never-stale item."""
 	return (date.fromisoformat(today_iso) - date.fromisoformat(iso)).days
+
 
 HOTLINES: tuple[HotlineInfo, ...] = (
 	HotlineInfo(name='Ministry of Health Hotline', number='719', hours='24/7', verified=False),
@@ -38,17 +48,32 @@ class InfoService(LogMixin):
 		assert self._content and self._risk == {}
 
 	def seed(self) -> int:
-		"""Load harmonised en/sw corpus; idempotent."""
+		"""Load harmonised en/sw corpus; idempotent.
+
+		The stamp comes from the row's own review date rather than from the wall clock. A corpus that
+		claimed to have been updated the moment the process started would render "Updated just now"
+		for text written in September, which is the failure §6.2.3 names — a freshness line nobody can
+		believe is worse than no line.
+		"""
 		n = 0
 		for item in seed_rows():
-			self._content[item.item_id] = item
+			self._content[item.item_id] = item.model_copy(update={'updated_at_ms': midnight_ms(item.reviewed_on_iso)})
 			n += 1
 		assert n >= 8, 'seed corpus must load'
 		return n
 
-	async def upsert_content(self, item: ContentItem) -> None:
+	async def upsert_content(self, item: ContentItem, at_ms: int | None = None) -> ContentItem:
+		"""Write an item, stamped with when it was written.
+
+		§6.2.3's stamp is set here and not taken from the body: `ContentItem` forbids extra fields, so
+		a writer that posts one is refused, and a freshness signal a client can choose is one it can
+		lie about. `at_ms` is injectable for the same reason every other clock in this codebase is —
+		a clock nobody can move is a clock nobody can test.
+		"""
 		assert item.item_id and item.title, 'id/title required'
-		self._content[item.item_id] = item
+		stamped = item.model_copy(update={'updated_at_ms': at_ms if at_ms is not None else now_ms()})
+		self._content[stamped.item_id] = stamped
+		return stamped
 
 	def content_verdicts(self, item: ContentItem) -> list[Verdict]:
 		"""§6.2's rules applied to one item, as findings rather than an exception.
@@ -89,13 +114,59 @@ class InfoService(LogMixin):
 		the point — §6.2.4 forbids publishing English-only for a life-safety message, and serving it
 		is the act of publishing. The gap is not silent: `untranslated()` names it for the reviewer,
 		and `/info/content` refuses to publish such an item in the first place.
+
+		§6.2.3 filters a third way: an item with no stamp is withheld, because "undated content
+		destroys trust" and a client handed one has nothing to render but the text. `undated()` names
+		it for the reviewer. Both withholdings are the same shape deliberately — a gap someone can
+		see beats a message that misleads.
 		"""
 		out = [
 			c for c in self._content.values()
-			if c.lang == lang and c.stage is ContentStage.published and self.translated(c)
+			if c.lang == lang and c.stage is ContentStage.published
+			and c.updated_at_ms > UNDATED_MS and self.translated(c)
 		]
 		assert all(c.harmony_tag for c in out), 'unharmonised content must be tagged before serving'
 		return out
+
+	def undated(self) -> list[str]:
+		"""§6.2.3's audit: published items held back for carrying no timestamp.
+
+		Named by slug so a reviewer can act on it. This is the half of the rule that is easy to skip:
+		serving the text with no age would satisfy every other check in this module while doing the
+		one thing the section forbids.
+		"""
+		return sorted({
+			c.slug or c.item_id for c in self._content.values()
+			if c.stage is ContentStage.published and c.updated_at_ms <= UNDATED_MS
+		})
+
+	def item_freshness(self, item: ContentItem, at_ms: int | None = None, lang: str = 'en') -> ServedFreshness:
+		"""§6.2.3's age line for one item, against the caller's clock.
+
+		Computed at serve time and never stored: a phrase written into a row is wrong an hour later,
+		and the whole point of the line is that a reader can believe it.
+		"""
+		assert item.updated_at_ms > UNDATED_MS, f'{item.slug or item.item_id} carries no timestamp (§6.2.3)'
+		return freshness(item.updated_at_ms, at_ms if at_ms is not None else now_ms(), lang)
+
+	def dashboard_freshness(self, county: str, at_ms: int | None = None, lang: str = 'en') -> str | None:
+		"""§8.5's "Last updated timestamp", or None when the county has never been assessed.
+
+		None rather than a sentence about a row that does not exist. `dashboard()` answers an unknown
+		county with a defaulted low-risk row so a client always has something to draw, and with no way
+		to tell the two apart that default reads as an assessment someone made. This is how a client
+		tells them apart.
+		"""
+		risk = self._risk.get(county)
+		if risk is None or risk.updated_at_ms <= UNDATED_MS:
+			return None
+		return freshness_line(risk.updated_at_ms, at_ms if at_ms is not None else now_ms(), lang)
+
+	def hotline_freshness(self, hotline: HotlineInfo, at_ms: int | None = None, lang: str = 'en') -> str | None:
+		"""§18.4 / §6.2.3: when a directory entry was last checked, or None when never."""
+		if hotline.verified_at_ms <= UNDATED_MS:
+			return None
+		return freshness_line(hotline.verified_at_ms, at_ms if at_ms is not None else now_ms(), lang)
 
 	def translated(self, item: ContentItem) -> bool:
 		"""Whether a life-safety item has every language §6.2.4 requires, or is not life-safety.
@@ -146,23 +217,27 @@ class InfoService(LogMixin):
 			f'{question.why_life_safety}'
 		)
 
-	def advance(self, item_id: str, to: ContentStage) -> ContentItem:
+	def advance(self, item_id: str, to: ContentStage, at_ms: int | None = None) -> ContentItem:
 		"""Move an item one step along §6.5's workflow, or retire it.
 
 		One step, never a jump: the spec's order is draft → clinical review → translation →
 		back-translation → community validation → publish, and a route that let a draft be marked
 		published directly would make every stage before it decorative. `archived` is reachable from
 		any stage, because retiring something wrong should not require walking it forward first.
+
+		The move is stamped (§6.2.3): the version a reader holds is the one that last changed, and a
+		translation published an hour ago is not an English draft written in September.
 		"""
 		assert item_id in self._content, f'no content item {item_id}'
 		item = self._content[item_id]
+		stamp = at_ms if at_ms is not None else now_ms()
 		if to is ContentStage.archived:
-			return self._replace(item, stage=ContentStage.archived)
+			return self._replace(item, stage=ContentStage.archived, updated_at_ms=stamp)
 		assert item.stage is not ContentStage.archived, 'an archived item is retired, not revived'
 		current = WORKFLOW.index(item.stage)
 		nxt = WORKFLOW.index(to)
 		assert nxt == current + 1, f'{item.stage.value} advances to {WORKFLOW[current + 1].value}, not {to.value}'
-		return self._replace(item, stage=to)
+		return self._replace(item, stage=to, updated_at_ms=stamp)
 
 	def _replace(self, item: ContentItem, **updates: object) -> ContentItem:
 		updated = item.model_copy(update=updates)
@@ -191,8 +266,16 @@ class InfoService(LogMixin):
 			if c.stage is ContentStage.published and _days_since(c.reviewed_on_iso, today_iso) > cadence
 		)
 
-	async def set_county_risk(self, risk: CountyRisk) -> None:
-		self._risk[risk.county] = risk
+	async def set_county_risk(self, risk: CountyRisk, at_ms: int | None = None) -> CountyRisk:
+		"""Record a county's risk, stamped with when it was assessed.
+
+		§8.5 lists "Last updated timestamp" among the dashboard's fields, and §6.2.3 gives the reason:
+		a risk level with no date is indistinguishable from today's. The stamp is set here rather than
+		taken from the body for the same reason a content item's is.
+		"""
+		stamped = risk.model_copy(update={'updated_at_ms': at_ms if at_ms is not None else now_ms()})
+		self._risk[stamped.county] = stamped
+		return stamped
 
 	def dashboard(self, county: str) -> CountyRisk:
 		return self._risk.get(county, CountyRisk(county=county, risk_level='low', active_signals=0, bulletin='No official signal.'))
