@@ -46,6 +46,20 @@ class PrivacyService(LogMixin):
 		self._audit.append((allowed, req))
 		return allowed
 
+	async def check_access_logged(self, req: AccessRequest) -> bool:
+		"""`check_access` plus the durable entry §17.4 requires. Every guarded route goes through
+		here, so the log covers real access rather than only the calls a test happens to make.
+
+		The in-memory list is kept because it is cheap and readable in-process; it is not the
+		record. Before this the record was *only* that list, so an access log survived exactly as
+		long as the process did.
+		"""
+		allowed = self.check_access(req)
+		if self._store is not None:
+			import time
+			await self._store.append_audit(req.role.value, req.dataset, allowed, int(time.time() * 1000))
+		return allowed
+
 	def audit_log(self) -> list[tuple[bool, AccessRequest]]:
 		return list(self._audit)
 

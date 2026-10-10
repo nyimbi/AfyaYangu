@@ -63,7 +63,7 @@ from afya.ai.views import AggregateCell, FairnessAudit, RedressRequest, RiskInpu
 from afya.alerting.service import AlertingService
 from afya.alerting.views import ExposureAck, FeedItem, FamilyStatus
 from afya.auth.service import AuthService
-from afya.auth.views import PKCEStart, PKCETokenRequest, TokenRequest
+from afya.auth.views import PKCEStart, PKCETokenRequest, StaffProvision, TokenRequest
 from afya.chw.service import ChwService
 from afya.chw.views import ActivityLogEntry, ChwCase, ChwProfile
 from afya.community.service import CommunityService
@@ -127,6 +127,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		cough_engine = None
 	return {
 		'registry': registry,
+		'store': store,
 		'cough_engine': cough_engine,
 		'triage': TriageService(registry),
 		'surveillance': SurveillanceService(registry),
@@ -253,7 +254,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		async def guard(authorization: str | None = Header(default=None)) -> str:
 			subject, role = require_token(authorization)
 			from afya.privacy.views import AccessRequest
-			if not privacy.check_access(AccessRequest(role=role, dataset=dataset)):
+			# The logged variant, so every guarded route writes the durable §17.4 entry rather
+			# than only the in-memory list.
+			if not await privacy.check_access_logged(AccessRequest(role=role, dataset=dataset)):
 				raise HTTPException(status_code=403, detail=f'role {role.value} may not read {dataset}')
 			return subject
 		return guard
@@ -290,6 +293,20 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def auth_whoami(authorization: str | None = Header(default=None)) -> dict[str, str]:
 		subject, role = require_token(authorization)
 		return {'subject_ref': subject, 'role': role.value}
+
+	@app.post('/auth/staff/provision')
+	async def auth_provision_staff(req: StaffProvision, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Issue a token for a role the app flow deliberately refuses (§17.5, §17.4).
+
+		Guarded by the infrastructure scope, so only a sysadmin can mint a sysadmin or auditor.
+		Without this the audit log had no reader: `auditor` is the only role scoped to
+		`audit_logs`, and it could not be issued by any path.
+		"""
+		try:
+			token = auth.provision_staff(req.operator_ref, RBACRole(req.role), req.registrar)
+		except (AssertionError, ValueError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'access_token': token.access_token, 'role': token.role, 'scopes': token.scopes}
 
 	@app.get('/health', response_model=HealthResponse)
 	async def health() -> HealthResponse:
@@ -1202,6 +1219,25 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/retention/transparency')
 	async def retention_transparency(period: str, subject_ref: str | None = None, _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
 		return retention.transparency_report(period, subject_ref).model_dump(mode='json')
+
+	@app.get('/privacy/access-log')
+	async def privacy_access_log(limit: int = 100, _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§17.4 "All access is logged" — readable by the auditor role, and only by it.
+
+		Without a reader the log is write-only, which is not a control: nobody could answer "who
+		looked at this record". The entry names the role and the dataset it asked for; it carries
+		no subject reference, so reading the log does not itself disclose whose record was opened.
+		"""
+		store = svc['store']
+		if store is None:
+			# No durable store configured (no AFYA_DB_PATH): say so rather than return an empty
+			# list that would read as "nothing was ever accessed".
+			return {'durable': False, 'entries': [], 'note': 'no durable store configured; access is logged in memory only'}
+		rows = await store.audit_entries(limit)  # type: ignore[union-attr]
+		return {
+			'durable': True,
+			'entries': [{'role': r, 'dataset': d, 'allowed': a, 'at_ms': t} for r, d, a, t in rows],
+		}
 
 	# --- CHW trust layer (§5 CHAN-005, §11.4 COM-101) ---
 	@app.post('/chw/provision')

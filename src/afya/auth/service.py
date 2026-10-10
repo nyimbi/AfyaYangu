@@ -22,6 +22,11 @@ ISSUABLE_ROLES: frozenset[RBACRole] = frozenset({
 	RBACRole.chw, RBACRole.clinician, RBACRole.county_officer, RBACRole.pheoc_analyst,
 })
 
+# The complement: provisioned by an operator, never by the app flow.
+OPERATIONAL_ROLES: frozenset[RBACRole] = frozenset({RBACRole.sysadmin, RBACRole.auditor})
+assert ISSUABLE_ROLES.isdisjoint(OPERATIONAL_ROLES), 'a role cannot be both issuable and provisioned'
+assert ISSUABLE_ROLES | OPERATIONAL_ROLES == set(RBACRole) - {RBACRole.citizen_anonymous, RBACRole.citizen_identified}, 'every staff role must be reachable one way or the other'
+
 AUTHORIZATION_CODE_TTL_MS = 60_000
 
 
@@ -102,6 +107,26 @@ class AuthService(LogMixin):
 	def resolve_worker(self, access_token: str) -> WorkerToken:
 		assert access_token in self._workers, 'unknown or revoked worker token'
 		return self._workers[access_token]
+
+	def provision_staff(self, operator_ref: str, role: RBACRole, registrar: str) -> WorkerToken:
+		"""Operational provisioning for `sysadmin` and `auditor` — the roles the app flow refuses.
+
+		Refusing to issue them through the app is right; having no way to issue them at all was not,
+		and it left the §17.4 audit log unreachable: the only role whose scope is `audit_logs` could
+		never hold a token, so the record existed and nobody could read it. Provisioning is explicit
+		about its operator and registrar, both required, so a token cannot appear without a named
+		human behind it. The route that exposes this is itself guarded by the infrastructure scope.
+		"""
+		assert role in OPERATIONAL_ROLES, f'{role.value} is issued through the app, not provisioned'
+		assert operator_ref and registrar, 'provisioning must name the operator and the registrar'
+		token = WorkerToken(
+			access_token=new_opaque_token(), refresh_token=new_opaque_token(),
+			expires_in=ACCESS_TOKEN_TTL_SECONDS, role=role.value, subject_ref=operator_ref,
+			scopes=sorted(_SCOPE.get(role, set())),
+		)
+		self._workers[token.access_token] = token
+		self._log_warn('staff token provisioned', operator=operator_ref, role=role.value, registrar=registrar)
+		return token
 
 	# --- idempotency (§15.5) -----------------------------------------------------------------
 

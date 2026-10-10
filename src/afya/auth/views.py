@@ -88,6 +88,19 @@ class PKCETokenRequest(BaseModel):
 	code_verifier: str = Field(min_length=MIN_VERIFIER_LENGTH, max_length=MAX_VERIFIER_LENGTH)
 
 
+class StaffProvision(BaseModel):
+	"""Operational provisioning of a role the app flow refuses (§17.5).
+
+	`role` is a plain string, not `RBACRole`: the service asserts the role is in
+	`OPERATIONAL_ROLES` and returns a 422 naming the reason, which is a better refusal than a
+	generic enum-validation error that cannot say "this one is issued through the app instead".
+	"""
+	model_config = MODEL_CONFIG
+	operator_ref: str = Field(min_length=1)
+	registrar: str = Field(min_length=1)
+	role: str
+
+
 class WorkerToken(BaseModel):
 	model_config = MODEL_CONFIG
 	access_token: str

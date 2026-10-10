@@ -13,7 +13,27 @@ class SyncService(LogMixin):
 		self._queue: dict[str, SyncOp] = {}
 		self._server_state: dict[str, dict[str, SyncOp]] = {}
 		self._store = store
+		self._loaded = False
 		assert self._queue == {} and self._server_state == {}
+
+	async def load(self) -> int:
+		"""Rehydrate the queue from the store. §16.1 promises a queued write survives a restart.
+
+		Without this the queue is written to SQLite and never read back, so an op that was queued
+		before a crash is durable on disk and invisible to `flush` — the promise was half kept, in
+		the direction that looks like it works. Idempotent, so a second startup is a no-op.
+		"""
+		if self._loaded or self._store is None:
+			self._loaded = True
+			return 0
+		rows = await self._store.sync_ops()
+		for op in rows:
+			if not op.synced:
+				self._queue[op.op_id] = op
+		self._loaded = True
+		if self._queue:
+			self._log_info('sync queue rehydrated', pending=len(self._queue))
+		return len(self._queue)
 
 	async def enqueue(self, op: SyncOp) -> SyncOp:
 		assert op.dataset in STRATEGY_MATRIX, f'unknown dataset {op.dataset}'
@@ -37,6 +57,7 @@ class SyncService(LogMixin):
 		return (server, False)
 
 	async def flush(self, now_ms: int) -> SyncStatus:
+		await self.load()
 		synced = 0
 		for op in list(self._queue.values()):
 			if op.synced:

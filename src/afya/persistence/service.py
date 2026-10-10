@@ -20,6 +20,9 @@ _SCHEMA = (
 	'CREATE TABLE IF NOT EXISTS sync_ops (op_id TEXT PRIMARY KEY, dataset TEXT NOT NULL, server_version INTEGER NOT NULL DEFAULT 0, client_ts INTEGER NOT NULL, server_ts INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL DEFAULT "{}", attempt INTEGER NOT NULL DEFAULT 0, synced INTEGER NOT NULL DEFAULT 0)',
 	'CREATE TABLE IF NOT EXISTS consents (consent_id TEXT PRIMARY KEY, subject_ref TEXT NOT NULL, purpose TEXT NOT NULL, data_types TEXT NOT NULL, retention_days INTEGER NOT NULL, legal_basis TEXT NOT NULL, withdrawn INTEGER NOT NULL DEFAULT 0)',
 	'CREATE TABLE IF NOT EXISTS facilities (facility_id TEXT PRIMARY KEY, json TEXT NOT NULL)',
+	# §17.4: "All access is logged." Append-only by construction — there is no UPDATE or DELETE
+	# path to this table anywhere in the store, so an entry can only be added, never rewritten.
+	'CREATE TABLE IF NOT EXISTS access_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL, dataset TEXT NOT NULL, allowed INTEGER NOT NULL, at_ms INTEGER NOT NULL)',
 )
 
 
@@ -90,3 +93,22 @@ class SqliteStore(LogMixin):
 
 	async def stats(self) -> StoreStats:
 		return StoreStats(sync_ops=len(await self.sync_ops()), consents=len(await self.consents()), facilities=len(await self.facilities()))
+
+	async def append_audit(self, role: str, dataset: str, allowed: bool, at_ms: int) -> None:
+		"""Append one access decision. Insert-only; the table has no update path."""
+		assert role and dataset, 'an audit entry must name the role and the dataset'
+		async with self._conn() as c:
+			await c.execute(
+				'INSERT INTO access_audit (role, dataset, allowed, at_ms) VALUES (?, ?, ?, ?)',
+				(role, dataset, int(allowed), at_ms),
+			)
+			await c.commit()
+
+	async def audit_entries(self, limit: int = 1000) -> list[tuple[str, str, bool, int]]:
+		"""Most recent first. Read-only; nothing here can mutate an entry."""
+		assert limit > 0, 'limit must be positive'
+		async with self._conn() as c:
+			rows = await (await c.execute(
+				'SELECT role, dataset, allowed, at_ms FROM access_audit ORDER BY seq DESC LIMIT ?', (limit,),
+			)).fetchall()
+		return [(r[0], r[1], bool(r[2]), r[3]) for r in rows]

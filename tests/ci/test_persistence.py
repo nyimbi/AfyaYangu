@@ -74,3 +74,33 @@ async def test_persisted_services_rehydrate(db: str) -> None:
 	# New service instance over same file must be wired from the store in prod; here verify store reads:
 	rows = await store.consents()
 	assert rows[0].subject_ref == 'U9'
+
+
+async def test_queued_write_survives_restart_and_is_flushed(db: str) -> None:
+	"""§16.1(5): a write queued offline is not lost when the process dies.
+
+	The op was durable in SQLite all along, but nothing read it back, so `flush` iterated an empty
+	in-memory queue and reported success while the write sat on disk forever. Durability that is
+	only half-wired fails in the direction that looks like it works.
+	"""
+	first = SyncService(SqliteStore(db))
+	await first.enqueue(SyncOp(op_id='OP-RESTART01', dataset='symptom_logs', client_ts=42, payload={'fever': '1'}))
+
+	# New process, same file.
+	second = SyncService(SqliteStore(db))
+	status = await second.flush(0)
+	assert status.synced == 1, 'the queued write must be replayed after a restart'
+	assert status.pending == 0
+	assert (await SqliteStore(db).sync_ops())[0].synced is True
+
+
+async def test_already_synced_ops_are_not_replayed(db: str) -> None:
+	"""Rehydration must not resurrect work that already reached the server, or every restart
+	would re-upload the whole history."""
+	first = SyncService(SqliteStore(db))
+	await first.enqueue(SyncOp(op_id='OP-DONE00001', dataset='symptom_logs', client_ts=7, payload={}))
+	await first.flush(0)
+
+	second = SyncService(SqliteStore(db))
+	assert await second.load() == 0, 'synced ops must not return to the queue'
+	assert (await second.flush(0)).synced == 0
