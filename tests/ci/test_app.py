@@ -70,10 +70,13 @@ async def test_sync_endpoints(client: httpx.AsyncClient) -> None:
 
 
 async def test_records_and_privacy_endpoints(client: httpx.AsyncClient) -> None:
+	token = (await client.post('/auth/anonymous', json={'subject_ref': 'G1'})).json()['token']
+	h = {'authorization': f'Bearer {token}'}
 	mem = {'member_ref': 'M1', 'dob_iso': '2015-01-01', 'guardian_ref': 'G1'}
-	assert (await client.post('/records/member', json=mem)).json() == {'ok': True}
-	assert (await client.post('/records/member', json={'member_ref': 'KID', 'dob_iso': '2015-01-01'})).status_code == 400
-	gaps = (await client.get('/records/M1/immunisation-gaps')).json()
+	assert (await client.post('/records/member', json=mem, headers=h)).json() == {'ok': True}
+	# A member may not be enrolled into a wallet the caller does not own.
+	assert (await client.post('/records/member', json={**mem, 'member_ref': 'M2', 'guardian_ref': 'G2'}, headers=h)).status_code == 403
+	gaps = (await client.get('/records/M1/immunisation-gaps', headers=h)).json()
 	assert 'BCG dose 1' in gaps
 	dpia = (await client.post('/privacy/dpia', json={'raw_sensor_data_retained': True})).json()
 	assert dpia['blocked'] is True

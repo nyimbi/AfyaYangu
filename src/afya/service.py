@@ -109,6 +109,7 @@ class HealthResponse(BaseModel):
 
 class BreathEstimateRequest(BaseModel):
 	model_config = MODEL_CONFIG
+	subject_ref: str
 	series: list[float]
 	fps: float = Field(default=30.0, ge=0.5, le=120)
 
@@ -337,6 +338,53 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			return subject
 		return guard
 
+	def require_self_or_guardian(member_from_request, *, may_create: bool = False):  # type: ignore[no-untyped-def]
+		"""Route guard for a family-record route: the named member must be the token's own subject
+		or a minor in the token's wallet (§17.6).
+
+		`require_self` compares for equality, which is right for a route where a person names
+		themselves and wrong here: a guardian names their child, never themselves, so equality would
+		refuse every legitimate read. The relation that authorises these routes is ownership —
+		`records.owns` — and this guard is the only place that relation is applied, so a family route
+		cannot invent a looser one.
+
+		`may_create` is for the one route that enrols a member: nothing owns a member that does not
+		exist yet, so there is no relation to check and the route binds the write itself by forcing
+		the recorded guardian to be the caller. It is a flag rather than a second guard so the two
+		remain visibly the same rule with one exemption, not two rules that can drift.
+		"""
+		async def guard(request: Request, authorization: str | None = Header(default=None)) -> str:
+			import inspect
+			subject, role = require_token(authorization)
+			from afya.privacy.views import CITIZEN_ROLES, AccessRequest
+			if not await privacy.check_access_logged(AccessRequest(role=role, dataset='self')):
+				raise HTTPException(status_code=403, detail=f'role {role.value} may not act for a citizen subject')
+			if role not in CITIZEN_ROLES:
+				raise HTTPException(status_code=403, detail='this route acts only for the token holder')
+			named: object = member_from_request(request)
+			if inspect.isawaitable(named):
+				named = await named
+			if not named:
+				raise HTTPException(status_code=422, detail='this request must name the family member it acts for')
+			if not may_create and not records.owns(subject, str(named)):
+				raise HTTPException(status_code=403, detail='these records belong to someone else')
+			return subject
+		return guard
+
+	async def _body_member(request: Request) -> str | None:
+		"""The `member_ref` a write names in its JSON body.
+
+		`require_self`'s default extractor looks for `subject_ref`; a records write names its
+		subject `member_ref` instead, so a route that only took the default would compare nothing
+		and fall through to the 422. Reading the body here is safe — Starlette caches it, so the
+		route's own model parsing sees the same bytes.
+		"""
+		try:
+			body = json.loads(await request.body())
+		except ValueError:
+			return None
+		return body.get('member_ref') if isinstance(body, dict) else None
+
 	def require_webhook(header_name: str = 'x-afya-signature'):  # type: ignore[no-untyped-def]
 		"""Guard for an inbound webhook: a carrier or a peer system has no app token.
 
@@ -445,9 +493,19 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- sensors (derived metrics only; tier4 gated) ---
 	@app.post('/sensors/breath/estimate')
-	async def sensors_breath(req: BreathEstimateRequest) -> dict[str, object]:
+	async def sensors_breath(req: BreathEstimateRequest, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""Estimate a respiration rate from a motion series and store the derived value.
+
+		The reading is a personal metric, so it is bound to the caller's own subject and the tier-4
+		gate applies exactly as it does to `/sensors/ingest` — this route previously wrote to a
+		hardcoded `'U1'` with no token, which both misattributed the reading and let an unguarded
+		caller turn respiration sensing on while the outbreak response was dormant.
+		"""
 		rate = estimate_breath_rate(req.series, req.fps)
-		verdict = await sensors.ingest(SenseIngest(kind=SenseKind.respiration, subject_ref='U1', value=rate, county='Nairobi'))
+		try:
+			verdict = await sensors.ingest(SenseIngest(kind=SenseKind.respiration, subject_ref=req.subject_ref, value=rate, county='Nairobi'))
+		except PermissionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
 		return {'rate_bpm': rate, **verdict.model_dump(mode='json')}
 
 	@app.post('/sensors/ingest')
@@ -578,7 +636,15 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'question': next_question, 'done': node.leaf_recommendation is not None, 'recommendation': recommendation}
 
 	@app.post('/records/member')
-	async def records_member(member: WalletMember) -> dict[str, bool]:
+	async def records_member(member: WalletMember, _subject: str = Depends(require_self_or_guardian(_body_member, may_create=True))) -> dict[str, bool]:
+		# A wallet write is bound to the token: the guardian recorded on the member must be the
+		# caller, so one person cannot enrol a child into a wallet they do not own. Nothing owns a
+		# member that does not exist yet, so the guard's ownership check is waived (`may_create`)
+		# and the binding below is what makes the write safe.
+		if member.guardian_ref is not None and member.guardian_ref != _subject:
+			raise HTTPException(status_code=403, detail='a wallet member may only be added to your own wallet')
+		if member.guardian_ref is None:
+			member = member.model_copy(update={'guardian_ref': _subject})
 		try:
 			await records.add_member(member)
 		except AssertionError as exc:
@@ -586,28 +652,43 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.get('/records/{member_ref}/immunisation-gaps')
-	async def records_gaps(member_ref: str) -> list[str]:
+	async def records_gaps(member_ref: str, _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> list[str]:
 		try:
+			records.assert_owns(_subject, member_ref)
 			return records.immunisation_gaps(member_ref)
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.post('/records/growth')
-	async def records_growth(rec: GrowthRecord) -> dict[str, str]:
+	async def records_growth(rec: GrowthRecord, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, str]:
+		try:
+			records.assert_owns(_subject, rec.member_ref)
+		except AssertionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
 		return records.growth_flag(rec).model_dump(mode='json')
 
 	@app.post('/records/labs')
-	async def records_add_lab(res: LabResult) -> dict[str, bool]:
+	async def records_add_lab(res: LabResult, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, bool]:
+		try:
+			records.assert_owns(_subject, res.member_ref)
+		except AssertionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
 		await records.add_lab(res)
 		return {'ok': True}
 
 	@app.get('/records/{ref}/labs')
-	async def records_labs(ref: str) -> list[dict[str, object]]:
+	async def records_labs(ref: str, _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['ref']))) -> list[dict[str, object]]:
+		# Lab results are personal data; the ref is a member of the caller's own wallet, not anyone's.
+		try:
+			records.assert_owns(_subject, ref)
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
 		return [l.model_dump(mode='json') for l in records.labs(ref)]
 
 	@app.get('/records/{guardian_ref}/wallet')
-	async def records_wallet(guardian_ref: str) -> dict[str, object]:
+	async def records_wallet(guardian_ref: str, _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['guardian_ref']))) -> dict[str, object]:
 		try:
+			records.assert_owns(_subject, guardian_ref)
 			return records.wallet(guardian_ref)
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -634,12 +715,12 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return channels.ussd_carrier_callback(cb, lang)
 
 	@app.post('/channels/chw/tasks')
-	async def chw_assign(task: ChwTask) -> dict[str, bool]:
+	async def chw_assign(task: ChwTask, _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
 		await channels.assign_chw_task(task)
 		return {'ok': True}
 
 	@app.get('/channels/chw/tasks/{chw_ref}')
-	async def chw_open(chw_ref: str) -> list[dict[str, object]]:
+	async def chw_open(chw_ref: str, _subject: str = Depends(require_scope('assigned'))) -> list[dict[str, object]]:
 		return [t.model_dump(mode='json') for t in channels.open_tasks(chw_ref)]
 
 	@app.post('/channels/chw/tasks/{task_id}/done')
@@ -716,7 +797,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'logs': await women.log(entry)}
 
 	@app.get('/women/cycle/{ref}/predict')
-	async def women_predict(ref: str, ref_date: str = '2026-10-08') -> dict[str, object]:
+	async def women_predict(ref: str, ref_date: str = '2026-10-08', _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> dict[str, object]:
 		try:
 			return women.predict(ref, ref_date).model_dump(mode='json')
 		except AssertionError as exc:
@@ -728,7 +809,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.get('/maternal/{ref}/anc-due')
-	async def maternal_anc(ref: str, today_iso: str = '2026-10-08', gest_week: int = 12) -> list[int]:
+	async def maternal_anc(ref: str, today_iso: str = '2026-10-08', gest_week: int = 12, _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> list[int]:
 		try:
 			return maternal.anc_due(ref, today_iso, gest_week)
 		except AssertionError as exc:
@@ -959,34 +1040,49 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- monitoring & reminders (§9.1 MON-001..004, §10.2 MON-005..008, §11.3 MON-009) ---
 	@app.post('/monitoring/child')
-	async def monitoring_child(member_ref: str, dob_iso: str) -> dict[str, bool]:
+	async def monitoring_child(member_ref: str, dob_iso: str, _subject: str = Depends(require_self_or_guardian(lambda r: r.query_params.get('member_ref')))) -> dict[str, bool]:
+		# A child is registered into the caller's own wallet; a member_ref the caller does not own is
+		# refused, so one person cannot enrol another's child into a monitoring schedule they control.
+		try:
+			records.assert_owns(_subject, member_ref)
+		except AssertionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
 		await monitoring.register_child(member_ref, dob_iso)
 		return {'ok': True}
 
 	@app.get('/monitoring/child/{member_ref}/schedule')
-	async def monitoring_schedule(member_ref: str, today_iso: str = '2026-10-10') -> list[dict[str, object]]:
+	async def monitoring_schedule(member_ref: str, today_iso: str = '2026-10-10', _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> list[dict[str, object]]:
 		try:
+			records.assert_owns(_subject, member_ref)
 			return [r.model_dump(mode='json') for r in monitoring.schedule(member_ref, today_iso)]
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.get('/monitoring/child/{member_ref}/catch-up')
-	async def monitoring_catch_up(member_ref: str, today_iso: str = '2026-10-10') -> dict[str, object]:
+	async def monitoring_catch_up(member_ref: str, today_iso: str = '2026-10-10', _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> dict[str, object]:
 		try:
+			records.assert_owns(_subject, member_ref)
 			return monitoring.catch_up(member_ref, today_iso).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.post('/monitoring/child/{member_ref}/dose')
-	async def monitoring_dose(member_ref: str, vaccine: str, dose_no: int, given_iso: str) -> dict[str, bool]:
+	async def monitoring_dose(member_ref: str, vaccine: str, dose_no: int, given_iso: str, _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> dict[str, bool]:
 		try:
+			records.assert_owns(_subject, member_ref)
 			await monitoring.record_dose(member_ref, vaccine, dose_no, given_iso)
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return {'ok': True}
 
 	@app.post('/monitoring/medication')
-	async def monitoring_medication(sched: MedSchedule) -> dict[str, str]:
+	async def monitoring_medication(sched: MedSchedule, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, str]:
+		# A medication schedule is bound to a member of the caller's own wallet, so a schedule
+		# cannot be filed against a stranger's child.
+		try:
+			records.assert_owns(_subject, sched.member_ref)
+		except AssertionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
 		out = await monitoring.add_schedule(sched)
 		return {'schedule_id': out.schedule_id}
 
@@ -1498,7 +1594,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.get('/chw/{chw_ref}/case-load')
-	async def chw_case_load(chw_ref: str) -> dict[str, int]:
+	async def chw_case_load(chw_ref: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, int]:
 		return {'open_cases': chw.case_load(chw_ref)}
 
 	@app.post('/chw/{chw_ref}/cases')

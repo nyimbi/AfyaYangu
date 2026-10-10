@@ -38,6 +38,22 @@ class RecordsService(LogMixin):
 			if dose <= age and (vac, dose) not in given
 		]
 
+	def owns(self, subject_ref: str, member_ref: str) -> bool:
+		"""Whether `subject_ref` may read `member_ref`'s records: a person reads their own, and a
+		guardian reads the minors in their wallet (§17.6). This is the single ownership rule every
+		family-record route binds to, so a route cannot invent a looser one.
+
+		The reverse is not granted: a member does not read their guardian's records, and no route
+		here offers that, so nothing depends on it.
+		"""
+		if subject_ref == member_ref:
+			return True
+		member = self._members.get(member_ref)
+		return bool(member and member.guardian_ref == subject_ref)
+
+	def assert_owns(self, subject_ref: str, member_ref: str) -> None:
+		assert self.owns(subject_ref, member_ref), 'these records belong to someone else'
+
 	async def record_immunisation(self, rec: ImmunisationRecord) -> None:
 		self._imm.append(rec)
 		self._log_info('immunisation recorded', member=rec.member_ref, vaccine=rec.vaccine)

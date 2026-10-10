@@ -7,15 +7,20 @@ required no token at all. Reading one person's location diary, deleting another'
 reading a stranger's contact list were all reachable with a token issued to somebody else, or with
 no token.
 
-Two properties are asserted, both derived from the routes rather than from a list kept by hand:
+The first version of this gate keyed on the parameter *name* `subject_ref`, and so was blind to the
+same defect wearing a different name: `/records/{ref}/labs`, `/records/{guardian_ref}/wallet`,
+`/maternal/{ref}/anc-due`, `/women/cycle/{ref}/predict` and the `/monitoring/child/{member_ref}/*`
+routes all took a subject and named it something else, and every one was invisible to it. A gate is
+scoped to the bug you found, not the class it belongs to — so the set below is derived from any
+subject-bearing name, in the path or in the request body, and a canary test below plants an
+unguarded `{ref}` route and asserts the gate refuses it.
 
-1. Every route that declares a `subject_ref` parameter, or takes a body model carrying one, must
-   carry the `require_self` guard.
+Three properties, all derived from the routes rather than from a list kept by hand:
+
+1. Every route that names a subject — by path parameter or by body field — must carry the
+   `require_self` guard, unless it is one of the explicitly named worker routes.
 2. Every such route must actually refuse a token whose subject differs from the one named.
-
-A gate that only checked (1) would pass on a guard applied but not enforced; a gate that only
-checked (2) would miss a route whose guard was dropped but which happens to refuse for another
-reason. Both, and the refusal must be 401/403 rather than the service's own 404/422.
+3. Every such route must refuse an absent token.
 """
 import json
 import re
@@ -25,8 +30,18 @@ import httpx
 
 from afya.service import build_services, create_app
 
+# The names a personal-data subject travels under. `ref` is last-resort and over-broad, but the
+# gate's job is to be over-inclusive: a route that carries a person's identifier under a name not
+# listed here is the next instance of the bug, and a false positive is a route someone must
+# justify rather than a route that slips through.
+SUBJECT_PARAM_NAMES: frozenset[str] = frozenset({
+	'subject_ref', 'member_ref', 'guardian_ref', 'family_ref', 'chw_ref', 'ref',
+})
+
 # Routes that legitimately carry a subject but are worker or system routes, not citizen ones.
 # Named explicitly so the exemption is a decision someone made, not an omission nobody noticed.
+# Each must still be guarded — by `require_scope`, which binds the caller's role — and that is
+# asserted below, so "worker route" cannot become a synonym for "unguarded".
 WORKER_ROUTES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/alerting/exposure'),          # CHW notifies a contact; `assigned` scope
 	('POST', '/community/cases'),            # CHW case report; `assigned` scope
@@ -39,20 +54,39 @@ WORKER_ROUTES: frozenset[tuple[str, str]] = frozenset({
 	('GET', '/integrations/adam/case-definitions'),
 	('GET', '/retention/transparency'),      # auditor; `audit_logs` scope
 	('POST', '/auth/anonymous'),             # issues the token; the subject is what it returns
+	('POST', '/chw/provision'),              # sysadmin; `infrastructure` scope
+	('POST', '/chw/activity'),               # CHW logs its own activity; `assigned` scope
+	('GET', '/chw/{chw_ref}'),
+	('GET', '/chw/{chw_ref}/case-load'),
+	('GET', '/chw/{chw_ref}/cases'),
+	('POST', '/chw/{chw_ref}/cases'),
+	('GET', '/chw/{chw_ref}/activity'),
+	('POST', '/channels/chw/tasks'),
+	('GET', '/channels/chw/tasks/{chw_ref}'),
 })
 
+# The one route that must carry no guard at all: it is what issues a token, so requiring a token
+# would be a deadlock. Kept apart from WORKER_ROUTES so "worker route" cannot quietly come to mean
+# "unguarded" — every worker route above is asserted to carry `require_scope`.
+TOKEN_ISSUER_ROUTES: frozenset[tuple[str, str]] = frozenset({('POST', '/auth/anonymous')})
 
-def _subject_carrying_routes() -> list[tuple[str, str]]:
-	"""Routes that name a subject, read from the app's own OpenAPI spec."""
-	spec = create_app(build_services()).openapi()
+
+def _subject_carrying_routes(spec: dict[str, Any]) -> list[tuple[str, str]]:
+	"""Routes that name a subject, read from an app's own OpenAPI spec.
+
+	Both halves are read: a path parameter by name, and a request body whose schema has a property
+	under one of those names. The body half is what `/records/labs` and `/records/member` needed —
+	they name their subject only in JSON.
+	"""
 	schemas = spec['components']['schemas']
 	out: list[tuple[str, str]] = []
 	for path, ops in spec['paths'].items():
 		for method, op in ops.items():
-			named = any(p.get('name') == 'subject_ref' for p in op.get('parameters', []))
+			named = any(p.get('name') in SUBJECT_PARAM_NAMES for p in op.get('parameters', []))
 			ref = re.search(r'#/components/schemas/(\w+)', json.dumps(op.get('requestBody', {})))
 			if ref and ref.group(1) in schemas:
-				named = named or 'subject_ref' in schemas[ref.group(1)].get('properties', {})
+				props = set(schemas[ref.group(1)].get('properties', {}))
+				named = named or bool(props & SUBJECT_PARAM_NAMES)
 			if named:
 				out.append((method.upper(), path))
 	return sorted(out)
@@ -76,6 +110,10 @@ def _guard_of(app: Any, method: str, path: str) -> str | None:
 		dependant = getattr(route, 'dependant', None)
 		for dep in getattr(dependant, 'dependencies', []):
 			name = getattr(dep.call, '__qualname__', '')
+			# `require_self_or_guardian` must be tested before `require_self`, since the former
+			# contains the latter's name.
+			if 'require_self_or_guardian' in name:
+				return 'require_self_or_guardian'
 			if 'require_self' in name:
 				return 'require_self'
 			if 'require_scope' in name:
@@ -83,21 +121,88 @@ def _guard_of(app: Any, method: str, path: str) -> str | None:
 	return None
 
 
+# The names whose subject is a family member rather than the caller: a guardian names a child, so
+# these need the ownership guard, not the equality guard. A route that named a member and carried
+# plain `require_self` would refuse every guardian and is a bug the gate must catch, not excuse.
+FAMILY_PARAM_NAMES: frozenset[str] = frozenset({'member_ref', 'guardian_ref'})
+
+CITIZEN_GUARDS: frozenset[str] = frozenset({'require_self', 'require_self_or_guardian'})
+
+
+def _named_subjects(spec: dict[str, Any], method: str, path: str) -> set[str]:
+	"""Which subject-bearing names a route carries, from its path parameters and body schema."""
+	schemas = spec['components']['schemas']
+	op = spec['paths'][path][method.lower()]
+	names = {p['name'] for p in op.get('parameters', []) if p.get('name') in SUBJECT_PARAM_NAMES}
+	ref = re.search(r'#/components/schemas/(\w+)', json.dumps(op.get('requestBody', {})))
+	if ref and ref.group(1) in schemas:
+		names |= set(schemas[ref.group(1)].get('properties', {})) & SUBJECT_PARAM_NAMES
+	return names
+
+
+def _unguarded(app: Any, spec: dict[str, Any]) -> list[str]:
+	"""The gate's whole judgement, as a function of an app so a canary can run it on a planted one."""
+	bad: list[str] = []
+	for method, path in _subject_carrying_routes(spec):
+		if (method, path) in TOKEN_ISSUER_ROUTES:
+			continue
+		guard = _guard_of(app, method, path)
+		if (method, path) in WORKER_ROUTES:
+			if guard != 'require_scope':
+				bad.append(f'{method} {path} (worker route guarded by {guard})')
+			continue
+		if guard not in CITIZEN_GUARDS:
+			bad.append(f'{method} {path} ({guard})')
+			continue
+		# A route naming a family member needs the ownership guard; the equality guard would
+		# refuse the guardian it exists to serve.
+		if _named_subjects(spec, method, path) & FAMILY_PARAM_NAMES and guard != 'require_self_or_guardian':
+			bad.append(f'{method} {path} names a family member but carries {guard}')
+	return bad
+
+
 def test_every_subject_carrying_route_is_guarded() -> None:
 	"""Invariant (1). A new personal-data route without the guard fails here, not in production."""
 	app = create_app(build_services())
-	unguarded: list[str] = []
-	for method, path in _subject_carrying_routes():
-		if (method, path) in WORKER_ROUTES:
-			continue
-		if _guard_of(app, method, path) != 'require_self':
-			unguarded.append(f'{method} {path} ({_guard_of(app, method, path)})')
-	assert unguarded == [], f'personal-data routes without a subject-binding guard: {unguarded}'
+	bad = _unguarded(app, app.openapi())
+	assert bad == [], f'personal-data routes without a subject-binding guard: {bad}'
+
+
+def test_the_gate_catches_an_unguarded_route_under_another_name() -> None:
+	"""The canary. This gate's first version keyed on `subject_ref` and passed while `/records/{ref}`
+	served a stranger's labs. A gate you have never watched fail is not evidence, so this plants the
+	defect under the name that fooled it and asserts the gate refuses."""
+	from fastapi import FastAPI
+
+	planted = FastAPI()
+
+	@planted.get('/records/{ref}/labs')
+	async def planted_labs(ref: str) -> list[str]:
+		return []
+
+	@planted.get('/guardian/{guardian_ref}/wallet')
+	async def planted_wallet(guardian_ref: str) -> dict[str, str]:
+		return {}
+
+	bad = _unguarded(planted, planted.openapi())
+	assert len(bad) == 2, f'the gate missed a planted unguarded route: {bad}'
+	assert any('/records/{ref}/labs' in b for b in bad)
+	assert any('/guardian/{guardian_ref}/wallet' in b for b in bad)
+
+
+def test_the_gate_does_not_flag_a_guarded_route() -> None:
+	"""The other direction: a canary that flags everything is as useless as one that flags nothing.
+	The shipped app's guarded routes are counted, so a gate that started flagging every route would
+	fail here rather than only in `test_every_subject_carrying_route_is_guarded`."""
+	app = create_app(build_services())
+	guarded = [r for r in _subject_carrying_routes(app.openapi()) if _guard_of(app, *r) == 'require_self']
+	assert len(guarded) >= 30, f'expected the citizen personal-data surface, found {len(guarded)}'
+	assert _unguarded(app, app.openapi()) == []
 
 
 def test_the_guarded_set_is_not_vacuous() -> None:
 	"""Pin the size, so a change that silently drops every route from the set cannot pass."""
-	carrying = [r for r in _subject_carrying_routes() if r not in WORKER_ROUTES]
+	carrying = [r for r in _subject_carrying_routes(create_app(build_services()).openapi()) if r not in WORKER_ROUTES]
 	assert len(carrying) >= 30, f'expected the citizen personal-data surface, found {carrying}'
 
 
@@ -142,6 +247,56 @@ async def test_a_token_cannot_act_for_another_subject() -> None:
 		assert (await c.get('/retention/inventory/U1', headers=u1)).status_code == 200
 
 
+async def test_a_token_cannot_read_another_familys_records() -> None:
+	"""The records class the first gate missed. U1's token naming U2's family must be refused, and
+	the routes are named `{ref}`, `{member_ref}` and `{guardian_ref}` — which is exactly why the
+	gate that keyed on `subject_ref` saw none of them."""
+	app = create_app(build_services())
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		u1 = {'authorization': f'Bearer {await _token(c, "U1")}'}
+		u2 = {'authorization': f'Bearer {await _token(c, "U2")}'}
+		# U2 has a wallet with a child in it, so a successful cross-read would return real data.
+		await c.post('/records/member', json={'member_ref': 'U2', 'dob_iso': '1990-01-01'}, headers=u2)
+		await c.post('/records/member', json={'member_ref': 'KID-2', 'dob_iso': '2024-01-01', 'guardian_ref': 'U2'}, headers=u2)
+		await c.post('/records/labs', json={'member_ref': 'KID-2', 'test': 'mRDT', 'value': 'neg',
+		                                    'flag': 'normal', 'performed_iso': '2026-10-01'}, headers=u2)
+		await c.post('/monitoring/child', params={'member_ref': 'KID-2', 'dob_iso': '2024-01-01'}, headers=u2)
+
+		cross = [
+			await c.get('/records/KID-2/immunisation-gaps', headers=u1),
+			await c.get('/records/KID-2/labs', headers=u1),
+			await c.get('/records/U2/wallet', headers=u1),
+			await c.get('/monitoring/child/KID-2/schedule', headers=u1),
+			await c.get('/monitoring/child/KID-2/catch-up', headers=u1),
+			await c.post('/monitoring/child/KID-2/dose', params={'vaccine': 'BCG', 'dose_no': 1, 'given_iso': '2026-10-01'}, headers=u1),
+			await c.post('/records/labs', json={'member_ref': 'KID-2', 'test': 'mRDT', 'value': 'pos',
+			                                    'flag': 'abnormal', 'performed_iso': '2026-10-02'}, headers=u1),
+			await c.post('/records/growth', json={'member_ref': 'KID-2', 'age_months': 12, 'weight_kg': 8.0, 'height_cm': 74.0}, headers=u1),
+			await c.post('/monitoring/medication', json={'schedule_id': 'MED-ABCDEF', 'member_ref': 'KID-2', 'drug': 'amoxicillin',
+			                                             'dose': '5ml', 'times_per_day': 2, 'start_iso': '2026-10-01', 'duration_days': 5}, headers=u1),
+		]
+		assert all(r.status_code == 403 for r in cross), [(r.request.url.path, r.status_code) for r in cross]
+
+		# And U2 reading their own child still works, so the guard is not refusing everything.
+		assert (await c.get('/records/KID-2/labs', headers=u2)).status_code == 200
+		assert (await c.get('/monitoring/child/KID-2/schedule', headers=u2)).status_code == 200
+		assert (await c.get('/records/U2/wallet', headers=u2)).status_code == 200
+
+
+async def test_a_wallet_write_is_bound_to_the_token() -> None:
+	"""`/records/member` names its subject only in the body, so a guard keyed on the path saw
+	nothing. A member cannot be enrolled into a wallet the caller does not own."""
+	app = create_app(build_services())
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		u1 = {'authorization': f'Bearer {await _token(c, "U1")}'}
+		forged = {'member_ref': 'KID-3', 'dob_iso': '2024-01-01', 'guardian_ref': 'U2'}
+		assert (await c.post('/records/member', json=forged, headers=u1)).status_code == 403
+		# A member with no guardian named is taken to be the caller's own, so the write is bound.
+		own = {'member_ref': 'KID-4', 'dob_iso': '2024-01-01'}
+		assert (await c.post('/records/member', json=own, headers=u1)).status_code == 200
+		assert (await c.get('/records/KID-4/labs', headers=u1)).status_code == 200
+
+
 async def test_a_personal_route_refuses_an_absent_token() -> None:
 	"""The same routes with no token at all: a 401 from the guard, never the service's own answer."""
 	app = create_app(build_services())
@@ -153,6 +308,10 @@ async def test_a_personal_route_refuses_an_absent_token() -> None:
 			await c.get('/alerting/preferences/U1'),
 			await c.post('/retention/delete', json={'subject_ref': 'U1'}),
 			await c.get('/access/battery', params={'subject_ref': 'U1'}),
+			await c.get('/records/U1/labs'),
+			await c.get('/records/U1/immunisation-gaps'),
+			await c.get('/monitoring/child/U1/schedule'),
+			await c.get('/chw/CHW-1/case-load'),
 		]
 		assert all(r.status_code == 401 for r in anon), [(r.request.url.path, r.status_code) for r in anon]
 
