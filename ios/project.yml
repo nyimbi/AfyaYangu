@@ -20,6 +20,13 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources: [Tests]
+    # A unit-test bundle still needs an Info.plist. Without one xcodegen emits neither
+    # INFOPLIST_FILE nor GENERATE_INFOPLIST_FILE, and the test action fails at code-sign time
+    # with "the target does not have an Info.plist file and one is not being generated".
+    info:
+      path: Tests/Info.plist
+      properties:
+        CFBundleDisplayName: Afya Yangu Tests
     dependencies:
       - target: AfyaYangu
 schemes:

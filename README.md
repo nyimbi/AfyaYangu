@@ -241,6 +241,8 @@ Android (Pixel 3a API 34, emulator, live backend on `:8123` via `adb reverse`) a
 | **Android home** — connection state + EVD-contact triage chips | ![Android home](docs/screenshots/android-home.png) |
 | **Android triage result** — malaria-trap verdict (spec 6.3) | ![Android triage](docs/screenshots/android-triage.png) |
 | **Android feature surfaces** — finder/wallet/diary/CHW/sensors | ![Android features](docs/screenshots/android-features.png) |
+| **Android all services** — the served catalogue, grouped by human label | ![Android actions](docs/screenshots/android-actions.png) |
+| **Android action form** — built from the action's own field list | ![Android action form](docs/screenshots/android-action-form.png) |
 | **Android evidence upload** — photo + note (SENS-004) | ![Android evidence](docs/screenshots/android-evidence.png) |
 | **Android maps** — OpenStreetMap places + navigation handoff | ![Android places](docs/screenshots/android-places.png) · ![Android navigation](docs/screenshots/android-navigation.png) |
 | **iOS status** · **iOS finder** | ![iOS status](docs/screenshots/ios-status.png) · ![iOS finder](docs/screenshots/ios-finder.png)· |

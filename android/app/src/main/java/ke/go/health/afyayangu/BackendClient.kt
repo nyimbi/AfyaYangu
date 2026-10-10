@@ -180,24 +180,7 @@ class BackendClient(private val context: Context) {
 	// --- Server-driven action catalogue (GET /mobile/actions) ---
 	// The server withholds dormant outbreak capabilities, so the list is rendered as-is.
 
-	fun actions(): List<CatalogueAction> {
-		val arr = JSONArray(request("mobile/actions", null))
-		return (0 until arr.length()).map { i ->
-			val a = arr.getJSONObject(i)
-			val fArr = a.optJSONArray("fields") ?: JSONArray()
-			val fields = (0 until fArr.length()).map { j ->
-				val f = fArr.getJSONObject(j)
-				val ph = f.optString("placeholder")
-				ActionField(
-					f.getString("name"), f.getString("label"), f.getString("type"),
-					f.optJSONArray("options")?.let { o -> (0 until o.length()).map { o.getString(it) } },
-					if (ph.isEmpty()) null else ph,
-					f.optBoolean("required", false),
-				)
-			}
-			CatalogueAction(a.getString("id"), a.getString("title"), a.getString("group"), a.getString("method"), a.getString("path"), fields)
-		}
-	}
+	fun actions(): List<CatalogueAction> = parseActions(JSONArray(request("mobile/actions", null)))
 
 	/** Calls one catalogue action. `pathValues` fills {placeholders}; `query`/`body` carry the rest. */
 	fun perform(method: String, path: String, pathValues: Map<String, String>, params: JSONObject): String {
@@ -220,5 +203,28 @@ class BackendClient(private val context: Context) {
 		return "OSM import: ${out.getInt("imported")} places (total ${out.getInt("total")})"
 	}
 
-	companion object { const val BASE = "http://localhost:8000/" }
+	companion object {
+		const val BASE = "http://localhost:8000/"
+
+		/** Catalogue JSON -> models. Pure, so the parse can be tested without a device or network. */
+		fun parseActions(arr: JSONArray): List<CatalogueAction> = (0 until arr.length()).map { i ->
+			val a = arr.getJSONObject(i)
+			val fArr = a.optJSONArray("fields") ?: JSONArray()
+			val fields = (0 until fArr.length()).map { j ->
+				val f = fArr.getJSONObject(j)
+				// A JSON null must stay null. Android's `optString` coerces one to the literal
+				// string "null" (desktop org.json returns ""), and either would render as a hint.
+				// Both are rejected here so the parse is correct whichever implementation is
+				// underneath, and so the rule can be tested off-device.
+				val ph = if (f.isNull("placeholder")) null else f.optString("placeholder").takeIf { it.isNotEmpty() && it != "null" }
+				ActionField(
+					f.getString("name"), f.getString("label"), f.getString("type"),
+					f.optJSONArray("options")?.let { o -> (0 until o.length()).map { o.getString(it) } },
+					ph,
+					f.optBoolean("required", false),
+				)
+			}
+			CatalogueAction(a.getString("id"), a.getString("title"), a.getString("group"), a.getString("method"), a.getString("path"), fields)
+		}
+	}
 }
