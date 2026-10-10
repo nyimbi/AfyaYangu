@@ -1,7 +1,8 @@
 """Offline-first sync models (spec §16)."""
 from enum import Enum
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -12,16 +13,87 @@ class ConflictStrategy(str, Enum):
 	append_only = 'append_only'
 
 
-STRATEGY_MATRIX: dict[str, ConflictStrategy] = {
-	'symptom_logs': ConflictStrategy.lww,
-	'temperature': ConflictStrategy.lww,
-	'case_reports': ConflictStrategy.server_auth,
-	'immunisation': ConflictStrategy.server_auth,
-	'medication': ConflictStrategy.lww,
-	'facility': ConflictStrategy.server_auth,
-	'content': ConflictStrategy.server_auth,
-	'proximity_tokens': ConflictStrategy.append_only,
-}
+class ConflictRule(BaseModel):
+	"""One §16.3 row: the dataset, its strategy, and the rationale the spec states for it.
+
+	`appealable` carries §16.3's own qualifier on the immunisation row — "Server-authoritative on
+	conflict, **user can appeal**". A strategy alone could not express it, so the row is the unit
+	rather than the strategy, and a conflict the client lost is recoverable exactly where the spec
+	says it is.
+	"""
+	model_config = MODEL_CONFIG
+	dataset: str = Field(pattern=r'^[a-z][a-z0-9_]*$')
+	strategy: ConflictStrategy
+	rationale: str = Field(min_length=1)
+	appealable: bool = False
+
+	@model_validator(mode='after')
+	def _an_appeal_only_makes_sense_against_a_server_decision(self) -> Self:
+		"""An appeal is a person asking a server to reconsider. Under last-write-wins the newest
+		write already won on the merits and there is nothing to reconsider; under append-only there
+		is no conflict at all."""
+		if self.appealable and self.strategy is not ConflictStrategy.server_auth:
+			raise ValueError(f'{self.dataset} is {self.strategy.value}, so there is no decision to appeal')
+		return self
+
+
+# §16.3's matrix, in the spec's own order, with the spec's own rationale. One row per data type —
+# the dict below is derived from this rather than stated beside it.
+CONFLICT_RULES: tuple[ConflictRule, ...] = (
+	ConflictRule(dataset='symptom_logs', strategy=ConflictStrategy.lww,
+		rationale='Personal data, low conflict'),
+	ConflictRule(dataset='temperature', strategy=ConflictStrategy.lww,
+		rationale='Append-only in practice'),
+	ConflictRule(dataset='case_reports', strategy=ConflictStrategy.server_auth,
+		rationale='Clinical accuracy critical'),
+	ConflictRule(dataset='immunisation', strategy=ConflictStrategy.server_auth, appealable=True,
+		rationale='Safety-critical'),
+	ConflictRule(dataset='medication', strategy=ConflictStrategy.lww, rationale='Personal'),
+	ConflictRule(dataset='facility', strategy=ConflictStrategy.server_auth,
+		rationale='Central source of truth'),
+	ConflictRule(dataset='content', strategy=ConflictStrategy.server_auth,
+		rationale='Must match official messaging'),
+	ConflictRule(dataset='proximity_tokens', strategy=ConflictStrategy.append_only,
+		rationale='No conflicts possible'),
+)
+
+RULE_BY_DATASET: dict[str, ConflictRule] = {r.dataset: r for r in CONFLICT_RULES}
+STRATEGY_MATRIX: dict[str, ConflictStrategy] = {r.dataset: r.strategy for r in CONFLICT_RULES}
+
+
+class AppealState(str, Enum):
+	none = 'none'
+	available = 'available'
+	filed = 'filed'
+	upheld = 'upheld'
+	declined = 'declined'
+
+
+class ConflictRecord(BaseModel):
+	"""A conflict the client lost, kept rather than silently retried.
+
+	Before this a losing op had its `attempt` incremented and stayed in the queue, so the client's
+	version was discarded on every pass with nothing recording that it had been, and `SyncStatus`
+	reported the count of *pending* ops under the name `conflicts`. Two different facts wore one
+	name, and the one a person needed — my reading was overruled — was the one not carried.
+	"""
+	model_config = MODEL_CONFIG
+	op_id: str
+	dataset: str
+	strategy: ConflictStrategy
+	client_ts: int
+	server_ts: int
+	client_payload: dict[str, str] = Field(default_factory=dict)
+	server_payload: dict[str, str] = Field(default_factory=dict)
+	appealable: bool
+	appeal: AppealState = AppealState.none
+	appeal_note: str | None = None
+
+	def resolved(self) -> bool:
+		"""Whether this conflict has stopped needing anyone's attention. A conflict with no appeal
+		path is resolved the moment it is recorded — the server decides and that is the end of it.
+		An appealable one stays open until the appeal is decided."""
+		return not self.appealable or self.appeal in (AppealState.upheld, AppealState.declined)
 
 
 class ConnectionClass(str, Enum):

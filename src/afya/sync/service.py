@@ -4,8 +4,8 @@ import json
 
 from afya.logmixin import LogMixin
 from afya.sync.views import (
-	POLICY_BY_CONNECTION, ConflictStrategy, ConnectionClass, STRATEGY_MATRIX, SyncBatch, SyncOp,
-	SyncPolicy, SyncStatus,
+	POLICY_BY_CONNECTION, RULE_BY_DATASET, AppealState, ConflictRecord, ConflictStrategy,
+	ConflictRule, ConnectionClass, STRATEGY_MATRIX, SyncBatch, SyncOp, SyncPolicy, SyncStatus,
 )
 
 
@@ -49,6 +49,10 @@ class SyncService(LogMixin):
 		# dataset -> op_id -> the payload the server last acknowledged. Three levels, not two: the
 		# op id alone is not unique across datasets.
 		self._last_synced: dict[str, dict[str, dict[str, str]]] = {}
+		# Conflicts the client lost, keyed by op id. §16.3's immunisation row promises a person can
+		# appeal a server-authoritative overwrite, which is only possible if the overruled value is
+		# still held somewhere after the queue drops it.
+		self._conflicts: dict[str, ConflictRecord] = {}
 		assert self._queue == {} and self._server_state == {}
 
 	async def load(self) -> int:
@@ -81,6 +85,33 @@ class SyncService(LogMixin):
 
 	def strategy_for(self, dataset: str) -> ConflictStrategy:
 		return STRATEGY_MATRIX[dataset]
+
+	def rule_for(self, dataset: str) -> ConflictRule:
+		"""The whole §16.3 row, because the strategy alone loses the appeal qualifier."""
+		return RULE_BY_DATASET[dataset]
+
+	def conflicts(self, subject_ref: str | None = None) -> list[ConflictRecord]:
+		return sorted(self._conflicts.values(), key=lambda c: (c.dataset, c.op_id))
+
+	def open_conflicts(self) -> list[ConflictRecord]:
+		"""Conflicts still needing someone's attention — §16.3's appeal surface."""
+		return [c for c in self.conflicts() if not c.resolved()]
+
+	def appeal(self, op_id: str, note: str) -> ConflictRecord:
+		"""§16.3's immunisation row: "Server-authoritative on conflict, user can appeal."
+
+		Only where the spec says so. Filing an appeal against a last-write-wins overwrite would be
+		an appeal against arithmetic — the newest write already won — so it is refused rather than
+		accepted and ignored.
+		"""
+		rec = self._conflicts[op_id]
+		if not rec.appealable:
+			raise PermissionError(
+				f'a {rec.strategy.value} conflict is not appealable; the server decides {rec.dataset}')
+		rec.appeal = AppealState.filed
+		rec.appeal_note = note
+		self._log_warn('conflict appealed', op_id=op_id, dataset=rec.dataset)
+		return rec
 
 	# --- §16.4 bandwidth minimisation ---------------------------------------------------------
 
@@ -179,8 +210,25 @@ class SyncService(LogMixin):
 					if self._store is not None:
 						await self._store.save_sync_op(op)
 				else:
-					op.attempt += 1
-					assert backoff_delay_s(op.attempt) > backoff_delay_s(op.attempt - 1), 'backoff monotonic'
+					# The client lost. Record it, and take the op out of the queue.
+					#
+					# Retrying it was the bug: a server-authoritative conflict is *decided*, so every
+					# later flush re-sent a payload that had already been overruled, bumped `attempt`
+					# toward the backoff ceiling, and would have gone on doing so forever — a silent
+					# discard dressed as a transient failure. §16.1's "nothing is lost" is about writes
+					# that have not been decided yet; a decided conflict is kept as a ConflictRecord,
+					# which is where §16.3's appeal reads it from.
+					rule = self.rule_for(op.dataset)
+					self._conflicts[op.op_id] = ConflictRecord(
+						op_id=op.op_id, dataset=op.dataset, strategy=rule.strategy,
+						client_ts=op.client_ts, server_ts=srv.server_ts,
+						client_payload=dict(op.payload), server_payload=dict(srv.payload),
+						appealable=rule.appealable,
+					)
+					self._queue.pop(op.op_id, None)
+					if self._store is not None:
+						op.attempt += 1
+						await self._store.save_sync_op(op)
 		pending = len([o for o in self._queue.values() if not o.synced])
-		self._log_info('flush done', synced=synced, pending=pending)
-		return SyncStatus(pending=pending, synced=synced, conflicts=pending)
+		self._log_info('flush done', synced=synced, pending=pending, conflicts=len(self._conflicts))
+		return SyncStatus(pending=pending, synced=synced, conflicts=len(self._conflicts))

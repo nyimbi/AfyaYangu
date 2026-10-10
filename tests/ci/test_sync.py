@@ -1,7 +1,12 @@
 import pytest
 
 from afya.sync.service import SyncService, apply_delta, backoff_delay_s, delta_payload
-from afya.sync.views import POLICY_BY_CONNECTION, ConnectionClass, SyncOp
+import pytest
+from pydantic import ValidationError
+
+from afya.sync.views import (
+	POLICY_BY_CONNECTION, ConflictRule, ConflictStrategy, ConnectionClass, SyncOp,
+)
 
 
 async def test_enqueue_backoff_monotonic() -> None:
@@ -162,3 +167,101 @@ async def test_sync_policy_and_delta_over_http() -> None:
 		# not that the request costs nothing.
 		assert empty['ops'] == [] and empty['encoding'] == 'identity'
 		assert (await c.post('/sync/batch', params={'connection': 'satellite'})).status_code == 422
+
+
+# --- §16.3 conflict matrix, and the appeal the immunisation row promises ---------------------
+
+async def test_the_matrix_is_the_specs_own_eight_rows() -> None:
+	"""§16.3 lists eight data types. The dict is derived from the rows rather than stated beside
+	them, so a row cannot lose its rationale or drift from the strategy it names."""
+	from afya.sync.views import CONFLICT_RULES, STRATEGY_MATRIX
+	assert len(CONFLICT_RULES) == 8
+	assert STRATEGY_MATRIX == {r.dataset: r.strategy for r in CONFLICT_RULES}
+	assert [r.dataset for r in CONFLICT_RULES] == [
+		'symptom_logs', 'temperature', 'case_reports', 'immunisation', 'medication', 'facility',
+		'content', 'proximity_tokens',
+	]
+	assert all(r.rationale for r in CONFLICT_RULES)
+
+
+async def test_only_the_immunisation_row_is_appealable() -> None:
+	"""§16.3's immunisation row is the one that reads "Server-authoritative on conflict, user can
+	appeal". An appeal against last-write-wins is an appeal against arithmetic, and under
+	append-only there is no conflict — so the model refuses both."""
+	from afya.sync.views import CONFLICT_RULES
+	assert [r.dataset for r in CONFLICT_RULES if r.appealable] == ['immunisation']
+	with pytest.raises(ValidationError, match='no decision to appeal'):
+		ConflictRule(dataset='facility', strategy=ConflictStrategy.lww, rationale='x', appealable=True)
+
+
+async def test_a_lost_conflict_is_recorded_and_not_retried_forever() -> None:
+	"""The bug this replaced: a losing op had `attempt` bumped and stayed queued, so every flush
+	re-sent a payload the server had already overruled. A decided conflict is not a transient
+	failure, and §16.1's "nothing is lost" is about writes that are not yet decided."""
+	svc = SyncService()
+	await svc.enqueue(SyncOp(op_id='OP-LOST0001', dataset='immunisation', client_ts=100,
+	                         payload={'dose': '1'}))
+	svc._server_state['immunisation'] = {'OP-LOST0001': SyncOp(  # noqa: SLF001 - seeding the server side
+		op_id='OP-LOST0001', dataset='immunisation', client_ts=100, server_ts=500, payload={'dose': '2'})}
+	first = await svc.flush(0)
+	assert first.synced == 0 and first.conflicts == 1 and first.pending == 0, first
+	again = await svc.flush(0)
+	assert again.conflicts == 1 and again.pending == 0, 'a decided conflict must not be re-sent'
+	c = svc.conflicts()[0]
+	assert c.client_payload == {'dose': '1'} and c.server_payload == {'dose': '2'}, 'both versions kept'
+	assert c.appealable is True and c.appeal.value == 'none'
+
+
+async def test_pending_and_conflicts_are_different_counts() -> None:
+	"""They shared one field. A queued write waiting for a network and a write the server overruled
+	are different facts, and the one a person needs is the second."""
+	svc = SyncService()
+	await svc.enqueue(SyncOp(op_id='OP-PEND0001', dataset='symptom_logs', client_ts=1, payload={'a': 'b'}))
+	await svc.enqueue(SyncOp(op_id='OP-LOST0002', dataset='case_reports', client_ts=1, payload={'a': 'b'}))
+	svc._server_state['case_reports'] = {'OP-LOST0002': SyncOp(  # noqa: SLF001
+		op_id='OP-LOST0002', dataset='case_reports', client_ts=1, server_ts=900, payload={'a': 'z'})}
+	st = await svc.flush(0)
+	assert st.synced == 1, 'the symptom log had no server side, so it synced'
+	assert st.conflicts == 1 and st.pending == 0
+
+
+async def test_an_appeal_opens_and_closes() -> None:
+	from afya.sync.views import AppealState
+	svc = SyncService()
+	await svc.enqueue(SyncOp(op_id='OP-APPEAL01', dataset='immunisation', client_ts=1, payload={'d': '1'}))
+	svc._server_state['immunisation'] = {'OP-APPEAL01': SyncOp(  # noqa: SLF001
+		op_id='OP-APPEAL01', dataset='immunisation', client_ts=1, server_ts=9, payload={'d': '2'})}
+	await svc.flush(0)
+	assert [c.op_id for c in svc.open_conflicts()] == ['OP-APPEAL01'], 'an undecided appeal is open'
+	rec = svc.appeal('OP-APPEAL01', 'the clinic gave dose 2 in March')
+	assert rec.appeal is AppealState.filed and rec.appeal_note == 'the clinic gave dose 2 in March'
+	assert [c.op_id for c in svc.open_conflicts()] == ['OP-APPEAL01'], 'filing is not deciding'
+	rec.appeal = AppealState.upheld
+	assert svc.open_conflicts() == [], 'a decided appeal is closed'
+
+
+async def test_a_non_appealable_conflict_cannot_be_appealed() -> None:
+	svc = SyncService()
+	await svc.enqueue(SyncOp(op_id='OP-NOAPPEAL', dataset='facility', client_ts=1, payload={'d': '1'}))
+	svc._server_state['facility'] = {'OP-NOAPPEAL': SyncOp(  # noqa: SLF001
+		op_id='OP-NOAPPEAL', dataset='facility', client_ts=1, server_ts=9, payload={'d': '2'})}
+	await svc.flush(0)
+	assert svc.conflicts()[0].resolved() is True, 'the server decided; that is the end of it'
+	with pytest.raises(PermissionError, match='not appealable'):
+		svc.appeal('OP-NOAPPEAL', 'please')
+
+
+async def test_the_appeal_surface_is_reachable_and_carries_no_spec_code() -> None:
+	import httpx
+	import re
+	from afya.service import create_app
+	app = create_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		token = (await c.post('/auth/anonymous', json={'subject_ref': 'U1'})).json()['token']
+		h = {'authorization': f'Bearer {token}'}
+		out = (await c.get('/sync/conflicts', headers=h)).json()
+		assert out['conflicts'] == [] and out['open'] == 0
+		assert (await c.get('/sync/conflicts')).status_code == 401, 'the queue is the device’s, not the world’s'
+		assert (await c.post('/sync/conflicts/OP-NOPE/appeal', json={'note': 'x'}, headers=h)).status_code == 404
+		body = str(out)
+		assert re.search(r'\b(?:SENS|SEC|ACC|REC|MON|LOC|COM|ALT|AI|CHAN|INF|TRI|FND|MED|EMG)-\d{3}\b', body) is None

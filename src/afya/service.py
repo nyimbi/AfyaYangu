@@ -2,7 +2,7 @@
 from afya.surveillance.service import SurveillanceService, estimate_breath_rate
 from afya.surveillance.views import CountySignal, Geofence, ProximityToken
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from httpx import AsyncClient
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -1085,6 +1085,33 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/sync/flush')
 	async def sync_flush() -> dict[str, int]:
 		return (await sync.flush(0)).model_dump(mode='json')
+
+	@app.get('/sync/conflicts')
+	async def sync_conflicts(_subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		"""§16.3's appeal surface: the writes the server overruled, and whether each can be appealed.
+
+		The queue is the device's, so the route binds the caller's own token rather than naming a
+		subject — there is no subject parameter to get wrong. A conflict under a strategy the spec
+		does not make appealable is returned too, marked, because "the server decided and that is
+		the end of it" is a fact the user is entitled to see rather than infer from silence.
+		"""
+		rows = sync.conflicts()
+		return {
+			'conflicts': [c.model_dump(mode='json') for c in rows],
+			'open': len([c for c in rows if not c.resolved()]),
+			'appealable': [c.op_id for c in rows if c.appealable],
+		}
+
+	@app.post('/sync/conflicts/{op_id}/appeal')
+	async def sync_appeal(op_id: str, note: str = Body(embed=True),
+	                      _subject: str = Depends(require_self(names_subject=False))) -> dict[str, str]:
+		try:
+			rec = sync.appeal(op_id, note)
+		except KeyError as exc:
+			raise HTTPException(status_code=404, detail='no such conflict') from exc
+		except PermissionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'op_id': rec.op_id, 'appeal': rec.appeal.value}
 
 	# --- privacy ---
 	@app.post('/privacy/consent')
