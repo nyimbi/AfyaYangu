@@ -86,6 +86,7 @@ from afya.realtime.service import RealtimeService
 from afya.realtime.views import KNOWN_CATEGORIES, SocketSubscription, now_iso
 from afya.retention.service import RetentionService
 from afya.retention.views import DeletionRequest
+from afya.governance.service import GovernanceService
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -159,6 +160,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'ai': AIService(),
 		'access': AccessService(),
 		'retention': RetentionService(),
+		'governance': GovernanceService(),
 		'chw': ChwService(),
 		'auth': AuthService(),
 		# §18: the national systems. Every client is constructed whether or not its vendor is
@@ -208,6 +210,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	ai: AIService = svc['ai']  # type: ignore[assignment]
 	access: AccessService = svc['access']  # type: ignore[assignment]
 	retention: RetentionService = svc['retention']  # type: ignore[assignment]
+	governance: GovernanceService = svc['governance']  # type: ignore[assignment]
 	chw: ChwService = svc['chw']  # type: ignore[assignment]
 	auth: AuthService = svc['auth']  # type: ignore[assignment]
 	# §18: the national systems. `jali` may be the offline port, which is why it is typed as the
@@ -1807,6 +1810,88 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		msisdn = raw if raw.startswith('+') else ('+' + raw.lstrip('0') if raw.startswith('0') else '+' + raw)
 		out = channels.route_whatsapp(WhatsAppIn(from_msisdn=msisdn, body=body))
 		return {'reply': out.reply, 'source': 'sms'}
+
+	# --- §15.3 residency, §17.7 agreements, §15.4 capacity -----------------------------------
+	# Three spec sections that were prose and nothing else. Residency is a decision made before a
+	# request is built; the agreements are state the deployment must hold; the capacity report is
+	# measured, and reports an unmeasured target as unmeasured rather than as met.
+
+	@app.get('/governance/residency')
+	async def governance_residency(_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Which data classes may reach which jurisdiction (§15.3). Read-only policy, but it names
+		where case data is allowed to go, so it is infrastructure-scoped like the other config views."""
+		from afya.governance.views import HOST_JURISDICTIONS, RESIDENCY_RULES
+		return {
+			'rules': {cls.value: sorted(j.value for j in allowed) for cls, allowed in RESIDENCY_RULES.items()},
+			'hosts': sorted({host for host, _ in HOST_JURISDICTIONS}),
+		}
+
+	@app.get('/governance/residency/check')
+	async def governance_residency_check(party: str, host: str, data_class: str,
+			_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Answer, without sending anything, whether a transfer would be allowed. `data_class` is a
+		query string rather than an enum so an unknown class is a 422 from the parser, not a 500."""
+		from afya.governance.views import DataClass
+		try:
+			cls = DataClass(data_class)
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=f'unknown data class {data_class!r}') from exc
+		return governance.residency_decision(party, host, cls).model_dump(mode='json')
+
+	@app.get('/governance/agreements')
+	async def governance_agreements(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§17.7 sharing posture. Auditor-scoped: it says which parties we may lawfully share with,
+		which is exactly the question an auditor asks."""
+		return governance.sharing_posture()
+
+	@app.post('/governance/agreements')
+	async def governance_register_agreement(agreement: dict[str, object], _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Record an agreement. Refused when a clause §17.7 names is missing, so an incomplete
+		agreement cannot be registered and later read as one that permits sharing."""
+		from afya.governance.views import DataSharingAgreement
+		try:
+			parsed = DataSharingAgreement.model_validate(agreement)
+			governance.register(parsed)
+		except (AssertionError, ValidationError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return governance.sharing_posture()
+
+	@app.get('/governance/capacity')
+	async def governance_capacity(_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""§15.4 targets and, where the deployment has measured them, the observed value. With no
+		measurements supplied every target is unmeasured, and `all_measured_targets_met` is false —
+		the honest report for a process that has not been load-tested."""
+		return governance.capacity_report().model_dump(mode='json')
+
+	@app.post('/governance/capacity')
+	async def governance_capacity_measured(observed: dict[str, float], _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Check a set of measurements against §15.4. A metric the spec names but the caller did not
+		measure stays unmeasured; an unknown metric is refused rather than silently ignored."""
+		known = {t.metric for t in governance.targets()}
+		unknown = sorted(set(observed) - known)
+		if unknown:
+			raise HTTPException(status_code=422, detail=f'not §15.4 metrics: {unknown}')
+		return governance.capacity_report(observed).model_dump(mode='json')
+
+	@app.get('/governance/egress')
+	async def governance_egress(_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Every configured outbound wire classified against §15.3, with its party and data class.
+
+		This reads the *deployment's* URLs, so a host set in the environment that a class may not
+		reach is reported here rather than discovered on the wire. `violations` is the actionable
+		list; an empty one means every configured wire is inside its jurisdiction."""
+		from afya.config import ServiceConfig
+		cfg = ServiceConfig.from_env()
+		urls = {
+			'adam': cfg.adam_url, 'pheoc': cfg.pheoc_url, 'jali': cfg.jali_url, 'sha': cfg.sha_url,
+			'mohf': cfg.mohf_url, 'ppb': cfg.ppb_url, 'sms': cfg.at_base_url,
+			'whatsapp': 'https://graph.facebook.com' if cfg.wa_token else '',
+		}
+		decisions = governance.audit_egress(urls)
+		return {
+			'decisions': [d.model_dump(mode='json') for d in decisions],
+			'violations': [d.model_dump(mode='json') for d in decisions if not d.allowed],
+		}
 
 	# --- §15.5 versioning: `/v1/` beside the bare paths --------------------------------------
 	# Both spellings reach the same routes. `v1` is the only version, so pinning it changes
