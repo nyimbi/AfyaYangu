@@ -10,6 +10,8 @@ import java.net.URL
 data class HealthDTO(val status: String, val version: String, val tier4: Boolean)
 data class FeatureDTO(val id: String, val name: String)
 data class TriageResultDTO(val riskLevel: String, val recommendation: String, val escalate719: Boolean)
+data class ActionField(val name: String, val label: String, val type: String, val options: List<String>?, val placeholder: String?, val required: Boolean)
+data class CatalogueAction(val id: String, val title: String, val group: String, val method: String, val path: String, val fields: List<ActionField>)
 
 // Offline-first: last good response cached in SharedPreferences (spec 16.1).
 class BackendClient(private val context: Context) {
@@ -172,6 +174,44 @@ class BackendClient(private val context: Context) {
 				row.getDouble("km"), d.getInt("walk_minutes"), d.getString("guidance"),
 				p.optString("opening_hours", null),
 			)
+		}
+	}
+
+	// --- Server-driven action catalogue (GET /mobile/actions) ---
+	// The server withholds dormant outbreak capabilities, so the list is rendered as-is.
+
+	fun actions(): List<CatalogueAction> {
+		val arr = JSONArray(request("mobile/actions", null))
+		return (0 until arr.length()).map { i ->
+			val a = arr.getJSONObject(i)
+			val fArr = a.optJSONArray("fields") ?: JSONArray()
+			val fields = (0 until fArr.length()).map { j ->
+				val f = fArr.getJSONObject(j)
+				val ph = f.optString("placeholder")
+				ActionField(
+					f.getString("name"), f.getString("label"), f.getString("type"),
+					f.optJSONArray("options")?.let { o -> (0 until o.length()).map { o.getString(it) } },
+					if (ph.isEmpty()) null else ph,
+					f.optBoolean("required", false),
+				)
+			}
+			CatalogueAction(a.getString("id"), a.getString("title"), a.getString("group"), a.getString("method"), a.getString("path"), fields)
+		}
+	}
+
+	/** Calls one catalogue action. `pathValues` fills {placeholders}; `query`/`body` carry the rest. */
+	fun perform(method: String, path: String, pathValues: Map<String, String>, params: JSONObject): String {
+		var resolved = path
+		for ((k, v) in pathValues) resolved = resolved.replace("{$k}", v)
+		return when (method) {
+			"GET" -> {
+				val q = params.keys().asSequence().joinToString("&") { k ->
+					"${java.net.URLEncoder.encode(k, "UTF-8")}=${java.net.URLEncoder.encode(params.get(k).toString(), "UTF-8")}"
+				}
+				request(resolved + if (q.isEmpty()) "" else "?$q", null)
+			}
+			"DELETE" -> request(resolved, "{}")
+			else -> request(resolved, params.toString())
 		}
 	}
 

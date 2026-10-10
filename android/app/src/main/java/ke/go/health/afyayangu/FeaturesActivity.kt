@@ -57,6 +57,10 @@ class FeaturesActivity : Activity() {
 					}
 					addView(placesBtn)
 				}
+				addView(android.widget.Button(ctx).apply {
+					text = "All services"
+					setOnClickListener { ctx.startActivity(android.content.Intent(ctx, ActionsActivity::class.java)) }
+				})
 			}
 			executor.execute {
 				setOut(finderOut, runCatching { client.nearest(-1.29, 36.82, "ed", 3) }.recoverCatching { client.nearest(-1.29, 36.82, "pharmacy", 3) })

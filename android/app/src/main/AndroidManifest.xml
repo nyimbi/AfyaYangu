@@ -24,5 +24,8 @@
 		<activity
 			android:name=".PlacesActivity"
 			android:exported="false" />
+		<activity
+			android:name=".ActionsActivity"
+			android:exported="false" />
 	</application>
 </manifest>

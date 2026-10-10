@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 // Primary surfaces — human language only; registry IDs never appear in UI.
 
@@ -221,6 +222,144 @@ extension String {
 	}
 }
 
+struct ActionsView: View {
+	@State private var actions: [MobileActionDTO] = []
+	@State private var loadError = false
+
+	private var groups: [String] {
+		var order: [String] = []
+		for a in actions where !order.contains(a.group) { order.append(a.group) }
+		return order
+	}
+
+	var body: some View {
+		List {
+			if actions.isEmpty {
+				Text(loadError ? "Could not load services. Check your connection and pull to refresh." : "Loading services…")
+					.foregroundStyle(.secondary)
+			}
+			ForEach(groups, id: \.self) { group in
+				Section(group) {
+					ForEach(actions.filter { $0.group == group }) { action in
+						NavigationLink(action.title) { ActionFormView(action: action) }
+					}
+				}
+			}
+		}
+		.navigationTitle("All Services")
+		.task { await load() }
+		.refreshable { await load() }
+	}
+
+	private func load() async {
+		do {
+			actions = try await AppState.sharedClient.actions()
+			loadError = false
+		} catch {
+			loadError = true
+		}
+	}
+}
+
+// One generic form per catalogue action — built entirely from the fields the server sends.
+struct ActionFormView: View {
+	let action: MobileActionDTO
+	@State private var values: [String: String] = [:]
+	@State private var fileData: Data?
+	@State private var pickerItem: PhotosPickerItem?
+	@State private var result = ""
+	@State private var failed = false
+	@State private var busy = false
+
+	private var hasFile: Bool { action.fields.contains { $0.type == "file" } }
+
+	var body: some View {
+		Form {
+			Section {
+				ForEach(action.fields) { field in
+					fieldRow(field)
+				}
+			}
+			Section {
+				Button(busy ? "Working…" : action.method == "GET" ? "Run" : "Submit") { run() }
+					.disabled(busy)
+			}
+			if !result.isEmpty {
+				Section("Result") {
+					Text(result).font(.system(.footnote, design: .monospaced)).foregroundStyle(failed ? .red : .primary)
+				}
+			}
+		}
+		.navigationTitle(action.title)
+		.onChange(of: pickerItem) { _, item in
+			guard let item else { return }
+			Task { fileData = try? await item.loadTransferable(type: Data.self) }
+		}
+	}
+
+	@ViewBuilder
+	private func fieldRow(_ field: MobileFieldDTO) -> some View {
+		switch field.type {
+		case "bool":
+			Toggle(field.label, isOn: Binding(
+				get: { values[field.name] == "true" },
+				set: { values[field.name] = $0 ? "true" : "false" }))
+		case "select":
+			Picker(field.label, selection: Binding(
+				get: { values[field.name] ?? "" },
+				set: { values[field.name] = $0 })) {
+				Text("—").tag("")
+				ForEach(field.options ?? [], id: \.self) { Text($0).tag($0) }
+			}
+		case "textarea":
+			VStack(alignment: .leading) {
+				Text(field.label).font(.caption).foregroundStyle(.secondary)
+				TextField(field.placeholder ?? "", text: Binding(
+					get: { values[field.name] ?? "" },
+					set: { values[field.name] = $0 }), axis: .vertical).lineLimit(3...6)
+			}
+		case "file":
+			PhotosPicker(selection: $pickerItem, matching: .images) {
+				Label(fileData == nil ? field.label : "\(field.label) ✓", systemImage: "photo.on.rectangle")
+			}
+		default:
+			TextField(field.placeholder.map { "\(field.label) (\($0))" } ?? field.label, text: Binding(
+				get: { values[field.name] ?? "" },
+				set: { values[field.name] = $0 }))
+				.keyboardType(field.type == "int" ? .numberPad : field.type == "decimal" ? .decimalPad : .default)
+		}
+	}
+
+	private func run() {
+		let missing = action.fields.filter { $0.required && $0.type != "file" && (values[$0.name] ?? "").isEmpty }
+		guard missing.isEmpty else {
+			failed = true
+			result = "Please fill in: " + missing.map(\.label).joined(separator: ", ")
+			return
+		}
+		busy = true
+		result = ""
+		failed = false
+		Task {
+			do {
+				let data = try await AppState.sharedClient.invoke(action, values: values, file: fileData)
+				result = Self.pretty(data)
+			} catch {
+				failed = true
+				result = "Failed: \(error.localizedDescription)"
+			}
+			busy = false
+		}
+	}
+
+	private static func pretty(_ data: Data) -> String {
+		guard let obj = try? JSONSerialization.jsonObject(with: data),
+			let out = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
+		else { return String(data: data, encoding: .utf8) ?? "" }
+		return String(decoding: out, as: UTF8.self)
+	}
+}
+
 struct FeatureTabView: View {
 	@ObservedObject var state: AppState = AppState.sharedState
 	@State private var tab: Int = Int(UserDefaults.standard.integer(forKey: "startTab"))
@@ -234,6 +373,7 @@ struct FeatureTabView: View {
 			NavigationStack { ChwView() }.tabItem { Label("Community", systemImage: "figure.walk") }.tag(4)
 			NavigationStack { EvidenceUploadView() }.tabItem { Label("Photos", systemImage: "camera") }.tag(5)
 			NavigationStack { PlacesView() }.tabItem { Label("Maps", systemImage: "map") }.tag(6)
+			NavigationStack { ActionsView() }.tabItem { Label("All Services", systemImage: "square.grid.2x2") }.tag(7)
 		}
 	}
 }
