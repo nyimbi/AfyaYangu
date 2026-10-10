@@ -44,7 +44,7 @@ class DiaryEntry(BaseModel):
 
 RECOMMENDATIONS: dict[RiskLevel, str] = {
 	RiskLevel.low: 'Monitor; standard hygiene; hydrate; call 719 if worsening.',
-	RiskLevel.malaria_suspect: 'Febrile illness: test and treat for malaria FIRST (spec 6.3 malaria trap); call 719 if no improvement in 48h.',
+	RiskLevel.malaria_suspect: 'A fever in Kenya is most often malaria. Test and treat for malaria first; call 719 if there is no improvement in 48 hours.',
 	RiskLevel.medium: 'Contact hotline 719; self-monitor; isolate from household if symptoms progress.',
 	RiskLevel.high: 'Isolate immediately; call 719; go to nearest isolation treatment unit.',
 }

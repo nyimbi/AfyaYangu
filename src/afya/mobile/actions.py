@@ -221,7 +221,7 @@ def _a(id: str, title: str, group: str, method: str, path: str, fields: list[Mob
 
 
 def catalogue() -> list[MobileAction]:
-	triage_fields = [_f('symptoms', 'Symptoms', 'list', ph='fever, headache'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('ebola_contact', 'Contact with an Ebola patient?', 'bool')]
+	triage_fields = [_f('symptoms', 'Symptoms', 'list', ph='fever, headache'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('ebola_contact', 'Contact with someone sick with Ebola?', 'bool')]
 	return [
 		# Triage
 		_a('febrile_triage', 'Check a fever', 'Triage', 'POST', '/triage/preliminary', triage_fields),

@@ -9,6 +9,7 @@ from afya.community.views import (
 	ContactTracingSummary, IssueReceipt, IssueStatus, MisinfoCluster, MisinfoSubmission, PeerAlert,
 	PeerAlertReceipt,
 )
+from afya.info.principles import Subject, judge
 from afya.logmixin import LogMixin
 
 # Misinformation topics with a pre-drafted, source-attributed correction (§6.4 response protocol).
@@ -111,9 +112,14 @@ class CommunityService(LogMixin):
 
 	async def send_peer_alert(self, alert: PeerAlert) -> PeerAlertReceipt:
 		assert alert.verified_by in ('County', 'PHEOC', 'MoH'), 'peer alerts require county verification (§COM-102)'
-		lowered = f'{alert.headline} {alert.body}'.lower()
-		banned = [w for w in ('panic', 'deadly killer', 'everyone will die', 'mass grave') if w in lowered]
-		assert not banned, f'alarmist tone rejected: {banned}'
+		# §6.2.5 and §6.2.9, through the one table that holds them. The peer alert carried its own
+		# four-word alarmist list, which missed the stigmatising substitutions the section states and
+		# would not have moved if the section did. It is instruction text — a peer alert tells someone
+		# what to do — so the directive rule applies and the stigma rule does not: the sentence names
+		# the reader, not a group.
+		finding = judge(f'peer_alert:{alert.alert_id}', f'{alert.headline} {alert.body}', Subject.content)
+		failures = [v.detail for v in finding.failures()]
+		assert not failures, f'peer alert tone rejected: {failures}'
 		self._peer_alerts.append(alert)
 		# Recipients are counted by the geofence fan-out; this service records the verified alert.
 		recipients = int(3.14159 * (alert.radius_m / 1000.0) ** 2 * 4000)

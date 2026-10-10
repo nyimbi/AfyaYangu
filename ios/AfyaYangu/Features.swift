@@ -34,7 +34,7 @@ struct TriageInline: View {
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 10) {
-			Toggle("Contact with an Ebola patient or affected area?", isOn: $contact)
+			Toggle("Contact with someone sick with Ebola, or an area where a case was reported?", isOn: $contact)
 			WrapChips { temp in
 				result = await AppState.sharedState.assess(symptoms: ["fever", "headache"], tempC: temp, contact: contact)
 			}

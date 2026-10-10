@@ -76,10 +76,10 @@ class TriageService(LogMixin):
 
 
 RECMAP = {
-	'malaria': 'Test and treat for malaria first (spec 6.3); call 719 if no improvement in 48h.',
-	'typhoid': 'Febrile >3 days suggests typhoid — get a blood test (Widal/culture) at a facility.',
+	'malaria': 'Test and treat for malaria first; call 719 if there is no improvement in 48 hours.',
+	'typhoid': 'Fever for more than 3 days suggests typhoid. Get a blood test (Widal or culture) at a facility.',
 	'flu': 'Rest, fluids; seek care if breathing is difficult or fever >3 days.',
-	'cholera': 'START ORS NOW and get to a facility — rapid dehydration is the danger. Call 719.',
+	'cholera': 'START ORS NOW and get to a facility. Rapid dehydration is the danger. Call 719.',
 	'covid': 'Mask up; test if available; seek care for breathing difficulty.',
 	'evd': 'Isolate immediately; call 719; go to nearest isolation treatment unit.',
 }

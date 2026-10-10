@@ -22,7 +22,7 @@ class CatalogueParseTest {
 		     "placeholder":"fever, headache","required":false},
 		    {"name":"temperature_c","label":"Temperature °C","type":"decimal","options":null,
 		     "placeholder":null,"required":false},
-		    {"name":"ebola_contact","label":"Contact with an Ebola patient?","type":"bool",
+		    {"name":"ebola_contact","label":"Contact with someone sick with Ebola?","type":"bool",
 		     "options":null,"placeholder":null,"required":true}
 		  ]}]
 	""".trimIndent()

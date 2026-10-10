@@ -34,7 +34,7 @@ class MainActivity : Activity() {
 		statusText = TextView(ctx).apply { textSize = 16f; setPadding(16, 24, 16, 8) }
 		resultText = TextView(ctx).apply { textSize = 14f; setPadding(16, 8, 16, 24) }
 		val contactSwitch = Switch(ctx).apply {
-			text = "Contact with an Ebola patient or affected area?"
+			text = "Contact with someone sick with Ebola, or an area where a case was reported?"
 			setPadding(16, 8, 16, 8)
 			setOnCheckedChangeListener { _, v -> ebolaContact = v }
 		}

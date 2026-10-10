@@ -9,6 +9,7 @@ from datetime import date
 from typing import Any
 
 from afya.info.content_seed import seed_rows
+from afya.info.principles import Finding, Subject, Verdict, judge, judge_corpus, library_texts, tree_texts
 from afya.info.views import WORKFLOW, ContentItem, ContentStage, CountyRisk, DecisionNode, HotlineInfo
 from afya.logmixin import LogMixin
 
@@ -47,6 +48,33 @@ class InfoService(LogMixin):
 	async def upsert_content(self, item: ContentItem) -> None:
 		assert item.item_id and item.title, 'id/title required'
 		self._content[item.item_id] = item
+
+	def content_verdicts(self, item: ContentItem) -> list[Verdict]:
+		"""§6.2's rules applied to one item, as findings rather than an exception.
+
+		Returned rather than raised so the drafting screen can show what to fix and the publishing
+		route can refuse on the same verdicts — one implementation, two callers, and the reason the
+		failures are a list rather than a bool.
+		"""
+		return judge(f'library:{item.slug or item.item_id}', f'{item.title} {item.body}', Subject.content).failures()
+
+	def library_audit(self) -> list[Finding]:
+		"""Every §6.2 finding in the corpus, drafts included.
+
+		Published items only would be the comfortable choice and the wrong one: the rule exists to
+		stop a stigmatising sentence reaching a screen, and the cheapest place to catch it is before
+		the item is published rather than after. `all_items()` is what the governance view reads.
+		"""
+		return [f for f in judge_corpus(library_texts(self.all_items())) if not f.clean()]
+
+	def tree_audit(self) -> list[Finding]:
+		"""§6.2 over the decision tree, which is served text too.
+
+		The tree's questions are read aloud by the low-literacy interface (§ACC-001), so a question
+		that names a group of people is a stigmatising sentence in a voice, and a leaf that names the
+		spec is a section number read out to someone deciding whether to seek care.
+		"""
+		return [f for f in judge_corpus(tree_texts(self.TREE)) if not f.clean()]
 
 	def library(self, lang: str = 'en') -> list[ContentItem]:
 		"""What a client may read: published items in this language, and nothing else.
@@ -113,7 +141,7 @@ class InfoService(LogMixin):
 	# INF-002: explicit decision tree — node_id -> node
 	TREE: dict[str, DecisionNode] = {
 		'root': DecisionNode(question='Do you have fever (≥38.0 °C)?', yes_next='fever', no_next='no_fever', leaf_recommendation=None),
-		'fever': DecisionNode(question='Recent contact with an Ebola patient or travel to an affected area in 21 days?', yes_next='leaf_hotline', no_next='leaf_malaria', leaf_recommendation=None),
+		'fever': DecisionNode(question='In the last 21 days, have you been near someone who is sick with Ebola, or travelled to an area where a case was reported?', yes_next='leaf_hotline', no_next='leaf_malaria', leaf_recommendation=None),
 		'no_fever': DecisionNode(question='Any other symptoms?', yes_next='leaf_monitor', no_next='leaf_ok', leaf_recommendation=None),
 		'leaf_hotline': DecisionNode(question='(leaf)', yes_next=None, no_next=None, leaf_recommendation='Isolate and call 719 immediately.'),
 		'leaf_malaria': DecisionNode(question='(leaf)', yes_next=None, no_next=None, leaf_recommendation='Test and treat for malaria first; call 719 if no improvement in 48h.'),

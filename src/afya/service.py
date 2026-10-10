@@ -692,9 +692,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 		§17.4 defines eight data-access roles and none of them owns content, so this rides the
 		operations scope rather than inventing a ninth role the spec's table does not have.
+
+		§6.2 is enforced here rather than left to the reviewer: an item that stigmatises the person
+		it describes, carries a spec section reference, or cannot be sent as a plain SMS is refused
+		with the verdicts, so the drafting screen can say what to fix. The long-sentence flag is a
+		`review` verdict and does not block — §6.2.10 is a design intent, and a burial protocol may
+		legitimately run long.
 		"""
 		if not item.harmony_tag:
 			raise HTTPException(status_code=422, detail='content must carry a harmony tag before it is served')
+		failures = [v.model_dump(mode='json') for v in info.content_verdicts(item)]
+		if failures:
+			raise HTTPException(status_code=422, detail={'content_principles': failures})
 		try:
 			await info.upsert_content(item)
 		except AssertionError as exc:
@@ -728,7 +737,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 		Auditor-scoped, like the other evidence views. `stale` is the §6.5 staleness audit as a
 		date rather than a monthly intention — the item served longest ago is the one nobody has
-		looked at since, which is exactly what the section exists to catch."""
+		looked at since, which is exactly what the section exists to catch. `content_principles` is
+		§6.2's own audit over the same corpus, so a stigmatising sentence is visible to the reviewer
+		whether it was caught at drafting time or predates the check."""
 		if regime not in ('outbreak', 'steady'):
 			raise HTTPException(status_code=422, detail=f'unknown review regime {regime!r}')
 		items = [
@@ -745,6 +756,10 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'stale': info.stale(today_iso, regime),
 			'regime': regime,
 			'cadence_days': info.cadence_days(regime),
+			'content_principles': [
+				{'surface': f.surface, 'verdicts': [v.model_dump(mode='json') for v in f.verdicts]}
+				for f in info.library_audit() + info.tree_audit()
+			],
 		}
 
 	@app.get('/info/decision-tree')
