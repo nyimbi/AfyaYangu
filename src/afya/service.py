@@ -39,6 +39,8 @@ from afya.medicine.service import MedicineService
 from afya.medicine.views import DoseRequest, StockReport, VerifyRequest
 from afya.facilities.service import FacilityService
 from afya.facilities.views import Booking, Facility, NearestRequest
+from afya.info.escalation import CORRECTION_FEED_CATEGORY, ContentError
+from afya.info.recency import instant_iso
 from afya.info.service import InfoService
 from afya.info.views import WORKFLOW, ContentItem, CountyRisk
 from afya.privacy.service import PrivacyService
@@ -70,6 +72,7 @@ from afya.alerting.service import AlertingService
 from afya.alerting.views import ExposureAck, FeedItem, FeedPage, FamilyStatus
 from afya.auth.service import AuthService
 from afya.auth.views import PKCEStart, PKCETokenRequest, StaffProvision, TokenRequest
+from afya.auth.views import now_ms as clock_ms
 from afya.chw.service import ChwService
 from afya.chw.views import ActivityLogEntry, ChwCase, ChwProfile
 from afya.community.service import CommunityService
@@ -807,6 +810,73 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except (AssertionError, KeyError) as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return {'item_id': item.item_id, 'stage': item.stage.value, 'version': item.version}
+
+	@app.post('/info/content/errors')
+	async def info_report_error(error: ContentError, at_ms: int | None = None,
+			_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""§6.5's escalation: report a published item as wrong, and broadcast the correction.
+
+		Two things happen and both are required by the section's own sentence. The item is **retired**
+		— every published item sharing its slug, so the Swahili translation goes with the English —
+		and, when the item is life-safety, the correction is **broadcast**: it is published to the
+		alert feed §6.4's own corrections use, which the socket fans out from.
+
+		`affects_safety` is not a parameter. §6.5 says "any content error affecting safety", and the
+		only honest reading of that is §6.1's life-safety set, the same one §6.2.4 keys on — the
+		person retiring content under pressure is the last one to mark their own item as
+		safety-affecting. A non-safety item is archived and escalates nothing.
+
+		The correction is refused if it is missing a language §6.2.4 requires, for the same reason
+		`/info/content` refuses an English-only life-safety item: publishing it *is* the act the
+		section forbids, and a correction half the audience cannot read is not a correction.
+		"""
+		from afya.alerting.views import FeedItem
+		try:
+			escalated = await info.report_error(error, at_ms)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		out = escalated.model_dump(mode='json')
+		if not escalated.broadcast_required:
+			out['broadcast'] = False
+			return out
+		if escalated.missing_langs:
+			raise HTTPException(status_code=422, detail={
+				'content_language': (
+					f'§6.2.4: this is a life-safety correction, so it cannot go out in '
+					f'{", ".join(escalated.correction_langs)} alone. Missing: '
+					f'{", ".join(escalated.missing_langs)}.'
+				),
+				'escalation': out,
+			})
+		# §6.4 step 5: "All channels simultaneously". The durable feed is written first and the
+		# socket fans out from it, so a client offline when the correction fired still finds it.
+		# The headline is the retired item's own title: a correction to "Boil drinking water" that
+		# arrives headlined by a slug is a correction to nothing a reader can recognise.
+		item = info.by_slug(escalated.slug)
+		feed_item = FeedItem(
+			item_id=f'COR-{escalated.error_id}', category=CORRECTION_FEED_CATEGORY,
+			headline=(item.title if item else escalated.slug)[:120],
+			body=error.correction['en'][:600],
+			source='MoH Health Promotion Unit', verified=True,
+			published_iso=instant_iso(clock_ms()),
+		)
+		stored = await alerting.publish(feed_item)
+		out['broadcast'] = True
+		out['feed_item_id'] = stored.item_id
+		out['delivered_realtime'] = realtime.publish(stored)
+		return out
+
+	@app.get('/info/content/errors')
+	async def info_content_errors(now_ms: int | None = None,
+			_subject: str = Depends(require_scope('audit_logs'))) -> list[dict[str, object]]:
+		"""§6.5's escalation log: every content error found, and where each one stands.
+
+		Auditor-scoped like the rest of the governance views. Each row is recomputed against the
+		clock it is asked at, so `review_overdue` is a fact about now rather than about when the row
+		was written — the same discipline §24.8's breach deadline follows.
+		"""
+		stamp = now_ms if now_ms is not None else clock_ms()
+		return [info.escalation(e.error_id, stamp).model_dump(mode='json') for e in info.errors()]
 
 	@app.get('/info/content/governance')
 	async def info_content_governance(today_iso: str = '2026-10-10', regime: str = 'steady',

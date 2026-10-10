@@ -336,12 +336,19 @@ def test_operator_scopes_match_the_routes() -> None:
 
 	A control withheld under the wrong scope is offered to someone who will be refused, or hidden
 	from someone who could have used it. Read off the route's own dependency rather than restated.
+
+	Keyed by **(method, path)**, not by path. Two methods on one path are two different controls:
+	`POST /info/content/errors` reports an error under `infrastructure` while `GET` reads the
+	escalation log under `audit_logs`. A path-only lookup keeps whichever the walk reached last, so
+	the gate compares one control's catalogue entry against the other control's guard — the same
+	defect `test_every_operator_action_is_marked_and_every_marked_action_is_guarded` documents for
+	`GET`/`POST /alerting/feed`, which this gate had not learned.
 	"""
 	from afya.service import build_services
 	import inspect
 	app = create_app(build_services())
 	scopes = {'infrastructure', 'audit_logs', 'county_aggregate', 'national_aggregate', 'assigned'}
-	by_path: dict[str, str] = {}
+	by_route: dict[tuple[str, str], str] = {}
 
 	def walk(routes: object) -> None:
 		for r in routes:  # type: ignore[attr-defined]
@@ -355,15 +362,16 @@ def test_operator_scopes_match_the_routes() -> None:
 			            if type(p.default).__name__ == 'Depends'), None)
 			for cell in getattr(getattr(dep, 'dependency', None), '__closure__', None) or ():
 				if isinstance(cell.cell_contents, str) and cell.cell_contents in scopes:
-					by_path[getattr(r, 'path', '')] = cell.cell_contents
+					for method in getattr(r, 'methods', None) or []:
+						by_route[(method, getattr(r, 'path', ''))] = cell.cell_contents
 
 	walk(app.routes)
-	if True:
-		for action in catalogue():
-			if action.id not in OPERATOR_SCOPES:
-				continue
-			assert by_path.get(action.path) == OPERATOR_SCOPES[action.id], \
-				f'{action.id}: catalogue says {OPERATOR_SCOPES[action.id]}, route {action.path} checks {by_path.get(action.path)}'
+	for action in catalogue():
+		if action.id not in OPERATOR_SCOPES:
+			continue
+		assert by_route.get((action.method, action.path)) == OPERATOR_SCOPES[action.id], \
+			f'{action.id}: catalogue says {OPERATOR_SCOPES[action.id]}, route ' \
+			f'{action.method} {action.path} checks {by_route.get((action.method, action.path))}'
 
 
 def test_every_operator_action_is_marked_and_every_marked_action_is_guarded() -> None:

@@ -15,6 +15,7 @@ from datetime import date
 
 from afya.auth.views import now_ms
 from afya.info.content_seed import seed_rows
+from afya.info.escalation import ContentError, ContentEscalation, escalate
 from afya.info.principles import Finding, Subject, Verdict, judge, judge_corpus, library_texts, tree_texts
 from afya.info.questions import (
 	QUESTION_BY_RANK, REQUIRED_LANGS, RANKED_QUESTIONS, RankedQuestion, is_life_safety,
@@ -44,6 +45,8 @@ class InfoService(LogMixin):
 	def __init__(self) -> None:
 		self._content: dict[str, ContentItem] = {}
 		self._risk: dict[str, CountyRisk] = {}
+		self._errors: dict[str, ContentError] = {}
+		self._withdrawn: dict[str, list[str]] = {}
 		self.seed()
 		assert self._content and self._risk == {}
 
@@ -243,6 +246,77 @@ class InfoService(LogMixin):
 		updated = item.model_copy(update=updates)
 		self._content[updated.item_id] = updated
 		return updated
+
+	async def report_error(self, error: ContentError, at_ms: int | None = None) -> ContentEscalation:
+		"""§6.5's escalation: an item found wrong is retired, and its translations go with it.
+
+		**Every published item sharing the slug is withdrawn, not just the one named.** A correction
+		is per-message, not per-language: a wrong English item and its Swahili translation are one
+		claim in two languages, and archiving only the one somebody happened to open leaves the other
+		being served to the audience §3.3 principle 8 puts first. That is the failure this method
+		exists to prevent, and it is invisible from the item the error was reported against.
+
+		Retiring is immediate and unconditional. §6.5's clause says the error *triggers* review, and a
+		wrong life-safety item left published while its correction is drafted is the harm the clause
+		is about — the correction is what makes the shelf right again, and `superseded` says whether
+		it has arrived.
+		"""
+		assert error.item_id in self._content, f'no content item {error.item_id}'
+		item = self._content[error.item_id]
+		assert item.stage is ContentStage.published, f'{error.item_id} is {item.stage.value}, not published'
+		assert error.error_id not in self._errors, f'duplicate error id {error.error_id}'
+		stamp = at_ms if at_ms is not None else now_ms()
+		withdrawn = sorted(
+			c.lang for c in self._content.values()
+			if c.slug and c.slug == item.slug and c.stage is ContentStage.published
+		)
+		for other in list(self._content.values()):
+			if other.slug and other.slug == item.slug and other.stage is ContentStage.published:
+				self._replace(other, stage=ContentStage.archived, updated_at_ms=stamp)
+		recorded = error.model_copy(update={'found_at_ms': stamp})
+		self._errors[recorded.error_id] = recorded
+		self._withdrawn[recorded.error_id] = withdrawn
+		self._log_warn('content error escalated', error=recorded.error_id, slug=item.slug,
+			safety=is_life_safety(item.answers_rank), withdrawn=len(withdrawn))
+		return self.escalation(recorded.error_id, stamp)
+
+	def escalation(self, error_id: str, at_ms: int | None = None) -> ContentEscalation:
+		"""§6.5's escalation for a recorded error, recomputed against the clock it is asked at.
+
+		The clock is the caller's and may be absent, like every other freshness call here: the
+		service resolves None to now rather than making the route reach for a clock of its own,
+		which is what keeps `review_overdue` a fact about the moment asked.
+		"""
+		assert error_id in self._errors, f'no content error {error_id}'
+		error = self._errors[error_id]
+		item = self._content[error.item_id]
+		# A replacement is a published item under the same slug stamped after the error was found.
+		# Asking "is there a corrected item" rather than "was one posted" is what makes `superseded`
+		# a fact about the shelf a reader sees, which is the only thing the clause is about.
+		superseded = any(
+			c.slug and c.slug == item.slug and c.stage is ContentStage.published
+			and c.updated_at_ms > error.found_at_ms
+			for c in self._content.values()
+		)
+		return escalate(item, error, at_ms if at_ms is not None else now_ms(),
+			self._withdrawn.get(error_id, []), superseded)
+
+	def errors(self) -> list[ContentError]:
+		"""Every recorded content error, oldest first — §6.5's escalation log for the reviewer."""
+		return [self._errors[k] for k in sorted(self._errors)]
+
+	def by_slug(self, slug: str) -> ContentItem | None:
+		"""The item a slug names, at whatever stage it now sits, or None.
+
+		Stage-agnostic on purpose. §6.5's escalation corrects a *message*, and the correction goes out
+		under that message's title — but the message has just been retired by the act of reporting it,
+		so a published-only lookup would find nothing at exactly the moment it is needed and every
+		correction would be headlined by a slug. The title of a retired item is still the title of the
+		thing that was wrong.
+		"""
+		assert slug, 'a slug is not empty'
+		named = [c for c in self._content.values() if c.slug == slug]
+		return max(named, key=lambda c: (c.updated_at_ms, c.version)) if named else None
 
 	def all_items(self) -> list[ContentItem]:
 		"""Every item at every stage, drafts and retirements included. The governance view reads

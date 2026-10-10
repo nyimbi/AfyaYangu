@@ -78,7 +78,8 @@ CHW_TASK_KINDS = ['followup', 'referral', 'sensitisation']
 FEATURE_OF: dict[str, str] = {
 	'febrile_triage': 'TRI-001', 'evd_triage': 'TRI-003', 'differential': 'TRI-001', 'symptom_diary': 'TRI-002',
 	'what_should_i_do': 'INF-002', 'health_library': 'INF-003', 'publish_content': 'INF-003',
-	'advance_content': 'INF-003', 'content_governance': 'INF-003',
+	'advance_content': 'INF-003', 'content_governance': 'INF-003', 'report_content_error': 'INF-003',
+	'content_errors': 'INF-003',
 	'hotline_directory': 'INF-006', 'county_risk': 'INF-001', 'set_county_risk': 'INF-001',
 	'medicine_registry': 'MED-001', 'medicine_recalls': 'MED-001', 'report_suspicious_medicine': 'MED-004',
 	'sha_cover_verify': 'INF-016', 'sha_facilities': 'INF-016', 'sha_benefits': 'INF-016',
@@ -139,7 +140,9 @@ OPERATOR_SCOPES: dict[str, str] = {
 	'activate_outbreak_mode': 'infrastructure',
 	'publish_content': 'infrastructure',
 	'advance_content': 'infrastructure',
+	'report_content_error': 'infrastructure',
 	'content_governance': 'audit_logs',
+	'content_errors': 'audit_logs',
 	# Publishing a community alert or a feed item is what the Ministry says, to everyone. A CHW
 	# holds `assigned` (§17.4), which is the role that carries a worker's reports up; a citizen
 	# holds `self` and can read the feed but not write it.
@@ -244,6 +247,8 @@ def catalogue() -> list[MobileAction]:
 		_a('publish_content', 'Draft health information', 'Information', 'POST', '/info/content', [_f('item_id', 'Reference'), _f('title', 'Title'), _f('body', 'Text', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw', 'sheng']), _f('harmony_tag', 'Official source tag'), _f('slug', 'Short name'), _f('owner', 'Who owns this'), _f('reviewer', 'Who reviewed it'), _f('reviewed_on_iso', 'Review date', ph='YYYY-MM-DD'), _f('version', 'Version', 'int'), _f('stage', 'Stage', 'select', CONTENT_STAGES)]),
 		_a('advance_content', 'Move a draft forward', 'Information', 'POST', '/info/content/{item_id}/advance', [_f('id', 'Reference', 'path'), _f('to', 'Next stage', 'select', CONTENT_STAGES)]),
 		_a('content_governance', 'Who reviewed this?', 'Information', 'GET', '/info/content/governance', [_f('today_iso', 'As at', ph='YYYY-MM-DD'), _f('regime', 'Review cycle', 'select', ['steady', 'outbreak'])]),
+		_a('report_content_error', 'Report a wrong guidance item', 'Information', 'POST', '/info/content/errors', [_f('error_id', 'Reference'), _f('item_id', 'Item reference'), _f('found_by', 'Found by'), _f('what_is_wrong', 'What is wrong', 'textarea'), _f('correction_en', 'Correction (English)', 'textarea'), _f('correction_sw', 'Correction (Kiswahili)', 'textarea'), _f('replacement_slug', 'Replacement short name')]),
+		_a('content_errors', 'What guidance was found wrong?', 'Information', 'GET', '/info/content/errors', []),
 		# Facilities
 		_a('nearest_facilities', 'Find care near me', 'Facilities', 'POST', '/facilities/nearest', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('kind', 'Type of place', 'select', FACILITY_KINDS), _f('limit', 'How many results', 'int')]),
 		_a('ed_status', 'How busy is the emergency unit?', 'Facilities', 'GET', '/facilities/{facility_id}/ed-status', [_f('id', 'Facility', 'path')]),
@@ -455,6 +460,8 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'publish_content': ('Draft health information', 'Write or correct a guidance item for review'),
 	'advance_content': ('Move a draft forward', 'Send an item to the next review stage, or retire it'),
 	'content_governance': ('Who reviewed this?', 'Who owns each guidance item and when it was last reviewed'),
+	'report_content_error': ('Report a wrong guidance item', 'Pull a guidance item that is wrong and send the correction'),
+	'content_errors': ('What guidance was found wrong?', 'Guidance items pulled for being wrong, and where each stands'),
 	'hotline_directory': ('Useful phone numbers', 'Hotlines and offices you can call'),
 	'medicine_registry': ('Which medicines are approved?', 'Check a medicine against the national register'),
 	'medicine_recalls': ('Has a medicine been recalled?', 'Recalls and safety notices from the regulator'),
