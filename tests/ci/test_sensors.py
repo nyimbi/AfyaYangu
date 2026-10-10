@@ -246,3 +246,76 @@ async def test_a_sysadmin_is_refused_the_evidence_view() -> None:
 	app = create_app(svc)
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		assert (await c.get('/sensors/coverage', headers={'authorization': f'Bearer {sys_tok}'})).status_code == 403
+
+
+# --- §14.9 SENS-009 external device provenance -----------------------------------------------
+
+async def test_a_paired_device_is_the_only_route_to_clinical_grade(svc: SensorService) -> None:
+	"""§14.9's value is the pairing: a device "converts consumer measurements into clinical-grade
+	data, improving triage accuracy". A class claiming clinical grade with no device behind it is
+	exactly what the section exists to distinguish from a hand-entered number."""
+	from afya.sensors.service import SOURCES, source_class
+	from afya.sensors.views import MeasurementSource, SourceClass
+	assert sorted(s.source.value for s in SOURCES if s.clinical_grade) == ['ble_device', 'facility', 'usb_otg']
+	assert source_class(MeasurementSource.manual).clinical_grade is False
+	assert source_class(MeasurementSource.manual).patient_entered is True
+	with pytest.raises(ValidationError, match='clinical grade without a paired device'):
+		SourceClass(source=MeasurementSource.manual, label='x', clinical_grade=True,
+		            patient_entered=False, paired_device=False, note='y')
+	assert svc.clinical_grade_sources() == ['ble_device', 'facility', 'usb_otg']  # sorted
+
+
+async def test_a_reading_cannot_be_both_patient_entered_and_device_measured() -> None:
+	from afya.sensors.views import MeasurementSource, SourceClass
+	with pytest.raises(ValidationError, match='both patient-entered and device-measured'):
+		SourceClass(source=MeasurementSource.manual, label='x', clinical_grade=False,
+		            patient_entered=True, paired_device=True, note='y')
+
+
+async def test_the_readings_section_14_9_names_carry_their_provenance(svc: SensorService) -> None:
+	"""§14.9 says the data flows into the health wallet and the monitoring diary. Those are the
+	readings a triage decision is made on, so those are the ones that must say where they came
+	from — a checkable claim rather than a sentence about integration."""
+	gap = svc.external_device_gap()
+	assert gap.unprovenanced_readings == [], gap
+	assert set(gap.readings_carrying_provenance) == {'BPReading', 'GlucoseReading', 'MonitoringDay'}
+	assert all(gap.readings_carrying_provenance.values())
+
+
+async def test_a_cuff_reading_and_a_typed_one_are_distinguishable() -> None:
+	"""The whole point: before this both were the same row and §14.9's improvement had nowhere to
+	appear. Default is manual — an unstated source is a person's number, not a device's."""
+	from afya.chronic.views import BPReading, GlucoseReading
+	from afya.monitoring.views import MonitoringDay
+	from afya.sensors.views import MeasurementSource
+	typed = BPReading(subject_ref='U1', systolic=150, diastolic=95)
+	cuffed = BPReading(subject_ref='U1', systolic=150, diastolic=95, source=MeasurementSource.ble_device)
+	assert typed.stage == cuffed.stage == 'high'
+	assert typed.clinical_grade is False and cuffed.source.value == 'ble_device'
+	assert GlucoseReading(subject_ref='U1', mmol_l=6.0).source.value == 'manual', 'default is a person'
+	day = MonitoringDay(entry_id='MON-ABCD1234', subject_ref='U1', day=1, temperature_c=38.4)
+	assert day.source is MeasurementSource.manual
+	assert MonitoringDay(entry_id='MON-ABCD1234', subject_ref='U1', day=1, temperature_c=38.4,
+	                     source=MeasurementSource.ble_device).source is MeasurementSource.ble_device
+
+
+async def test_the_fever_verdict_says_whether_a_device_measured_it() -> None:
+	"""The escalation fires on the number either way, so the difference is only visible if the
+	verdict carries it. A reader deciding how much to trust a fever needs it there."""
+	from afya.monitoring.service import MonitoringService
+	from afya.monitoring.views import MonitoringDay
+	from afya.sensors.views import MeasurementSource
+	svc = MonitoringService()
+	svc.enrol('U1')
+	typed = await svc.log_day(MonitoringDay(entry_id='MON-AAAA1111', subject_ref='U1', day=1, temperature_c=38.5))
+	paired = await svc.log_day(MonitoringDay(entry_id='MON-BBBB2222', subject_ref='U1', day=2,
+	                                         temperature_c=38.5, source=MeasurementSource.ble_device))
+	assert typed.escalate is paired.escalate is True
+	assert typed.clinical_grade is False and paired.clinical_grade is True
+	assert paired.reading_source.value == 'ble_device'
+
+
+async def test_a_provenance_class_carries_no_spec_code(svc: SensorService) -> None:
+	import re
+	body = str(svc.external_device_gap())
+	assert re.search(r'\b(?:SENS|SEC|ACC|REC|MON)-\d{3}\b', body) is None, 'a spec code reached a payload'

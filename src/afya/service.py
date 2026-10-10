@@ -574,6 +574,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'unregistered_sensor_features': sensors.unregistered_sensor_features(),
 			'raw_streams_retained': sensors.raw_streams_retained(),
 			'sensor_count': len(sensors.sensors()),
+			'external_device': sensors.external_device_gap().model_dump(mode='json'),
 		}
 
 	# --- facilities ---

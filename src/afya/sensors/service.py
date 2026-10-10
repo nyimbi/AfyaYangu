@@ -7,7 +7,8 @@ config (extra='forbid') — only derived values pass.
 from afya.logmixin import LogMixin
 from afya.registry.service import FeatureRegistry, Tier
 from afya.sensors.views import (
-	Availability, BatteryCost, Handling, Sensitivity, SenseIngest, SenseKind, SenseVerdict, SensorSpec,
+	Availability, BatteryCost, DeviceProvenance, Handling, MeasurementSource, Sensitivity, SenseIngest,
+	SenseKind, SenseVerdict, SensorSpec, SourceClass,
 )
 
 # §13.1's Full Sensor Inventory, all eighteen rows. The Data Sensitivity column is the load-bearing
@@ -89,6 +90,32 @@ HANDLING: tuple[Handling, ...] = (
 )
 
 _HANDLING_BY_CLASS: dict[Sensitivity, Handling] = {h.sensitivity: h for h in HANDLING}
+
+# §14.9 SENS-009's provenance classes. A reading is clinical grade when a device measured it;
+# everything else is a number a person produced, which is a different thing to triage on.
+SOURCES: tuple[SourceClass, ...] = (
+	SourceClass(source=MeasurementSource.manual, label='Typed in by hand', clinical_grade=False,
+		patient_entered=True, paired_device=False,
+		note='a number a person entered, from memory or from a device they read themselves'),
+	SourceClass(source=MeasurementSource.ble_device, label='Paired device (Bluetooth)',
+		clinical_grade=True, patient_entered=False, paired_device=True,
+		note='a paired cuff, thermometer, oximeter, glucometer, scale or ECG reported this value'),
+	SourceClass(source=MeasurementSource.usb_otg, label='Paired device (cable)',
+		clinical_grade=True, patient_entered=False, paired_device=True,
+		note='a device attached by cable reported this value'),
+	SourceClass(source=MeasurementSource.facility, label='Health facility',
+		clinical_grade=True, patient_entered=False, paired_device=True,
+		note='a health worker took this reading at a facility'),
+)
+
+_SOURCE_BY_CLASS: dict[MeasurementSource, SourceClass] = {s.source: s for s in SOURCES}
+
+
+def source_class(source: MeasurementSource) -> SourceClass:
+	for row in SOURCES:
+		if row.source is source:
+			return row
+	raise AssertionError(f'no provenance class for {source}')
 
 
 def resp_band(rate: float) -> SenseVerdict:
@@ -239,6 +266,35 @@ class SensorService(LogMixin):
 			}
 			for s in SENSORS
 		]
+
+	def source_classes(self) -> list[SourceClass]:
+		"""§14.9's provenance classes, each stating whether it makes a reading clinical grade."""
+		return list(SOURCES)
+
+	def clinical_grade_sources(self) -> list[str]:
+		return sorted(s.source.value for s in SOURCES if s.clinical_grade)
+
+	def external_device_gap(self) -> DeviceProvenance:
+		"""§14.9 SENS-009's own claim, as a check rather than a sentence.
+
+		The section's value is that a paired device "converts consumer measurements into
+		clinical-grade data, improving triage accuracy". That is only true if a reading records
+		where it came from, and only meaningful if some reader acts on it. Both halves are reported
+		here: the classes that exist, and the reading models that carry one.
+		"""
+		from afya.chronic.views import BPReading, GlucoseReading
+		from afya.monitoring.views import MonitoringDay
+		carriers = {
+			'BPReading': BPReading.model_fields.get('source') is not None,
+			'GlucoseReading': GlucoseReading.model_fields.get('source') is not None,
+			'MonitoringDay': MonitoringDay.model_fields.get('source') is not None,
+		}
+		return DeviceProvenance(
+			classes=list(SOURCES),
+			clinical_grade_sources=self.clinical_grade_sources(),
+			readings_carrying_provenance=carriers,
+			unprovenanced_readings=sorted(k for k, v in carriers.items() if not v),
+		)
 
 	def raw_streams_retained(self) -> list[str]:
 		"""Sensors whose class permits keeping the raw stream. §17.2 and SEC-002 say never, for any

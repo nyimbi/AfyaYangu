@@ -228,9 +228,12 @@ class MonitoringService(LogMixin):
 			message = f'Day {entry.day} of {MONITORING_DAYS} logged, no warning signs. {remaining} days to go.'
 		if escalate:
 			self._log_warn('monitoring escalation', sub=entry.subject_ref, day=entry.day)
+		from afya.sensors.service import source_class
+		reading = source_class(entry.source)
 		return MonitoringVerdict(
 			subject_ref=entry.subject_ref, day=entry.day, days_remaining=remaining,
 			escalate=escalate, notify_chw=notify_chw, message=message,
+			clinical_grade=reading.clinical_grade, reading_source=entry.source,
 		)
 
 	def diary(self, subject_ref: str) -> list[MonitoringDay]:

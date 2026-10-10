@@ -1,6 +1,7 @@
 """Monitoring & reminder models (spec §9.1 MON-001..004, §10.2 MON-005..008, §11.3 MON-009)."""
 from enum import Enum
 
+from afya.sensors.views import MeasurementSource
 from pydantic import BaseModel, ConfigDict, Field
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -146,6 +147,9 @@ class MonitoringDay(BaseModel):
 	subject_ref: str
 	day: int = Field(ge=1, le=21)
 	temperature_c: float = Field(ge=30, le=45)
+	# §14.9: a paired thermometer measures this; otherwise it is a number someone typed, and the
+	# fever threshold below fires on it either way — which is why the source has to travel.
+	source: MeasurementSource = MeasurementSource.manual
 	symptoms: list[str] = Field(default_factory=list)
 	household_member: str | None = None
 	location_logged: bool = False
@@ -159,6 +163,11 @@ class MonitoringVerdict(BaseModel):
 	escalate: bool
 	notify_chw: bool
 	message: str
+	# §14.9: whether the temperature behind this verdict came from a paired device. A fever a
+	# thermometer measured and a fever typed from memory produce the same escalation, so the
+	# difference is only visible if the verdict carries it.
+	clinical_grade: bool = False
+	reading_source: MeasurementSource = MeasurementSource.manual
 
 
 class HouseholdMonitor(BaseModel):

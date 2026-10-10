@@ -112,6 +112,62 @@ class Handling(BaseModel):
 	note: str = Field(min_length=1)
 
 
+class MeasurementSource(str, Enum):
+	"""Where a vital-sign reading came from.
+
+	§14.9's claim is that a paired device "converts consumer measurements into clinical-grade
+	data, improving triage accuracy" — a claim about *provenance*. Until a reading carried it, a
+	cuff measurement and a number typed from memory were the same row, and the improvement the
+	section promises had nowhere to appear.
+	"""
+	manual = 'manual'
+	ble_device = 'ble_device'
+	usb_otg = 'usb_otg'
+	facility = 'facility'
+
+
+class SourceClass(BaseModel):
+	"""What one provenance class means for how a reading may be read.
+
+	`clinical_grade` is a boolean rather than a trust weight on purpose: §14.9 says a paired device
+	improves accuracy, and it does not say by how much. A fabricated coefficient would look like
+	rigour while resting on nothing, so what travels is the fact a triage reader can act on —
+	whether a person measured this or a device did.
+	"""
+	model_config = MODEL_CONFIG
+	source: MeasurementSource
+	label: str = Field(min_length=1)
+	clinical_grade: bool
+	patient_entered: bool
+	paired_device: bool
+	note: str = Field(min_length=1)
+
+	@model_validator(mode='after')
+	def _only_a_paired_device_reaches_clinical_grade(self) -> Self:
+		"""§14.9's value is the pairing. A class claiming clinical grade with no device behind it is
+		exactly what the section exists to distinguish from a hand-entered number."""
+		if self.clinical_grade and not self.paired_device:
+			raise ValueError(f'{self.source.value} is clinical grade without a paired device')
+		return self
+
+	@model_validator(mode='after')
+	def _a_patient_entered_reading_is_not_a_device_reading(self) -> Self:
+		if self.patient_entered and (self.paired_device or self.clinical_grade):
+			raise ValueError(f'{self.source.value} cannot be both patient-entered and device-measured')
+		return self
+
+
+class DeviceProvenance(BaseModel):
+	"""§14.9 SENS-009's claim as a check: which provenance classes exist, and which readings carry
+	one. `unprovenanced_readings` is the gap — a reading a triage decision is made on that cannot
+	say whether a device measured it."""
+	model_config = MODEL_CONFIG
+	classes: list[SourceClass]
+	clinical_grade_sources: list[str]
+	readings_carrying_provenance: dict[str, bool]
+	unprovenanced_readings: list[str]
+
+
 class SenseKind(str, Enum):
 	respiration = 'respiration'
 	cough = 'cough'

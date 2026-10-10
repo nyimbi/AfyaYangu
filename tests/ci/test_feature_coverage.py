@@ -33,7 +33,11 @@ ON_DEVICE: dict[str, str] = {
 	'SENS-003': 'fall detection runs on the accelerometer; only the derived verdict is ingested',
 	'SENS-006': 'wearable pairing is a platform API, not a server call',
 	'SENS-007': 'sleep and activity are derived on-device and ingested as a metric',
-	'SENS-009': 'external device pairing is a platform API, not a server call',
+	# Pairing itself is a platform API with no route — but §14.9's *claim* about what pairing buys
+	# is modelled: `SOURCES` marks a reading clinical grade only when a device measured it, and
+	# BPReading/GlucoseReading/MonitoringDay carry that provenance. `sensors/external_device_gap`
+	# reports whether any of them stopped doing so.
+	'SENS-009': 'pairing is a platform API; the provenance it confers is `SOURCES`, checked by external_device_gap',
 	'SENS-010': 'NFC tags are read by the device; the check-in they open has its own action',
 	'EMG-002': 'fall auto-alert is the device arming the SOS it already has an action for',
 	# Broadcast channels. The radio and social programmes are run by the communications team and

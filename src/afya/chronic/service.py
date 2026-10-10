@@ -3,6 +3,7 @@ from typing import ClassVar
 
 from afya.logmixin import LogMixin
 from afya.chronic.views import BPReading, GlucoseReading, RefillTracker
+from afya.sensors.service import source_class
 
 REFILL_ALERT_DAYS = 7
 
@@ -19,6 +20,8 @@ class ChronicService(LogMixin):
 	async def bp(self, r: BPReading) -> BPReading:
 		assert r.stage in ('normal', 'elevated', 'high'), 'stage derived'
 		assert r.systolic <= self.ALERT_LIMITS[0], 'physiological ceiling exceeded'
+		# §14.9: only a paired device makes this a clinical-grade reading.
+		r = r.model_copy(update={'clinical_grade': source_class(r.source).clinical_grade})
 		self._bp.setdefault(r.subject_ref, []).append(r)
 		if r.stage == 'high':
 			self._log_warn('hypertensive reading', sub=r.subject_ref, bp=(r.systolic, r.diastolic))
@@ -36,6 +39,7 @@ class ChronicService(LogMixin):
 
 	async def glucose(self, r: GlucoseReading) -> GlucoseReading:
 		assert r.mmol_l <= self.ALERT_LIMITS[1], 'physiological ceiling exceeded'
+		r = r.model_copy(update={'clinical_grade': source_class(r.source).clinical_grade})
 		self._glucose.setdefault(r.subject_ref, []).append(r)
 		if r.level == 'high':
 			self._log_warn('hyperglycaemia', sub=r.subject_ref, val=r.mmol_l)

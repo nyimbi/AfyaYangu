@@ -1,4 +1,5 @@
 """Chronic disease: BP/glucose logging, refill tracking (hypertension & diabetes, Kenya NCD burden)."""
+from afya.sensors.views import MeasurementSource
 from pydantic import BaseModel, ConfigDict, Field
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -10,6 +11,10 @@ class BPReading(BaseModel):
 	systolic: int = Field(ge=60, le=260)
 	diastolic: int = Field(ge=30, le=160)
 	pulse: int = Field(default=70, ge=30, le=220)
+	# §14.9: a paired cuff reports this, or a person typed it. The two are not the same reading and
+	# triage on them should not be the same decision.
+	source: MeasurementSource = MeasurementSource.manual
+	clinical_grade: bool = False
 
 	@property
 	def stage(self) -> str:
@@ -25,6 +30,8 @@ class GlucoseReading(BaseModel):
 	subject_ref: str
 	mmol_l: float = Field(gt=0, le=40)
 	fasting: bool = True
+	source: MeasurementSource = MeasurementSource.manual
+	clinical_grade: bool = False
 
 	@property
 	def level(self) -> str:
