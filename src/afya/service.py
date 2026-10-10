@@ -63,6 +63,8 @@ from afya.access.views import AccessProfile, VoiceRequest
 from afya.ai.service import AIService
 from afya.analytics.service import AnalyticsService
 from afya.analytics.views import DASHBOARDS, DashboardId
+from afya.metrics.service import MetricsService
+from afya.metrics.views import MetricFamily
 from afya.ai.views import AggregateCell, FairnessAudit, RedressRequest, RiskInputs, WarningSignal
 from afya.alerting.service import AlertingService
 from afya.alerting.views import ExposureAck, FeedItem, FeedPage, FamilyStatus
@@ -163,6 +165,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'location': LocationService(),
 		'ai': AIService(),
 		'analytics': AnalyticsService(),
+		'metrics': MetricsService(),
 		'access': AccessService(),
 		'retention': RetentionService(),
 		'governance': GovernanceService(),
@@ -215,6 +218,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	location: LocationService = svc['location']  # type: ignore[assignment]
 	ai: AIService = svc['ai']  # type: ignore[assignment]
 	analytics: AnalyticsService = svc['analytics']  # type: ignore[assignment]
+	metrics: MetricsService = svc['metrics']  # type: ignore[assignment]
 	access: AccessService = svc['access']  # type: ignore[assignment]
 	retention: RetentionService = svc['retention']  # type: ignore[assignment]
 	governance: GovernanceService = svc['governance']  # type: ignore[assignment]
@@ -1557,6 +1561,48 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	# Nine dashboards the spec names for PHEOC, county health teams and MoH. Every row is a count
 	# over a group with a min-cell-10 rule enforced at the boundary, and the read is audit logged
 	# because §19.4 says so — "role-based, audit logged" is a property of the route, not a promise.
+
+	# --- §22 success metrics and evaluation ----------------------------------------------------
+	# §22 is what a funder reads: eight tables of targets and an evaluation framework. The rule is
+	# §15.4's — a target with no measurement is unmeasured, not met — because a green report built
+	# from silence is the failure these sections invite.
+
+	@app.get('/metrics/kpis')
+	async def metrics_kpis(family: str | None = None, _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§22's targets, optionally filtered to one family. Auditor-scoped: this is the evidence
+		half of the report, and it names no person."""
+		from afya.metrics.views import MetricFamily as _F
+		if family is None:
+			return {'kpis': [k.model_dump(mode='json') for k in metrics.kpis()]}
+		try:
+			which = _F(family)
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=f'unknown metric family {family!r}; one of {[f.value for f in _F]}') from exc
+		return {'kpis': [k.model_dump(mode='json') for k in metrics.kpis(which)]}
+
+	@app.get('/metrics/report')
+	async def metrics_report(as_at_iso: str = '2026-10-10', _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""Every §22 target beside its measurement. With nothing measured the report is empty, not
+		green: `all_measured_targets_met` is false and `unmeasured` names each one."""
+		return metrics.report(as_at_iso).model_dump(mode='json')
+
+	@app.post('/metrics/measurement')
+	async def metrics_record(measurement: dict[str, object], _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Record a measurement against a §22 KPI. An unknown KPI is refused rather than stored and
+		silently ignored, and the equity cuts travel with it so §22.7 coverage is measured too."""
+		from afya.metrics.views import Measurement
+		try:
+			parsed = Measurement.model_validate(measurement)
+			metrics.record(parsed)
+		except (AssertionError, ValidationError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return metrics.result(next(k for k in metrics.kpis() if k.kpi_id == parsed.kpi_id)).model_dump(mode='json')
+
+	@app.get('/metrics/equity')
+	async def metrics_equity(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§22.7 disaggregation coverage: which of gender, geography, age and device we actually
+		have a number for, and which we are claiming without one."""
+		return metrics.equity().model_dump(mode='json')
 
 	# §19.4's readers span two §17.4 scopes: the county officer holds `county_aggregate` and the
 	# PHEOC analyst `national_aggregate`. Guarding on either alone locks out a named audience.
