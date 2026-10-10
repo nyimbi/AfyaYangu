@@ -1007,6 +1007,21 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def surveillance_signal(history: list[CountySignal]) -> dict[str, object]:
 		return surveillance.weekly_signal(history).model_dump(mode='json')
 
+	@app.get('/surveillance/geofences-at')
+	async def surveillance_geofences_at(lat: float, lon: float) -> list[dict[str, object]]:
+		"""LOC-001: the advisory zones covering a point. Read-only and open, like every other
+		location-agnostic information route — the coordinates are where the *caller* is, and nothing
+		about the caller is recorded. The alert text is what the client shows on entry; whether the
+		entry is logged is a separate opt-in (§LOC-001 privacy).
+		"""
+		return [
+			{'geofence_id': f.geofence_id, 'risk_type': f.risk_type, 'alert_level': f.alert_level,
+			 'radius_m': f.radius_m, 'lat': f.lat, 'lon': f.lon,
+			 'advice': ('You have entered an area where a case was reported. Avoid the named location, '
+			            'monitor for symptoms for 21 days, and call 719 if you feel unwell.')}
+			for f in surveillance.geofences_at(lat, lon)
+		]
+
 	@app.get('/mobile/features')
 	async def mobile_features() -> list[dict[str, object]]:
 		from afya.mobile.actions import FRIENDLY_COPY
@@ -1024,11 +1039,33 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.get('/places/nearest')
 	async def places_nearest(lat: float, lon: float, kinds: list[str] | None = None, limit: int = 5) -> list[dict[str, object]]:
+		"""FND-003/FND-005 (testing sites, vaccination points) plus pharmacies and water points.
+
+		An empty registry is an empty list, not a 500: `PlacesService.nearest` asserts a non-empty
+		pool, which would surface as a server error the first time a client asked a deployment whose
+		OSM import had not run. A locator with nothing imported has no answer, and the honest one is
+		"none found yet" rather than a crash.
+		"""
 		wanted = {PlaceKind(k) for k in (kinds or [])} or None
+		try:
+			found = places.nearest(lat, lon, wanted, limit)
+		except AssertionError:
+			return []
 		return [
 			{'place': p.model_dump(mode='json'), 'km': round(km, 2), 'directions': places.directions(p, lat, lon).model_dump(mode='json')}
-			for p, km in places.nearest(lat, lon, wanted, limit)
+			for p, km in found
 		]
+
+	@app.get('/places/testing-sites')
+	async def places_testing_sites(lat: float, lon: float, limit: int = 5) -> list[dict[str, object]]:
+		"""FND-003. The kinds are fixed by the route rather than passed by the client, so a client
+		cannot ask the testing-site endpoint for pharmacies and render the answer as test locations."""
+		return await places_nearest(lat, lon, kinds=[PlaceKind.testing_site.value], limit=limit)
+
+	@app.get('/places/vaccination-points')
+	async def places_vaccination_points(lat: float, lon: float, limit: int = 5) -> list[dict[str, object]]:
+		"""FND-005. Routine and campaign vaccination points, fixed to their own kind for the same reason."""
+		return await places_nearest(lat, lon, kinds=[PlaceKind.vaccination_point.value], limit=limit)
 
 	@app.post('/places/import-osm')
 	async def places_import_osm(county_lat: float, county_lon: float) -> dict[str, int]:
@@ -1249,6 +1286,24 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			return FeedPage(revision=revision, changed=False, items=[]).model_dump(mode='json')
 		items = alerting.feed(county, since_iso=since)
 		return FeedPage(revision=revision, changed=True, items=items).model_dump(mode='json')
+
+	@app.get('/alerting/service-status')
+	async def alerting_service_status(county: str | None = None) -> dict[str, object]:
+		"""INF-007 service status feed: school and market closures, water interruptions, road and
+		transport disruptions that affect reaching care.
+
+		These are feed items in the `service` category, which the alerting feed already carries and
+		the preference map already routes to `facility_alerts` — so this is a view over one category
+		of the existing feed rather than a second store. Keeping it one store is what stops a closure
+		being published twice and read as two events.
+		"""
+		items = [i for i in alerting.feed(county) if i.category == 'service']
+		return {
+			'county': county,
+			'count': len(items),
+			'items': [i.model_dump(mode='json') for i in items],
+			'note': 'Statuses come from county and national sources; check the source line before travelling.',
+		}
 
 	@app.post('/alerting/preferences')
 	async def alerting_preference(subject_ref: str, category: str, enabled: bool, _subject: str = Depends(require_self())) -> dict[str, object]:
