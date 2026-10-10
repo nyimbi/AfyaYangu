@@ -25,7 +25,8 @@ class YamnetCoughEngine(LogMixin):
 		assert wave.dtype == np.float32, 'float32 mono samples required'
 		assert sr == SR, f'must be {SR} Hz mono'
 		if not tier4_active:
-			raise PermissionError('SENS-002 acoustic cough is Tier 4 dormant')
+			# Refusal text a person may read: no spec code, no tier number.
+			raise PermissionError('cough recording review opens when the outbreak response is activated')
 		n = int(np.asarray(wave).size)
 		assert n >= SR, 'need >= 1 s of audio'
 		assert n <= SR * 60, 'one-minute analysis bound'

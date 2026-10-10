@@ -5,7 +5,7 @@ from typing import Protocol
 
 from afya.evidence.views import EvidenceKind, EvidenceReceipt, EvidenceSubmission, EvidenceView
 from afya.logmixin import LogMixin
-from afya.registry.service import FeatureRegistry
+from afya.registry.service import FeatureRegistry, Tier
 
 MIN_BLOB = 1000
 MAX_BLOB = 8_388_608
@@ -34,9 +34,24 @@ class FileSystemEvidenceStore:
 
 
 class EvidenceService(LogMixin):
-	TIER4_KINDS = {EvidenceKind.rash, EvidenceKind.red_eye, EvidenceKind.pallor}
+	"""Photo+note pipeline. Gating is by the kind's owning feature, not a hand-kept kind list.
+
+	`SENS-004` (Camera-Based Symptom Capture, Tier 4) owns the symptom-photo kinds; `COM-005`
+	(Community Reporting, Tier 3) owns `scene_photo`, which is the same pipeline pointed at an
+	environmental hazard. Keeping the mapping here rather than a second list means a new kind
+	cannot be added to `EvidenceKind` without declaring which feature governs it — `_FEATURE_OF`
+	is asserted total below.
+	"""
+
+	_FEATURE_OF: dict[EvidenceKind, str] = {
+		EvidenceKind.rash: 'SENS-004',
+		EvidenceKind.red_eye: 'SENS-004',
+		EvidenceKind.pallor: 'SENS-004',
+		EvidenceKind.scene_photo: 'COM-005',
+	}
 
 	def __init__(self, registry: FeatureRegistry, store: EvidenceStorePort) -> None:
+		assert set(self._FEATURE_OF) == set(EvidenceKind), 'every evidence kind must declare its feature'
 		self._registry = registry
 		self._store = store
 		self._dedupe: dict[str, str] = {}
@@ -44,7 +59,13 @@ class EvidenceService(LogMixin):
 		assert self._dedupe == {}
 
 	def _gated(self, kind: EvidenceKind) -> bool:
-		return kind in self.TIER4_KINDS
+		"""Whether this kind belongs to a Tier-4 feature, resolved through the registry."""
+		return self._registry.get(self._FEATURE_OF[kind]).tier is Tier.tier4
+
+	def _refuse(self, kind: EvidenceKind) -> None:
+		"""Refusal text a person may read: no spec code, no tier number."""
+		if self._gated(kind):
+			raise PermissionError('photo review for symptoms opens when the outbreak response is activated')
 
 	async def submit(self, submission: EvidenceSubmission, blob: bytes) -> EvidenceReceipt:
 		assert len(blob) >= MIN_BLOB and len(blob) <= MAX_BLOB, 'blob size contract'
@@ -52,7 +73,7 @@ class EvidenceService(LogMixin):
 		now_ms = int(time.time() * 1000)
 		deduped = submission.image_sha256 in self._dedupe
 		if self._gated(submission.kind) and not self._registry.tier4_active():
-			raise PermissionError(f'{submission.kind.value} evidence is Tier 4 dormant (SENS-004)')
+			self._refuse(submission.kind)
 		ref = await self._store.put(submission, blob)
 		self._dedupe.setdefault(submission.image_sha256, submission.submission_id)
 		receipt = EvidenceReceipt(submission_id=submission.submission_id, storage_ref=ref, deduped=deduped, gated=self._gated(submission.kind), received_at_ms=now_ms)

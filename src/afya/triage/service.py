@@ -40,7 +40,8 @@ class TriageService(LogMixin):
 
 	def assess_evd(self, inp: TriageInput) -> TriageResult:
 		if not self._registry.tier4_active():
-			raise PermissionError('TRI-003 is Tier 4 dormant: requires PHEOC activation')
+			# Refusal text a person may read: no spec code, no tier number.
+			raise PermissionError('the Ebola check opens when the outbreak response is activated')
 		result = self.assess(inp)
 		return result
 

@@ -69,7 +69,8 @@ class SensorService(LogMixin):
 	async def ingest(self, inp: SenseIngest) -> SenseVerdict:
 		feat = self._registry.get(_INGEST_FEATURE[inp.kind])
 		if feat.tier is Tier.tier4 and not self._registry.tier4_active():
-			raise PermissionError(f'{inp.kind.value} sensing is Tier 4 dormant')
+			# Refusal text a person may read: no spec code, no tier number.
+			raise PermissionError(f'{inp.kind.value} sensing opens when the outbreak response is activated')
 		verdict = _ENGINES[inp.kind](inp.value)
 		self._history.append(inp)
 		self._history = self._history[-10_000:]

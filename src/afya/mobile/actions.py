@@ -99,7 +99,7 @@ FEATURE_OF: dict[str, str] = {
 	'rotate_ebid': 'LOC-002', 'log_encounter': 'LOC-002', 'declare_exposure': 'LOC-002', 'check_exposure': 'LOC-002',
 	'enable_location_history': 'LOC-003', 'log_location': 'LOC-003', 'location_report': 'LOC-003', 'purge_location': 'LOC-003',
 	'register_checkin_point': 'LOC-004', 'check_in': 'LOC-004', 'checkin_points': 'LOC-004', 'checkin_list': 'LOC-004',
-	'register_border': 'LOC-005', 'border_status': 'LOC-005', 'travel_advisory': 'LOC-005', 'traveller_declare': 'LOC-005',
+	'register_border': 'LOC-005', 'border_status': 'LOC-005', 'travel_advisory': 'INF-005', 'traveller_declare': 'LOC-005',
 	'hotspots': 'AI-001', 'risk_score': 'AI-002', 'early_warning': 'AI-003',
 	'model_cards': 'AI-004', 'fairness_audit': 'AI-004', 'file_redress': 'AI-005',
 	'access_profile': 'ACC-001', 'ui_screens': 'ACC-001', 'languages': 'ACC-002', 'voice': 'ACC-002',
@@ -112,16 +112,43 @@ FEATURE_OF: dict[str, str] = {
 	'chw_case_load': 'COM-101', 'chw_ppe_reminder': 'COM-101',
 }
 
-# Slugs whose feature is dormant until PHEOC activates the outbreak event (§11.1).
+# Slugs withheld until PHEOC activates the outbreak event (§11.1). Grouped by the feature that
+# governs them; every Tier-4 feature that has an action appears here in full. The registry is the
+# backstop — `available()` also derives dormancy from the tier model, so a Tier-4 feature added
+# later cannot leave a live control behind even if this list is forgotten.
 DORMANT_SLUGS: frozenset[str] = frozenset({
-	'evd_triage', 'activate_outbreak_mode', 'enrol_monitoring', 'monitoring_day', 'monitoring_diary',
-	'submit_case', 'advance_case', 'peer_alert', 'save_contacts', 'add_contact', 'flag_misinformation',
-	'misinformation_clusters', 'send_exposure_notice', 'ack_exposure',
+	# Ebola-specific triage (TRI-003) and the activation control itself
+	'evd_triage', 'activate_outbreak_mode',
+	# 21-day contact monitoring (MON-009)
+	'enrol_monitoring', 'monitoring_day', 'monitoring_diary',
+	# Community health worker reporting module (COM-101)
+	'submit_case', 'advance_case', 'ppe_reminder', 'job_aid', 'chw_cases', 'assign_chw_case',
+	'log_chw_activity', 'chw_activity', 'chw_case_load', 'chw_ppe_reminder',
+	# Peer alerts (COM-102), contact tracing (COM-103), misinformation tracking (COM-104)
+	'peer_alert', 'tracing_prompts', 'save_contacts', 'add_contact',
+	'flag_misinformation', 'misinformation_clusters',
+	# Exposure notification (ALT-004)
+	'send_exposure_notice', 'ack_exposure',
+	# Proximity log (LOC-002), location history (LOC-003), check-in points (LOC-004), border (LOC-005)
 	'rotate_ebid', 'log_encounter', 'declare_exposure', 'check_exposure',
 	'enable_location_history', 'log_location', 'location_report', 'purge_location',
-	'register_checkin_point', 'check_in', 'register_border', 'border_status', 'traveller_declare',
+	'register_checkin_point', 'check_in', 'checkin_points', 'checkin_list',
+	'register_border', 'border_status', 'traveller_declare',
+	# Outbreak AI (AI-001..003)
 	'hotspots', 'risk_score', 'early_warning',
+	# Outbreak-mode sensors: acoustic cough (SENS-002), camera symptom capture (SENS-004)
+	'analyse_cough', 'submit_evidence',
 })
+
+
+def tier4_feature_ids() -> frozenset[str]:
+	"""Feature ids the §7.3 tier model puts at Tier 4, read from the registry.
+
+	Deriving this rather than restating it is what keeps the catalogue honest: the dormancy list
+	is prose a person maintains, this is the model, and `available()` obeys both.
+	"""
+	from afya.registry.service import FeatureRegistry, Tier
+	return frozenset(f.id for f in FeatureRegistry().by_tier(Tier.tier4))
 
 
 def _f(name: str, label: str, type_: str = 'text', options: list[str] | None = None, ph: str | None = None) -> MobileField:
@@ -298,10 +325,23 @@ def catalogue() -> list[MobileAction]:
 	]
 
 
+def dormant_slugs() -> frozenset[str]:
+	"""The curated dormancy list, unioned with every action whose feature is Tier 4.
+
+	Two sources, deliberately. `DORMANT_SLUGS` is the reviewed statement of intent; the tier model
+	is the invariant. Taking the union means a Tier-4 feature added later is dark from the moment it
+	exists, and `test_every_tier4_action_is_dormant` asserts the two agree so the safety net never
+	quietly carries a discrepancy the curated list should have stated.
+	"""
+	tier4 = tier4_feature_ids()
+	return DORMANT_SLUGS | frozenset(slug for slug, feat in FEATURE_OF.items() if feat in tier4)
+
+
 def available(tier4_active: bool) -> list[MobileAction]:
 	"""Actions the client may show right now. Dormant outbreak capabilities stay hidden until
 	PHEOC activates the event, so a person never sees a switch that would refuse them."""
-	rows = [a for a in catalogue() if tier4_active or a.id not in DORMANT_SLUGS]
+	hidden = dormant_slugs()
+	rows = [a for a in catalogue() if tier4_active or a.id not in hidden]
 	assert rows, 'catalogue must never be empty'
 	return rows
 

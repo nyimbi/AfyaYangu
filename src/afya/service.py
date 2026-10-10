@@ -2,10 +2,10 @@
 from afya.surveillance.service import SurveillanceService, estimate_breath_rate
 from afya.surveillance.views import CountySignal, Geofence, ProximityToken
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from httpx import AsyncClient
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import json
 import os
@@ -477,23 +477,37 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=404, detail='unknown task') from exc
 		return {'ok': True}
 
-	# --- photo + textual evidence (SENS-004) ---
+	# --- photo + textual evidence (SENS-004 symptom capture, COM-005 community reporting) ---
 	@app.post('/evidence')
-	async def evidence_upload(file: UploadFile = File(...), kind: str = 'scene_photo', subject_ref: str = 'U1', county: str = 'Nairobi', note: str = '') -> dict[str, object]:
+	async def evidence_upload(
+		file: UploadFile = File(...),
+		# Declared as Form, not query: a multipart body that carries these fields would otherwise
+		# leave FastAPI's plain parameters at their defaults, so a client sending `kind=rash` in
+		# the body would silently submit `scene_photo` — a different feature, a different gate.
+		# Android's upload writes exactly that body, so the symptom-photo gate was bypassable.
+		kind: EvidenceKind = Form(...),
+		subject_ref: str = Form('U1'),
+		county: str = Form('Nairobi'),
+		note: str = Form(''),
+	) -> dict[str, object]:
 		blob = await file.read()
 		import hashlib
 		from uuid6 import uuid7
-		submission = EvidenceSubmission(
-			submission_id='EV-' + str(uuid7()).replace('-', '').upper()[:12],
-			kind=EvidenceKind(kind), subject_ref=subject_ref, county=county,
-			image_sha256=hashlib.sha256(blob).hexdigest(), mime=file.content_type or 'image/jpeg',
-			size_bytes=len(blob), note=note,
-		)
 		try:
+			# Built inside the try: the model's size and mime contracts are part of the request
+			# validation, so a violation is the caller's 422, not an unhandled 500.
+			submission = EvidenceSubmission(
+				submission_id='EV-' + str(uuid7()).replace('-', '').upper()[:12],
+				kind=kind, subject_ref=subject_ref, county=county,
+				# No fallback mime: the model's `image/(jpeg|webp|png)` contract is the check, and a
+				# default of `image/jpeg` would let any content type through under a false label.
+				image_sha256=hashlib.sha256(blob).hexdigest(), mime=file.content_type or '',
+				size_bytes=len(blob), note=note,
+			)
 			receipt = await evidence.submit(submission, blob)
 		except PermissionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
-		except AssertionError as exc:
+		except (AssertionError, ValidationError) as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return receipt.model_dump(mode='json')
 
