@@ -149,15 +149,25 @@ async def test_dormant_capabilities_are_withheld_until_activation() -> None:
 	app, h = _outbreak_app()
 	transport = httpx.ASGITransport(app=app)
 	async with httpx.AsyncClient(transport=transport, base_url='http://t') as c:
-		# Read with the operator's token: the activation control is itself an operator action, and
-		# the catalogue withholds what a caller's role cannot reach. A citizen sees neither it nor
-		# anything it unlocks, which is the property the next test asserts.
+		# Read with the operator's token. The exact-equality claim is made above against the pure
+		# function, where no scope filter applies; here the claim is about the served payload, and
+		# a caller only ever sees the dormant controls its own scope reaches — a CHW caseload
+		# screen is not unlocked *for a sysadmin* by activating the outbreak, it was never his.
 		before = {a['id'] for a in (await c.get('/mobile/actions', headers=h)).json()}
 		assert not (before & hidden), 'dormant capabilities served before activation'
 		await c.post('/tier4/activate', headers=h,
 		             json={'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True})
 		after = {a['id'] for a in (await c.get('/mobile/actions', headers=h)).json()}
-		assert after - before == set(hidden), 'activation must unlock exactly the dormant set'
+		assert after - before, 'activation must reveal something to the caller who opened the gate'
+		assert (after - before) <= set(hidden), 'activation revealed a control that was never dormant'
+
+	# And every dormant control is reachable by some role once the gate is open — one no role can
+	# reach is a capability the activation claims to unlock and nobody can use.
+	reachable: set[str] = set()
+	for scope in ('self', 'family', 'assigned', 'county_aggregate', 'national_aggregate', 'infrastructure', 'audit_logs'):
+		reachable |= {a.id for a in available(True, frozenset({scope}))}
+	unreachable = sorted(set(hidden) - reachable)
+	assert unreachable == [], f'dormant controls no role can reach: {unreachable}'
 
 
 async def test_served_mobile_payloads_are_code_free() -> None:
@@ -308,6 +318,17 @@ async def test_an_operator_control_is_not_offered_to_a_citizen() -> None:
 		# And the control really would have refused: the claim is about the route, not the label.
 		refused = await c.post('/info/content', headers={'authorization': f'Bearer {anon}'}, json={})
 		assert refused.status_code == 403
+		# The broadcast routes are the sharp end of this: an anonymous caller used to be able to
+		# publish "Ebola confirmed in Nairobi" to every phone in the county.
+		for path, body in (
+			('/alerts', {'alert_id': 'AL-FAKE0001', 'kind': 'outbreak_evd', 'county': 'Nairobi',
+			             'headline': 'Ebola confirmed in Nairobi', 'body': 'Not from the Ministry', 'issued_by': 'PHEOC'}),
+			('/alerting/feed', {'item_id': 'F-1', 'category': 'outbreak', 'headline': 'Fake',
+			                    'body': 'x', 'source': 'unknown', 'verified': True, 'published_iso': '2026-10-10T00:00:00+03:00'}),
+		):
+			anon_write = await c.post(path, headers={'authorization': f'Bearer {anon}'}, json=body)
+			assert anon_write.status_code == 403, f'{path} accepted a broadcast from a citizen'
+			assert (await c.post(path, json=body)).status_code in (401, 403), f'{path} accepted an anonymous broadcast'
 
 
 def test_operator_scopes_match_the_routes() -> None:
@@ -343,3 +364,64 @@ def test_operator_scopes_match_the_routes() -> None:
 				continue
 			assert by_path.get(action.path) == OPERATOR_SCOPES[action.id], \
 				f'{action.id}: catalogue says {OPERATOR_SCOPES[action.id]}, route {action.path} checks {by_path.get(action.path)}'
+
+
+def test_every_operator_action_is_marked_and_every_marked_action_is_guarded() -> None:
+	"""The two directions of the same claim, so neither list can rot.
+
+	An action that writes shared or broadcast state but is not marked operator-only is served to
+	citizens who will be refused. A marked action whose route carries no guard is a control hidden
+	from people who could have used it — and, worse, a route left open. This reads the routes, so
+	the marking cannot drift from the guard it mirrors.
+	"""
+	from afya.service import build_services
+	import inspect
+	app = create_app(build_services())
+	guarded: set[tuple[str, str]] = set()
+
+	def walk(routes: object) -> None:
+		for r in routes:  # type: ignore[attr-defined]
+			if hasattr(r, 'routes'):
+				walk(r.routes)
+				continue
+			ep = getattr(r, 'endpoint', None)
+			if ep is None:
+				continue
+			if any(type(p.default).__name__ == 'Depends' for p in inspect.signature(ep).parameters.values()):
+				for method in getattr(r, 'methods', None) or []:
+					guarded.add((method, getattr(r, 'path', '')))
+
+	walk(app.routes)
+	for slug in OPERATOR_SCOPES:
+		action = next(a for a in catalogue() if a.id == slug)
+		assert (action.method, action.path) in guarded, \
+			f'{slug} is marked operator-only but {action.method} {action.path} carries no guard'
+
+	# The other direction: a route guarded on a non-citizen dataset must have its action marked,
+	# or the control is offered to a caller who will be refused. `alert_feed` is the case that
+	# makes the method matter — `GET /alerting/feed` is a citizen's read of the same path whose
+	# `POST` is the broadcast, so a path-only lookup would mark the read as operator-only.
+	CITIZEN_SCOPES = {'self', 'family'}
+	by_route: dict[tuple[str, str], str] = {}
+
+	def scope_of(routes: object) -> None:
+		for r in routes:  # type: ignore[attr-defined]
+			if hasattr(r, 'routes'):
+				scope_of(r.routes)
+				continue
+			ep = getattr(r, 'endpoint', None)
+			if ep is None:
+				continue
+			dep = next((p.default for p in inspect.signature(ep).parameters.values()
+			            if type(p.default).__name__ == 'Depends'), None)
+			for cell in getattr(getattr(dep, 'dependency', None), '__closure__', None) or ():
+				if isinstance(cell.cell_contents, str) and cell.cell_contents not in CITIZEN_SCOPES:
+					for method in getattr(r, 'methods', None) or []:
+						by_route[(method, getattr(r, 'path', ''))] = cell.cell_contents
+
+	scope_of(app.routes)
+	unmarked = sorted(
+		a.id for a in catalogue()
+		if (a.method, a.path) in by_route and a.id not in OPERATOR_SCOPES
+	)
+	assert unmarked == [], f'actions reachable only by an operator scope, but not marked: {unmarked}'

@@ -948,8 +948,11 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def blood_match(req: BloodRequest, today_iso: str = '2026-10-08') -> list[dict[str, object]]:
 		return [m.model_dump(mode='json') for m in blood.match(req, today_iso)]
 
+	# A community alert reaches every phone in the county. §17.4's `assigned` is the CHW's scope —
+	# the role that carries a worker's report up — so issuing one is a worker action, not a
+	# citizen's. Without this guard an anonymous caller could publish "Ebola confirmed" to a county.
 	@app.post('/alerts')
-	async def alerts_issue(a: CommunityAlert) -> dict[str, bool]:
+	async def alerts_issue(a: CommunityAlert, _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
 		try:
 			await alerts.issue(a)
 		except AssertionError as exc:
@@ -1318,8 +1321,10 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def community_issues(county: str) -> list[dict[str, object]]:
 		return community.issues_by_county(county)
 
+	# Marking a community problem fixed is the authority's act, not the reporter's: anyone who
+	# could resolve an issue could close one they filed against their own facility.
 	@app.post('/community/issues/{issue_id}/resolve')
-	async def community_resolve(issue_id: str) -> dict[str, str]:
+	async def community_resolve(issue_id: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, str]:
 		try:
 			return {'status': (await community.resolve_issue(issue_id)).value}
 		except AssertionError as exc:
@@ -1371,8 +1376,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return [c.model_dump(mode='json') for c in community.clusters()]
 
 	# --- alerting (§9.6 ALT-003, §10.3 ALT-001/002, §11.8 ALT-004) ---
+	# The feed is the durable broadcast behind the socket. Writing it is publishing to everyone.
 	@app.post('/alerting/feed')
-	async def alerting_publish(item: FeedItem) -> dict[str, object]:
+	async def alerting_publish(item: FeedItem, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
 		try:
 			stored = await alerting.publish(item)
 		except AssertionError as exc:

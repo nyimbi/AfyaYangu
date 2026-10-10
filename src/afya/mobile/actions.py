@@ -140,6 +140,22 @@ OPERATOR_SCOPES: dict[str, str] = {
 	'publish_content': 'infrastructure',
 	'advance_content': 'infrastructure',
 	'content_governance': 'audit_logs',
+	# Publishing a community alert or a feed item is what the Ministry says, to everyone. A CHW
+	# holds `assigned` (§17.4), which is the role that carries a worker's reports up; a citizen
+	# holds `self` and can read the feed but not write it.
+	'issue_alert': 'assigned',
+	'publish_feed_item': 'assigned',
+	'resolve_issue': 'assigned',
+	# The CHW's own working set. §17.4 gives the role `assigned` — the people and tasks allocated
+	# to it — and every one of these routes is guarded on that scope. A citizen's catalogue must
+	# not carry a caseload screen, a task queue, or the form that files a case report.
+	'assign_chw_case': 'assigned', 'assign_chw_task': 'assigned', 'chw_activity': 'assigned',
+	'chw_case_load': 'assigned', 'chw_cases': 'assigned', 'chw_open_tasks': 'assigned',
+	'chw_profile': 'assigned', 'log_chw_activity': 'assigned', 'submit_case': 'assigned',
+	'advance_case': 'assigned', 'peer_alert': 'assigned', 'send_exposure_notice': 'assigned',
+	# County-level analysis and the provisioning of workers.
+	'early_warning': 'county_aggregate', 'hotspots': 'county_aggregate',
+	'provision_chw': 'infrastructure', 'transparency_report': 'audit_logs',
 }
 
 # Slugs withheld until PHEOC activates the outbreak event (§11.1). Grouped by the feature that
@@ -280,7 +296,7 @@ def catalogue() -> list[MobileAction]:
 		_a('air_advisory', 'How is the air?', 'Environment', 'POST', '/environment/air', [_f('county', 'County'), _f('pm25', 'PM2.5 µg/m³', 'decimal')]),
 		_a('flood_risk', 'Flood and cholera risk', 'Environment', 'POST', '/environment/flood', [_f('county', 'County'), _f('rainfall_mm_72h', 'Rainfall mm in 3 days', 'decimal'), _f('population_at_risk', 'People at risk', 'int')]),
 		# Alerts
-		_a('issue_alert', 'Send a community alert', 'Alerts', 'POST', '/alerts', [_f('alert_id', 'Alert number', ph='generated for you'), _f('kind', 'Kind', 'select', ALERT_KINDS), _f('county', 'County'), _f('headline', 'Headline'), _f('body', 'Message', 'textarea'), _f('issued_by', 'Issued by', 'select', ['PHEOC', 'MoH', 'County', 'KMD'])]),
+		_a('issue_alert', 'Send a public alert', 'Alerts', 'POST', '/alerts', [_f('alert_id', 'Alert number', ph='generated for you'), _f('kind', 'Kind', 'select', ALERT_KINDS), _f('county', 'County'), _f('headline', 'Headline'), _f('body', 'Message', 'textarea'), _f('issued_by', 'Issued by', 'select', ['PHEOC', 'MoH', 'County', 'KMD'])]),
 		_a('alerts_by_county', 'Alerts for my county', 'Alerts', 'GET', '/alerts/{county}', [_f('county', 'County', 'path')]),
 		_a('publish_feed_item', 'Publish a verified alert', 'Alerts', 'POST', '/alerting/feed', [_f('item_id', 'Item number'), _f('category', 'Category', 'select', ['outbreak', 'weather', 'flood', 'fire', 'road', 'security', 'drug_recall', 'water', 'food_recall', 'service']), _f('headline', 'Headline'), _f('body', 'Message', 'textarea'), _f('source', 'Source'), _f('verified', 'Verified?', 'bool'), _f('published_iso', 'Published on'), _f('county', 'County', ph='optional')]),
 		_a('alert_feed', 'Alerts near me', 'Alerts', 'GET', '/alerting/feed', [_f('county', 'County', ph='optional')]),
@@ -473,7 +489,7 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'air_advisory': ('How is the air?', 'Air quality alerts where you live'),
 	'vector_risk': ('Mosquito and vector risk', 'Seasonal risk from the rain you just had'),
 	'nutrition': ('What should my child eat?', 'Age-appropriate feeding and local foods'),
-	'issue_alert': ('School and public notices', 'Closures and official announcements'),
+	'issue_alert': ('Send a public alert', 'Broadcast an official notice to a county'),
 	'price_quote': ('What does it cost?', 'Typical prices per facility'),
 	'data_inventory': ('What do you know about me?', 'Everything stored, and who it was shared with'),
 	'export_my_data': ('Download my data', 'A copy of everything held about you, and what it leaves out'),

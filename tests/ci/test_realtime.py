@@ -18,6 +18,26 @@ from afya.service import API_VERSIONS, CURRENT_API_VERSION, create_app
 ISO = '2026-10-10T10:00:00Z'
 
 
+def _publish(c: TestClient, item: FeedItem) -> dict:
+	"""Publish to the feed the way a CHW does.
+
+	`POST /alerting/feed` writes the broadcast every subscriber reads, so its route carries the
+	`assigned` scope (§17.4) — a test publishing anonymously would be exercising a route no client
+	can reach. The token is minted through the app's own PKCE flow, which is how a CHW gets one.
+	"""
+	from afya.auth.views import s256
+	verifier = 'v' * 64
+	authz = c.post('/auth/pkce/authorize', json={
+		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234',
+	}).json()
+	tok = c.post('/auth/pkce/token', params={'role': 'chw'}, json={
+		'authorization_code': authz['authorization_code'], 'client_id': 'app',
+		'redirect_uri': 'afya://cb', 'code_verifier': verifier,
+	}).json()['access_token']
+	return c.post('/alerting/feed', json=item.model_dump(mode='json'),
+	              headers={'authorization': f'Bearer {tok}'}).json()
+
+
 def _item(category: str = 'outbreak', county: str | None = 'Busia', item_id: str = 'A1') -> FeedItem:
 	return FeedItem(
 		item_id=item_id, category=category, headline='Cholera cases rising', body='Boil water.',
@@ -126,7 +146,7 @@ def test_socket_greets_then_delivers_a_matching_alert() -> None:
 		with c.websocket_connect('/alerts/socket?county=Busia&categories=disease_alerts') as ws:
 			hello = ws.receive_json()
 			assert hello['kind'] == 'hello' and hello['subscription']['county'] == 'Busia'
-			published = c.post('/alerting/feed', json=_item().model_dump(mode='json')).json()
+			published = _publish(c, _item())
 			assert published['delivered_realtime'] == 1
 			frame = ws.receive_json()
 			assert frame['kind'] == 'alert' and frame['item']['category'] == 'outbreak'
@@ -137,7 +157,7 @@ def test_socket_does_not_deliver_an_unmatched_county() -> None:
 	with TestClient(app) as c:
 		with c.websocket_connect('/alerts/socket?county=Busia&categories=disease_alerts') as ws:
 			assert ws.receive_json()['kind'] == 'hello'
-			published = c.post('/alerting/feed', json=_item(county='Nairobi').model_dump(mode='json')).json()
+			published = _publish(c, _item(county='Nairobi'))
 			assert published['delivered_realtime'] == 0
 
 
@@ -162,7 +182,7 @@ def test_socket_delivery_leaves_the_rest_feed_intact() -> None:
 	transport, so the durable write cannot depend on anyone being connected."""
 	app = create_app()
 	with TestClient(app) as c:
-		c.post('/alerting/feed', json=_item(item_id='OFFLINE-1').model_dump(mode='json'))
+		_publish(c, _item(item_id='OFFLINE-1'))
 		feed = c.get('/alerting/feed?county=Busia').json()['items']
 		assert [i['item_id'] for i in feed] == ['OFFLINE-1']
 
@@ -172,7 +192,7 @@ def test_feed_conditional_request_avoids_a_re_download() -> None:
 	changed and is served no items, so a poll on a metered link costs a revision string."""
 	app = create_app()
 	with TestClient(app) as c:
-		c.post('/alerting/feed', json=_item(item_id='CACHE-1').model_dump(mode='json'))
+		_publish(c, _item(item_id='CACHE-1'))
 		first = c.get('/alerting/feed?county=Busia').json()
 		assert first['changed'] is True and [i['item_id'] for i in first['items']] == ['CACHE-1']
 
@@ -181,7 +201,7 @@ def test_feed_conditional_request_avoids_a_re_download() -> None:
 		assert again['revision'] == first['revision']
 
 		# A new item moves the revision, so the next poll is a real download again.
-		c.post('/alerting/feed', json=_item(item_id='CACHE-2').model_dump(mode='json'))
+		_publish(c, _item(item_id='CACHE-2'))
 		after = c.get('/alerting/feed', params={'county': 'Busia', 'known_revision': first['revision']}).json()
 		assert after['changed'] is True and after['revision'] != first['revision']
 		assert 'CACHE-2' in {i['item_id'] for i in after['items']}
