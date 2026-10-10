@@ -42,6 +42,20 @@ class FeedItem(BaseModel):
 	county: str | None = None
 
 
+class FeedPage(BaseModel):
+	"""§16.4 content caching. What a polling client is served, and what it may cache.
+
+	`revision` is the validator for a conditional request: a client that already holds this
+	revision sends it back and is told nothing has changed rather than being re-sent the feed.
+	The revision is content-derived, so it is stable across restarts and reveals no item count.
+	"""
+
+	model_config = MODEL_CONFIG
+	revision: str = Field(pattern=r'^[0-9a-f]{16}$')
+	changed: bool
+	items: list[FeedItem]
+
+
 # --- ALT-003 personalised alert preferences ----------------------------------------------
 
 # Categories a user may switch off. Critical categories are absent by construction — they are

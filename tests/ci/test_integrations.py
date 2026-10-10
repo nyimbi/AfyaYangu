@@ -403,7 +403,7 @@ async def test_hotline_follow_up_lands_in_the_feed(webhook_env: str) -> None:
 		raw, headers = _signed(body)
 		resp = await c.post('/integrations/hotline/follow-up', content=raw, headers=headers)
 		assert resp.status_code == 200 and resp.json()['recorded'] is True
-		feed = (await c.get('/alerting/feed')).json()
+		feed = (await c.get('/alerting/feed')).json()['items']
 		assert any('719 hotline' in item['headline'] for item in feed), feed
 
 		# Unsigned, or signed with the wrong secret, is someone else speaking as the national

@@ -33,9 +33,22 @@ class AlertingService(LogMixin):
 		self._log_info('feed item published', category=item.category, county=item.county)
 		return item
 
-	def feed(self, county: str | None = None) -> list[FeedItem]:
+	def feed(self, county: str | None = None, since_iso: str | None = None) -> list[FeedItem]:
 		rows = [i for i in self._feed if county is None or i.county in (None, county)]
+		if since_iso is not None:
+			rows = [i for i in rows if i.published_iso > since_iso]
 		return sorted(rows, key=lambda i: i.published_iso, reverse=True)
+
+	def feed_revision(self, county: str | None = None) -> str:
+		"""§16.4 content caching. A short digest of what this subscriber would be served.
+
+		A revision of the *served* set, not of the whole feed: a client filtering on one county must
+		not be told to re-download because an unrelated county got an item. Derived from content
+		rather than a counter so it is identical after a restart and carries no item count.
+		"""
+		import hashlib
+		body = '\x1f'.join(f'{i.item_id}|{i.published_iso}' for i in self.feed(county))
+		return hashlib.sha256(body.encode()).hexdigest()[:16]
 
 	# --- ALT-003 personalised preferences -------------------------------------------------
 

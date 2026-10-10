@@ -163,8 +163,28 @@ def test_socket_delivery_leaves_the_rest_feed_intact() -> None:
 	app = create_app()
 	with TestClient(app) as c:
 		c.post('/alerting/feed', json=_item(item_id='OFFLINE-1').model_dump(mode='json'))
-		feed = c.get('/alerting/feed?county=Busia').json()
+		feed = c.get('/alerting/feed?county=Busia').json()['items']
 		assert [i['item_id'] for i in feed] == ['OFFLINE-1']
+
+
+def test_feed_conditional_request_avoids_a_re_download() -> None:
+	"""§16.4 content caching over the wire: a client holding the current revision is told nothing
+	changed and is served no items, so a poll on a metered link costs a revision string."""
+	app = create_app()
+	with TestClient(app) as c:
+		c.post('/alerting/feed', json=_item(item_id='CACHE-1').model_dump(mode='json'))
+		first = c.get('/alerting/feed?county=Busia').json()
+		assert first['changed'] is True and [i['item_id'] for i in first['items']] == ['CACHE-1']
+
+		again = c.get('/alerting/feed', params={'county': 'Busia', 'known_revision': first['revision']}).json()
+		assert again['changed'] is False and again['items'] == [], 'a held revision must not be re-sent'
+		assert again['revision'] == first['revision']
+
+		# A new item moves the revision, so the next poll is a real download again.
+		c.post('/alerting/feed', json=_item(item_id='CACHE-2').model_dump(mode='json'))
+		after = c.get('/alerting/feed', params={'county': 'Busia', 'known_revision': first['revision']}).json()
+		assert after['changed'] is True and after['revision'] != first['revision']
+		assert 'CACHE-2' in {i['item_id'] for i in after['items']}
 
 
 def test_socket_stats_endpoint() -> None:

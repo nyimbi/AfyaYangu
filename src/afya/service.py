@@ -52,8 +52,8 @@ from afya.surveillance.views import CountySignal, Geofence
 from afya.sensors.service import SensorService
 from afya.sensors.views import SenseKind
 from afya.sensors.views import SenseIngest
-from afya.sync.service import SyncService
-from afya.sync.views import SyncOp
+from afya.sync.service import SyncService, apply_delta, delta_payload
+from afya.sync.views import ConnectionClass, SyncOp
 from afya.triage.service import TriageService
 from afya.triage.views import DiaryEntry, TriageInput, TriageResult
 
@@ -63,7 +63,7 @@ from afya.access.views import AccessProfile, VoiceRequest
 from afya.ai.service import AIService
 from afya.ai.views import AggregateCell, FairnessAudit, RedressRequest, RiskInputs, WarningSignal
 from afya.alerting.service import AlertingService
-from afya.alerting.views import ExposureAck, FeedItem, FamilyStatus
+from afya.alerting.views import ExposureAck, FeedItem, FeedPage, FamilyStatus
 from afya.auth.service import AuthService
 from afya.auth.views import PKCEStart, PKCETokenRequest, StaffProvision, TokenRequest
 from afya.chw.service import ChwService
@@ -733,6 +733,47 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return {'queued': True}
 
+	# --- §16.4 bandwidth minimisation ---
+	@app.get('/sync/policy')
+	async def sync_policy(connection: str = 'metered') -> dict[str, object]:
+		"""What this connection class is allowed to spend, and how often it may ask.
+
+		The client reads this rather than choosing its own numbers: a phone that could request the
+		wifi batch size while on mobile data would spend the user's airtime to defeat the policy.
+		"""
+		try:
+			policy = sync.policy_for(ConnectionClass(connection))
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=f'unknown connection class {connection}') from exc
+		return policy.model_dump(mode='json')
+
+	@app.post('/sync/batch')
+	async def sync_batch(connection: str = 'metered') -> dict[str, object]:
+		"""Assemble the next request from the queue: delta payloads, batched, gzipped if it pays.
+
+		Returns the encoding and byte counts as well as the ops, so a client can show the user what
+		the sync is about to cost them before it happens.
+		"""
+		try:
+			conn = ConnectionClass(connection)
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=f'unknown connection class {connection}') from exc
+		await sync.load()
+		pending = [o for o in sync._queue.values() if not o.synced]  # noqa: SLF001 - the queue is the batch source
+		batch = sync.encode(pending, conn)
+		return batch.model_dump(mode='json')
+
+	@app.post('/sync/delta')
+	async def sync_delta(previous: dict[str, str], current: dict[str, str]) -> dict[str, object]:
+		"""§16.4 delta sync, as a pure function so the client can compute what it will send.
+
+		A removal travels as an explicit `-field` entry. Omitting it would mean "unchanged", so a
+		deletion the user made would never reach the server and would return on the next pull.
+		"""
+		delta = delta_payload(previous, current)
+		assert apply_delta(previous, delta) == current, 'a delta must reconstruct the current state exactly'
+		return {'delta': delta, 'changed_fields': len(delta), 'full_fields': len(current)}
+
 	@app.post('/sync/flush')
 	async def sync_flush() -> dict[str, int]:
 		return (await sync.flush(0)).model_dump(mode='json')
@@ -994,8 +1035,19 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return out
 
 	@app.get('/alerting/feed')
-	async def alerting_feed(county: str | None = None) -> list[dict[str, object]]:
-		return [i.model_dump(mode='json') for i in alerting.feed(county)]
+	async def alerting_feed(
+		county: str | None = None,
+		since: str | None = None,
+		known_revision: str | None = None,
+	) -> dict[str, object]:
+		"""§16.4 content caching: a client that already holds the current revision is told so, and
+		`since` returns only items newer than what it last saw. Both are opt-in, so a first-time
+		client still gets the whole feed."""
+		revision = alerting.feed_revision(county)
+		if known_revision is not None and known_revision == revision:
+			return FeedPage(revision=revision, changed=False, items=[]).model_dump(mode='json')
+		items = alerting.feed(county, since_iso=since)
+		return FeedPage(revision=revision, changed=True, items=items).model_dump(mode='json')
 
 	@app.post('/alerting/preferences')
 	async def alerting_preference(subject_ref: str, category: str, enabled: bool) -> dict[str, object]:

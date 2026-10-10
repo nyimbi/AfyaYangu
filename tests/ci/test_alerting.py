@@ -58,6 +58,45 @@ async def test_feed_county_filter_includes_national_items() -> None:
 	assert {i.item_id for i in svc.feed(county='Kisumu')} == {'FI-kis', 'FI-nat'}
 
 
+# --- §16.4 content caching ------------------------------------------------------------------
+
+async def test_feed_revision_tracks_content_not_item_count() -> None:
+	"""A revision a client caches must change when the content changes and must not change when
+	nothing did. If it were a counter, a client that re-fetched would be told the feed had changed
+	every time, and would re-download a feed identical to the one it already holds."""
+	svc = AlertingService()
+	empty = svc.feed_revision()
+	await svc.publish(_item(item_id='FI-a'))
+	one = svc.feed_revision()
+	assert one != empty
+	assert svc.feed_revision() == one, 'an unchanged feed has an unchanged revision'
+
+	# Two services built the same way agree, so the revision survives a restart rather than
+	# being an accident of process memory.
+	other = AlertingService()
+	await other.publish(_item(item_id='FI-a'))
+	assert other.feed_revision() == one, 'the revision is derived from content, not from a counter'
+
+
+async def test_feed_revision_is_scoped_to_the_county_a_client_reads() -> None:
+	"""A subscriber filtering on one county must not be told to re-download because a different
+	county got an item."""
+	svc = AlertingService()
+	await svc.publish(_item(item_id='FI-kis', county='Kisumu'))
+	kisumu = svc.feed_revision(county='Kisumu')
+	await svc.publish(_item(item_id='FI-nai', county='Nairobi'))
+	assert svc.feed_revision(county='Kisumu') == kisumu, 'an unrelated county must not move the revision'
+
+
+async def test_since_returns_only_items_the_client_has_not_seen() -> None:
+	svc = AlertingService()
+	await svc.publish(_item(item_id='FI-old', published_iso='2026-09-01T00:00:00Z'))
+	await svc.publish(_item(item_id='FI-new', published_iso='2026-10-01T00:00:00Z'))
+	fresh = svc.feed(since_iso='2026-09-15T00:00:00Z')
+	assert [i.item_id for i in fresh] == ['FI-new']
+	assert svc.feed() != fresh, 'the unfiltered feed is still the whole feed'
+
+
 # --- ALT-003 personalised preferences -----------------------------------------------------
 
 def test_critical_category_has_no_toggle_and_receipt_says_so() -> None:
