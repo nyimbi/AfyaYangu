@@ -92,6 +92,7 @@ from afya.retention.service import RetentionService
 from afya.retention.views import DeletionRequest
 from afya.governance.service import GovernanceService
 from afya.operations.service import OperationsService
+from afya.rollout.service import RolloutService
 from afya.security.service import SecurityService
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -173,6 +174,9 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'retention': RetentionService(),
 		'governance': GovernanceService(),
 		'operations': OperationsService(),
+		# §20/§21: the rollout reads the registry (§20.6's retention table crossed against it) and
+		# the APK budget §22.5 sets, so it is constructed with the registry rather than beside it.
+		'rollout': RolloutService(registry),
 		'security': SecurityService(),
 		'chw': ChwService(),
 		'auth': AuthService(),
@@ -227,6 +231,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	retention: RetentionService = svc['retention']  # type: ignore[assignment]
 	governance: GovernanceService = svc['governance']  # type: ignore[assignment]
 	operations: OperationsService = svc['operations']  # type: ignore[assignment]
+	rollout: RolloutService = svc['rollout']  # type: ignore[assignment]
 	security: SecurityService = svc['security']  # type: ignore[assignment]
 	chw: ChwService = svc['chw']  # type: ignore[assignment]
 	auth: AuthService = svc['auth']  # type: ignore[assignment]
@@ -2347,6 +2352,47 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return {'ok': True, 'overdue': operations.overdue(on_iso)}
+
+	# --- §20 growth, §21 phasing --------------------------------------------------------------
+
+	@app.get('/rollout/phases')
+	async def rollout_phases() -> dict[str, object]:
+		"""§21.1's seven phases with their tier ceilings and channel sets. Open by design: a rollout
+		plan nobody outside the programme can read is not a plan a partner can align to, and it
+		names no person and no number about one."""
+		from afya.rollout.views import Phase
+		return {
+			'phases': [p.model_dump(mode='json') for p in rollout.phases()],
+			'current': rollout.status(Phase.phase_1_information, 1 if not registry.tier4_active() else 4).model_dump(mode='json'),
+		}
+
+	@app.get('/rollout/readiness')
+	async def rollout_readiness(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§20.2's two claims about this repo — an open-source client and a sub-15 MB app — answered
+		from the artefacts, plus §20.6's retention table crossed against the registry.
+
+		Auditor-scoped: this is the evidence half, and it reports what is *not* measured rather than
+		leaving a silent pass."""
+		return rollout.readiness().model_dump(mode='json')
+
+	@app.get('/rollout/status')
+	async def rollout_status(phase: str, _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§21.1's tier ceiling for a phase against what is actually active. A deployment running
+		Tier 4 while its plan says Phase 2 skipped its own gate, and that is the finding.
+
+		Auditor-scoped like every other read in this family: the convention here is reads on
+		`audit_logs` and writes on `infrastructure`, and this route changes nothing."""
+		from afya.rollout.views import Phase
+		# The ceiling the deployment is actually running at: Tier 4 when the §11.1 gate is open,
+		# otherwise the highest tier among the features that are live. `Tier.cross_cutting` is 0 and
+		# is always on, so it cannot be the answer to "which tier is this deployment at".
+		active = 4 if registry.tier4_active() else max(
+			(s.tier for s in registry.available() if s.tier is not Tier.cross_cutting), default=Tier.tier1
+		)
+		try:
+			return rollout.status(Phase(phase), max(1, int(active))).model_dump(mode='json')
+		except (ValueError, AssertionError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	# --- §15.5 versioning: `/v1/` beside the bare paths --------------------------------------
 	# Both spellings reach the same routes. `v1` is the only version, so pinning it changes
