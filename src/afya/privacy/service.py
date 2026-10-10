@@ -104,12 +104,22 @@ class PrivacyService(LogMixin):
 		return 'Central'
 
 	def breach_notification(self, event: BreachEvent) -> BreachNotification:
+		"""§24.8's 72-hour ODPC notification, measured from when the breach was detected.
+
+		The deadline floors at zero — the DPA gives a fixed window, not a negative one — but the
+		floor loses the fact that matters: a breach notified three days late and one notified with
+		three days to spare both reported `0`, which is a report that cannot tell a met statutory
+		duty from a missed one. `overdue` carries it.
+		"""
 		deadline = max(0, 3 - event.detected_at_days_ago)
 		high_risk = {'health_status', 'location', 'identity'}
 		notify = event.affected_count > 100 or high_risk.intersection(event.affected_data) != set()
+		if event.detected_at_days_ago > 3:
+			self._log_error('ODPC notification deadline missed', days_ago=event.detected_at_days_ago)
 		return BreachNotification(
 			odpc_deadline_days=deadline,
 			notify_users=notify,
+			overdue=event.detected_at_days_ago > 3,
 			summary=f"breach affecting {', '.join(event.affected_data)} (n={event.affected_count})",
 		)
 

@@ -104,6 +104,10 @@ class BreachNotification(BaseModel):
 	odpc_deadline_days: int
 	notify_users: bool
 	summary: str
+	# §24.8's clock is the DPA's 72 hours from detection, so a breach notified after it is a
+	# different fact from one notified inside it — and `odpc_deadline_days` clamped at zero made
+	# the two identical. `overdue` carries the distinction the deadline itself loses.
+	overdue: bool = False
 
 
 class AuditEntry(BaseModel):

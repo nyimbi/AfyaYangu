@@ -143,5 +143,11 @@ def test_breach_72h() -> None:
 	svc = PrivacyService()
 	n1 = svc.breach_notification(BreachEvent(affected_data=['health_status'], affected_count=5, detected_at_days_ago=0))
 	n2 = svc.breach_notification(BreachEvent(affected_data=['health_status'], affected_count=5, detected_at_days_ago=3))
-	assert n1.odpc_deadline_days == 3 and n1.notify_users
-	assert n2.odpc_deadline_days == 0
+	# §24.8's clock floors at zero — the DPA gives a fixed window, not a negative one — so the
+	# deadline alone cannot tell a breach notified on time from one notified late. `overdue` is
+	# what carries it: without that field a three-day-late notification and a three-day-early one
+	# both read `0`, which is a report that cannot distinguish a met statutory duty from a missed.
+	late = svc.breach_notification(BreachEvent(affected_data=['health_status'], affected_count=5, detected_at_days_ago=5))
+	assert n1.odpc_deadline_days == 3 and n1.notify_users and n1.overdue is False
+	assert n2.odpc_deadline_days == 0 and n2.overdue is False
+	assert late.odpc_deadline_days == 0 and late.overdue is True

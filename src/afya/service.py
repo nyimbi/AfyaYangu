@@ -91,6 +91,7 @@ from afya.realtime.views import KNOWN_CATEGORIES, SocketSubscription, now_iso
 from afya.retention.service import RetentionService
 from afya.retention.views import DeletionRequest
 from afya.governance.service import GovernanceService
+from afya.operations.service import OperationsService
 from afya.security.service import SecurityService
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -171,6 +172,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'access': AccessService(),
 		'retention': RetentionService(),
 		'governance': GovernanceService(),
+		'operations': OperationsService(),
 		'security': SecurityService(),
 		'chw': ChwService(),
 		'auth': AuthService(),
@@ -224,6 +226,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	access: AccessService = svc['access']  # type: ignore[assignment]
 	retention: RetentionService = svc['retention']  # type: ignore[assignment]
 	governance: GovernanceService = svc['governance']  # type: ignore[assignment]
+	operations: OperationsService = svc['operations']  # type: ignore[assignment]
 	security: SecurityService = svc['security']  # type: ignore[assignment]
 	chw: ChwService = svc['chw']  # type: ignore[assignment]
 	auth: AuthService = svc['auth']  # type: ignore[assignment]
@@ -2280,6 +2283,70 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		"""§17.5 bug bounty: the public programme and its responsible-disclosure terms. Open by
 		design — a disclosure policy nobody can read is not a disclosure policy."""
 		return security.disclosure_policy().model_dump(mode='json')
+
+	# --- §23 risk register, §24 operational duties and incident response ----------------------
+
+	@app.get('/operations/risks')
+	async def operations_risks(domain: str | None = None,
+	                           _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§23's register, worst exposure first, with each row's mitigation checked against the code.
+
+		Auditor-scoped like the other evidence views. The interesting field is `unbacked_risks`: a
+		mitigation that names a module which does not exist is a risk the register presents as
+		handled and is not, and that is the one thing this route exists to say out loud.
+		"""
+		from afya.operations.views import RiskDomain
+		rows = operations.register() if domain is None else [
+			a for a in operations.register() if a.risk.domain is RiskDomain(domain)
+		]
+		return {
+			'risks': [a.model_dump(mode='json') for a in rows],
+			'unbacked_risks': [a.risk.risk_id for a in rows if not a.resolves],
+			'counts_by_domain': {d.value: len(operations.risks(d)) for d in RiskDomain},
+		}
+
+	@app.get('/operations/incidents')
+	async def operations_incidents(today_iso: str = '2026-10-10',
+	                               _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§24.8's incident types, the §24.3 SLA each severity maps to, and every open incident's
+		position against its own deadline. A breach's 72 hours run from detection."""
+		return operations.posture(today_iso).model_dump(mode='json')
+
+	@app.post('/operations/incidents')
+	async def operations_open_incident(incident: dict[str, object],
+	                                   _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Open an incident. Operations scope: §24.8's team is the on-call engineer and the DPO,
+		and opening a record that starts a statutory clock is not a citizen action."""
+		from afya.operations.views import Incident
+		try:
+			parsed = Incident.model_validate(incident)
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		status = operations.open_incident(parsed)
+		return {**status.model_dump(mode='json'), 'rca_due_on': operations.rca_due_on(parsed)}
+
+	@app.get('/operations/duties')
+	async def operations_duties(today_iso: str = '2026-10-10',
+	                            _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§24.2's and §24.7's recurring duties and whether each is late. A duty never performed is
+		overdue rather than exempt — the rule §17.5's scan cadence already applies."""
+		statuses = operations.obligation_status(today_iso)
+		return {
+			'duties': [s.model_dump(mode='json') for s in statuses],
+			'overdue': [s.obligation_id for s in statuses if s.overdue],
+			'event_triggered': [s.obligation_id for s in statuses if s.cadence_days is None],
+		}
+
+	@app.post('/operations/duties/{obligation_id}/performed')
+	async def operations_mark_duty(obligation_id: str, on_iso: str,
+	                               _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Record that a duty was discharged. Without this every cadence obligation is overdue from
+		the first day, which is true but not useful — the date is what makes the cadence a fact."""
+		try:
+			operations.mark_performed(obligation_id, on_iso)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'ok': True, 'overdue': operations.overdue(on_iso)}
 
 	# --- §15.5 versioning: `/v1/` beside the bare paths --------------------------------------
 	# Both spellings reach the same routes. `v1` is the only version, so pinning it changes
