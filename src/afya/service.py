@@ -40,7 +40,7 @@ from afya.medicine.views import DoseRequest, StockReport, VerifyRequest
 from afya.facilities.service import FacilityService
 from afya.facilities.views import Booking, Facility, NearestRequest
 from afya.info.service import InfoService
-from afya.info.views import ContentItem, CountyRisk
+from afya.info.views import WORKFLOW, ContentItem, CountyRisk
 from afya.privacy.service import PrivacyService
 from afya.privacy.views import ConsentRecord, DPIAInput, RBACRole
 from afya.records.service import RecordsService
@@ -598,9 +598,17 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		]
 
 	@app.post('/info/content')
-	async def info_upsert_content(item: ContentItem) -> dict[str, bool]:
-		"""Publish or correct a library item. The `harmony_tag` is required — §6.2 serves nothing
-		that has not been harmonised against the official source."""
+	async def info_upsert_content(item: ContentItem, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, bool]:
+		"""Draft or correct a library item (§6.2 harmonisation, §6.5 governance).
+
+		The `harmony_tag` is required here because §6.2 serves nothing un-harmonised, and the §6.5
+		governance fields — owner, reviewer, review date, version — are required by the model itself,
+		so an item with nobody accountable for it cannot be constructed at all. Writing an item does
+		not publish it: an item lands at the stage the body names, and only `published` is served.
+
+		§17.4 defines eight data-access roles and none of them owns content, so this rides the
+		operations scope rather than inventing a ninth role the spec's table does not have.
+		"""
 		if not item.harmony_tag:
 			raise HTTPException(status_code=422, detail='content must carry a harmony tag before it is served')
 		try:
@@ -608,6 +616,52 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return {'ok': True}
+
+	@app.post('/info/content/{item_id}/advance')
+	async def info_content_advance(item_id: str, to: str, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Move an item one step along §6.5's workflow, or retire it to `archived`.
+
+		One step, so a draft cannot be marked published without the clinical review, translation,
+		back-translation and community validation the section puts before it. `archived` is reachable
+		from any stage: retiring something wrong should not require walking it forward first.
+		"""
+		from afya.info.views import ContentStage
+		try:
+			stage = ContentStage(to)
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=f'unknown content stage {to!r}') from exc
+		try:
+			item = info.advance(item_id, stage)
+		except (AssertionError, KeyError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'item_id': item.item_id, 'stage': item.stage.value, 'version': item.version}
+
+	@app.get('/info/content/governance')
+	async def info_content_governance(today_iso: str = '2026-10-10', regime: str = 'steady',
+			_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§6.5 content governance: who owns and reviewed each item, at what version and stage, and
+		which published items are past their review cycle.
+
+		Auditor-scoped, like the other evidence views. `stale` is the §6.5 staleness audit as a
+		date rather than a monthly intention — the item served longest ago is the one nobody has
+		looked at since, which is exactly what the section exists to catch."""
+		if regime not in ('outbreak', 'steady'):
+			raise HTTPException(status_code=422, detail=f'unknown review regime {regime!r}')
+		items = [
+			{
+				'item_id': c.item_id, 'slug': c.slug, 'lang': c.lang, 'stage': c.stage.value,
+				'owner': c.owner, 'reviewer': c.reviewer, 'reviewed_on_iso': c.reviewed_on_iso,
+				'version': c.version,
+			}
+			for c in sorted(info.all_items(), key=lambda c: c.item_id)
+		]
+		return {
+			'workflow': [s.value for s in WORKFLOW],
+			'items': items,
+			'stale': info.stale(today_iso, regime),
+			'regime': regime,
+			'cadence_days': info.cadence_days(regime),
+		}
 
 	@app.get('/info/decision-tree')
 	async def info_decision_tree(answers: str = '') -> dict[str, object]:

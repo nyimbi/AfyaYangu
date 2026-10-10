@@ -1,9 +1,26 @@
-"""Information service — content library, county dashboard, decision tree (INF-002), hotline directory."""
+"""Information service — content library, county dashboard, decision tree (INF-002), hotline directory.
+
+The library serves only what §6.5's workflow has published, and every item carries the owner,
+reviewer, review date and version that section requires. Content is the one thing this app says on
+the Ministry's behalf, so an item nobody reviewed must not be servable — `library()` filters on the
+stage rather than trusting the caller to have advanced it.
+"""
+from datetime import date
 from typing import Any
 
 from afya.info.content_seed import seed_rows
-from afya.info.views import ContentItem, CountyRisk, DecisionNode, HotlineInfo
+from afya.info.views import WORKFLOW, ContentItem, ContentStage, CountyRisk, DecisionNode, HotlineInfo
 from afya.logmixin import LogMixin
+
+# §6.5 review cycle: clinical content is reviewed weekly during an outbreak and monthly otherwise.
+# Which regime applies is the caller's fact, so both are named and the staleness check takes one.
+REVIEW_CADENCE_DAYS = {'outbreak': 7, 'steady': 30}
+
+
+def _days_since(iso: str, today_iso: str) -> int:
+	"""Whole days from a review date to today. Parsed here so an unparseable date is a loud error
+	rather than a silently never-stale item."""
+	return (date.fromisoformat(today_iso) - date.fromisoformat(iso)).days
 
 HOTLINES: tuple[HotlineInfo, ...] = (
 	HotlineInfo(name='Ministry of Health Hotline', number='719', hours='24/7', verified=False),
@@ -32,9 +49,60 @@ class InfoService(LogMixin):
 		self._content[item.item_id] = item
 
 	def library(self, lang: str = 'en') -> list[ContentItem]:
-		out = [c for c in self._content.values() if c.lang == lang]
+		"""What a client may read: published items in this language, and nothing else.
+
+		The stage filter is the whole point of §6.5. A draft, a translation awaiting back-translation
+		or an item retired for being wrong must not be servable, and a caller cannot be trusted to
+		remember that — so the filter is here, at the one place the route reads from.
+		"""
+		out = [c for c in self._content.values() if c.lang == lang and c.stage is ContentStage.published]
 		assert all(c.harmony_tag for c in out), 'unharmonised content must be tagged before serving'
 		return out
+
+	def advance(self, item_id: str, to: ContentStage) -> ContentItem:
+		"""Move an item one step along §6.5's workflow, or retire it.
+
+		One step, never a jump: the spec's order is draft → clinical review → translation →
+		back-translation → community validation → publish, and a route that let a draft be marked
+		published directly would make every stage before it decorative. `archived` is reachable from
+		any stage, because retiring something wrong should not require walking it forward first.
+		"""
+		assert item_id in self._content, f'no content item {item_id}'
+		item = self._content[item_id]
+		if to is ContentStage.archived:
+			return self._replace(item, stage=ContentStage.archived)
+		assert item.stage is not ContentStage.archived, 'an archived item is retired, not revived'
+		current = WORKFLOW.index(item.stage)
+		nxt = WORKFLOW.index(to)
+		assert nxt == current + 1, f'{item.stage.value} advances to {WORKFLOW[current + 1].value}, not {to.value}'
+		return self._replace(item, stage=to)
+
+	def _replace(self, item: ContentItem, **updates: object) -> ContentItem:
+		updated = item.model_copy(update=updates)
+		self._content[updated.item_id] = updated
+		return updated
+
+	def all_items(self) -> list[ContentItem]:
+		"""Every item at every stage, drafts and retirements included. The governance view reads
+		this; the client-facing `library()` never does."""
+		return list(self._content.values())
+
+	@staticmethod
+	def cadence_days(regime: str) -> int:
+		assert regime in REVIEW_CADENCE_DAYS, f'unknown review regime {regime!r}'
+		return REVIEW_CADENCE_DAYS[regime]
+
+	def stale(self, today_iso: str, regime: str = 'steady') -> list[str]:
+		"""§6.5's staleness audit: published items whose clinical review has come due.
+
+		A review date is the only thing that makes the cycle real. Without it "reviewed monthly" is
+		an intention, and the item served longest ago is the one nobody has looked at since."""
+		assert regime in REVIEW_CADENCE_DAYS, f'unknown review regime {regime!r}'
+		cadence = REVIEW_CADENCE_DAYS[regime]
+		return sorted(
+			c.item_id for c in self._content.values()
+			if c.stage is ContentStage.published and _days_since(c.reviewed_on_iso, today_iso) > cadence
+		)
 
 	async def set_county_risk(self, risk: CountyRisk) -> None:
 		self._risk[risk.county] = risk

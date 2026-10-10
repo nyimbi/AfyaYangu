@@ -68,6 +68,8 @@ VECTOR_DISEASES = ['evd', 'cholera', 'malaria', 'dengue', 'mpox', 'rvf', 'measle
 ADHERENCE_ACTIONS = ['taken', 'skipped', 'snoozed']
 INTENSITIES = ['low', 'balanced', 'maximum']
 OUTPUT_KINDS = ['triage', 'risk_score', 'hotspot', 'exposure', 'tier4_activation']
+# §6.5's content workflow, in order. The server refuses a jump, so the control offers the steps.
+CONTENT_STAGES = ['draft', 'clinical_review', 'translation', 'back_translation', 'community_validation', 'published', 'archived']
 ACTIVITY_KINDS = ['report', 'followup', 'sensitisation', 'referral', 'training', 'supervision']
 JOB_AID_TOPICS = ['idsr_case_definition', 'ppe_donning', 'ppe_doffing', 'isolation_basics', 'safe_burial', 'reporting_flow']
 CHW_TASK_KINDS = ['followup', 'referral', 'sensitisation']
@@ -76,6 +78,7 @@ CHW_TASK_KINDS = ['followup', 'referral', 'sensitisation']
 FEATURE_OF: dict[str, str] = {
 	'febrile_triage': 'TRI-001', 'evd_triage': 'TRI-003', 'differential': 'TRI-001', 'symptom_diary': 'TRI-002',
 	'what_should_i_do': 'INF-002', 'health_library': 'INF-003', 'publish_content': 'INF-003',
+	'advance_content': 'INF-003', 'content_governance': 'INF-003',
 	'hotline_directory': 'INF-006', 'county_risk': 'INF-001',
 	'medicine_registry': 'MED-001', 'medicine_recalls': 'MED-001', 'report_suspicious_medicine': 'MED-004',
 	'sha_cover_verify': 'INF-016', 'sha_facilities': 'INF-016', 'sha_benefits': 'INF-016',
@@ -203,7 +206,9 @@ def catalogue() -> list[MobileAction]:
 		_a('testing_sites', 'Where can I get tested?', 'Facilities', 'GET', '/places/testing-sites', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('limit', 'How many results', 'int')]),
 		_a('vaccination_points', 'Where can I get vaccinated?', 'Facilities', 'GET', '/places/vaccination-points', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('limit', 'How many results', 'int')]),
 		_a('risk_zones_near_me', 'Have I entered a risk area?', 'Alerts', 'GET', '/surveillance/geofences-at', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal')]),
-		_a('publish_content', 'Publish health information', 'Information', 'POST', '/info/content', [_f('item_id', 'Reference'), _f('title', 'Title'), _f('body', 'Text', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw', 'sheng']), _f('harmony_tag', 'Official source tag'), _f('slug', 'Short name')]),
+		_a('publish_content', 'Draft health information', 'Information', 'POST', '/info/content', [_f('item_id', 'Reference'), _f('title', 'Title'), _f('body', 'Text', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw', 'sheng']), _f('harmony_tag', 'Official source tag'), _f('slug', 'Short name'), _f('owner', 'Who owns this'), _f('reviewer', 'Who reviewed it'), _f('reviewed_on_iso', 'Review date', ph='YYYY-MM-DD'), _f('version', 'Version', 'int'), _f('stage', 'Stage', 'select', CONTENT_STAGES)]),
+		_a('advance_content', 'Move a draft forward', 'Information', 'POST', '/info/content/{item_id}/advance', [_f('id', 'Reference', 'path'), _f('to', 'Next stage', 'select', CONTENT_STAGES)]),
+		_a('content_governance', 'Who reviewed this?', 'Information', 'GET', '/info/content/governance', [_f('today_iso', 'As at', ph='YYYY-MM-DD'), _f('regime', 'Review cycle', 'select', ['steady', 'outbreak'])]),
 		# Facilities
 		_a('nearest_facilities', 'Find care near me', 'Facilities', 'POST', '/facilities/nearest', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('kind', 'Type of place', 'select', FACILITY_KINDS), _f('limit', 'How many results', 'int')]),
 		_a('ed_status', 'How busy is the emergency unit?', 'Facilities', 'GET', '/facilities/{facility_id}/ed-status', [_f('id', 'Facility', 'path')]),
@@ -396,6 +401,9 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'febrile_triage': ('Check my fever', 'Quick check: treat malaria first unless there is Ebola contact risk'),
 	'what_should_i_do': ('What should I do?', 'A few yes/no questions that lead to advice'),
 	'health_library': ('Health information', 'Ebola, prevention, first aid, safe burial — official guidance'),
+	'publish_content': ('Draft health information', 'Write or correct a guidance item for review'),
+	'advance_content': ('Move a draft forward', 'Send an item to the next review stage, or retire it'),
+	'content_governance': ('Who reviewed this?', 'Who owns each guidance item and when it was last reviewed'),
 	'hotline_directory': ('Useful phone numbers', 'Hotlines and offices you can call'),
 	'medicine_registry': ('Which medicines are approved?', 'Check a medicine against the national register'),
 	'medicine_recalls': ('Has a medicine been recalled?', 'Recalls and safety notices from the regulator'),
