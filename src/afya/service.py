@@ -32,7 +32,9 @@ from afya.alerts.views import AirQuality, CommunityAlert, FloodReport, WaterQual
 from afya.blood.service import BloodRequest, BloodService, Donor
 from afya.chronic.service import ChronicService
 from afya.chronic.views import BPReading, GlucoseReading, RefillTracker
-from afya.integrations.service import PPBClient
+from afya.integrations.adam import AdamClient
+from afya.integrations.feeds import FEED_CADENCE, FEED_GRANULARITY, MIN_CELL, build as build_feed
+from afya.integrations.service import InlineJaliPort, JaliClient, JaliPort, MoHFFacilityClient, PPBClient, PheocClient, SHAClient, TelcoGatewayClient
 from afya.medicine.service import MedicineService
 from afya.medicine.views import DoseRequest, StockReport, VerifyRequest
 from afya.facilities.service import FacilityService
@@ -132,7 +134,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'triage': TriageService(registry),
 		'surveillance': SurveillanceService(registry),
 		'sensors': SensorService(registry),
-		'medicine': MedicineService(PPBClient(cfg.ppb_url, client)),
+		'medicine': MedicineService(PPBClient(cfg.ppb_url, client, '')),
 		'facilities': FacilityService(),
 		'channels': ChannelService(sms_port),
 		'emergency': EmergencyService(Inline719Port()),
@@ -159,6 +161,17 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'retention': RetentionService(),
 		'chw': ChwService(),
 		'auth': AuthService(),
+		# §18: the national systems. Every client is constructed whether or not its vendor is
+		# configured, because a client that only exists when configured makes "not configured" and
+		# "not wired" indistinguishable from the outside — which is exactly the failure the routes
+		# below have to be able to report.
+		'jali': JaliClient(cfg.jali_url, cfg.jali_api_key, client) if cfg.jali_api_key else InlineJaliPort(),
+		'pheoc': PheocClient(cfg.pheoc_url, client, cfg.pheoc_api_key),
+		'mohf': MoHFFacilityClient(cfg.mohf_url, client),
+		'ppb': PPBClient(cfg.ppb_url, client, cfg.ppb_api_key),
+		'adam': AdamClient(cfg.adam_url, client, cfg.adam_api_key, cfg.adam_cert()),
+		'sha': SHAClient(cfg.sha_url, client, cfg.sha_api_key),
+		'telco': TelcoGatewayClient(cfg.telco_zero_rating_url, cfg.telco_airtime_url, cfg.telco_api_key or 'unconfigured', client),
 	}
 
 
@@ -197,6 +210,15 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	retention: RetentionService = svc['retention']  # type: ignore[assignment]
 	chw: ChwService = svc['chw']  # type: ignore[assignment]
 	auth: AuthService = svc['auth']  # type: ignore[assignment]
+	# §18: the national systems. `jali` may be the offline port, which is why it is typed as the
+	# protocol rather than the concrete client — the routes must work on a deployment with no vendor.
+	adam: AdamClient = svc['adam']  # type: ignore[assignment]
+	jali: JaliPort = svc['jali']  # type: ignore[assignment]
+	pheoc: PheocClient = svc['pheoc']  # type: ignore[assignment]
+	mohf: MoHFFacilityClient = svc['mohf']  # type: ignore[assignment]
+	sha: SHAClient = svc['sha']  # type: ignore[assignment]
+	ppb: PPBClient = svc['ppb']  # type: ignore[assignment]
+	telco: TelcoGatewayClient = svc['telco']  # type: ignore[assignment]
 	app = FastAPI(title='Afya Yangu / Mlinzi', version=APP_VERSION)
 
 	# --- §15.5 request integrity: rate limiting and idempotency ------------------------------
@@ -259,6 +281,35 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			if not await privacy.check_access_logged(AccessRequest(role=role, dataset=dataset)):
 				raise HTTPException(status_code=403, detail=f'role {role.value} may not read {dataset}')
 			return subject
+		return guard
+
+	def require_webhook(header_name: str = 'x-afya-signature'):  # type: ignore[no-untyped-def]
+		"""Guard for an inbound webhook: a carrier or a peer system has no app token.
+
+		An unauthenticated webhook is an open write into the system — anyone who learns the URL can
+		inject a hotline follow-up or a call outcome, and every one of those is attributed to a real
+		person. The body is HMAC-signed with the shared secret and the signature compared in constant
+		time; the body is read here, so a route using this guard must take the raw bytes it needs
+		from the request rather than re-reading a consumed stream.
+
+		No secret configured means the deployment cannot authenticate, and the honest answer is to
+		refuse: a dev box with an open webhook is how an open webhook ships to production.
+		"""
+		from afya.config import ServiceConfig
+		import hashlib
+		import hmac
+
+		async def guard(request: Request, signature: str | None = Header(default=None, alias=header_name)) -> bytes:
+			secret = ServiceConfig.from_env().webhook_secret
+			if not secret:
+				raise HTTPException(status_code=503, detail='inbound webhooks are not configured on this deployment')
+			if not signature:
+				raise HTTPException(status_code=401, detail='webhook signature required')
+			body = await request.body()
+			expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+			if not hmac.compare_digest(expected, signature.strip().lower()):
+				raise HTTPException(status_code=401, detail='webhook signature does not match')
+			return body
 		return guard
 
 	# --- §15.5 authentication ---
@@ -474,7 +525,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return channels.route_whatsapp(msg).model_dump(mode='json')
 
 	@app.post('/channels/ussd/callback')
-	async def channels_ussd_callback(cb: AtUssdCallback, lang: str = 'en') -> dict[str, str]:
+	async def channels_ussd_callback(cb: AtUssdCallback, lang: str = 'en', _body: bytes = Depends(require_webhook())) -> dict[str, str]:
+		"""Carrier webhook. Signature-guarded: unsigned, it is anyone driving the USSD menus."""
 		return channels.ussd_carrier_callback(cb, lang)
 
 	@app.post('/channels/chw/tasks')
@@ -1298,6 +1350,293 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/chw/{chw_ref}/activity')
 	async def chw_activity_summary(chw_ref: str, period: str = '2026-W41', _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
 		return chw.activity_summary(chw_ref, period).model_dump(mode='json')
+
+	# --- §18 national system integrations ----------------------------------------------------
+	# Every route below is a wire the spec names and that nothing called before: the clients existed
+	# and no path reached them, so §18 was "implemented" in the sense that code existed. A route per
+	# integration point is what makes the claim checkable from outside the process.
+
+	@app.get('/integrations/status')
+	async def integrations_status() -> dict[str, object]:
+		"""What is wired and what the deployment actually configured. Read-only, no secret values.
+
+		`configured` is about credentials; `wired` is about this process. They are reported apart
+		because a deployment can be wired and unconfigured (dev), and reading one as the other is
+		how "no API key" gets mistaken for "no integration".
+		"""
+		from afya.config import ServiceConfig
+		cfg = ServiceConfig.from_env()
+		return {
+			'wired': sorted(['adam', 'jali', 'pheoc', 'mohf', 'ppb', 'sha', 'telco']),
+			'configured': cfg.live_vendors(),
+			'adam_mutual_tls': adam.mutual_tls_configured,
+			'jali_offline': jali.__class__.__name__ == 'InlineJaliPort',
+			'pheoc_feeds': sorted(FEED_GRANULARITY),
+		}
+
+	# §18.1 ADaM — case reports out, status/assignments/definitions in.
+	@app.post('/integrations/adam/cases')
+	async def adam_push_case(report: dict[str, object], _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+		try:
+			ref = await adam.push_case_report(dict(report))
+		except (AssertionError, ValueError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='ADaM did not accept the case report') from exc
+		return {'adam_case_ref': ref}
+
+	@app.post('/integrations/adam/monitoring')
+	async def adam_push_monitoring(summary: dict[str, object], _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
+		"""Consented only. The refusal is the service's, so an unconsented summary cannot be pushed
+		by leaving the flag off — the check is `is True`, not truthiness."""
+		try:
+			await adam.push_monitoring_summary(dict(summary))
+		except AssertionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='ADaM did not accept the monitoring summary') from exc
+		return {'ok': True}
+
+	@app.get('/integrations/adam/cases/{report_id}')
+	async def adam_case_status(report_id: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+		try:
+			return await adam.pull_case_status(report_id)
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='ADaM is unreachable') from exc
+
+	@app.get('/integrations/adam/contacts')
+	async def adam_contacts(chw_ref: str, _subject: str = Depends(require_scope('assigned'))) -> list[dict[str, object]]:
+		try:
+			return await adam.pull_contact_assignments(chw_ref)
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='ADaM is unreachable') from exc
+
+	@app.get('/integrations/adam/case-definitions')
+	async def adam_case_definitions(_subject: str = Depends(require_scope('assigned'))) -> list[dict[str, object]]:
+		try:
+			return await adam.pull_case_definitions()
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='ADaM is unreachable') from exc
+
+	# §18.2 JALI — a link out, corrections and clinician answers in.
+	@app.post('/integrations/jali/link')
+	async def jali_link(context: str, subject_ref: str, _subject: str = Depends(require_scope('self'))) -> dict[str, str]:
+		"""No guard: this is the citizen's own launch, and the link carries a pseudonym the caller
+		already holds. `jali` may be the offline port, in which case the link is empty — an empty
+		link is the honest answer, not a fabricated URL that 404s on the phone."""
+		return {'url': await jali.launch_link(context, subject_ref)}
+
+	@app.get('/integrations/jali/corrections')
+	async def jali_corrections(since: str = '1970-01-01T00:00:00Z') -> list[dict[str, object]]:
+		"""Corrections are published health content. Read is open (they are meant to be shown to
+		everyone); it is the *write* side, JALI's, that has to be authenticated, which it is."""
+		return await jali.corrections(since)
+
+	@app.post('/integrations/jali/assessments')
+	async def jali_share_assessment(summary: dict[str, object]) -> dict[str, bool]:
+		try:
+			await jali.share_assessment(dict(summary))
+		except AssertionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
+		return {'ok': True}
+
+	@app.get('/integrations/jali/assessments/{assessment_id}/review')
+	async def jali_review(assessment_id: str) -> dict[str, object]:
+		out = await jali.clinician_response(assessment_id)
+		# `None` is "a human has not answered yet", which is a state, not an error — so it is a 200
+		# with a null body rather than a 404 the client would read as "no such assessment".
+		return {'review': out}
+
+	# §18.3 PHEOC — the six dashboard feeds. Built by `feeds.py` (which enforces min-cell-10),
+	# shipped here.
+	@app.get('/integrations/pheoc/feeds')
+	async def pheoc_feed_catalogue() -> dict[str, object]:
+		return {
+			'feeds': [{'name': n, 'granularity': FEED_GRANULARITY[n], 'cadence': FEED_CADENCE[n]} for n in sorted(FEED_GRANULARITY)],
+			'min_cell': MIN_CELL,
+		}
+
+	@app.post('/integrations/pheoc/feeds/{feed}/preview')
+	async def pheoc_feed_preview(feed: str, rows: list[dict[str, object]], _subject: str = Depends(require_scope('national_aggregate'))) -> dict[str, object]:
+		"""Build a feed and show exactly what would leave. Suppression is applied here too, so the
+		preview cannot show a row the push would drop — a preview that disagrees with the wire is
+		worse than none. `cells_withheld` counts suppressed cells, not rows folded into an aggregate."""
+		try:
+			built, withheld = build_feed(feed, rows)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'feed': feed, 'granularity': FEED_GRANULARITY[feed], 'cells_withheld': withheld, 'rows': built}
+
+	@app.post('/integrations/pheoc/feeds/{feed}')
+	async def pheoc_feed_push(feed: str, rows: list[dict[str, object]], _subject: str = Depends(require_scope('national_aggregate'))) -> dict[str, object]:
+		try:
+			built, withheld = build_feed(feed, rows)
+			accepted = await pheoc.push_feed(feed, built)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='PHEOC did not accept the feed') from exc
+		return {'feed': feed, 'offered': len(rows), 'cells_withheld': withheld, 'accepted': accepted}
+
+	# §18.4 719 hotline — the app side of the callback and outcome wires. The outbound call is the
+	# SOS path; what was missing was the inbound half, which is what closes the loop.
+	@app.post('/integrations/hotline/follow-up')
+	async def hotline_follow_up(payload: dict[str, object], _body: bytes = Depends(require_webhook())) -> dict[str, object]:
+		"""719 → App: a follow-up message about a case. Recorded, and delivered into the alert feed so
+		the person sees it where they see everything else.
+
+		Signature-guarded: this writes into a feed a citizen reads, so an unsigned request here is
+		someone else speaking as the national hotline.
+		"""
+		body = str(payload.get('message', '')).strip()
+		if not body:
+			# A bare assert here would surface as an unhandled 500: FastAPI does not translate
+			# AssertionError into a 4xx, so request validation has to be an explicit refusal.
+			raise HTTPException(status_code=422, detail='a follow-up needs a message')
+		item = FeedItem(
+			item_id='HF-' + str(payload.get('case_ref', 'unknown')), category='service',
+			headline='Follow-up from the 719 hotline', body=body[:600], source='719 hotline', verified=True,
+			published_iso=str(payload.get('at', '2026-01-01T00:00:00Z')), county=str(payload.get('county', 'national')),
+		)
+		await alerting.publish(item)
+		return {'recorded': True, 'delivered': 'feed'}
+
+	@app.post('/integrations/hotline/outcome')
+	async def hotline_outcome(payload: dict[str, object], _body: bytes = Depends(require_webhook())) -> dict[str, object]:
+		"""719 → App: the outcome code, where consented. No consent flag, no record — the code alone
+		still says a named person called an outbreak hotline."""
+		if payload.get('consented') is not True:
+			return {'recorded': False, 'reason': 'outcome is recorded only with consent'}
+		code = str(payload.get('outcome_code', '')).strip()
+		if not code:
+			raise HTTPException(status_code=422, detail='an outcome needs a code')
+		return {'recorded': True, 'outcome_code': code}
+
+	# §18.5 MoHF — pull the facility list, and the two inbound wires (corrections out, verification in).
+	@app.post('/facilities/import-mohf')
+	async def facilities_import_mohf(county: str, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""The bridge that was missing: `download_facilities` and `ingest_mohf` both existed and
+		nothing joined them, so the facility list could be fetched and never entered the service."""
+		try:
+			rows = await mohf.download_facilities(county)
+			accepted = await facilities.ingest_mohf([dict(r) for r in rows])
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='the facility registry is unreachable') from exc
+		return {'county': county, 'offered': len(rows), 'accepted': accepted}
+
+	@app.post('/facilities/{facility_id}/correction')
+	async def facility_correction(facility_id: str, correction: dict[str, object]) -> dict[str, object]:
+		"""App → MoHF, on report: a crowdsourced correction. A correction is not applied locally —
+		the registry is the authority, and a local edit would diverge from it silently."""
+		body = {'facility_id': facility_id, **correction}
+		try:
+			ticket = await mohf.report_correction(body)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='the facility registry is unreachable') from exc
+		return {'ticket': ticket, 'applied_locally': False}
+
+	@app.get('/facilities/verification')
+	async def facilities_verification(facility_ids: str, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		ids = [f.strip() for f in facility_ids.split(',') if f.strip()]
+		try:
+			status = await mohf.verification_status(ids)
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='the facility registry is unreachable') from exc
+		return {'status': status}
+
+	# §18.6 SHA — cover, acceptance list, benefits.
+	@app.post('/insurance/sha/verify')
+	async def sha_verify(req: SHACheckRequest) -> dict[str, object]:
+		"""Cover verification against the real authority, not the offline stub. The service keeps the
+		hash binding, so what is returned can only ever carry the hash of the number that was asked
+		about."""
+		live = InsuranceService(sha)
+		try:
+			return (await live.check(req)).model_dump(mode='json')
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='SHA is unreachable') from exc
+
+	@app.get('/insurance/sha/facilities')
+	async def sha_facilities(county: str, _subject: str = Depends(require_scope('self'))) -> list[dict[str, object]]:
+		try:
+			return await sha.acceptance_list(county)
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='SHA is unreachable') from exc
+
+	@app.get('/insurance/sha/benefits')
+	async def sha_benefits(product: str = 'SHIF', _subject: str = Depends(require_scope('self'))) -> list[dict[str, object]]:
+		try:
+			return await sha.benefits(product)
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='SHA is unreachable') from exc
+
+	# §18.7 PPB — registry and recalls in, suspicious reports out. `verify` is already at
+	# /medicine/verify; these are the other three wires.
+	@app.get('/medicine/registry')
+	async def medicine_registry(since: str = '1970-01-01T00:00:00Z', _subject: str = Depends(require_scope('self'))) -> list[dict[str, object]]:
+		try:
+			return await ppb.registry(since)
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='the PPB registry is unreachable') from exc
+
+	@app.get('/medicine/recalls')
+	async def medicine_recalls(since: str = '1970-01-01T00:00:00Z', _subject: str = Depends(require_scope('self'))) -> list[dict[str, object]]:
+		try:
+			return await ppb.recalls(since)
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='the PPB registry is unreachable') from exc
+
+	@app.post('/medicine/suspicious')
+	async def medicine_suspicious(report: dict[str, object]) -> dict[str, object]:
+		try:
+			ref = await ppb.report_suspicious(dict(report))
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='the PPB registry is unreachable') from exc
+		return {'ppb_case_ref': ref}
+
+	# §18.8 Telco — zero-rating rules in, airtime out. SMS/USSD in and out already live in
+	# /channels; the inbound SMS webhook is the piece that was missing.
+	@app.get('/integrations/telco/zero-rating')
+	async def telco_zero_rating() -> list[dict[str, object]]:
+		try:
+			return await telco.zero_rating_rules()
+		except AssertionError as exc:
+			raise HTTPException(status_code=503, detail=str(exc)) from exc
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='the carrier is unreachable') from exc
+
+	@app.post('/integrations/telco/airtime')
+	async def telco_airtime(msisdn: str, kes: int, reason: str, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		try:
+			ref = await telco.disburse_airtime(msisdn, kes, reason)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='the carrier is unreachable') from exc
+		return {'reference': ref}
+
+	@app.post('/integrations/telco/sms/inbound')
+	async def telco_sms_inbound(payload: dict[str, object], _body: bytes = Depends(require_webhook())) -> dict[str, object]:
+		"""Telco → App: an inbound SMS, routed through the same service the app's own messaging uses.
+
+		Routed via `route_whatsapp`'s keyword intent path rather than the USSD menu: an SMS body is
+		free text ("fever", "facility", "719"), not a menu selection, and feeding it to the USSD
+		parser would refuse every real message with `USSD selections numeric`. The msisdn is
+		normalised to the E.164 form the channel models require, because carriers deliver it bare.
+		"""
+		body = str(payload.get('text', '')).strip()
+		if not body:
+			raise HTTPException(status_code=422, detail='an inbound SMS needs text')
+		raw = str(payload.get('from', '')).strip()
+		msisdn = raw if raw.startswith('+') else ('+' + raw.lstrip('0') if raw.startswith('0') else '+' + raw)
+		out = channels.route_whatsapp(WhatsAppIn(from_msisdn=msisdn, body=body))
+		return {'reply': out.reply, 'source': 'sms'}
 
 	# --- §15.5 versioning: `/v1/` beside the bare paths --------------------------------------
 	# Both spellings reach the same routes. `v1` is the only version, so pinning it changes
