@@ -1,0 +1,73 @@
+// Internal service-to-service surface (spec §15.5: "gRPC for internal service-to-service").
+//
+// Unary only. Every call here backs a request/response path — the mobile action
+// catalogue, the tier-4 three-key gate, the triage algorithm — with no streaming
+// need, so no server- or client-streaming RPC is declared.
+syntax = "proto3";
+
+package afya.internal.v1;
+
+service AfyaInternal {
+  // Liveness plus the served API version and the tier-4 gate state.
+  rpc Health (HealthRequest) returns (HealthResponse);
+
+  // One feature by id (spec ids resolve through SPEC_ID_ALIASES); NOT_FOUND if absent.
+  rpc LookupFeature (LookupFeatureRequest) returns (FeatureSpec);
+
+  // Features of one tier, or every feature when tier is 0.
+  rpc ListFeatures (ListFeaturesRequest) returns (ListFeaturesResponse);
+
+  // Febrile-illness triage (§6.3 malaria trap, §8.1).
+  rpc Triage (TriageRequest) returns (TriageResponse);
+
+  // The §11.1 three-key activation gate as data: which keys are unmet.
+  rpc ActivationStatus (ActivationStatusRequest) returns (ActivationStatusResponse);
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+  string api_version = 2;
+  bool tier4_active = 3;
+}
+
+message FeatureSpec {
+  string id = 1;
+  string name = 2;
+  int32 tier = 3;
+  repeated string channels = 4;
+}
+
+message LookupFeatureRequest {
+  string feature_id = 1;
+}
+
+message ListFeaturesRequest {
+  // 0 means all tiers.
+  int32 tier = 1;
+}
+
+message ListFeaturesResponse {
+  repeated FeatureSpec features = 1;
+}
+
+message TriageRequest {
+  repeated string symptoms = 1;
+  int32 age_years = 2;
+  bool pregnant = 3;
+  int32 duration_days = 4;
+}
+
+message TriageResponse {
+  string urgency = 1;
+  string recommendation = 2;
+  repeated string red_flags = 3;
+}
+
+message ActivationStatusRequest {}
+
+message ActivationStatusResponse {
+  bool tier4_active = 1;
+  repeated string unmet_keys = 2;
+}

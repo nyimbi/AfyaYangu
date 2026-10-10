@@ -3,6 +3,10 @@
 	"venv": ".venv",
 	"extraPaths": ["src"],
 	"include": ["src", "tests"],
+	"exclude": [
+		"src/afya/grpc_api/afya_internal_pb2.pyi",
+		"src/afya/grpc_api/afya_internal_pb2_grpc.py"
+	],
 	"typeCheckingMode": "standard",
 	"reportCallIssue": "error",
 	"reportAttributeAccessIssue": "error",
