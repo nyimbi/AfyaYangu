@@ -670,16 +670,32 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return info.dashboard(county).model_dump(mode='json')
 
 	@app.get('/info/library')
-	async def info_library(lang: str = 'en') -> list[dict[str, str]]:
+	async def info_library(lang: str = 'en') -> list[dict[str, object]]:
 		"""§6.2 content library (INF-003/004/008/009/010/015), served by language.
 
 		Served as {slug,title,body,harmony_tag} — never `item_id`, whose seed values embed spec codes
 		(`INF-003-en`) that must not reach a screen. The slug is what a client keys on.
+
+		§6.2.4 withholds a life-safety item whose other required language is missing, in *both*
+		languages — publishing it English-only is the act the section forbids, and `library()` is
+		where publishing happens. `answers_rank` is served so a client can lead with §6.1's own
+		demand order rather than listing the corpus alphabetically.
 		"""
 		return [
-			{'slug': c.slug, 'title': c.title, 'body': c.body, 'harmony_tag': c.harmony_tag or '', 'lang': c.lang}
+			{'slug': c.slug, 'title': c.title, 'body': c.body, 'harmony_tag': c.harmony_tag or '',
+			 'lang': c.lang, 'answers_rank': c.answers_rank}
 			for c in info.library(lang)
 		]
+
+	@app.get('/info/questions')
+	async def info_questions() -> list[dict[str, object]]:
+		"""§6.1's ten questions in the section's own order.
+
+		§6.1 is explicit that the order is "by real demand, not by what health authorities want to
+		publish", so the ordering is the section's contribution and is served rather than left to a
+		client to guess. `life_safety` is what §6.2.4's language rule applies to.
+		"""
+		return [q.model_dump(mode='json') for q in info.ranked_questions()]
 
 	@app.post('/info/content')
 	async def info_upsert_content(item: ContentItem, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, bool]:
@@ -704,6 +720,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		failures = [v.model_dump(mode='json') for v in info.content_verdicts(item)]
 		if failures:
 			raise HTTPException(status_code=422, detail={'content_principles': failures})
+		# §6.2.4: a life-safety message may not be published in one language alone. Refused at the
+		# moment of publishing, which is the only point where the missing translation can still be
+		# written — and refused with the reason the section gives, so the author knows why this item
+		# and not the last one.
+		untranslated = info.life_safety_refusal(item)
+		if untranslated:
+			raise HTTPException(status_code=422, detail={'content_language': untranslated})
 		try:
 			await info.upsert_content(item)
 		except AssertionError as exc:
@@ -723,6 +746,16 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			stage = ContentStage(to)
 		except ValueError as exc:
 			raise HTTPException(status_code=422, detail=f'unknown content stage {to!r}') from exc
+		# §6.2.4 bites at the step that publishes, not only at the write. An item drafted in English
+		# and walked through §6.5's workflow reaches `published` here, so a check on the POST alone
+		# would be a gate on the door beside the one everybody uses.
+		if stage is ContentStage.published:
+			current = next((c for c in info.all_items() if c.item_id == item_id), None)
+			if current is None:
+				raise HTTPException(status_code=422, detail=f'no content item {item_id}')
+			untranslated = info.life_safety_refusal(current.model_copy(update={'stage': stage}))
+			if untranslated:
+				raise HTTPException(status_code=422, detail={'content_language': untranslated})
 		try:
 			item = info.advance(item_id, stage)
 		except (AssertionError, KeyError) as exc:
@@ -756,6 +789,10 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'stale': info.stale(today_iso, regime),
 			'regime': regime,
 			'cadence_days': info.cadence_days(regime),
+			# §6.2.4's audit: published life-safety items held back for a missing language. Named by
+			# slug, because a gate that withheld content silently would be worse than the English-only
+			# message it prevents — the audience sees nothing and nobody is told why.
+			'untranslated_life_safety': info.untranslated(),
 			'content_principles': [
 				{'surface': f.surface, 'verdicts': [v.model_dump(mode='json') for v in f.verdicts]}
 				for f in info.library_audit() + info.tree_audit()

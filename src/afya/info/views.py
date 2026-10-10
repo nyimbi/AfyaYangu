@@ -72,6 +72,12 @@ class ContentItem(BaseModel):
 	reviewed_on_iso: str = Field(min_length=10, description='date of the last clinical review')
 	version: int = Field(ge=1)
 	stage: ContentStage = ContentStage.draft
+	# Which §6.1 question this item answers, by the section's own rank. §6.2.4's "never publish
+	# English-only for a life-safety message" has no jurisdiction without it: nothing said which
+	# items *are* life-safety, so the rule could not bite. The rank is a reference into §6.1's table
+	# rather than a boolean an author sets, because the person drafting under time pressure is the
+	# last one to mark their own copy as life-safety.
+	answers_rank: int | None = Field(default=None, ge=1, le=10)
 
 
 class DecisionNode(BaseModel):

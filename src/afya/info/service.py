@@ -6,10 +6,11 @@ the Ministry's behalf, so an item nobody reviewed must not be servable — `libr
 stage rather than trusting the caller to have advanced it.
 """
 from datetime import date
-from typing import Any
-
 from afya.info.content_seed import seed_rows
 from afya.info.principles import Finding, Subject, Verdict, judge, judge_corpus, library_texts, tree_texts
+from afya.info.questions import (
+	QUESTION_BY_RANK, REQUIRED_LANGS, RANKED_QUESTIONS, RankedQuestion, is_life_safety,
+)
 from afya.info.views import WORKFLOW, ContentItem, ContentStage, CountyRisk, DecisionNode, HotlineInfo
 from afya.logmixin import LogMixin
 
@@ -82,10 +83,68 @@ class InfoService(LogMixin):
 		The stage filter is the whole point of §6.5. A draft, a translation awaiting back-translation
 		or an item retired for being wrong must not be servable, and a caller cannot be trusted to
 		remember that — so the filter is here, at the one place the route reads from.
+
+		§6.2.4's second sentence filters too: a life-safety item whose counterpart in the other
+		required language is missing is *not served at all*, in either language. Withholding it is
+		the point — §6.2.4 forbids publishing English-only for a life-safety message, and serving it
+		is the act of publishing. The gap is not silent: `untranslated()` names it for the reviewer,
+		and `/info/content` refuses to publish such an item in the first place.
 		"""
-		out = [c for c in self._content.values() if c.lang == lang and c.stage is ContentStage.published]
+		out = [
+			c for c in self._content.values()
+			if c.lang == lang and c.stage is ContentStage.published and self.translated(c)
+		]
 		assert all(c.harmony_tag for c in out), 'unharmonised content must be tagged before serving'
 		return out
+
+	def translated(self, item: ContentItem) -> bool:
+		"""Whether a life-safety item has every language §6.2.4 requires, or is not life-safety.
+
+		Matched on `slug` rather than on the id, because the slug is the code-free handle the corpus
+		already keys on and two translations of one message share it — which is what makes "the
+		counterpart exists" a question the data can answer.
+		"""
+		if not is_life_safety(item.answers_rank):
+			return True
+		present = {
+			c.lang for c in self._content.values()
+			if c.slug == item.slug and c.stage is ContentStage.published
+		}
+		return set(REQUIRED_LANGS) <= present
+
+	def untranslated(self) -> list[str]:
+		"""§6.2.4's audit: published life-safety items held back for a missing language.
+
+		Named by slug so a reviewer can act on it. A gate that withheld content silently would be
+		worse than the English-only message it prevents: the audience sees nothing and nobody is told
+		why.
+		"""
+		return sorted({
+			c.slug or c.item_id for c in self._content.values()
+			if c.stage is ContentStage.published and not self.translated(c)
+		})
+
+	def life_safety_refusal(self, item: ContentItem) -> str | None:
+		"""The §6.2.4 refusal for an item about to be published English-only, or None.
+
+		Returned as a sentence rather than raised so the publishing route can put the missing
+		languages in front of the person drafting, which is the only moment the gap can be closed.
+		"""
+		if item.stage is not ContentStage.published or not is_life_safety(item.answers_rank):
+			return None
+		present = {
+			c.lang for c in self._content.values()
+			if c.slug == item.slug and c.item_id != item.item_id and c.stage is ContentStage.published
+		} | {item.lang}
+		missing = [lang for lang in REQUIRED_LANGS if lang not in present]
+		if not missing:
+			return None
+		question = QUESTION_BY_RANK[item.answers_rank]  # type: ignore[index]
+		return (
+			f'§6.2.4: {question.question!r} is a life-safety message, so it cannot be published in '
+			f'{item.lang} alone. Missing: {", ".join(missing)}. '
+			f'{question.why_life_safety}'
+		)
 
 	def advance(self, item_id: str, to: ContentStage) -> ContentItem:
 		"""Move an item one step along §6.5's workflow, or retire it.
@@ -159,6 +218,16 @@ class InfoService(LogMixin):
 			node = self.TREE[nxt]
 		assert node.leaf_recommendation, 'must terminate at leaf'
 		return node.leaf_recommendation
+
+	def ranked_questions(self) -> list[RankedQuestion]:
+		"""§6.1's ten questions in the section's own order.
+
+		The order is the content: §6.1 is explicit that it is "ordered by real demand, not by what
+		health authorities want to publish", so a client that lists the library alphabetically or by
+		route has thrown away the one thing the section contributes. Served so a client can lead with
+		what people actually ask.
+		"""
+		return list(RANKED_QUESTIONS)
 
 	def hotlines(self) -> list[HotlineInfo]:
 		return list(HOTLINES)
