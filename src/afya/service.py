@@ -40,6 +40,7 @@ from afya.medicine.views import DoseRequest, StockReport, VerifyRequest
 from afya.facilities.service import FacilityService
 from afya.facilities.views import Booking, Facility, NearestRequest
 from afya.info.escalation import CORRECTION_FEED_CATEGORY, ContentError
+from afya.info.localisation import BackTranslation, CommunityValidation, workflow_for
 from afya.info.recency import instant_iso
 from afya.info.service import InfoService
 from afya.info.views import WORKFLOW, ContentItem, CountyRisk
@@ -811,6 +812,49 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return {'item_id': item.item_id, 'stage': item.stage.value, 'version': item.version}
 
+	@app.post('/info/content/back-translation')
+	async def info_record_back_translation(record: BackTranslation, at_ms: int | None = None,
+			_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""§6.5's back-translation step: record the rendered text and who produced it.
+
+		The step is a check only if it leaves evidence, and the evidence is two things: the text
+		someone who had not seen the source produced from the translation, and their name. Recording
+		it does not move the item — the stage is moved by `/advance`, which refuses to enter
+		`back_translation` without this record. Writing and moving are separate so the record can be
+		corrected without walking the item back, and so the gate reads a fact rather than a parameter.
+		"""
+		try:
+			state = info.record_back_translation(record, at_ms)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return state.model_dump(mode='json')
+
+	@app.post('/info/content/community-validation')
+	async def info_record_community_validation(record: CommunityValidation, at_ms: int | None = None,
+			_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""§6.5's community validation step: who took the text to the community, and what they said.
+
+		Refused when no back-translation is on file, because the community is shown the text the
+		back-translation produced — validating before it exists is validating nothing. The validator
+		may be neither the translator nor the back-translator: a step authored by the person whose work
+		it checks is the step's name without the step.
+		"""
+		try:
+			state = info.record_community_validation(record, at_ms)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return state.model_dump(mode='json')
+
+	@app.get('/info/content/localisation')
+	async def info_content_localisation(_subject: str = Depends(require_scope('audit_logs'))) -> list[dict[str, object]]:
+		"""§6.5's localisation workflow as it stands, item by item.
+
+		Auditor-scoped for the same reason the escalation log is: the person who walked an item
+		through the workflow is not the person who checks it was walked, and a reviewer who can move
+		the item can make their own evidence look complete.
+		"""
+		return [s.model_dump(mode='json') for s in info.localisation_review()]
+
 	@app.post('/info/content/errors')
 	async def info_report_error(error: ContentError, at_ms: int | None = None,
 			_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
@@ -901,6 +945,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		]
 		return {
 			'workflow': [s.value for s in WORKFLOW],
+			# §6.5's arrow is one sequence read across the two rows of a slug, so the governance view
+			# names both walks. A reader who sees only the flat list cannot tell why the English row
+			# has no translation step — and the flat list alone is what made `advance` walk every row
+			# through a translation of itself.
+			'workflow_by_lang': {
+				lang: [s.value for s in workflow_for(lang)]
+				for lang in dict.fromkeys(c.lang for c in info.all_items())
+			},
 			'items': items,
 			'stale': info.stale(today_iso, regime),
 			'regime': regime,

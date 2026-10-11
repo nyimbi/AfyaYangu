@@ -56,8 +56,14 @@ async def test_content_must_be_harmonised_and_governed_before_it_is_served() -> 
 
 
 async def test_the_workflow_and_staleness_audit_are_reachable() -> None:
-	"""§6.5's workflow and staleness audit as routes, not as a paragraph. The item is written as a
-	draft, advanced one step at a time, and only becomes servable at `published`."""
+	"""§6.5's workflow and staleness audit as routes, not as a paragraph.
+
+	The walk is one arrow read across the two rows of a slug, which is what makes the six steps one
+	sequence. The English row is the source text, so it goes draft → clinical review → published and
+	has no translation step to walk; the Swahili row is created at `translation` and carries
+	back-translation → community validation → published. The two verification stages are gated on
+	their evidence, so each is refused until its record is on file.
+	"""
 	services = build_services()
 	auth: AuthService = services['auth']  # type: ignore[assignment]
 	sysadmin = auth.provision_staff('ops-0', RBACRole.sysadmin, registrar='MoH ops').access_token
@@ -70,9 +76,23 @@ async def test_the_workflow_and_staleness_audit_are_reachable() -> None:
 		assert 's' not in served, 'a draft must not be served'
 		# A jump to published is refused; the walk is one step at a time.
 		assert (await c.post('/info/content/x/advance?to=published', headers=h)).status_code == 422
-		for stage in ('clinical_review', 'translation', 'back_translation', 'community_validation', 'published'):
+		# An English row has no translation step: the source text cannot be rendered back into itself.
+		assert (await c.post('/info/content/x/advance?to=translation', headers=h)).status_code == 422
+		for stage in ('clinical_review', 'published'):
 			assert (await c.post(f'/info/content/x/advance?to={stage}', headers=h)).status_code == 200
 		assert 's' in {r['slug'] for r in (await c.get('/info/library?lang=en')).json()}, 'published content is served'
+		# The translated row enters the workflow at `translation` and cannot leave it without evidence.
+		assert (await c.post('/info/content', json=_governed(item_id='x-sw', lang='sw', stage='translation'), headers=h)).status_code == 200
+		assert (await c.post('/info/content/x-sw/advance?to=back_translation', headers=h)).status_code == 422
+		back = {'item_id': 'x-sw', 'translated_by': 'MoH translator', 'back_translated_by': 'WHO verifier',
+		        'back_translation': 'b'}
+		assert (await c.post('/info/content/back-translation', json=back, headers=h)).status_code == 200
+		assert (await c.post('/info/content/x-sw/advance?to=back_translation', headers=h)).status_code == 200
+		# Community validation cannot precede the back-translation the community is shown.
+		assert (await c.post('/info/content/community-validation', json={
+			'item_id': 'x-sw', 'validated_by': 'Elder A', 'validator_role': 'community elder'}, headers=h)).status_code == 200
+		assert (await c.post('/info/content/x-sw/advance?to=community_validation', headers=h)).status_code == 200
+		assert (await c.post('/info/content/x-sw/advance?to=published', headers=h)).status_code == 200
 		# The governance view is auditor-scoped and names the staleness audit.
 		assert (await c.get('/info/content/governance', headers=h)).status_code == 403
 		gov = (await c.get('/info/content/governance?today_iso=2026-10-10', headers={'authorization': f'Bearer {auditor}'})).json()

@@ -16,12 +16,16 @@ from datetime import date
 from afya.auth.views import now_ms
 from afya.info.content_seed import seed_rows
 from afya.info.escalation import ContentError, ContentEscalation, escalate
+from afya.info.localisation import (
+	SOURCE_LANG, BackTranslation, CommunityValidation, LocalisationState, localisation, next_stage,
+	separation_breach, workflow_for,
+)
 from afya.info.principles import Finding, Subject, Verdict, judge, judge_corpus, library_texts, tree_texts
 from afya.info.questions import (
 	QUESTION_BY_RANK, REQUIRED_LANGS, RANKED_QUESTIONS, RankedQuestion, is_life_safety,
 )
 from afya.info.recency import UNDATED_MS, ServedFreshness, freshness, freshness_line, midnight_ms
-from afya.info.views import WORKFLOW, ContentItem, ContentStage, CountyRisk, DecisionNode, HotlineInfo
+from afya.info.views import ContentItem, ContentStage, CountyRisk, DecisionNode, HotlineInfo
 from afya.logmixin import LogMixin
 
 # §6.5 review cycle: clinical content is reviewed weekly during an outbreak and monthly otherwise.
@@ -47,6 +51,8 @@ class InfoService(LogMixin):
 		self._risk: dict[str, CountyRisk] = {}
 		self._errors: dict[str, ContentError] = {}
 		self._withdrawn: dict[str, list[str]] = {}
+		self._back_translations: dict[str, BackTranslation] = {}
+		self._community_validations: dict[str, CommunityValidation] = {}
 		self.seed()
 		assert self._content and self._risk == {}
 
@@ -228,6 +234,12 @@ class InfoService(LogMixin):
 		published directly would make every stage before it decorative. `archived` is reachable from
 		any stage, because retiring something wrong should not require walking it forward first.
 
+		**The two verification stages are gated on their evidence.** Without that, `back_translation`
+		and `community_validation` are names: the item moves and nothing records that anyone rendered
+		the translation back or took it to a community. The check is on the stage being *entered*, and
+		it reads the same `localisation()` the review view serves, so the gate and the report cannot
+		disagree about whether a step is done.
+
 		The move is stamped (§6.2.3): the version a reader holds is the one that last changed, and a
 		translation published an hour ago is not an English draft written in September.
 		"""
@@ -237,10 +249,97 @@ class InfoService(LogMixin):
 		if to is ContentStage.archived:
 			return self._replace(item, stage=ContentStage.archived, updated_at_ms=stamp)
 		assert item.stage is not ContentStage.archived, 'an archived item is retired, not revived'
-		current = WORKFLOW.index(item.stage)
-		nxt = WORKFLOW.index(to)
-		assert nxt == current + 1, f'{item.stage.value} advances to {WORKFLOW[current + 1].value}, not {to.value}'
+		nxt = next_stage(item)
+		assert nxt is to, (
+			f'{item.stage.value} advances to {nxt.value}, not {to.value}'
+			if nxt is not None else f'{item.stage.value} is the end of the walk, so it does not advance'
+		)
+		state = self.localisation_of(item, at_stage=to)
+		assert not state.blocked, state.blocked
+		assert not state.missing, (
+			f'{item.slug or item.item_id} cannot reach {to.value} with no evidence for '
+			f'{", ".join(state.missing)} (§6.5)'
+		)
 		return self._replace(item, stage=to, updated_at_ms=stamp)
+
+	def _source_body(self, item: ContentItem) -> str | None:
+		"""The source-language text of this item's message, or None when there is no such row.
+
+		The back-translation is rendered into the *source language*, so the text it is compared against
+		is the source row of the same slug. §6.5's arrow drafts in English, so that is `SOURCE_LANG`;
+		the row is looked up by slug rather than by a naming convention on the id, which is how the
+		rest of the module matches two translations of one message.
+		"""
+		if item.lang == SOURCE_LANG:
+			return item.body
+		for other in self._content.values():
+			if other.slug and other.slug == item.slug and other.lang == SOURCE_LANG:
+				return other.body
+		return None
+
+	def localisation_of(self, item: ContentItem, at_stage: ContentStage | None = None) -> LocalisationState:
+		"""§6.5's localisation for one item, with this shelf's records behind it."""
+		return localisation(
+			item, self._back_translations.get(item.item_id), self._community_validations.get(item.item_id),
+			self._source_body(item), now_ms(), at_stage=at_stage,
+		)
+
+	def record_back_translation(self, record: BackTranslation, at_ms: int | None = None) -> LocalisationState:
+		"""Write §6.5's back-translation step for one item.
+
+		The item must be the translated row, because the step is rendering a translation back: an
+		English item rendered into English is the check performed on the wrong object. It must also
+		have reached `translation`, since a back-translation of a translation that does not exist is
+		a record of a step that could not have happened.
+		"""
+		assert record.item_id in self._content, f'no content item {record.item_id}'
+		item = self._content[record.item_id]
+		assert item.lang != SOURCE_LANG, (
+			f'{record.item_id} is the source text ({item.lang}), so there is no translation to render back'
+		)
+		order = workflow_for(item.lang)
+		assert order.index(item.stage) >= order.index(ContentStage.translation), (
+			f'{record.item_id} is at {item.stage.value}, before the translation this step verifies'
+		)
+		stamp = at_ms if at_ms is not None else now_ms()
+		self._back_translations[record.item_id] = record.model_copy(update={'at_ms': stamp})
+		self._log_info('back-translation recorded', item_id=record.item_id, by=record.back_translated_by)
+		return self.localisation_of(item)
+
+	def record_community_validation(self, record: CommunityValidation, at_ms: int | None = None) -> LocalisationState:
+		"""Write §6.5's community validation step for one item.
+
+		The back-translation must already be on file: the community is shown the text the
+		back-translation produced, so validating before it exists is validating nothing. The separation
+		rule spans both records and is checked here, where both are finally visible.
+		"""
+		assert record.item_id in self._content, f'no content item {record.item_id}'
+		item = self._content[record.item_id]
+		back = self._back_translations.get(record.item_id)
+		assert back is not None, (
+			f'{record.item_id} has no back-translation on file, so there is nothing the community can have seen'
+		)
+		breach = separation_breach(back, record)
+		assert breach is None, breach
+		stamp = at_ms if at_ms is not None else now_ms()
+		self._community_validations[record.item_id] = record.model_copy(update={'at_ms': stamp})
+		self._log_info('community validation recorded', item_id=record.item_id, by=record.validated_by)
+		return self.localisation_of(item)
+
+	def localisation_review(self) -> list[LocalisationState]:
+		"""Every translated item's localisation, and every source item sitting at a translation stage.
+
+		The second set is the one a shelf-scoped view would miss: an English item walked into
+		`back_translation` is the workflow's own failure mode, and it is invisible to a report that
+		only lists translations.
+		"""
+		return [
+			self.localisation_of(c) for c in sorted(self._content.values(), key=lambda c: c.item_id)
+			if c.lang != SOURCE_LANG or c.stage in (
+				ContentStage.translation, ContentStage.back_translation, ContentStage.community_validation,
+			)
+		]
+
 
 	def _replace(self, item: ContentItem, **updates: object) -> ContentItem:
 		updated = item.model_copy(update=updates)

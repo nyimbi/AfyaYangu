@@ -205,12 +205,16 @@ async def test_publishing_refuses_an_english_only_life_safety_message() -> None:
 async def test_advancing_into_published_refuses_it_too() -> None:
 	"""The second door. An item drafted in English reaches `published` through the advance route, so
 	a check on `POST /info/content` alone guards the entrance beside the one everybody uses. This is
-	the call-site canary that matters: the first version of this work checked only the write."""
+	the call-site canary that matters: the first version of this work checked only the write.
+
+	The English row is the source text, so its walk is draft → clinical review → published: §6.5's
+	translation steps belong to the translated row. Reaching the publish step with no Swahili
+	counterpart is the refusal under test."""
 	import httpx
 	app, h = await _app_and_headers()
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		assert (await c.post('/info/content', json=_governed(stage='draft'), headers=h)).status_code == 200
-		for stage in ('clinical_review', 'translation', 'back_translation', 'community_validation'):
+		for stage in ('clinical_review',):
 			assert (await c.post(f'/info/content/x/advance?to={stage}', headers=h)).status_code == 200
 		refused = await c.post('/info/content/x/advance?to=published', headers=h)
 		assert refused.status_code == 422, refused.text
