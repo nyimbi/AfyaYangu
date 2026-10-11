@@ -14,6 +14,7 @@ from afya.brand.service import BRAND, NON_GOALS, PRINCIPLES, VISION, brand_is_cl
 from afya.config import ServiceConfig
 from afya.persistence.service import SqliteStore
 from afya.channels.cost import ZeroRatingRule, parse_rules, zero_rating_gaps
+from afya.channels.attention import attention_report
 from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import ChwTask, SmsOut, UssdRequest, WhatsAppIn
 from afya.emergency.service import EmergencyService, Inline719Port
@@ -1165,6 +1166,17 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			# deployment with no carrier agreement as verified.
 			'rules_pulled': rules is not None,
 		}
+
+	@app.get('/channels/attention')
+	async def channels_attention() -> dict[str, object]:
+		"""§5.1's rationale and the ordering it states: where attention is, in the section's own words.
+
+		Served beside `/channels/cost` because the two are read together and they disagree on purpose —
+		§5.2's Reach column ranks radio first and §5.1 ranks it third. A client placing an alert needs
+		§5.1's order, which is about where a person's attention is, not about how many people a channel
+		can eventually reach. It is open: it names no person and no number about one.
+		"""
+		return attention_report()
 
 	@app.post('/channels/sms')
 	async def channels_sms(to_msisdn: str, body: str) -> dict[str, object]:
