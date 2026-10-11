@@ -78,7 +78,9 @@ from afya.auth.service import AuthService
 from afya.auth.views import PKCEStart, PKCETokenRequest, StaffProvision, TokenRequest
 from afya.auth.views import now_ms as clock_ms
 from afya.chw.service import ChwService
+from afya.intermediaries.service import IntermediaryService
 from afya.chw.views import ActivityLogEntry, ChwCase, ChwProfile
+from afya.intermediaries.views import Incentive, Intermediary, Referral
 from afya.community.service import CommunityService
 from afya.community.views import (
 	CaseReport, CaseStatus, CommunityIssue, ContactEntry, ContactList, MisinfoSubmission, PeerAlert,
@@ -212,6 +214,10 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'personas': PersonaService(),
 		'security': SecurityService(),
 		'chw': ChwService(),
+		# §CHAN-5: the intermediary programme. Separate from `chw` because §4.2 and §CHAN-5 are two
+		# lists — pharmacy staff, faith leaders and teachers read the product *and* distribute it,
+		# and an intermediary holds a code, not a session.
+		'intermediaries': IntermediaryService(),
 		'auth': AuthService(),
 		# §18: the national systems. Every client is constructed whether or not its vendor is
 		# configured, because a client that only exists when configured makes "not configured" and
@@ -272,6 +278,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	personas: PersonaService = svc['personas']  # type: ignore[assignment]
 	security: SecurityService = svc['security']  # type: ignore[assignment]
 	chw: ChwService = svc['chw']  # type: ignore[assignment]
+	intermediaries: IntermediaryService = svc['intermediaries']  # type: ignore[assignment]
 	auth: AuthService = svc['auth']  # type: ignore[assignment]
 	# §18: the national systems. `jali` may be the offline port, which is why it is typed as the
 	# protocol rather than the concrete client — the routes must work on a deployment with no vendor.
@@ -2401,6 +2408,82 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/chw/{chw_ref}/activity')
 	async def chw_activity_summary(chw_ref: str, period: str = '2026-W41', _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
 		return chw.activity_summary(chw_ref, period).model_dump(mode='json')
+
+	# --- §CHAN-5 the intermediary programme --------------------------------------------------
+	# §4.1's Persona B arrives through "SOS feature recommended by his SACCO chairman", and §CHAN-5
+	# names the SACCO chairmen as a target intermediary who gets a code. Until now the only thing
+	# called `referral` in the tree was a CHW activity label, so the route a named persona takes into
+	# the product did not exist. Enrolment and the code are the operator's; recording a referral and
+	# reading an attribution are the intermediary's own.
+
+	@app.get('/intermediaries/programme')
+	async def intermediaries_programme() -> dict[str, object]:
+		"""§CHAN-5's seven kinds and five tools, against what this repo carries. Open, because it is
+		the programme's own description and names no person — the same shape as `/personas`."""
+		return intermediaries.programme().model_dump(mode='json')
+
+	@app.get('/intermediaries/kinds')
+	async def intermediaries_kinds() -> dict[str, object]:
+		"""The seven target intermediaries, in §CHAN-5's order, with the code prefix each gets."""
+		from afya.intermediaries.service import _KIND_PREFIX
+		from afya.intermediaries.views import IntermediaryKind
+		return {'kinds': [{'kind': k.value, 'name': k.name, 'prefix': _KIND_PREFIX[k]}
+		                  for k in IntermediaryKind]}
+
+	@app.post('/intermediaries/enrol')
+	async def intermediaries_enrol(intermediary: Intermediary, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Enrol an intermediary under a code. `infrastructure`-scoped: issuing a code is what makes
+		an incentive payable, so it is the operator's, not something a person can do for themselves.
+		A duplicate code is refused — the second enrolment would silently reattribute the first one's
+		referrals."""
+		try:
+			await intermediaries.enrol(intermediary)
+		except AssertionError as exc:
+			raise HTTPException(status_code=409, detail=str(exc)) from exc
+		return intermediary.model_dump(mode='json')
+
+	@app.post('/intermediaries/referrals')
+	async def intermediaries_referral(referral: Referral, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+		"""Record a referral against a code. `assigned`-scoped like the CHW activity routes, because
+		it is the same kind of write: a worker recording what they did. The referral names the person
+		who arrived — §CHAN-5's "verified" is what makes the record checkable, and a referral with no
+		person behind it is the intermediary's claim about their own activity."""
+		try:
+			await intermediaries.record_referral(referral)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return referral.model_dump(mode='json')
+
+	@app.get('/intermediaries/{code}/attribution')
+	async def intermediaries_attribution(code: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+		"""One intermediary's referrals, completions and payments."""
+		try:
+			return intermediaries.attribution(code).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.post('/intermediaries/incentives')
+	async def intermediaries_incentive(incentive: Incentive, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Pay one §CHAN-5 airtime incentive for a verified referral, through §18.8's telco client.
+
+		`infrastructure`-scoped: this spends money. The gate that refuses a second payment for the
+		same referral is in the service rather than here, because the route sees an amount and a
+		phone number and a caller that posted the same body twice would otherwise be paid twice.
+		"""
+		async def _disburse(msisdn: str, kes: int, reason: str) -> str:
+			return await telco.disburse_airtime(msisdn, kes, reason)
+		try:
+			paid = await intermediaries.pay_incentive(incentive, _disburse)
+		except AssertionError as exc:
+			# The telco client's own refusals (unconfigured, over the 500 KES bound) arrive here too.
+			# 422 for a bad request, 503 when the deployment has no carrier agreement — the two are
+			# different facts and a caller can act on the first but not the second.
+			detail = str(exc)
+			status = 503 if 'not configured' in detail else 422
+			raise HTTPException(status_code=status, detail=detail) from exc
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='the carrier is unreachable') from exc
+		return paid.model_dump(mode='json')
 
 	# --- §18 national system integrations ----------------------------------------------------
 	# Every route below is a wire the spec names and that nothing called before: the clients existed
