@@ -12,6 +12,7 @@ import os
 
 from afya.config import ServiceConfig
 from afya.persistence.service import SqliteStore
+from afya.channels.cost import ZeroRatingRule, parse_rules, zero_rating_gaps
 from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import ChwTask, SmsOut, UssdRequest, WhatsAppIn
 from afya.emergency.service import EmergencyService, Inline719Port
@@ -141,6 +142,21 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		cough_engine: object = YCE()
 	except (FileNotFoundError, AssertionError):
 		cough_engine = None
+	# §18.8's billing rules are constructed before the dict because the channel service is built
+	# from them — the SMS zero-rating claim is only checkable against the carrier's own rules, so
+	# the two cannot be wired independently. The rules are read lazily on each send: §18.8's
+	# frequency is "on change", and a rule cached at startup is a rule that goes stale silently.
+	telco = TelcoGatewayClient(cfg.telco_zero_rating_url, cfg.telco_airtime_url, cfg.telco_api_key or 'unconfigured', client)
+
+	async def telco_rules() -> list[ZeroRatingRule] | None:
+		"""The carrier's zero-rating rules, as rules. Failure is the channel service's to report.
+
+		No try/except here: an unconfigured deployment and an unreachable carrier are both "the
+		rules were not pulled", which `ChannelService.zero_rating_rules` already turns into None and
+		logs. Swallowing it here as well would be a second place that decides what a failure means.
+		"""
+		return parse_rules(await telco.zero_rating_rules())
+
 	return {
 		'registry': registry,
 		'store': store,
@@ -152,7 +168,10 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'sensors': SensorService(registry),
 		'medicine': MedicineService(PPBClient(cfg.ppb_url, client, '')),
 		'facilities': FacilityService(),
-		'channels': ChannelService(sms_port),
+		# §5.3 CHAN-1's zero-rating is an agreement with the carrier, so the channel service is
+		# handed the telco client's rules rather than a boolean. A deployment with no telco
+		# configured passes nothing and reports every free claim as unverified.
+		'channels': ChannelService(sms_port, telco_rules),
 		'emergency': EmergencyService(Inline719Port()),
 		'info': InfoService(),
 		'records': RecordsService(),
@@ -194,7 +213,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'ppb': PPBClient(cfg.ppb_url, client, cfg.ppb_api_key),
 		'adam': AdamClient(cfg.adam_url, client, cfg.adam_api_key, cfg.adam_cert()),
 		'sha': SHAClient(cfg.sha_url, client, cfg.sha_api_key),
-		'telco': TelcoGatewayClient(cfg.telco_zero_rating_url, cfg.telco_airtime_url, cfg.telco_api_key or 'unconfigured', client),
+		'telco': telco,
 	}
 
 
@@ -1055,6 +1074,28 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	# --- channels ---
+	@app.get('/channels/cost')
+	async def channels_cost() -> dict[str, object]:
+		"""§5.2's cost-to-user column and §3.3 principle 3, resolved against the carrier's rules.
+
+		Public, because it is the answer to a question every user has — will this cost me airtime —
+		and it names no person. `zero_rating_gaps` is served beside the rows so a deployment whose
+		carrier stopped covering SMS says so, rather than the app continuing to tell people alerts
+		are free.
+		"""
+		rows = await channels.cost_report()
+		rules = await channels.zero_rating_rules()
+		gaps = zero_rating_gaps(rules)
+		return {
+			'channels': [r.model_dump(mode='json') for r in rows],
+			'zero_rating_gaps': [g.channel for g in gaps],
+			# Whether the carrier's rules were pulled at all. `rules is None` is the deployment-level
+			# answer; a row's own `verified` is only about that row, and every row that needs no rule
+			# is verified by construction — so reading it off the first row would report a
+			# deployment with no carrier agreement as verified.
+			'rules_pulled': rules is not None,
+		}
+
 	@app.post('/channels/sms')
 	async def channels_sms(to_msisdn: str, body: str) -> dict[str, object]:
 		try:

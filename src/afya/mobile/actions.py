@@ -105,6 +105,7 @@ FEATURE_OF: dict[str, str] = {
 	'file_price': 'INF-016', 'price_quote': 'INF-016', 'sha_cover_check': 'INF-016',
 	'assign_chw_task': 'CHAN-005', 'chw_open_tasks': 'CHAN-005', 'complete_chw_task': 'CHAN-005',
 	'send_sms': 'CHAN-001', 'whatsapp_send': 'CHAN-003', 'ussd_menu': 'CHAN-002',
+	'channel_costs': 'CHAN-001',
 	'queue_sync_op': 'CHAN-006', 'flush_sync': 'CHAN-006', 'offline_state': 'ACC-003',
 	'record_consent': 'SEC-001', 'dpia_check': 'SEC-001',
 	'sensor_ingest': 'SENS-005', 'analyse_cough': 'SENS-002', 'submit_evidence': 'SENS-004',
@@ -403,6 +404,7 @@ def catalogue() -> list[MobileAction]:
 		_a('chw_open_tasks', 'Open tasks', 'Channels', 'GET', '/channels/chw/tasks/{chw_ref}', [_f('ref', 'Health worker', 'path')]),
 		_a('complete_chw_task', 'Complete a task', 'Channels', 'POST', '/channels/chw/tasks/{task_id}/done', [_f('id', 'Task number', 'path')]),
 		_a('send_sms', 'Send a free text message', 'Channels', 'POST', '/channels/sms', [_f('to_msisdn', 'Phone number'), _f('body', 'Message')]),
+		_a('channel_costs', 'Will this cost me airtime?', 'Channels', 'GET', '/channels/cost', []),
 		_a('ussd_menu', 'USSD menu', 'Channels', 'POST', '/channels/ussd', [_f('session_id', 'Session'), _f('msisdn', 'Phone number'), _f('text', 'Selection')]),
 		_a('whatsapp_send', 'WhatsApp reply', 'Channels', 'POST', '/channels/whatsapp', [_f('from_msisdn', 'Phone number'), _f('body', 'Message')]),
 		_a('queue_sync_op', 'Save for later (offline)', 'Sync', 'POST', '/sync/ops', [_f('op_id', 'Change number'), _f('dataset', 'What kind of change?', 'select', SYNC_DATASETS), _f('client_ts', 'When it happened', 'int')]),
@@ -523,5 +525,6 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'export_my_data': ('Download my data', 'A copy of everything held about you, and what it leaves out'),
 	'delete_my_data': ('Delete my data', 'Remove what is yours; we tell you what must stay'),
 	'access_profile': ('Make the app easier to use', 'Bigger text, simple mode, read aloud'),
+	'channel_costs': ('Will this cost me airtime?', 'What each way of reaching us costs you, and whether it is free'),
 	'voice': ('Speak to the app', 'Ask in your own language'),
 }

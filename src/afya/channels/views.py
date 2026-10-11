@@ -5,11 +5,19 @@ MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_ali
 
 
 class SmsOut(BaseModel):
+	"""One outbound SMS, with whether the person receiving it is charged.
+
+	`zero_rated` has no default. It used to default to `True`, which meant every message the system
+	sent was stamped free whether or not any carrier agreement existed — a claim nothing could make
+	false, checked only by an assert on the value it had just been handed. It is now resolved from
+	§5.2's cost table and §18.8's pulled billing rules (`afya.channels.cost`), so a caller that does
+	not know has to say so by omission rather than by inheriting "free".
+	"""
 	model_config = MODEL_CONFIG
 	to_msisdn: str = Field(pattern=r'^\+254\d{9}$')
 	body: str = Field(max_length=1600)
 	segments: int = Field(ge=1, le=10)
-	zero_rated: bool = True
+	zero_rated: bool
 
 
 class UssdRequest(BaseModel):

@@ -42,7 +42,13 @@ async def test_mohf_download(client: httpx.AsyncClient, httpserver: HTTPServer) 
 async def test_at_sms_rest_send(client: httpx.AsyncClient, httpserver: HTTPServer) -> None:
 	httpserver.expect_request('/version1/messaging', method='POST').respond_with_json({'SMSMessageData': {'Recipients': [{'messageId': 'ATX_1'}]}})
 	sender = AtSmsRestSend(httpserver.url_for('/'), 'k1', 'afya', client)
-	assert await sender.send(SmsOut(to_msisdn='+254711222333', body='Call 719', segments=1)) == 'ATX_1'
+	# `zero_rated` is stated rather than defaulted (see `test_channel_cost.py`), and it is stated
+	# *false* on purpose: the transport is a transport, and this asserts it puts a message on the wire
+	# whether or not the carrier has agreed to carry it free. The flag used to default to true and the
+	# port asserted it, so the charging case could not be expressed — and an outbreak alert must not be
+	# dropped because the telco paperwork lapsed.
+	msg = SmsOut(to_msisdn='+254711222333', body='Call 719', segments=1, zero_rated=False)
+	assert await sender.send(msg) == 'ATX_1'
 
 
 async def test_whatsapp_business_send(client: httpx.AsyncClient, httpserver: HTTPServer) -> None:

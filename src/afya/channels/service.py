@@ -1,6 +1,7 @@
 """Channel service — SMS/USSD/WhatsApp/radio/social/CHW/native contracts (spec §5, CHAN-000..006)."""
-from typing import Protocol
+from typing import Awaitable, Callable, Protocol
 
+from afya.channels.cost import ChannelCostVerdict, ZeroRatingRule, cost_report, cost_verdict
 from afya.channels.views import (
 	ChwTask, PushPayload, RadioBulletin, SmsOut, UssdRequest, UssdResponse, WhatsAppIn, WhatsAppOut,
 )
@@ -36,21 +37,67 @@ class AfricaTalkingSmsPort:
 		assert self._key, 'api key'
 
 	async def send(self, msg: SmsOut) -> str:
-		assert msg.zero_rated is True, 'CHAN-001 must be zero-rated'
+		"""Send regardless of what the message costs the person.
+
+		This used to assert `msg.zero_rated is True`, which read as a §5.3 control and was a
+		tautology: the flag was a default this port had just been handed, so the assert could not
+		fail and said nothing about whether a carrier agreement existed. Now that the flag is
+		resolved from the real rules, refusing here would be worse than the defect — it would drop an
+		outbreak alert because the telco paperwork lapsed, trading a shilling for a case. The charge
+		is carried on the message and reported by the caller instead.
+		"""
 		return f'at:queued:{len(msg.body)}'
 
 
 class ChannelService(LogMixin):
-	def __init__(self, sms: SmsGatewayPort) -> None:
+	def __init__(self, sms: SmsGatewayPort, zero_rating: Callable[[], Awaitable[list[ZeroRatingRule] | None]] | None = None) -> None:
+		"""`zero_rating` supplies §18.8's billing rules when the carrier is reachable, and None when
+		they have not been pulled. Injected rather than constructed here because the rules live on the
+		telco client and the channel service must not depend on the integration layer; a deployment
+		with no carrier configured passes nothing, and every free claim is then reported unverified
+		rather than assumed true.
+		"""
 		self._sms = sms
+		self._zero_rating = zero_rating
 		self._ussd_state: dict[str, int] = {}
 		self._chw_tasks: list[ChwTask] = []
 		assert self._ussd_state == {} and self._chw_tasks == []
 
+	async def zero_rating_rules(self) -> list[ZeroRatingRule] | None:
+		"""§18.8's rules, or None when they have not been pulled.
+
+		None is returned rather than an empty list on purpose: an empty list means the carrier
+		answered and covers nothing, which is a finding, while None means nobody asked. A carrier
+		that is configured but unreachable is the second case, and it must not be reported as the
+		first.
+		"""
+		if self._zero_rating is None:
+			return None
+		try:
+			return await self._zero_rating()
+		except Exception as exc:  # a carrier that is down is not a carrier that charges
+			self._log_warn('zero-rating rules unavailable', error=str(exc))
+			return None
+
+	async def cost_report(self) -> list[ChannelCostVerdict]:
+		"""What each of §5.2's seven channels costs a person right now."""
+		return cost_report(await self.zero_rating_rules())
+
 	async def send_sms(self, msisdn: str, body: str) -> SmsOut:
-		out = SmsOut(to_msisdn=msisdn, body=body, segments=segment_sms(body))
+		"""Queue one SMS, with `zero_rated` resolved rather than assumed.
+
+		§5.3 CHAN-1's critical requirement is that the person is not charged, and the thing that
+		makes that true is the carrier's zero-rating rule — not a default on this model. The rule is
+		read here, at the moment a message is actually sent, because that is the only point where the
+		claim reaches a person: a rule that changed and was not re-pulled means the app tells people
+		alerts are free when they are not (§18.8).
+		"""
+		verdict = cost_verdict('sms', await self.zero_rating_rules())
+		out = SmsOut(to_msisdn=msisdn, body=body, segments=segment_sms(body), zero_rated=verdict.free_at_point_of_use)
+		if verdict.charged:
+			self._log_warn('sms is not zero-rated right now', channel='sms', verified=verdict.verified)
 		ref = await self._sms.send(out)
-		self._log_info('sms queued', ref=ref, segments=out.segments)
+		self._log_info('sms queued', ref=ref, segments=out.segments, zero_rated=out.zero_rated)
 		return out
 
 	def ussd(self, req: UssdRequest, lang: str = 'en') -> UssdResponse:
