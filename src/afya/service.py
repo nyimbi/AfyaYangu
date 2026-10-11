@@ -43,6 +43,7 @@ from afya.medicine.views import DoseRequest, StockReport, VerifyRequest
 from afya.facilities.service import FacilityService
 from afya.facilities.views import Booking, Facility, NearestRequest
 from afya.info.escalation import CORRECTION_FEED_CATEGORY, ContentError
+from afya.info import health_education
 from afya.info.localisation import BackTranslation, CommunityValidation, workflow_for
 from afya.info.recency import instant_iso
 from afya.info.service import InfoService
@@ -1011,6 +1012,25 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		"""
 		stamp = now_ms if now_ms is not None else clock_ms()
 		return [info.escalation(e.error_id, stamp).model_dump(mode='json') for e in info.errors()]
+
+	@app.get('/info/health-education')
+	async def info_health_education(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§10.5's three features — the topics each names, and which the corpus has an item for.
+
+		Auditor-scoped like the other evidence views: it reports what the corpus is missing, which is
+		a content owner's business rather than a client's. `gaps` is the finding — "first-aid items are
+		in the health library corpus" is true of the one item that exists and says nothing about the
+		other ten topics §INF-009 names.
+		"""
+		items = info.all_items()
+		return {
+			'coverage': health_education.report(items),
+			'health_tip_topics': list(health_education.HEALTH_TIP_TOPICS),
+			'first_aid_topics': list(health_education.FIRST_AID_TOPICS),
+			'burial_content': list(health_education.BURIAL_CONTENT),
+			'sensitivity_reviewers': list(health_education.SENSITIVITY_REVIEWERS),
+			'first_aid_offline': health_education.first_aid_is_offline(),
+		}
 
 	@app.get('/info/content/governance')
 	async def info_content_governance(today_iso: str = '2026-10-10', regime: str = 'steady',
