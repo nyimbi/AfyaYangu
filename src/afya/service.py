@@ -3213,6 +3213,33 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		leaving a silent pass."""
 		return rollout.readiness().model_dump(mode='json')
 
+	@app.get('/rollout/acquisition')
+	async def rollout_acquisition() -> dict[str, object]:
+		"""§20.3's channel-by-channel acquisition plan and §20.4's partnership map, with §20.2's levers
+		crossed against the partners they name.
+
+		Open like `/rollout/phases`: it is the document a telco, an NGO or a county team reads to see
+		what is being asked of them, and it names no person. The §20.3 rows carry their registry
+		handles, so this is the one rollout surface that must not be served where a partner reads it
+		— the handles are dropped below for the same reason `/rollout/plan` drops its own."""
+		plan = rollout.acquisition()
+		return {
+			'channels': [{'channel': c.channel, 'label': c.label, 'role': c.role, 'tactics': c.tactics}
+				for c in plan.channels],
+			'partner_types': [p.model_dump(mode='json') for p in plan.partner_types],
+			'partner_count': plan.partner_count,
+			'lever_partners': plan.lever_partners,
+			'note': plan.note,
+		}
+
+	@app.get('/rollout/acquisition/coverage')
+	async def rollout_acquisition_coverage(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""The evidence half: the §20.3 rows with their registry handles, the §5.2 channels §20.3
+		leaves unmapped, and the §20.2 levers resting on a partner §20.4 does not list.
+
+		Auditor-scoped for the same reason `/rollout/plan/readiness` is: here the id *is* the finding."""
+		return rollout.acquisition().model_dump(mode='json')
+
 	@app.get('/rollout/status')
 	async def rollout_status(phase: str, _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
 		"""§21.1's tier ceiling for a phase against what is actually active. A deployment running

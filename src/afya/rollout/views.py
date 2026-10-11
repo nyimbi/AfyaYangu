@@ -287,3 +287,64 @@ class AppSizePlan(BaseModel):
 	budget_mb: float = Field(gt=0)
 	within_budget: bool
 	note: str
+
+
+class AcquisitionChannel(BaseModel):
+	"""One §20.3 row: a channel, the job it does in acquisition, and the tactics that do it.
+
+	`channel` is §5.2's slug and `label` is §20.3's own word for it, and both are kept because the
+	two are not the same set. §20.3 says "App stores" where §5.2's channel is `native`: the app store
+	is how the app is *found*, the app is what is found, and collapsing the label into the slug
+	without saying so would read as the section having named a channel the registry does not carry.
+
+	`tactics` is the section's Tactics cell split on its semicolons, so "Daily segments, call-ins,
+	drama vignettes" is three tactics rather than one string — a plan whose tactics are a paragraph
+	is a plan nobody can assign.
+	"""
+
+	model_config = MODEL_CONFIG
+	channel: str = Field(min_length=1)
+	label: str = Field(min_length=1)
+	role: str = Field(min_length=1)
+	tactics: list[str] = Field(min_length=1)
+	# The registry feature that carries the channel, where §7.2 gives one. §20.3 is a plan to
+	# acquire through a channel; a channel with no capability behind it is a media buy.
+	feature_id: str | None = Field(default=None, pattern=id_pattern())
+
+
+class PartnerType(BaseModel):
+	"""One §20.4 row: a category of partner, the partners the section names in it, and what they
+	bring.
+
+	`partners` is the Specific partners cell split on its commas — "Kenya Red Cross, AMREF Health
+	Africa, Living Goods, Medic, Dimagi" is five organisations, and a count that said one would let
+	a map of four names pass as a map of ten rows.
+	"""
+
+	model_config = MODEL_CONFIG
+	partner_type: str = Field(min_length=1)
+	partners: list[str] = Field(min_length=1)
+	role: str = Field(min_length=1)
+
+
+class AcquisitionPlan(BaseModel):
+	"""§20.3 and §20.4 as one answer, crossed against §5.2's channels and §20.2's levers.
+
+	Two findings, and they are the two ways an acquisition plan is a document rather than a plan.
+
+	`unmapped_channels` is a §5.2 channel §20.3 gives no acquisition role for — a channel the product
+	can reach someone through and no plan to reach them. `unsourced_levers` is the reverse and the
+	sharper one: §20.2's levers name specific organisations ("Negotiate with Safaricom, Airtel,
+	Telkom before launch", "Co-brand with Kenya Red Cross, AMREF, WHO, faith networks") and §20.4 is
+	the section that says who is actually a partner. A lever whose action rests on a partner the
+	partnership map does not list is a growth strategy waiting on an agreement nobody signed.
+	"""
+
+	model_config = MODEL_CONFIG
+	channels: list[AcquisitionChannel]
+	partner_types: list[PartnerType]
+	partner_count: int
+	unmapped_channels: list[str]
+	lever_partners: dict[str, list[str]]
+	unsourced_levers: list[str]
+	note: str

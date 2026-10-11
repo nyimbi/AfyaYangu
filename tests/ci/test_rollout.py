@@ -465,3 +465,130 @@ async def test_the_phase_plan_surfaces_carry_no_spec_code() -> None:
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app2), base_url='http://t') as c2:
 		ev = (await c2.get('/rollout/plan/readiness', headers=headers)).text
 		assert not code.findall(ev), f'spec code on the readiness surface: {code.findall(ev)}' 
+
+
+# --- §20.3 channel acquisition, §20.4 partnership map ----------------------------------------
+
+def _spec_table(heading: str, stop: str, columns: int) -> list[list[str]]:
+	"""A spec table's rows, read out of `docs/spec.md` so a revision to the section fails here."""
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split(heading, 1)[1].split(stop, 1)[0]
+	rows: list[list[str]] = []
+	for line in section.splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip() for c in line.strip('|').split('|')]
+		if len(cells) != columns or cells[0] in ('Channel', 'Partner type'):
+			continue
+		rows.append(cells)
+	return rows
+
+
+def test_the_acquisition_table_is_the_sections_seven_rows() -> None:
+	"""§20.3, cell for cell. The tactics cell is the section's, split on its separators — "Daily
+	segments, call-ins, drama vignettes" is three tactics and WhatsApp's "Forwardable cards with
+	download links; bot → app handoff" is two, so the split is on both a comma and a semicolon. A row
+	carrying one string would be a plan nobody can assign."""
+	import re as _re
+	spec = _spec_table('### 20.3 Channel-by-Channel Acquisition', '\n---', 3)
+	from afya.rollout.service import ACQUISITION
+	assert len(spec) == 7, f'§20.3 lists seven channels, found {len(spec)}'
+	assert [c.label for c in ACQUISITION] == [r[0] for r in spec]
+	assert [c.role for c in ACQUISITION] == [r[1] for r in spec]
+	for row, (_, _, tactics) in zip(ACQUISITION, spec):
+		assert row.tactics == [t.strip() for t in _re.split(r'[;,]', tactics)], f'{row.label} tactics'
+
+
+def test_every_section_5_2_channel_has_an_acquisition_role() -> None:
+	"""The finding. §20.3 is how a person is reached and §5.2 is the channel list; a channel with no
+	row is one the product can reach someone through with no plan to reach them."""
+	from afya.registry.service import CHANNELS
+	from afya.rollout.service import ACQUISITION
+	plan = _svc().acquisition()
+	assert plan.unmapped_channels == [], f'no §20.3 acquisition role for: {plan.unmapped_channels}'
+	assert {c.channel for c in ACQUISITION} == set(CHANNELS)
+	# §20.3 says "App stores" where §5.2's channel is `native`. The two words are both kept: the app
+	# store is how the app is found, the app is what is found, and collapsing the label would read
+	# as the section naming a channel the registry does not carry.
+	stores = next(c for c in ACQUISITION if c.label == 'App stores')
+	assert stores.channel == 'native'
+	assert all(c.feature_id is not None for c in ACQUISITION), 'every channel names its capability'
+
+
+def test_the_partnership_map_is_the_sections_ten_rows_and_names_its_organisations() -> None:
+	"""§20.4, cell for cell, with the partners cell split on its commas. A map whose partner count
+	counted rows rather than names would say ten when the section names thirty-nine."""
+	spec = _spec_table('### 20.4 Partnership Map', '\n---', 3)
+	from afya.rollout.service import PARTNERS
+	assert len(spec) == 10, f'§20.4 lists ten partner types, found {len(spec)}'
+	assert [t.partner_type for t in PARTNERS] == [r[0].replace('**', '') for r in spec]
+	assert [t.role for t in PARTNERS] == [r[2] for r in spec]
+	for row, (_, named, _role) in zip(PARTNERS, spec):
+		assert row.partners == [p.strip() for p in named.split(',')], f'{row.partner_type} partners'
+	assert sum(len(t.partners) for t in PARTNERS) == 39
+
+
+def test_a_lever_resting_on_a_partner_outside_the_map_is_reported() -> None:
+	"""The sharper finding: §20.2 lever 1 says "Negotiate with Safaricom, Airtel, Telkom" and lever 3
+	"Co-brand with Kenya Red Cross, AMREF, WHO", and §20.4 is the section that says who is a partner.
+	A lever waiting on an organisation the map does not list is a strategy waiting on a signature
+	nobody asked for."""
+	plan = _svc().acquisition()
+	assert plan.unsourced_levers == [], f'levers resting on an unlisted partner: {plan.unsourced_levers}'
+	assert plan.lever_partners['1'] == ['Safaricom', 'Airtel Kenya', 'Telkom Kenya']
+	assert plan.lever_partners['3'] == ['Kenya Red Cross', 'AMREF Health Africa', 'WHO']
+	# Only the levers whose Action cell names an organisation are joined; the other four name a
+	# design property or a category and have nothing in §20.4 to resolve against.
+	assert set(plan.lever_partners) == {'1', '3'}
+
+
+def test_the_canary_watches_the_partner_join_fire() -> None:
+	"""Canary. Rename a partner the lever depends on and the join must name the lever. If this
+	passes, the check is comparing the map against itself."""
+	from afya.rollout import service as rs
+	original = rs.PARTNERS
+	try:
+		rs.PARTNERS = tuple(
+			t.model_copy(update={'partners': [p for p in t.partners if p != 'Safaricom']})
+			if t.partner_type == 'Telcos' else t for t in original)
+		unsourced = rs.RolloutService(FeatureRegistry()).acquisition().unsourced_levers
+		assert len(unsourced) == 1 and 'Safaricom' in unsourced[0], f'rename went unnoticed: {unsourced}'
+	finally:
+		rs.PARTNERS = original
+	assert rs.RolloutService(FeatureRegistry()).acquisition().unsourced_levers == [], 'canary left PARTNERS mutated'
+
+
+def test_the_canary_watches_the_channel_coverage_check_fire() -> None:
+	"""Canary. Drop §20.3's USSD row and the coverage check must name the channel — the same shape as
+	a §7.3 feature outside the tier map."""
+	from afya.rollout import service as rs
+	original = rs.ACQUISITION
+	try:
+		rs.ACQUISITION = tuple(c for c in original if c.channel != 'ussd')
+		unmapped = rs.RolloutService(FeatureRegistry()).acquisition().unmapped_channels
+		assert unmapped == ['ussd'], f'the dropped row went unnoticed: {unmapped}'
+	finally:
+		rs.ACQUISITION = original
+	assert rs.RolloutService(FeatureRegistry()).acquisition().unmapped_channels == [], 'canary left ACQUISITION mutated'
+
+
+async def test_the_acquisition_plan_is_public_and_the_coverage_evidence_is_scoped() -> None:
+	"""`/rollout/acquisition` is the document a telco or a county team reads to see what is being
+	asked of them, and it carries no registry handle; the coverage half keeps them, because there
+	the id is the finding — the same split `/rollout/plan` and `/sensors/capabilities` already make."""
+	import re as _re
+	code = _re.compile(r'\b(?:CHAN|INF|TRI|FND|MED|EMG|REC|MON|SENS|LOC|COM|ALT|AI|ACC|SEC)-\d{3}\b')
+	app = create_app(build_services())
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		public = await c.get('/rollout/acquisition')
+		assert public.status_code == 200, public.text
+		assert not code.findall(public.text), f'spec code served to a partner: {code.findall(public.text)}'
+		body = public.json()
+		assert body['partner_count'] == 39 and len(body['channels']) == 7
+		assert body['channels'][0]['label'] == 'Radio'
+		assert (await c.get('/rollout/acquisition/coverage')).status_code in (401, 403)
+	app2, headers = _auditor_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app2), base_url='http://t') as c2:
+		ev = await c2.get('/rollout/acquisition/coverage', headers=headers)
+		assert ev.status_code == 200, ev.text
+		assert ev.json()['channels'][0]['feature_id'] == 'CHAN-000', 'the handles stay on the evidence half'

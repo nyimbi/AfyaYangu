@@ -14,11 +14,11 @@ from pathlib import Path
 
 from afya.logmixin import LogMixin
 from afya.metrics.service import KPIS
-from afya.registry.service import FeatureRegistry
+from afya.registry.service import CHANNELS, FeatureRegistry
 from afya.rollout.views import (
-	AntiPattern, AppSizePlan, Deliverable, GrowthLever, LaunchStep, ModuleDelivery, Phase,
-	PhasePlan, PhaseReadiness, PhaseSpec, ReadinessReport, RetentionMechanism, RolloutStatus,
-	SuccessCriterion,
+	AcquisitionChannel, AcquisitionPlan, AntiPattern, AppSizePlan, Deliverable, GrowthLever,
+	LaunchStep, ModuleDelivery, PartnerType, Phase, PhasePlan, PhaseReadiness, PhaseSpec,
+	ReadinessReport, RetentionMechanism, RolloutStatus, SuccessCriterion,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -144,6 +144,72 @@ MODULES: tuple[ModuleDelivery, ...] = (
 	ModuleDelivery(component='Offline content library', size_mb=15.0, delivery='on_demand', condition='optional'),
 	ModuleDelivery(component='Offline facility cache', size_mb=5.0, delivery='automatic', condition='per county'),
 )
+
+# §20.3, verbatim. `channel` is §5.2's slug and `label` the section's own word, because the two are
+# not the same set — "App stores" is `native` here, and §20.3's row is the *discovery* act rather
+# than the app. §5.2's seven channels are all seven rows, so nothing in the section is unmapped; the
+# crossing is asserted rather than assumed, and it is what would fail if §5.2 gained an eighth.
+ACQUISITION: tuple[AcquisitionChannel, ...] = (
+	AcquisitionChannel(channel='radio', label='Radio', role='Mass awareness',
+		tactics=['Daily segments', 'call-ins', 'drama vignettes'], feature_id='CHAN-000'),
+	AcquisitionChannel(channel='sms', label='SMS', role='Opt-in list building',
+		tactics=['Zero-rated alerts with opt-in keyword'], feature_id='CHAN-001'),
+	AcquisitionChannel(channel='ussd', label='USSD', role='Non-smartphone reach',
+		tactics=['Menu with "download app" option via SMS link'], feature_id='CHAN-002'),
+	AcquisitionChannel(channel='whatsapp', label='WhatsApp', role='Primary conversion',
+		tactics=['Forwardable cards with download links', 'bot → app handoff'], feature_id='CHAN-003'),
+	AcquisitionChannel(channel='social', label='Social media', role='Youth reach',
+		tactics=['TikTok myth-busting', 'Instagram explainers', 'X threads'], feature_id='CHAN-004'),
+	AcquisitionChannel(channel='chw', label='Human intermediaries', role='Trust transfer',
+		tactics=['CHWs', 'chemists', 'faith leaders', 'boda SACCOs'], feature_id='CHAN-005'),
+	AcquisitionChannel(channel='native', label='App stores', role='Discovery',
+		tactics=['ASO', 'ratings', 'reviews'], feature_id='CHAN-006'),
+)
+
+# §20.4, verbatim. `partners` is the Specific partners cell split on its commas — the cell is the
+# section naming organisations, and a map whose partner count counted rows would read as ten
+# organisations when the section names thirty-nine.
+PARTNERS: tuple[PartnerType, ...] = (
+	PartnerType(partner_type='Telcos', partners=['Safaricom', 'Airtel Kenya', 'Telkom Kenya'],
+		role='Zero-rating, SMS/USSD gateway, airtime incentives, distribution'),
+	PartnerType(partner_type='Health NGOs',
+		partners=['Kenya Red Cross', 'AMREF Health Africa', 'Living Goods', 'Medic', 'Dimagi'],
+		role='CHW networks, field validation, credibility'),
+	PartnerType(partner_type='Government',
+		partners=['MoH', 'PHEOC', 'county health teams', 'PPB', 'SHA'],
+		role='Data, authority, integration'),
+	PartnerType(partner_type='Faith networks',
+		partners=['NCCK', 'SUPKEM', 'Catholic Secretariat', 'evangelical associations'],
+		role='Trust, distribution, burial guidance'),
+	PartnerType(partner_type='Transport',
+		partners=['Boda boda SACCOs', 'matatu SACCOs', 'long-distance operators'],
+		role='Mobility, distribution, trusted voices'),
+	PartnerType(partner_type='Retail',
+		partners=['Pharmacy chains', 'chemists', 'supermarkets', 'kiosks'],
+		role='Medicine verification, distribution, stock reporting'),
+	PartnerType(partner_type='Education', partners=['Universities', 'TVETs', 'secondary schools'],
+		role='Student adoption, peer spread'),
+	PartnerType(partner_type='Media',
+		partners=['KBC', 'Royal Media', 'Radio Africa', 'Standard Group', 'Nation Media'],
+		role='Awareness, credibility'),
+	PartnerType(partner_type='International', partners=['WHO', 'UNICEF', 'CDC', 'Africa CDC'],
+		role='Technical guidance, funding, legitimacy'),
+	PartnerType(partner_type='Tech', partners=['Google', 'Meta', 'Safaricom Spark'],
+		role='Platform support, zero-rating, technical resources'),
+)
+
+# The organisations §20.2's levers name as the thing the lever is waiting on, spelled as the
+# partnership map spells them. This is the join §20.4 exists to satisfy: §20.2 lever 1 says
+# "Negotiate with Safaricom, Airtel, Telkom before launch" and lever 3 says "Co-brand with Kenya Red
+# Cross, AMREF, WHO, faith networks", and §20.4 is the section that says who is a partner.
+#
+# Only those two levers name an organisation. "faith networks" is a category rather than a body, so
+# it is left out rather than mapped to a row: the lever names WHO and two NGOs by name, and a
+# category given a row's worth of partners would be this code inventing the join.
+LEVER_PARTNER_NAMES: dict[int, tuple[str, ...]] = {
+	1: ('Safaricom', 'Airtel Kenya', 'Telkom Kenya'),
+	3: ('Kenya Red Cross', 'AMREF Health Africa', 'WHO'),
+}
 
 
 # §21.2–21.7, the phase sections. §21.1's table gives each phase a ceiling and a channel set; the
@@ -517,6 +583,38 @@ class RolloutService(LogMixin):
 	def rollout_plan(self) -> list[PhaseReadiness]:
 		"""Every phase's plan and its findings, in phase order. The whole of §21 as one answer."""
 		return [self.phase_readiness(p.phase) for p in PHASES if p.phase in PLAN_BY_PHASE]
+
+	def acquisition(self) -> AcquisitionPlan:
+		"""§20.3's channel plan and §20.4's partnership map, crossed against §5.2 and §20.2.
+
+		Two findings. `unmapped_channels` is a §5.2 channel §20.3 gives no acquisition role for — a
+		channel the product reaches someone through and no plan to reach them. `unsourced_levers` is
+		the sharper one: a §20.2 lever whose named partner is not on the §20.4 map is a growth
+		strategy waiting on an agreement with an organisation the partnership section does not know.
+		"""
+		known: dict[str, str] = {p: t.partner_type for t in PARTNERS for p in t.partners}
+		lever_partners: dict[str, list[str]] = {}
+		unsourced: list[str] = []
+		for number, names in sorted(LEVER_PARTNER_NAMES.items()):
+			lever_partners[str(number)] = list(names)
+			missing = [n for n in names if n not in known]
+			if missing:
+				lever = next(lv for lv in GROWTH_LEVERS if lv.number == number)
+				unsourced.append(f'lever {number} ({lever.lever}) names {", ".join(missing)}')
+		planned = {c.channel for c in ACQUISITION}
+		unmapped = [c for c in CHANNELS if c not in planned]
+		total = sum(len(t.partners) for t in PARTNERS)
+		self._log_info('acquisition plan read', channels=len(ACQUISITION), partners=total, unsourced=len(unsourced))
+		return AcquisitionPlan(
+			channels=list(ACQUISITION), partner_types=list(PARTNERS), partner_count=total,
+			unmapped_channels=unmapped, lever_partners=lever_partners, unsourced_levers=unsourced,
+			note=(
+				f'{total} named partners across {len(PARTNERS)} partner types; '
+				f'{len(unmapped)} §5.2 channel(s) with no §20.3 acquisition role'
+				if not unsourced else
+				f'{len(unsourced)} §20.2 lever(s) rest on a partner §20.4 does not list'
+			),
+		)
 
 	def status(self, phase: Phase, active_tier: int) -> RolloutStatus:
 		"""Where a deployment sits against §21.1's ceiling for its phase.
