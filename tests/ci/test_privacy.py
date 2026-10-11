@@ -291,3 +291,186 @@ async def test_the_catalogue_route_will_not_show_a_stranger_your_grants() -> Non
 		assert [t['category'] for t in out['toggles'] if t['granted']] == ['location_tracking']
 		sm = next(t for t in out['toggles'] if t['category'] == 'sensor_monitoring')
 		assert [k for k, v in sm['sensors'].items() if v] == ['gps']
+
+
+# --- §17.1 instruments and §17.2 principles -------------------------------------------------------
+
+def _spec_rows(heading: str, stop: str, columns: int) -> list[list[str]]:
+	"""A spec table's rows, read out of `docs/spec.md` so a revision fails here."""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split(heading, 1)[1].split(stop, 1)[0]
+	rows: list[list[str]] = []
+	for line in section.splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip() for c in line.strip('|').split('|')]
+		if len(cells) != columns or cells[0] == 'Instrument' or cells[0] == 'Principle':
+			continue
+		rows.append(cells)
+	return rows
+
+
+def _items(cell: str) -> list[str]:
+	"""One Implementation cell split into the claims it makes.
+
+	§17.1 separates its items with semicolons and §17.2's data-minimisation row separates two with a
+	full stop — "Only data necessary for the specific purpose is collected. Raw sensor data is never
+	retained." Both are lists of claims and a checker that knew only the semicolon would read that
+	row as one claim, which is the "enumerates one of the two ways to write X" failure. Trailing
+	periods are stripped so the two spellings compare equal.
+	"""
+	import re
+	return [p.strip().rstrip('.') for p in re.split(r';\s*|\.\s+|,\s*', cell) if p.strip()]
+
+
+def _strip_md(cell: str) -> str:
+	return cell.replace('**', '').strip()
+
+
+def test_the_six_instruments_are_the_sections_rows() -> None:
+	"""§17.1, cell for cell. `instrument` and `requirement` are the section's own words — a revision
+	to either fails here until the table moves with it."""
+	from afya.privacy.service import REGULATORY_INSTRUMENTS
+	spec = _spec_rows('### 17.1 Regulatory Framework', '\n### ', 3)
+	assert len(spec) == 6
+	assert [r.instrument for r in REGULATORY_INSTRUMENTS] == [_strip_md(r[0]) for r in spec]
+	assert [r.requirement for r in REGULATORY_INSTRUMENTS] == [_strip_md(r[1]) for r in spec]
+
+
+def test_every_implementation_item_is_a_row_not_a_cell() -> None:
+	"""The Implementation cell is a semicolon list — "Consent registry; data minimisation by design;
+	retention schedule; user data controls" is four claims — and a single boolean over the cell
+	would let three of the four be missing while the row read covered. So the split is the test:
+	every item of every cell appears as its own obligation, and nothing is dropped."""
+	from afya.privacy.service import REGULATORY_INSTRUMENTS
+	spec = _spec_rows('### 17.1 Regulatory Framework', '\n### ', 3)
+	for row, cells in zip(REGULATORY_INSTRUMENTS, spec, strict=True):
+		items = _items(_strip_md(cells[2]))
+		assert [o.obligation for o in row.obligations] == items, row.instrument
+
+
+def test_the_seven_principles_are_the_sections_rows() -> None:
+	"""§17.2, cell for cell, with the Implementation cell split the same way — "Content reviewed
+	weekly; user data editable; correction workflows" is three claims about three different
+	modules, and it is the cell where a single boolean would hide the most."""
+	from afya.privacy.service import PRIVACY_PRINCIPLES
+	spec = _spec_rows('### 17.2 Privacy Principles and Implementation', '\n### ', 2)
+	assert len(spec) == 7
+	assert [name for name, _, _ in PRIVACY_PRINCIPLES] == [_strip_md(r[0]) for r in spec]
+	assert [impl for _, impl, _ in PRIVACY_PRINCIPLES] == [_strip_md(r[1]) for r in spec]
+	for (_name, _impl, artifacts), cells in zip(PRIVACY_PRINCIPLES, spec, strict=True):
+		items = _items(_strip_md(cells[1]))
+		assert [a.obligation for a in artifacts] == items, cells[0]
+
+
+def test_every_obligation_resolves_or_is_reported() -> None:
+	"""The point of the register. Every `code` obligation must name a module that exists, and the
+	report must carry an entry for each one that does not — a register whose gaps were silently
+	absorbed would be the failure it exists to catch."""
+	from afya.privacy.service import REGULATORY_INSTRUMENTS
+	from afya.refs import resolves
+	report = PrivacyService().regulatory_report()
+	assert report.instrument_count == len(REGULATORY_INSTRUMENTS) == 6
+	assert report.obligation_count == sum(len(r.obligations) for r in REGULATORY_INSTRUMENTS)
+	assert len(report.assessments) == report.obligation_count
+	by_name = {(a.instrument, a.obligation): a for a in report.assessments}
+	for a in report.assessments:
+		if a.kind.value == 'code':
+			assert a.resolves == resolves(a.control) is True, f'{a.instrument}: {a.obligation} names {a.control}'
+	assert set(report.unbacked) == {
+		f'{a.instrument}: {a.obligation}' for a in report.assessments if not a.backed
+	} | {
+		f'§17.2 {p.principle}: {u}' for p in report.principles for u in p.unbacked_artifacts
+	}, 'the finding list and the assessments disagree'
+	assert by_name, 'every obligation is assessed'
+
+
+def test_the_canary_watches_an_unresolvable_reference_fire() -> None:
+	"""A register that reports its own gaps is only worth anything if it can report one. The
+	reference below is a plausible-looking `module:attr` pointing at a method that does not exist,
+	which is exactly the shape §17.1's "Security controls; incident response" cell could rot into
+	when a method is renamed off a class."""
+	from afya.privacy.service import PrivacyService
+	from afya.privacy.views import InstrumentObligation, ObligationKind
+	svc = PrivacyService()
+	bad = InstrumentObligation(obligation='a control that is not there', kind=ObligationKind.code,
+		control='afya.operations.service:OperationsService.no_such_method')
+	assert svc._assess('canary', bad, frozenset(), frozenset()).backed is False, \
+		'the canary did not fire: a broken reference read as backed'
+	good = InstrumentObligation(obligation='a control that is there', kind=ObligationKind.code,
+		control='afya.operations.service:OperationsService.status')
+	assert svc._assess('canary', good, frozenset(), frozenset()).backed is True
+
+
+def test_a_process_obligation_with_no_duty_behind_it_is_unbacked() -> None:
+	"""§17.1's DPO appointment and §17.2's "legal obligation basis for mandatory disease
+	notification only" are process claims with no module to walk, and a process item nobody owns
+	reads exactly like one somebody does — which is why the check is against §24's duty register
+	rather than against nothing."""
+	from afya.operations.service import OBLIGATIONS
+	from afya.privacy.service import PrivacyService
+	from afya.privacy.views import InstrumentObligation, ObligationKind
+	svc = PrivacyService()
+	assert any(o.duty.lower() == 'moh registration' for o in OBLIGATIONS), \
+		'the §24 register lost the duty §17.1 names'
+	owned = svc._assess('x', InstrumentObligation(obligation='MoH registration', kind=ObligationKind.process),
+		frozenset(), frozenset())
+	assert owned.backed is True and 'owns it' in owned.note
+	orphan = svc._assess('x', InstrumentObligation(obligation='nobody owns this', kind=ObligationKind.process),
+		frozenset(), frozenset())
+	assert orphan.backed is False and orphan.note == 'no §24 duty schedules this'
+
+
+def test_the_legal_obligation_basis_is_refused_for_anything_but_notification() -> None:
+	"""§17.2's lawfulness row is "Consent-based for all citizen data; legal obligation basis for
+	mandatory disease notification **only**", and "only" is the word doing the work. Until this
+	assert existed the basis was a label a caller chose, so the one door the section holds shut was
+	open to any purpose: a person's symptom history could be filed against a statute instead of
+	against their consent and the ledger would show a lawful record."""
+	from afya.privacy.service import MANDATORY_NOTIFICATION_PURPOSES, PrivacyService
+	svc = PrivacyService()
+	assert svc.case_report_basis('case_report') is LegalBasis.legal_obligation
+	assert svc.case_report_basis('symptom_storage') is LegalBasis.consent
+	assert 'case_report' in MANDATORY_NOTIFICATION_PURPOSES
+
+
+async def test_recording_a_statutory_basis_for_a_consent_purpose_is_refused() -> None:
+	"""The assert, exercised through the one entry point that writes the ledger."""
+	from afya.privacy.service import PrivacyService
+	svc = PrivacyService()
+	with pytest.raises(AssertionError, match='not a mandatory disease notification'):
+		await svc.record_consent(ConsentRecord(
+			subject_ref='U1', purpose='health_companion', data_types=['demographic'],
+			retention_days=3650, legal_basis=LegalBasis.legal_obligation))
+	recorded = await svc.record_consent(ConsentRecord(
+		subject_ref='U1', purpose='case_report', data_types=['clinical'],
+		retention_days=3650, legal_basis=LegalBasis.legal_obligation))
+	assert recorded.consent_id, 'a mandatory notification may be filed on the statutory basis'
+	# And consent still works for everything else, so the rule is not refusing the ordinary path.
+	await svc.record_consent(ConsentRecord(subject_ref='U1', purpose='health_companion',
+		data_types=['demographic'], retention_days=730, legal_basis=LegalBasis.consent))
+
+
+async def test_the_regulatory_report_is_auditor_scoped_and_the_ids_stay_in_it() -> None:
+	"""The evidence surface: §17.1's instrument names and the `module:attr` references are the
+	finding, so they are served — to the auditor, who is who the finding is for. The public
+	`/privacy/consent` catalogue is the surface a person reads and carries neither."""
+	import httpx
+	from afya.service import build_services, create_app
+	services = build_services()
+	app = create_app(services)
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		assert (await c.get('/privacy/regulatory')).status_code in (401, 403), 'unguarded'
+		tok = (await c.post('/auth/anonymous', json={})).json()['token']
+		assert (await c.get('/privacy/regulatory', headers={'authorization': f'Bearer {tok}'})).status_code == 403
+		# `auditor` is not issuable through the app flow, so it is provisioned by a sysadmin.
+		auth_svc: AuthService = services['auth']  # type: ignore[assignment]
+		sysadmin = auth_svc.provision_staff('ops-0', RBACRole.sysadmin, registrar='MoH ops').access_token
+		auditor = str((await c.post('/auth/staff/provision',
+			json={'operator_ref': 'ops-1', 'registrar': 'MoH ops', 'role': 'auditor'},
+			headers={'authorization': f'Bearer {sysadmin}'})).json()['access_token'])
+		out = (await c.get('/privacy/regulatory', headers={'authorization': f'Bearer {auditor}'})).json()
+	assert out['instrument_count'] == 6 and len(out['principles']) == 7
+	assert any('Kenya Data Protection Act 2019' == i['instrument'] for i in out['instruments'])
+	assert 'unbacked' in out, 'the finding is what the auditor is reading this for'

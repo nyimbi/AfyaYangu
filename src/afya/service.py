@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import json
 import os
+from typing import cast
 
 from afya.brand.service import BRAND, NON_GOALS, PRINCIPLES, VISION, brand_is_clean, brand_violations
 from afya.config import ServiceConfig
@@ -107,7 +108,7 @@ from afya.monitoring.views import (
 from afya.realtime.service import RealtimeService
 from afya.realtime.views import KNOWN_CATEGORIES, SocketSubscription, now_iso
 from afya.retention.service import RetentionService
-from afya.retention.views import DeletionRequest
+from afya.retention.views import CorrectionRequest, DeletionRequest
 from afya.governance.service import GovernanceService
 from afya.operations.service import OperationsService
 from afya.personas.service import PersonaService
@@ -1588,6 +1589,25 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def privacy_dpia(inp: DPIAInput) -> dict[str, object]:
 		return privacy.assess_dpia(inp).model_dump(mode='json')
 
+	@app.get('/privacy/regulatory')
+	async def privacy_regulatory(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§17.1's six instruments and §17.2's seven principles against what exists.
+
+		Auditor-scoped, and the ids and `module:attr` references stay in the payload: this is the
+		evidence surface, where the reference *is* the finding. What backs a registration or an
+		agreement lives outside this repo, so the two sets are read from the records the deployment
+		actually holds — an empty set is the honest answer for a deployment with none, and it is
+		reported as unbacked rather than assumed.
+		"""
+		registrations = frozenset(s.duty.lower() for s in operations.obligation_status('2026-10-12')
+			if s.last_performed_iso is not None)
+		# `sharing_posture` is typed `dict[str, object]` because it carries four shapes of value, so
+		# the key this route wants has to be narrowed at the read rather than trusted from the type.
+		cleared = cast(list[str], governance.sharing_posture()['cleared_to_share'])
+		agreements = frozenset(cleared)
+		return privacy.regulatory_report(registrations=registrations,
+			agreements=agreements).model_dump(mode='json')
+
 	# --- tier4 + surveillance ---
 	# Turning on the outbreak capabilities is an operations action, not something a client asks for.
 	# §11.1's three keys are held by PHEOC (authorisation), the DPO (the DPIA) and the flag; §17.4
@@ -2449,6 +2469,30 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/retention/encryption')
 	async def retention_encryption() -> dict[str, object]:
 		return retention.encryption_posture().model_dump(mode='json')
+
+	@app.post('/retention/correct')
+	async def retention_correct(req: CorrectionRequest, at_iso: str,
+	                            _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§17.2 accuracy: "user data editable; correction workflows".
+
+		The subject is the token's own, not a parameter: a correction is an act a person performs on
+		their own record, and a route that took a `subject_ref` would let anyone edit anyone's
+		demographics by typing a reference. A correction made on someone's behalf is the DPO's, and
+		that is a different route with a different guard.
+		"""
+		req = req.model_copy(update={'subject_ref': _subject, 'corrected_by': _subject})
+		try:
+			return (await retention.correct(req, at_iso)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/retention/corrections')
+	async def retention_corrections(_subject: str = Depends(require_self())) -> list[dict[str, object]]:
+		"""The correction history §17.2's "workflow" implies: what was changed, to what, and by whom.
+
+		A right to correct that left no trace would be indistinguishable from a right to overwrite.
+		"""
+		return retention.corrections(_subject)
 
 	@app.get('/retention/transparency')
 	async def retention_transparency(period: str, subject_ref: str | None = None, _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:

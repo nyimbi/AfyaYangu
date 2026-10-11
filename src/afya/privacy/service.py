@@ -5,8 +5,11 @@ from afya.identity.service import IdentityService
 from afya.logmixin import LogMixin
 from afya.privacy.views import (
 	AccessRequest, BreachEvent, BreachNotification, ConsentCategory, ConsentRecord, ConsentScope,
-	ConsentToggle, DPIAInput, DPIAReport, LegalBasis, RBACRole, _SCOPE,
+	ConsentToggle, DPIAInput, DPIAReport, InstrumentAssessment, InstrumentKind, InstrumentObligation,
+	LegalBasis, ObligationKind, PrincipleImplementation, RBACRole, RegulatoryInstrument,
+	RegulatoryReport, _SCOPE,
 )
+from afya.refs import resolves
 
 # §SEC-001's eight categories. `explains` is the plain-language sentence beside the toggle and
 # `on_withdrawal` is the consequence §SEC-001 requires be stated — both are data so a toggle cannot
@@ -42,6 +45,146 @@ CONSENT_CATALOGUE: tuple[ConsentScope, ...] = (
 
 _CATALOGUE_BY_CATEGORY: dict[ConsentCategory, ConsentScope] = {c.category: c for c in CONSENT_CATALOGUE}
 
+# §17.2's lawfulness row is "Consent-based for all citizen data; legal obligation basis for mandatory
+# disease notification only", and "only" is the load-bearing word: it is what stops the legal-basis
+# door being a general-purpose way to process a citizen's health data without their consent. The
+# purposes a case report is filed under are named here so the rule has somewhere to be applied
+# rather than being a sentence in a document.
+MANDATORY_NOTIFICATION_PURPOSES: frozenset[str] = frozenset({
+	'case_report', 'disease_notification', 'notification', 'idsr_report',
+})
+
+# §17.1, one row per instrument, with the Implementation cell split into its own items. The cell is
+# a semicolon list and each item is a separate claim about this repo, so they are separate rows: a
+# single boolean over "Consent registry; data minimisation by design; retention schedule; user data
+# controls" would read covered while three of the four were missing.
+#
+# `control` is a `module:attr` reference for a code obligation and None for a process one. The three
+# that are neither — MoH registration, ODPC registration, and the legal basis for outbreak sharing —
+# are `registration` and `agreement` kinds rather than code, because what backs them is a record
+# somewhere outside this repo and the assessment says so instead of inventing a module for them.
+REGULATORY_INSTRUMENTS: tuple[RegulatoryInstrument, ...] = (
+	RegulatoryInstrument(
+		instrument='Kenya Data Protection Act 2019', kind=InstrumentKind.statute,
+		requirement='Health data is sensitive personal data; requires explicit consent, purpose limitation, data minimisation, storage limitation',
+		obligations=[
+			InstrumentObligation(obligation='Consent registry', kind=ObligationKind.code,
+				control='afya.privacy.service:PrivacyService.has_category_consent'),
+			InstrumentObligation(obligation='data minimisation by design', kind=ObligationKind.code,
+				control='afya.sensors.service:HANDLING'),
+			InstrumentObligation(obligation='retention schedule', kind=ObligationKind.code,
+				control='afya.retention.views:RETENTION_TABLE'),
+			InstrumentObligation(obligation='user data controls', kind=ObligationKind.code,
+				control='afya.retention.service:RetentionService.inventory'),
+		]),
+	RegulatoryInstrument(
+		instrument='ODPC Guidance Note on Health Data', kind=InstrumentKind.regulatory_guidance,
+		requirement='Lawful, fair, transparent processing; accuracy; accountability',
+		obligations=[
+			InstrumentObligation(obligation='Plain-language notices', kind=ObligationKind.code,
+				control='afya.privacy.service:CONSENT_CATALOGUE'),
+			InstrumentObligation(obligation='accuracy SLAs', kind=ObligationKind.code,
+				control='afya.info.service:InfoService.stale'),
+			InstrumentObligation(obligation='DPO appointed', kind=ObligationKind.process),
+		]),
+	RegulatoryInstrument(
+		instrument='Digital Health Act No. 15 of 2023', kind=InstrumentKind.statute,
+		requirement='Governs e-health service delivery including m-health and telehealth',
+		obligations=[
+			InstrumentObligation(obligation='Compliance review', kind=ObligationKind.process),
+			InstrumentObligation(obligation='MoH registration', kind=ObligationKind.registration),
+		]),
+	RegulatoryInstrument(
+		instrument='Computer Misuse and Cybercrimes Act 2018', kind=InstrumentKind.statute,
+		requirement='Security of systems and data',
+		obligations=[
+			InstrumentObligation(obligation='Security controls', kind=ObligationKind.code,
+				control='afya.security.service:CONTROLS'),
+			InstrumentObligation(obligation='incident response', kind=ObligationKind.code,
+				control='afya.operations.service:OperationsService.status'),
+		]),
+	RegulatoryInstrument(
+		instrument='Public Health Act (Cap 242)', kind=InstrumentKind.statute,
+		requirement='Disease surveillance obligations',
+		obligations=[
+			InstrumentObligation(obligation='Legal basis for outbreak data sharing where required',
+				kind=ObligationKind.code,
+				control='afya.privacy.service:PrivacyService.case_report_basis'),
+		]),
+	RegulatoryInstrument(
+		instrument='WHO International Health Regulations', kind=InstrumentKind.international,
+		requirement='Surveillance and reporting',
+		obligations=[
+			InstrumentObligation(obligation='Alignment with IDSR', kind=ObligationKind.code,
+				control='afya.chw.views:JOB_AIDS'),
+		]),
+)
+
+# §17.2's seven principles, same treatment: the Implementation cell split into the claims it makes.
+# The three principles whose artefacts are named across several modules carry more than one item for
+# exactly the reason the DPA row does.
+PRIVACY_PRINCIPLES: tuple[tuple[str, str, tuple[InstrumentObligation, ...]], ...] = (
+	('Lawfulness',
+	 'Consent-based for all citizen data; legal obligation basis for mandatory disease notification only',
+	 (
+		InstrumentObligation(obligation='Consent-based for all citizen data', kind=ObligationKind.code,
+			control='afya.privacy.views:LegalBasis'),
+		InstrumentObligation(obligation='legal obligation basis for mandatory disease notification only',
+			kind=ObligationKind.process),
+	 )),
+	('Purpose limitation',
+	 'Data collected for Ebola response is not used for other purposes without fresh consent',
+	 (
+		InstrumentObligation(obligation='Data collected for Ebola response is not used for other purposes without fresh consent',
+			kind=ObligationKind.code, control='afya.privacy.service:PrivacyService.has_consent'),
+	 )),
+	('Data minimisation',
+	 'Only data necessary for the specific purpose is collected. Raw sensor data is never retained.',
+	 (
+		InstrumentObligation(obligation='Only data necessary for the specific purpose is collected',
+			kind=ObligationKind.code, control='afya.retention.service:USER_DELETABLE'),
+		InstrumentObligation(obligation='Raw sensor data is never retained', kind=ObligationKind.code,
+			control='afya.sensors.service:HANDLING'),
+	 )),
+	('Accuracy',
+	 'Content reviewed weekly; user data editable; correction workflows',
+	 (
+		InstrumentObligation(obligation='Content reviewed weekly', kind=ObligationKind.code,
+			control='afya.info.service:REVIEW_CADENCE_DAYS'),
+		InstrumentObligation(obligation='user data editable', kind=ObligationKind.code,
+			control='afya.retention.service:RetentionService.correct'),
+		InstrumentObligation(obligation='correction workflows', kind=ObligationKind.code,
+			control='afya.retention.service:RetentionService.corrections'),
+	 )),
+	('Storage limitation',
+	 'Defined retention periods per data type; automatic deletion',
+	 (
+		InstrumentObligation(obligation='Defined retention periods per data type', kind=ObligationKind.code,
+			control='afya.retention.views:RETENTION_TABLE'),
+		InstrumentObligation(obligation='automatic deletion', kind=ObligationKind.code,
+			control='afya.retention.service:RetentionService.purge_expired'),
+	 )),
+	('Integrity and confidentiality', 'AES-256 at rest, TLS 1.3 in transit, RBAC, audit logging',
+	 (
+		InstrumentObligation(obligation='AES-256 at rest', kind=ObligationKind.code,
+			control='afya.retention.views:ENCRYPTION_STANDARD'),
+		InstrumentObligation(obligation='TLS 1.3 in transit', kind=ObligationKind.code,
+			control='afya.retention.views:ENCRYPTION_STANDARD'),
+		InstrumentObligation(obligation='RBAC', kind=ObligationKind.code,
+			control='afya.privacy.views:_SCOPE'),
+		InstrumentObligation(obligation='audit logging', kind=ObligationKind.code,
+			control='afya.privacy.service:PrivacyService.check_access_logged'),
+	 )),
+	('Accountability', 'DPO appointed; DPIAs conducted; transparency reports published',
+	 (
+		InstrumentObligation(obligation='DPO appointed', kind=ObligationKind.process),
+		InstrumentObligation(obligation='DPIAs conducted', kind=ObligationKind.code,
+			control='afya.privacy.service:PrivacyService.assess_dpia'),
+		InstrumentObligation(obligation='transparency reports published', kind=ObligationKind.code,
+			control='afya.retention.service:RetentionService.transparency_report'),
+	 )),
+)
+
 
 def _handling(sensitivity: Any) -> Any:
 	"""The §13.1 handling row for a sensitivity class. Imported at call time because
@@ -75,11 +218,33 @@ class PrivacyService(LogMixin):
 		assert record.purpose, 'purpose required'
 		if not record.legal_basis is LegalBasis.legal_obligation:
 			assert record.retention_days <= 730, 'health data retention must be bounded (24 months cap)'
+		else:
+			# §17.2 lawfulness: the legal-obligation basis is for "mandatory disease notification
+			# only". Until this assert existed the basis was a label a caller chose, so the one door
+			# §17.2 holds shut was open to any purpose — a person's symptom history could be filed
+			# against a statute instead of against their consent, and the ledger would show a
+			# lawful record. The list is of purposes, not of callers: the rule is about what the
+			# data is for, which is what the section says.
+			assert record.purpose in MANDATORY_NOTIFICATION_PURPOSES, (
+				f'{record.purpose} is not a mandatory disease notification; '
+				'§17.2 allows the legal-obligation basis for those only'
+			)
 		self._consents[record.consent_id] = record
 		if self._store is not None:
 			await self._store.save_consent(record)
 		self._log_info('consent recorded', consent_id=record.consent_id)
 		return record
+
+	@staticmethod
+	def case_report_basis(purpose: str) -> LegalBasis:
+		"""The basis a purpose is lawfully processed under: the Public Health Act for a mandatory
+		notification, consent for everything else.
+
+		§17.1's Cap 242 row calls itself the "legal basis for outbreak data sharing where required",
+		and §17.2 says where: mandatory disease notification, and nowhere else. Answering the question
+		here rather than at each call site is what makes the two sections one rule.
+		"""
+		return LegalBasis.legal_obligation if purpose in MANDATORY_NOTIFICATION_PURPOSES else LegalBasis.consent
 
 	def has_consent(self, subject_ref: str, purpose: str) -> bool:
 		out = any(
@@ -314,3 +479,72 @@ class PrivacyService(LogMixin):
 
 	async def purge_expired(self) -> int:
 		return len([c for c in list(self._consents.values()) if c.withdrawn and self._consents.pop(c.consent_id)])
+
+	# --- §17.1 instruments and §17.2 principles ----------------------------------------------
+
+	def _assess(self, instrument: str, obligation: InstrumentObligation,
+	            registrations: frozenset[str], agreements: frozenset[str]) -> InstrumentAssessment:
+		"""One §17.1 obligation beside the answer to whether it is done.
+
+		Three kinds fail differently, and collapsing them would lose the distinction that matters.
+		A `code` obligation fails when its reference does not land — a claim about software that names
+		software that is not there. A `registration` or `agreement` fails when no record backs it,
+		and what backs those is outside this repo, so the caller passes in what it has rather than
+		this method assuming. A `process` obligation fails when no §24 duty schedules it: a process
+		item nobody owns is indistinguishable, from the register alone, from one somebody does, and
+		that is the failure mode the obligation register exists to make visible.
+		"""
+		from afya.operations.service import OBLIGATIONS
+		if obligation.kind is ObligationKind.code:
+			lands = resolves(obligation.control)
+			note = f'{obligation.control} resolves' if lands else f'{obligation.control} does not resolve'
+			return InstrumentAssessment(instrument=instrument, obligation=obligation.obligation,
+				kind=obligation.kind, control=obligation.control, resolves=lands, backed=lands, note=note)
+		if obligation.kind is ObligationKind.registration:
+			backed = obligation.obligation.lower() in registrations
+			return InstrumentAssessment(instrument=instrument, obligation=obligation.obligation,
+				kind=obligation.kind, control=None, resolves=False, backed=backed,
+				note='a registration record backs this' if backed else 'no registration record backs this')
+		if obligation.kind is ObligationKind.agreement:
+			backed = obligation.obligation.lower() in agreements
+			return InstrumentAssessment(instrument=instrument, obligation=obligation.obligation,
+				kind=obligation.kind, control=None, resolves=False, backed=backed,
+				note='a signed agreement backs this' if backed else 'no signed agreement backs this')
+		owner = next((o for o in OBLIGATIONS if o.duty.lower() == obligation.obligation.lower()), None)
+		return InstrumentAssessment(instrument=instrument, obligation=obligation.obligation,
+			kind=obligation.kind, control=None, resolves=False, backed=owner is not None,
+			note=f'{owner.owner} owns it (§{owner.section.lstrip("§")})' if owner else 'no §24 duty schedules this')
+
+	def regulatory_report(self, registrations: frozenset[str] = frozenset(),
+	                      agreements: frozenset[str] = frozenset()) -> RegulatoryReport:
+		"""§17.1 and §17.2 against what actually exists.
+
+		The two sections are the same question asked twice — what does the law require, and what
+		implements it — and both answered in prose until now. The register is the answer as data.
+
+		`unbacked` is the finding, and it is reported rather than repaired: whether to build the
+		missing piece or to record that it is a duty outside this repo is a product decision, and a
+		register that quietly resolved its own gaps would be the failure it exists to catch.
+		"""
+		assessments = [
+			self._assess(row.instrument, ob, registrations, agreements)
+			for row in REGULATORY_INSTRUMENTS for ob in row.obligations
+		]
+		principles: list[PrincipleImplementation] = []
+		for name, implementation, artifacts in PRIVACY_PRINCIPLES:
+			unbacked = [a.obligation for a in artifacts
+				if not self._assess(name, a, registrations, agreements).backed]
+			principles.append(PrincipleImplementation(
+				principle=name, implementation=implementation, artifacts=list(artifacts),
+				unbacked_artifacts=unbacked, backed=not unbacked,
+			))
+		unbacked = [
+			f'{a.instrument}: {a.obligation}' for a in assessments if not a.backed
+		] + [
+			f'§17.2 {p.principle}: {u}' for p in principles for u in p.unbacked_artifacts
+		]
+		return RegulatoryReport(
+			instruments=list(REGULATORY_INSTRUMENTS), assessments=assessments, principles=principles,
+			unbacked=unbacked, instrument_count=len(REGULATORY_INSTRUMENTS),
+			obligation_count=len(assessments),
+		)

@@ -174,3 +174,105 @@ class AuditEntry(BaseModel):
 	dataset: str
 	allowed: bool
 	ref: dict[str, Any] = Field(default_factory=dict)
+
+
+# --- §17.1 instruments and §17.2 principles -------------------------------------------------------
+
+class InstrumentKind(str, Enum):
+	"""How binding an instrument is, which is what decides whether a gap in it is a defect or a
+	target. Four of §17.1's six are Kenyan law; the ODPC note is regulatory guidance with no
+	statute behind it; the WHO Regulations are international law the Republic is a party to and the
+	DPA is not."""
+
+	statute = 'statute'
+	regulatory_guidance = 'regulatory_guidance'
+	international = 'international'
+
+
+class ObligationKind(str, Enum):
+	"""What a §17.1 Implementation cell promises. The four are the spec's own vocabulary, and the
+	distinction is load-bearing: a `process` obligation is a human duty with nothing to point at,
+	while a `code` one names the software, so a claim that a control exists can be walked rather
+	than believed."""
+
+	code = 'code'
+	process = 'process'
+	registration = 'registration'
+	agreement = 'agreement'
+
+
+class InstrumentObligation(BaseModel):
+	"""One Implementation item, transcribed verbatim from §17.1's cell.
+
+	`control` is a `module:attr` reference and is None for a `process` obligation — the same rule
+	§23's risk register applies, and for the same reason: a row claiming software enforcement has to
+	name the software, so the validator refuses a `code` obligation with nothing behind it.
+	"""
+
+	model_config = MODEL_CONFIG
+	obligation: str = Field(min_length=1)
+	kind: ObligationKind
+	control: str | None = None
+
+	@model_validator(mode='after')
+	def _a_code_obligation_names_its_code(self) -> Self:
+		if self.kind is ObligationKind.code and not self.control:
+			raise ValueError(f'{self.obligation} claims code enforcement but names no module')
+		return self
+
+
+class RegulatoryInstrument(BaseModel):
+	"""One §17.1 row: the instrument, what it requires, and what the spec says implements it."""
+
+	model_config = MODEL_CONFIG
+	instrument: str = Field(min_length=1)
+	kind: InstrumentKind
+	requirement: str = Field(min_length=1)
+	obligations: list[InstrumentObligation] = Field(min_length=1, frozen=True)
+
+
+class InstrumentAssessment(BaseModel):
+	"""A §17.1 obligation beside the answer to "is it actually done".
+
+	`unbacked` is the finding, and it has three ways to be true: a `code` reference that does not
+	land, a `registration` or `agreement` with no live record behind it, and a `process` obligation
+	with no §24 duty that schedules it — the last being the one that hides, because a process item
+	nobody owns reads exactly like a process item somebody does.
+	"""
+
+	model_config = MODEL_CONFIG
+	instrument: str
+	obligation: str
+	kind: ObligationKind
+	control: str | None
+	resolves: bool
+	backed: bool
+	note: str
+
+
+class PrincipleImplementation(BaseModel):
+	"""One §17.2 principle and every artefact the spec names as its implementation.
+
+	§17.2 writes its Implementation cell as a list — "Content reviewed weekly; user data editable;
+	correction workflows" is three claims — and a single boolean over the cell would let two of the
+	three be missing while the row read covered. So the artefacts are a list, each with its own
+	reference, and `unbacked_artifacts` is what a reviewer wants: the parts of the claim that are
+	not there.
+	"""
+
+	model_config = MODEL_CONFIG
+	principle: str = Field(min_length=1)
+	implementation: str = Field(min_length=1)
+	artifacts: list[InstrumentObligation] = Field(min_length=1, frozen=True)
+	unbacked_artifacts: list[str]
+	backed: bool
+
+
+class RegulatoryReport(BaseModel):
+	model_config = MODEL_CONFIG
+	instruments: list[RegulatoryInstrument]
+	assessments: list[InstrumentAssessment]
+	principles: list[PrincipleImplementation]
+	unbacked: list[str]
+	instrument_count: int
+	obligation_count: int

@@ -1,8 +1,9 @@
 """Behavioural tests for retention, deletion, encryption and transparency (spec §17, SEC-003/005/006)."""
 import pytest
+from pydantic import ValidationError
 
 from afya.retention.service import POLICY_RETAINED, USER_DELETABLE, RetentionService
-from afya.retention.views import ENCRYPTION_STANDARD, RETENTION_TABLE, DeletionRequest
+from afya.retention.views import ENCRYPTION_STANDARD, RETENTION_TABLE, CorrectionRequest, DeletionRequest
 
 
 def test_every_data_type_has_finite_window_and_trigger() -> None:
@@ -157,3 +158,71 @@ def test_export_requires_the_moment_it_was_taken() -> None:
 	svc = RetentionService()
 	with pytest.raises(AssertionError, match='must carry the moment'):
 		svc.export('U9', at_iso='')
+
+
+# --- §17.2 accuracy: "user data editable; correction workflows" ---------------------------------
+
+def _correction(**over: object) -> CorrectionRequest:
+	base: dict[str, object] = {
+		'subject_ref': 'U9', 'data_type': 'symptom_logs', 'field': 'age',
+		'corrected_value': '31', 'reason': 'I mistyped my age', 'corrected_by': 'U9',
+	}
+	base.update(over)
+	return CorrectionRequest(**base)  # type: ignore[arg-type]
+
+
+async def test_a_correction_keeps_what_it_replaced() -> None:
+	"""§17.2 says user data is editable and names a *workflow*, which is a different thing from an
+	overwrite. A correction that destroyed what it corrected would leave a record that agrees with
+	itself and with nothing else — and "what did we tell them, and on what basis" stops being
+	answerable exactly when it matters, after a wrong reading has driven a triage verdict."""
+	svc = RetentionService()
+	first = await svc.correct(_correction(corrected_value='31'), at_iso='2026-10-12T08:00:00Z')
+	assert first.previous_value is None, 'nothing was there before the first correction'
+	second = await svc.correct(_correction(corrected_value='32'), at_iso='2026-10-12T09:00:00Z')
+	assert second.previous_value == '31', 'the value it replaced is the one the last correction set'
+	history = svc.corrections('U9')
+	assert [c['corrected_value'] for c in history] == ['31', '32']
+	assert all(c['at_iso'] for c in history), 'a correction with no time is not a history'
+	assert svc.corrections('U10') == [], "another subject's corrections never appear"
+
+
+async def test_a_correction_is_scoped_to_a_data_type_and_a_field() -> None:
+	"""Two fields of one data type are two corrections, and a correction to one does not report the
+	other as its predecessor — the `previous_value` chain is per field, which is what makes the
+	history readable rather than a list of unrelated writes."""
+	svc = RetentionService()
+	await svc.correct(_correction(field='age', corrected_value='31'), at_iso='2026-10-12T08:00:00Z')
+	other = await svc.correct(_correction(field='county', corrected_value='Kisumu'), at_iso='2026-10-12T08:05:00Z')
+	assert other.previous_value is None, 'a different field has its own history'
+	assert len(svc.corrections('U9')) == 2
+
+
+async def test_an_untracked_data_type_cannot_be_corrected() -> None:
+	"""The retention table is the contract for what may be held, and a correction writes to a
+	holding. A type with no window is a type the deployment does not track, so a correction against
+	one would create a record that no retention rule governs."""
+	svc = RetentionService()
+	with pytest.raises(AssertionError, match='not a retention-tracked data type'):
+		await svc.correct(_correction(data_type='dna_sequencing'), at_iso='2026-10-12T08:00:00Z')
+	assert svc.corrections('U9') == [], 'a refused correction writes nothing'
+
+
+async def test_a_correction_must_say_who_made_it_and_why() -> None:
+	"""§17.1 puts accountability on the ODPC guidance note and §17.2's accuracy row is the same
+	duty from the other side. A correction attributed to nobody is a record that changed itself.
+
+	Two layers refuse it, and the test names both: the model refuses an empty `reason` or
+	`corrected_by` at construction, and the service refuses an empty corrected value, which the
+	model leaves unconstrained because a field's empty string is a legitimate value to *hold* and
+	not a legitimate thing to *write* as a correction.
+	"""
+	svc = RetentionService()
+	with pytest.raises(ValidationError):
+		_correction(reason='')
+	with pytest.raises(ValidationError):
+		_correction(corrected_by='')
+	with pytest.raises(AssertionError):
+		await svc.correct(_correction(corrected_value=''), at_iso='2026-10-12T08:00:00Z')
+	assert svc.corrections('U9') == []
+

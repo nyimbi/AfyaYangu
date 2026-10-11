@@ -14,10 +14,10 @@ notification at 72 hours from *detection* — the DPA's clock, not ours — so `
 answer with `max(0, 3 - days_ago)`, which made a breach reported two days late indistinguishable
 from one reported on time: both read `0`.
 """
-import importlib
 from datetime import date, datetime, timedelta, timezone
 
 from afya.logmixin import LogMixin
+from afya.refs import resolves
 from afya.operations.views import (
 	FundingStage, GovernanceBody, GovernanceReport, Incident, IncidentClass, IncidentKind,
 	IncidentSeverity, IncidentStatus, Obligation, ObligationStatus, OpsPosture, Rating, Risk,
@@ -368,21 +368,10 @@ class OperationsService(LogMixin):
 	def resolve(self, control: str | None) -> bool:
 		"""Whether a `module:attr` reference lands. A process control resolves by definition — there
 		is no module to walk, and the register says so through `control_kind` rather than by
-		pretending the reference is fine."""
-		if control is None:
-			return True
-		module_name, _, attr_path = control.partition(':')
-		if not attr_path:
-			return False
-		try:
-			target: object = importlib.import_module(module_name)
-		except ImportError:
-			return False
-		for part in attr_path.split('.'):
-			if not hasattr(target, part):
-				return False
-			target = getattr(target, part)
-		return True
+		pretending the reference is fine. The walk itself lives in `afya.refs` because §17.1 and
+		§17.2 now resolve their own tables the same way, and three copies of a four-line import loop
+		is three places for it to drift."""
+		return resolves(control)
 
 	def _note(self, risk: Risk) -> str:
 		if risk.control is None:

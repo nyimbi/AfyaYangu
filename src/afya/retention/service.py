@@ -8,8 +8,9 @@ Two rules are load-bearing and enforced here:
 """
 from afya.logmixin import LogMixin
 from afya.retention.views import (
-	ENCRYPTION_STANDARD, RETENTION_TABLE, DataInventory, DeletionReceipt, DeletionRequest,
-	EncryptionPosture, PersonalDataExport, RetentionPolicy, TransparencyReport,
+	ENCRYPTION_STANDARD, RETENTION_TABLE, CorrectionReceipt, CorrectionRequest, DataInventory,
+	DeletionReceipt, DeletionRequest, EncryptionPosture, PersonalDataExport, RetentionPolicy,
+	TransparencyReport,
 )
 
 # Types a user may always delete outright, and types that survive a blanket request.
@@ -27,6 +28,11 @@ class RetentionService(LogMixin):
 		self._holdings: dict[str, dict[str, int]] = {}
 		self._shares: dict[str, list[dict[str, str]]] = {}
 		self._deletions: list[DeletionReceipt] = []
+		# The current value of each (data_type, field) a subject has corrected, and the log of the
+		# corrections that produced it. Both are needed: the log is the workflow a person can read,
+		# and the current value is what a second correction reports as `previous_value`.
+		self._values: dict[str, dict[tuple[str, str], str]] = {}
+		self._corrections: list[dict[str, object]] = []
 		assert self._holdings == {}
 
 	# --- SEC-005 retention -----------------------------------------------------------------
@@ -156,8 +162,51 @@ class RetentionService(LogMixin):
 	def standard() -> str:
 		return ENCRYPTION_STANDARD
 
-	# --- transparency report ---------------------------------------------------------------
+	# --- correction workflow (§17.2 accuracy) ------------------------------------------------
 
+	async def correct(self, req: CorrectionRequest, at_iso: str) -> CorrectionReceipt:
+		"""Apply a correction and keep what was replaced.
+
+		§17.2 says "user data editable; correction workflows", and §17.1 hangs the same duty on the
+		ODPC guidance note's accuracy principle. Two rules make this a correction rather than an
+		overwrite.
+
+		The old value is kept. A correction that destroyed what it corrected would leave a record
+		that agrees with itself and with nothing else — the state a person is in when a wrong
+		reading has already driven a triage verdict, and the one where "what did we tell them, and
+		on what basis" stops being answerable.
+
+		The correction is scoped to a data type and a field. `case_reports` is in
+		`POLICY_RETAINED`, not `USER_DELETABLE`, and that is not a contradiction: §17.2's
+		lawfulness row makes mandatory disease notification a legal obligation rather than a
+		consent, so a subject may correct their own demographic fields and may not rewrite the
+		clinical content of a notification the Public Health Act requires be filed. What they can
+		correct there is bounded by the same rule that lets the report exist without their consent.
+		"""
+		assert req.subject_ref and req.field and req.corrected_value != '', 'a correction needs a subject, a field and a value'
+		assert req.data_type in RETENTION_TABLE, f'{req.data_type} is not a retention-tracked data type'
+		previous = self._values.get(req.subject_ref, {}).get((req.data_type, req.field))
+		self._values.setdefault(req.subject_ref, {})[(req.data_type, req.field)] = req.corrected_value
+		self._corrections.append({
+			'subject_ref': req.subject_ref, 'data_type': req.data_type, 'field': req.field,
+			'previous_value': previous, 'corrected_value': req.corrected_value,
+			'corrected_by': req.corrected_by, 'at_iso': at_iso, 'channel': req.channel,
+		})
+		self._log_info('record corrected', subject=req.subject_ref, data_type=req.data_type,
+			field=req.field, by=req.corrected_by, had_previous=previous is not None)
+		return CorrectionReceipt(
+			correction_id=f'COR-{len(self._corrections):06d}', subject_ref=req.subject_ref,
+			data_type=req.data_type, field=req.field, previous_value=previous,
+			corrected_value=req.corrected_value, corrected_by=req.corrected_by, at_iso=at_iso,
+			message='Your record has been corrected. What it said before is kept in your history.',
+		)
+
+	def corrections(self, subject_ref: str) -> list[dict[str, object]]:
+		"""Every correction made to a subject's records, which is what makes the workflow a workflow
+		rather than a write: a person can see what was changed and who changed it."""
+		return [c for c in self._corrections if c['subject_ref'] == subject_ref]
+
+	# --- transparency report ---------------------------------------------------------------
 	def transparency_report(self, period: str, subject_ref: str | None = None) -> TransparencyReport:
 		assert period, 'reporting period required'
 		rows: list[dict[str, object]] = []

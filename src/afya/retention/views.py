@@ -72,6 +72,39 @@ class DeletionReceipt(BaseModel):
 	message: str
 
 
+class CorrectionRequest(BaseModel):
+	"""§17.2 accuracy: "user data editable; correction workflows". §17.1 puts the same duty on the
+	ODPC guidance note, which names accuracy as a processing principle — so a record a person cannot
+	correct is a statutory gap, not a missing feature.
+
+	`corrected_by` is the subject themselves for a self-service correction and the DPO for one made
+	on their behalf, because the two are different facts about the record: one is the person
+	exercising a right, the other is the controller acting on a request.
+	"""
+
+	model_config = MODEL_CONFIG
+	subject_ref: str
+	data_type: str
+	field: str = Field(min_length=1)
+	corrected_value: str
+	reason: str = Field(min_length=1)
+	corrected_by: str = Field(min_length=1)
+	channel: str = Field(default='native', pattern=r'^(native|sms|ussd|whatsapp)$')
+
+
+class CorrectionReceipt(BaseModel):
+	model_config = MODEL_CONFIG
+	correction_id: str
+	subject_ref: str
+	data_type: str
+	field: str
+	previous_value: str | None
+	corrected_value: str
+	corrected_by: str
+	at_iso: str
+	message: str
+
+
 class EncryptionPosture(BaseModel):
 	model_config = MODEL_CONFIG
 	at_rest: str
