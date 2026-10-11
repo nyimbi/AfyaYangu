@@ -281,3 +281,187 @@ async def test_the_app_size_route_is_open_and_reports_the_split() -> None:
 		assert out['base_install_mb'] == 15.0 and out['within_budget'] is True
 		assert len(out['components']) == 9
 		assert out['on_demand_mb'] > out['base_install_mb'], 'the modules a person may pull outweigh the base'
+
+
+# --- §21.2–21.7 the phase sections -----------------------------------------------------------
+
+REPO = Path(__file__).resolve().parents[2]
+SPEC = REPO / 'docs' / 'spec.md'
+
+
+def _spec_phase_sections() -> dict[str, dict[str, list[str]]]:
+	"""§21.2–21.7 read out of `docs/spec.md`, keyed by phase number.
+
+	Read from the document rather than restated, so a spec revision fails here until the code moves
+	with it. The deliverables are the `- ` bullets under **Deliverables:** and the criteria are the
+	one **Success criteria:** line split on `;` — §21.7 has neither, which is the case the reader
+	must not crash on.
+	"""
+	import re
+	text = SPEC.read_text()
+	out: dict[str, dict[str, list[str]]] = {}
+	for n in '234567':
+		m = re.search(rf'\n### 21\.{n} [^\n]*\n(.*?)(?=\n### 21\.|\n## 22\.)', text, re.S)
+		assert m, f'§21.{n} not found in the spec'
+		body = m.group(1)
+		d = re.search(r'\*\*Deliverables:\*\*\n((?:- [^\n]*\n)+)', body)
+		deliverables = [line[2:].strip() for line in d.group(1).strip().split('\n')] if d else []
+		c = re.search(r'\*\*Success criteria:\*\* ([^\n]*)', body)
+		criteria = [x.strip().rstrip('.') for x in c.group(1).split(';')] if c else []
+		t = re.search(r'\*\*Testing:\*\* ([^\n]*)', body)
+		# The section's paragraph ends with a full stop on its last clause; the criteria line does
+		# too, and both are stripped the same way so a trailing period is not a spec revision.
+		testing = [x.strip().rstrip('.') for x in t.group(1).split(';')] if t else []
+		out[n] = {'deliverables': deliverables, 'criteria': criteria, 'testing': testing}
+	return out
+
+
+def test_the_phase_plans_are_the_sections_deliverables_and_criteria() -> None:
+	"""Every §21.2–21.7 deliverable and success criterion, cell for cell.
+
+	§21.1's table was carried and the six sections beneath it were not, so the rollout had seven
+	gates and no description of the work behind any of them. This pins the work.
+	"""
+	spec = _spec_phase_sections()
+	# The mapping is the phase enum's ordinal against the section number, and it is stated rather
+	# than inferred: §21.1 calls the section after Phase 0 "Phase 1 — Information First", so the
+	# section number is the phase number plus one. Taking `phase.value.split('_')[1]` as the
+	# section number is the off-by-one this table exists to make impossible.
+	SECTIONS: dict[Phase, str] = {
+		Phase.phase_1_information: '2',
+		Phase.phase_2_utility: '3',
+		Phase.phase_3_retention: '4',
+		Phase.phase_4_daily_habit: '5',
+		Phase.phase_5_outbreak_ready: '6',
+		Phase.phase_6_scale: '7',
+	}
+	plans = {p.phase: p for p in RolloutService.phase_plans()}
+	assert set(plans) == set(SECTIONS), plans
+	for phase, n in SECTIONS.items():
+		plan = plans[phase]
+		assert [d.text for d in plan.deliverables] == spec[n]['deliverables'], f'§21.{n} deliverables'
+		assert [c.text for c in plan.criteria] == spec[n]['criteria'], f'§21.{n} criteria'
+		assert list(plan.testing) == spec[n]['testing'], f'§21.{n} testing'
+	# §21.6 is the only section with a Testing paragraph, so a plan carrying testing elsewhere is
+	# a plan that gained one from the wrong section.
+	assert [p.phase for p in plans.values() if p.testing] == [Phase.phase_5_outbreak_ready]
+
+
+def test_a_deliverable_naming_a_capability_that_does_not_exist_is_reported() -> None:
+	"""The §11.1 defect in the phase dimension: a plan listing a capability nobody built reads
+	exactly like one that lists a capability that shipped."""
+	svc = _svc()
+	unbuilt = {p.phase.value: p.unregistered_features for p in svc.rollout_plan() if p.unregistered_features}
+	assert unbuilt == {}, f'a phase deliverable names a feature the registry does not carry: {unbuilt}'
+
+
+def test_the_criterion_drift_between_section_21_and_section_22_is_reported() -> None:
+	"""§21.3 says 300,000 installs and §22.2 sets `app_downloads` at 2,000,000; §21.4 says 25%
+	DAU/MAU and §22.1 sets `retention_dau_mau` at 35%.
+
+	Both sections are the product owner's, so neither is overruled here. The finding is that a
+	phase's own exit criterion and the KPI that measures it disagree by an order of magnitude, and
+	a rollout judged against one would pass while the other read as a failure.
+	"""
+	svc = _svc()
+	drift = {p.phase.value: p.criterion_drift for p in svc.rollout_plan() if p.criterion_drift}
+	assert 'phase_3_retention' in drift, 'the DAU/MAU disagreement between §21.4 and §22.1 is the one that matters'
+	assert any('25' in d and '35' in d for d in drift['phase_3_retention']), drift['phase_3_retention']
+	assert 'phase_2_utility' in drift, '§21.3 installs against §22.2 app_downloads'
+	assert 'phase_1_information' in drift, '§21.2 SMS opt-ins and WhatsApp users against §22.2'
+
+
+def test_a_criterion_with_no_kpi_behind_it_is_reported_not_invented() -> None:
+	"""§21.2's "50 stations broadcasting" and §21.3's "4.0+ rating" are real targets §22 measures
+	nothing about. A phase exit that cannot be computed is a phase exit nobody can call."""
+	svc = _svc()
+	unmeasurable = {p.phase.value: p.unmeasurable_criteria for p in svc.rollout_plan()}
+	# Pinned exactly rather than checked non-empty. A criterion that acquires a KPI moves out of
+	# this list and into `criterion_drift`, and both are reported — so an assertion that only asks
+	# whether the list is non-empty cannot see the move, which a canary confirmed.
+	assert unmeasurable['phase_2_utility'] == ['4.0+ rating', '40% D30 retention', '50,000 triages'], unmeasurable['phase_2_utility']
+	assert unmeasurable['phase_1_information'] == ['50 stations broadcasting'], unmeasurable['phase_1_information']
+	assert unmeasurable['phase_5_outbreak_ready'] == ['Tier 4 activation in under 60 minutes'], unmeasurable['phase_5_outbreak_ready']
+	assert unmeasurable['phase_6_scale'] == [], '§21.7 states no success criteria at all'
+
+
+def test_a_phase_is_not_ready_while_a_deliverable_or_a_criterion_is_missing() -> None:
+	"""`ready` is about the plan being executable, not about the drift. A phase whose deliverable
+	names nothing built cannot ship; a phase whose criterion disagrees with §22 can ship and the
+	document is inconsistent, which is a different reader's problem."""
+	svc = _svc()
+	by_phase = {p.phase.value: p for p in svc.rollout_plan()}
+	assert by_phase['phase_6_scale'].ready is True, '§21.7 is a strategy section: no features, no criteria'
+	assert by_phase['phase_5_outbreak_ready'].ready is False, 'Tier 4 activation time has no §22 KPI'
+	assert all(p.deliverable_count == len(p.unbuilt_deliverables) + p.feature_deliverables
+	           or p.deliverable_count >= p.feature_deliverables for p in by_phase.values())
+
+
+def test_phase_0_has_no_plan_and_that_is_not_an_error() -> None:
+	"""§21.1 gives Phase 0 no section because it delivers nothing to a user. The refusal names it."""
+	svc = _svc()
+	assert Phase.phase_0_foundation not in {p.phase for p in svc.rollout_plan()}
+	with pytest.raises(KeyError, match='delivers nothing to a user'):
+		svc.phase_plan(Phase.phase_0_foundation)
+
+
+def test_an_unregistered_feature_in_a_plan_is_caught_by_the_readiness_check() -> None:
+	"""Canary. Point a deliverable at an id the registry does not carry and watch the check fail.
+
+	Without this the check could pass for the wrong reason — a `feature_id` that never reaches
+	`is_registered` would report every phase ready, which is the shape of a gate that enumerates
+	one of the ways the thing it checks can be written.
+	"""
+	from afya.rollout import service as rollout_service
+	from afya.rollout.views import Deliverable, PhasePlan
+
+	target = rollout_service.PHASE_PLANS[0]
+	original = target.deliverables
+	patched = PhasePlan(
+		phase=target.phase, objective=target.objective,
+		deliverables=[*original, Deliverable(text='A capability nobody built', feature_id='TRI-999')],
+		criteria=target.criteria, testing=target.testing,
+	)
+	try:
+		rollout_service.PHASE_PLANS = (patched, *rollout_service.PHASE_PLANS[1:])
+		rollout_service.PLAN_BY_PHASE = {p.phase: p for p in rollout_service.PHASE_PLANS}
+		out = _svc().phase_readiness(target.phase)
+		assert out.unregistered_features == ['TRI-999'], out.unregistered_features
+		assert out.unbuilt_deliverables == ['A capability nobody built']
+		assert out.ready is False
+	finally:
+		rollout_service.PHASE_PLANS = (target, *rollout_service.PHASE_PLANS[1:])
+		rollout_service.PLAN_BY_PHASE = {p.phase: p for p in rollout_service.PHASE_PLANS}
+	# And the revert is real, or the canary leaves the module mutated for every later test.
+	assert _svc().phase_readiness(target.phase).unregistered_features == []
+
+
+async def test_the_plan_is_public_and_the_readiness_evidence_is_scoped() -> None:
+	"""`/rollout/plan` is the section a county team aligns to and names no person; the readiness
+	half is evidence about the build, like every other read in this family."""
+	app, headers = _auditor_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		anon = await c.get('/rollout/plan')
+		assert anon.status_code == 200, anon.text
+		assert len(anon.json()['plans']) == 6
+		assert (await c.get('/rollout/plan/readiness')).status_code in (401, 403)
+		ev = await c.get('/rollout/plan/readiness', headers=headers)
+		assert ev.status_code == 200, ev.text
+		body = ev.json()
+		assert body['criterion_drift']['phase_3_retention'], 'the §21.4/§22.1 drift travels'
+
+
+async def test_the_phase_plan_surfaces_carry_no_spec_code() -> None:
+	"""The standing constraint: a deliverable's text is read by a programme manager, and a criterion
+	is read by a funder. Neither is a place for a traceability handle."""
+	import re as _re
+	code = _re.compile(r'\b(?:CHAN|INF|TRI|FND|MED|EMG|REC|MON|SENS|LOC|COM|ALT|AI|ACC|SEC)-\d{3}\b')
+	app = create_app(build_services())
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		body = (await c.get('/rollout/plan')).text
+		assert not code.findall(body), f'spec code on a served plan surface: {code.findall(body)}'
+		# And the same for the evidence half, which is a served surface too.
+		app2, headers = _auditor_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app2), base_url='http://t') as c2:
+		ev = (await c2.get('/rollout/plan/readiness', headers=headers)).text
+		assert not code.findall(ev), f'spec code on the readiness surface: {code.findall(ev)}' 

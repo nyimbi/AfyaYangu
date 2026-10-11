@@ -11,9 +11,11 @@ three-key gate; a phase that says "Tier 1–2" while the deployment has Tier 4 a
 that skipped three phases, which is the thing a phased rollout exists to prevent.
 """
 from enum import Enum
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from typing import Self
+
+from afya.registry.taxonomy import id_pattern
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -105,6 +107,101 @@ class RetentionMechanism(BaseModel):
 
 	def returns_regularly(self) -> bool:
 		return self.cadence_days is not None
+
+
+class Deliverable(BaseModel):
+	"""One §21.2–21.7 deliverable: what the phase ships, and — where the phase's own words name one
+	— the registry feature that carries it.
+
+	`feature_id` is None for a deliverable that is an operational act rather than a capability:
+	"Zero-rated app data" is a telco agreement, "Facility data loaded for all 47 counties" is a data
+	load. Those are not unmodelled features, they are not features at all, and marking them as
+	unbuilt would be the register crying wolf.
+
+	The mapping is the point of the model. A phase that lists a deliverable naming a feature the
+	registry does not carry is a plan for a capability nobody built, and §21 is the section a
+	programme manager schedules against — which is why the tier ceiling alone was never enough.
+	"""
+
+	model_config = MODEL_CONFIG
+	text: str = Field(min_length=1)
+	# §7.2's prefix table, not a second copy of it — a hand-written prefix class is what fell
+	# one prefix behind before (see `registry.taxonomy.id_pattern`).
+	feature_id: str | None = Field(default=None, pattern=id_pattern())
+
+
+class SuccessCriterion(BaseModel):
+	"""One §21 success criterion: a number the phase is judged by, and the §22 KPI it restates.
+
+	§21.3 says "300,000 installs" and §22.2 sets `app_downloads` at 2,000,000; §21.4 says "25%
+	DAU/MAU" and §22.1 sets `retention_dau_mau` at 35%. The two sections disagree in both
+	directions, and a criterion with no KPI behind it is a phase exit nobody can compute. So the
+	KPI is resolved where one exists, the value is carried verbatim, and the disagreement is
+	reported rather than averaged away — the spec is the product owner's and picking a winner here
+	would be this code overruling it.
+
+	`value` is a float and `operator` says which direction passes, because "40% D30 retention" and
+	"<5% daily battery impact" are both criteria and only one of them is a floor.
+	"""
+
+	model_config = MODEL_CONFIG
+	text: str = Field(min_length=1)
+	value: float = Field(ge=0)
+	unit: str = Field(min_length=1)
+	operator: Literal['at_least', 'at_most'] = 'at_least'
+	kpi_id: str | None = None
+
+	def agrees_with(self, kpi_target: float) -> bool:
+		"""Whether this criterion states the same number as the §22 KPI it names.
+
+		Equality rather than a tolerance: the two sections state round figures, so a 10% gap is a
+		different commitment and not a rounding artefact — §21.4's 25% against §22.1's 35% is the
+		one that matters, because it is the retention engine's own exit criterion.
+		"""
+		return self.kpi_id is not None and abs(self.value - kpi_target) < 1e-9
+
+
+class PhasePlan(BaseModel):
+	"""One §21.2–21.7 section: the phase's objective, its deliverables, its success criteria and
+	— for §21.6 only — the testing the section requires before the phase exits.
+
+	This is what §21.1's table cannot carry. The table gives a ceiling and a channel set; the
+	sections give the work. A rollout planned from the table alone schedules seven gates and
+	describes none of them.
+	"""
+
+	model_config = MODEL_CONFIG
+	phase: Phase
+	objective: str = Field(min_length=1)
+	deliverables: list[Deliverable] = Field(min_length=1)
+	criteria: list[SuccessCriterion]
+	testing: list[str] = Field(default_factory=list)
+	rationale: str | None = None
+
+
+class PhaseReadiness(BaseModel):
+	"""One phase's plan crossed against what exists, as the answer a programme manager reads.
+
+	Three findings, and they are different problems: `unbuilt_deliverables` is a plan naming a
+	capability the registry does not carry; `unregistered_features` is the same failure caught at
+	the id level; `criterion_drift` is §21 and §22 stating different numbers for the same measure.
+	`unmeasurable_criteria` is the fourth — a criterion with no KPI behind it, which is a phase exit
+	that cannot be computed at all.
+	"""
+
+	model_config = MODEL_CONFIG
+	phase: Phase
+	objective: str
+	deliverable_count: int
+	feature_deliverables: int
+	unbuilt_deliverables: list[str]
+	unregistered_features: list[str]
+	criteria: list[SuccessCriterion]
+	criterion_drift: list[str]
+	unmeasurable_criteria: list[str]
+	testing: list[str]
+	ready: bool
+	note: str
 
 
 class LaunchStep(BaseModel):

@@ -3225,6 +3225,32 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except (ValueError, AssertionError) as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+	@app.get('/rollout/plan')
+	async def rollout_plan() -> dict[str, object]:
+		"""§21.2–21.7's six phase sections: each phase's objective, deliverables and success
+		criteria, with §21.6's testing.
+
+		Open like `/rollout/phases` and for the same reason — it is the plan a county team or a
+		partner aligns to, and it names no person. The deliverables are text and the criteria are
+		the sections' own numbers; nothing here is about an individual."""
+		return {'plans': rollout.public_plans()}
+
+	@app.get('/rollout/plan/readiness')
+	async def rollout_plan_readiness(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""Each phase's plan crossed against the registry and against §22, as the evidence half.
+
+		Auditor-scoped like its siblings. Three findings a reader needs separately: a deliverable
+		naming a feature the registry does not carry, a success criterion with no §22 KPI behind it
+		so the phase's own exit cannot be computed, and §21 and §22 stating different numbers for
+		the same measure. The drift is reported rather than resolved — both sections are the
+		product owner's and this build does not get to pick a winner between them."""
+		plans = rollout.rollout_plan()
+		return {
+			'plans': [p.model_dump(mode='json') for p in plans],
+			'not_ready': [p.phase.value for p in plans if not p.ready],
+			'criterion_drift': {p.phase.value: p.criterion_drift for p in plans if p.criterion_drift},
+		}
+
 	# --- §4: who the launch is for ------------------------------------------------------------
 	# §4.1's personas, §4.2's audiences and §4.3's priorities. The catalogue is open — it is the
 	# product's own description of its users, carries nothing about a person, and the channels are

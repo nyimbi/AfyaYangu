@@ -16,8 +16,9 @@ from afya.logmixin import LogMixin
 from afya.metrics.service import KPIS
 from afya.registry.service import FeatureRegistry
 from afya.rollout.views import (
-	AntiPattern, AppSizePlan, GrowthLever, LaunchStep, ModuleDelivery, Phase, PhaseSpec,
-	ReadinessReport, RetentionMechanism, RolloutStatus,
+	AntiPattern, AppSizePlan, Deliverable, GrowthLever, LaunchStep, ModuleDelivery, Phase,
+	PhasePlan, PhaseReadiness, PhaseSpec, ReadinessReport, RetentionMechanism, RolloutStatus,
+	SuccessCriterion,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -143,6 +144,147 @@ MODULES: tuple[ModuleDelivery, ...] = (
 	ModuleDelivery(component='Offline content library', size_mb=15.0, delivery='on_demand', condition='optional'),
 	ModuleDelivery(component='Offline facility cache', size_mb=5.0, delivery='automatic', condition='per county'),
 )
+
+
+# §21.2–21.7, the phase sections. §21.1's table gives each phase a ceiling and a channel set; the
+# sections give the work, and until they were carried a rollout was seven gates describing nothing.
+#
+# `feature_id` is set only where the section's own words name a capability the registry holds.
+# "Zero-rated app data", "Facility data loaded for all 47 counties" and "Full PHEOC integration" are
+# operational acts or integration states, not features, and leaving them unmapped is the honest
+# reading — marking them unbuilt would make the readiness report cry wolf on every phase.
+#
+# §21.3's "719 integration live" is the case worth naming: 719 is the hotline §8.5's contact
+# directory carries and §5's hotline channel answers, so the deliverable is real and the registry
+# has no feature id for it. That is a gap in the registry's coverage of §21, not an unbuilt feature,
+# and it is why `unbuilt_deliverables` and `unregistered_features` are reported separately.
+PHASE_PLANS: tuple[PhasePlan, ...] = (
+	PhasePlan(
+		phase=Phase.phase_1_information,
+		objective='Reach millions without requiring a download',
+		deliverables=[
+			Deliverable(text='Community radio partnership live in 20+ stations', feature_id='CHAN-000'),
+			Deliverable(text='Zero-rated SMS alerts operational', feature_id='CHAN-001'),
+			Deliverable(text='USSD menu live', feature_id='CHAN-002'),
+			Deliverable(text='WhatsApp bot live with triage, Q&A, myth-busting', feature_id='CHAN-003'),
+			Deliverable(text='Social media campaign', feature_id='CHAN-004'),
+			Deliverable(text='200 CHWs trained as information intermediaries', feature_id='CHAN-005'),
+			Deliverable(text='Content in 6 languages minimum'),
+		],
+		criteria=[
+			SuccessCriterion(text='500,000 SMS opt-ins', value=500_000, unit='opt-ins', kpi_id='sms_optins'),
+			SuccessCriterion(text='100,000 WhatsApp users', value=100_000, unit='users', kpi_id='whatsapp_users'),
+			SuccessCriterion(text='50 stations broadcasting', value=50, unit='stations'),
+		],
+		rationale='It delivers the mission — protecting people — without waiting for app development. '
+			'It builds the audience the app will later convert.',
+	),
+	PhasePlan(
+		phase=Phase.phase_2_utility,
+		objective='Launch the app with features that earn a permanent place on the home screen',
+		deliverables=[
+			Deliverable(text='App live on Google Play and App Store', feature_id='CHAN-006'),
+			Deliverable(text='Tier 1 features complete'),
+			Deliverable(text='Zero-rated app data'),
+			Deliverable(text='2,000 CHWs trained', feature_id='CHAN-005'),
+			Deliverable(text='Facility data loaded for all 47 counties'),
+			Deliverable(text='Medicine registry cached', feature_id='MED-001'),
+			Deliverable(text='Emergency SOS live', feature_id='EMG-001'),
+			Deliverable(text='719 integration live'),
+		],
+		criteria=[
+			SuccessCriterion(text='300,000 installs', value=300_000, unit='installs', kpi_id='app_downloads'),
+			SuccessCriterion(text='4.0+ rating', value=4.0, unit='stars'),
+			SuccessCriterion(text='40% D30 retention', value=40.0, unit='percent'),
+			SuccessCriterion(text='50,000 triages', value=50_000, unit='triages'),
+		],
+	),
+	PhasePlan(
+		phase=Phase.phase_3_retention,
+		objective='Tier 2 features, CHW scale',
+		deliverables=[
+			Deliverable(text='Child immunisation tracker', feature_id='MON-001'),
+			Deliverable(text='Pregnancy and ANC tracker', feature_id='MON-002'),
+			Deliverable(text='Chronic disease log', feature_id='MON-003'),
+			Deliverable(text='Medication reminders', feature_id='MON-004'),
+			Deliverable(text='Family health wallet (basic)', feature_id='REC-001'),
+			Deliverable(text='Drug stock crowdsourcing', feature_id='MED-004'),
+			Deliverable(text='Appointment booking pilot', feature_id='FND-006'),
+			Deliverable(text='Service status feed', feature_id='INF-007'),
+		],
+		criteria=[
+			SuccessCriterion(text='1M installs', value=1_000_000, unit='installs', kpi_id='app_downloads'),
+			SuccessCriterion(text='25% DAU/MAU', value=25.0, unit='percent', kpi_id='retention_dau_mau'),
+			SuccessCriterion(text='100,000 children tracked', value=100_000, unit='children'),
+			SuccessCriterion(text='200,000 medication reminders active', value=200_000, unit='reminders'),
+		],
+	),
+	PhasePlan(
+		phase=Phase.phase_4_daily_habit,
+		objective='Tier 3 features',
+		deliverables=[
+			Deliverable(text='Full family health wallet with cloud backup', feature_id='REC-002'),
+			Deliverable(text='Growth and development tracker', feature_id='REC-003'),
+			Deliverable(text='Mental health support', feature_id='REC-005'),
+			Deliverable(text='Blood donor matching', feature_id='REC-004'),
+			Deliverable(text='Water quality alerts', feature_id='MON-005'),
+			Deliverable(text='Air quality index', feature_id='MON-006'),
+			Deliverable(text='Community reporting', feature_id='COM-005'),
+			Deliverable(text='First aid guide', feature_id='INF-009'),
+			Deliverable(text='Nutrition guidance', feature_id='MON-008'),
+			Deliverable(text='Safe and dignified burial guidance', feature_id='INF-010'),
+		],
+		criteria=[
+			SuccessCriterion(text='2M installs', value=2_000_000, unit='installs', kpi_id='app_downloads'),
+			SuccessCriterion(text='35% DAU/MAU', value=35.0, unit='percent', kpi_id='retention_dau_mau'),
+			SuccessCriterion(text='20% of users open the app daily', value=20.0, unit='percent'),
+		],
+	),
+	PhasePlan(
+		phase=Phase.phase_5_outbreak_ready,
+		objective='Tier 4 build and test',
+		deliverables=[
+			Deliverable(text='21-day contact monitoring', feature_id='MON-009'),
+			Deliverable(text='CHW case reporting module', feature_id='COM-101'),
+			Deliverable(text='Bluetooth proximity logging', feature_id='LOC-002'),
+			Deliverable(text='GPS location history for contact tracing', feature_id='LOC-003'),
+			Deliverable(text='QR/NFC check-in', feature_id='LOC-004'),
+			Deliverable(text='LiDAR respiration monitoring', feature_id='SENS-001'),
+			Deliverable(text='Acoustic cough monitoring', feature_id='SENS-002'),
+			Deliverable(text='Fall detection (enhanced)', feature_id='SENS-003'),
+			Deliverable(text='Wearable integration', feature_id='SENS-006'),
+			Deliverable(text='AI risk prediction', feature_id='AI-001'),
+			Deliverable(text='Early warning signal', feature_id='AI-003'),
+			Deliverable(text='Full PHEOC integration'),
+		],
+		criteria=[
+			SuccessCriterion(text='Tier 4 activation in under 60 minutes', value=60.0, unit='minutes', operator='at_most'),
+			SuccessCriterion(text='<5% daily battery impact', value=5.0, unit='percent/day', operator='at_most', kpi_id='battery_impact'),
+			SuccessCriterion(text='full offline operation verified', value=100.0, unit='percent', kpi_id='offline_availability'),
+		],
+		testing=[
+			'Tabletop exercises with PHEOC',
+			'simulated outbreak activation',
+			'red team review of privacy controls',
+		],
+	),
+	PhasePlan(
+		phase=Phase.phase_6_scale,
+		objective='Multi-disease, national integration',
+		deliverables=[
+			Deliverable(text='Multi-disease support (cholera, Rift Valley fever, mpox, measles)'),
+			Deliverable(text='Integration into national health information system'),
+			Deliverable(text='Sustainable funding model'),
+			Deliverable(text='Regional expansion (Uganda, Tanzania, DRC, South Sudan)'),
+			Deliverable(text='Continuous improvement based on user feedback'),
+		],
+		criteria=[],
+	),
+)
+
+# §21.2–21.7 by phase, for the readiness check. Built from the tuple rather than kept beside it, so
+# a phase cannot be in one and missing from the other.
+PLAN_BY_PHASE: dict[Phase, PhasePlan] = {p.phase: p for p in PHASE_PLANS}
 
 
 class RolloutService(LogMixin):
@@ -272,6 +414,109 @@ class RolloutService(LogMixin):
 			antipatterns=list(ANTIPATTERNS),
 			note='; '.join(notes) if notes else 'both §20.2 repo claims hold and every retention feature is registered',
 		)
+
+	# --- §21.2–21.7 phase plans --------------------------------------------------------------
+
+	@staticmethod
+	def phase_plans() -> list[PhasePlan]:
+		"""§21.2–21.7's six sections, in phase order. Phase 0 has no section: it is the build."""
+		return [PLAN_BY_PHASE[p.phase] for p in PHASES if p.phase in PLAN_BY_PHASE]
+
+	@staticmethod
+	def phase_plan(phase: Phase) -> PhasePlan:
+		"""One phase's plan, or a refusal naming the phase. Phase 0 is the case that refuses, and it
+		is not an error: §21.1 gives it no section because it delivers nothing to a user."""
+		if phase not in PLAN_BY_PHASE:
+			raise KeyError(f'{phase.value} has no §21 plan: it delivers nothing to a user')
+		return PLAN_BY_PHASE[phase]
+
+	def phase_readiness(self, phase: Phase) -> PhaseReadiness:
+		"""A phase's plan crossed against the registry and against §22.
+
+		Three findings, and they are genuinely different problems:
+
+		* **A deliverable the registry does not carry.** §21.4 lists "Family health wallet (basic)"
+		and the registry holds it; a phase listing a capability nobody built is a schedule for
+		something that will not arrive. This is the §11.1 defect in the phase dimension — a plan
+		naming a feature that does not exist reads identically to one that does.
+		* **A criterion with no KPI behind it.** §21.2's "50 stations broadcasting" is a real target
+		and §22 measures no such thing, so the phase's own exit cannot be computed from §22's
+		report. Reported rather than invented.
+		* **Criterion drift between §21 and §22.** Both sections state a number for the same measure
+		and they disagree — §21.3's 300,000 installs against §22.2's 2,000,000, §21.4's 25% DAU/MAU
+		against §22.1's 35%. Averaging them or picking one would be this code overruling the product
+		owner; what it owes is the finding.
+
+		`ready` is False when any of the first two holds. Drift does not make a phase unready — the
+		phase can ship — it makes the *document* inconsistent, which is a different reader's problem.
+		"""
+		plan = self.phase_plan(phase)
+		kpi_targets = {row[0]: row[3] for row in KPIS}
+		unregistered: list[str] = []
+		unbuilt: list[str] = []
+		for d in plan.deliverables:
+			if d.feature_id is None:
+				continue
+			if not self.is_registered(d.feature_id):
+				unregistered.append(d.feature_id)
+				unbuilt.append(d.text)
+		drift: list[str] = []
+		unmeasurable: list[str] = []
+		for c in plan.criteria:
+			if c.kpi_id is None or c.kpi_id not in kpi_targets:
+				unmeasurable.append(c.text)
+				continue
+			target = kpi_targets[c.kpi_id]
+			if not c.agrees_with(target):
+				drift.append(
+					f'{c.text} against §22\'s {c.kpi_id} target of {target:g} {c.unit}'
+				)
+		ready = not unregistered and not unmeasurable
+		if unregistered:
+			note = f'{len(unregistered)} deliverable(s) name a feature the registry does not carry'
+		elif unmeasurable:
+			note = f'{len(unmeasurable)} criterion/criteria have no §22 KPI to measure against'
+		elif drift:
+			note = f'plan ships; {len(drift)} criterion/criteria disagree with §22'
+		else:
+			note = 'every deliverable that names a feature resolves and every criterion maps to a §22 KPI'
+		self._log_info('phase readiness', phase=phase.value, unbuilt=len(unregistered),
+		               unmeasurable=len(unmeasurable), drift=len(drift))
+		return PhaseReadiness(
+			phase=phase, objective=plan.objective,
+			deliverable_count=len(plan.deliverables),
+			feature_deliverables=sum(1 for d in plan.deliverables if d.feature_id is not None),
+			unbuilt_deliverables=unbuilt, unregistered_features=sorted(set(unregistered)),
+			criteria=list(plan.criteria), criterion_drift=drift,
+			unmeasurable_criteria=unmeasurable, testing=list(plan.testing),
+			ready=ready, note=note,
+		)
+
+	@staticmethod
+	def public_plans() -> list[dict[str, object]]:
+		"""§21.2–21.7 rendered for a reader who is not the auditor: the section's own words, with the
+		registry handles dropped.
+
+		The same split `/sensors/capabilities` and `/sensors/coverage` already make. A deliverable's
+		`feature_id` is a traceability handle, and the plan is a document a county team and a partner
+		align to — the text says what ships and the handle adds nothing a reader of the plan needs.
+		The evidence half keeps the ids, because there the id *is* the finding.
+		"""
+		return [
+			{
+				'phase': plan.phase.value,
+				'objective': plan.objective,
+				'deliverables': [d.text for d in plan.deliverables],
+				'criteria': [c.text for c in plan.criteria],
+				'testing': list(plan.testing),
+				'rationale': plan.rationale,
+			}
+			for plan in (PLAN_BY_PHASE[p.phase] for p in PHASES if p.phase in PLAN_BY_PHASE)
+		]
+
+	def rollout_plan(self) -> list[PhaseReadiness]:
+		"""Every phase's plan and its findings, in phase order. The whole of §21 as one answer."""
+		return [self.phase_readiness(p.phase) for p in PHASES if p.phase in PLAN_BY_PHASE]
 
 	def status(self, phase: Phase, active_tier: int) -> RolloutStatus:
 		"""Where a deployment sits against §21.1's ceiling for its phase.
