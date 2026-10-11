@@ -226,3 +226,101 @@ async def test_egress_route_reports_the_deployments_own_hosts() -> None:
 		assert {d['party'] for d in out['decisions']} == {
 			AgreementParty.ministry_of_health.value, AgreementParty.telco.value,
 		}, out['decisions']
+
+
+# --- §15.2 the stack, and §15.1 the architecture -------------------------------------------------
+
+def _spec_stack_rows() -> list[list[str]]:
+	"""§15.2's table, read out of the spec so a revision fails here rather than passing."""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split('### 15.2 Technology Stack', 1)[1].split('\n### ', 1)[0]
+	rows: list[list[str]] = []
+	for line in section.splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip() for c in line.strip('|').split('|')]
+		if len(cells) != 3 or cells[0] == 'Layer':
+			continue
+		rows.append([c.replace('**', '') for c in cells])
+	return rows
+
+
+def test_the_stack_table_is_the_sections_rows() -> None:
+	"""§15.2 is a claim about what runs, and every row of it is carried — a row dropped from the
+	table is a layer nothing compares against what the build contains."""
+	from afya.governance.service import GovernanceService
+	spec = _spec_stack_rows()
+	report = GovernanceService().stack_report()
+	assert len(spec) == 18, f'the section names {len(spec)} layers'
+	assert [l.layer for l in report.layers] == [r[0] for r in spec]
+	assert [l.specified for l in report.layers] == [r[1] for r in spec]
+	assert [l.rationale for l in report.layers] == [r[2] for r in spec]
+
+
+def test_a_shipped_layer_points_at_something_in_the_repo() -> None:
+	"""The finding: a layer reported as shipped with nothing backing it is the stack table making
+	exactly the claim it exists to check. Both evidence spellings are walked — a `module:attr`
+	reference for a layer that is code and a repo path for one that is configuration — because a
+	checker that knew only the import form would pass every configuration layer for free."""
+	from afya.governance.service import GovernanceService
+	report = GovernanceService().stack_report()
+	assert report.unbacked_layers == [], f'layers claiming to ship with no evidence: {report.unbacked_layers}'
+	shipped = [l for l in report.layers if l.status.value == 'shipped']
+	assert shipped, 'the table must claim something ships, or the check is vacuous'
+	assert all(l.evidence for l in shipped)
+
+
+def test_the_three_findings_are_different_questions() -> None:
+	"""A deferred layer is not a divergence and neither is an unbacked one. Collapsing them would let
+	a layer the programme has not stood up read as one running something else — and the divergences
+	are what every "we run the spec's stack" sentence depends on being visible."""
+	from afya.governance.service import GovernanceService
+	report = GovernanceService().stack_report()
+	by_layer = {l.layer: l for l in report.layers}
+	for name in report.deferred_layers:
+		assert by_layer[name].actual is None and by_layer[name].evidence is None
+	for name in report.diverged_layers:
+		assert by_layer[name].actual and by_layer[name].evidence
+	assert not (set(report.deferred_layers) & set(report.diverged_layers))
+	assert not (set(report.unbacked_layers) & set(report.deferred_layers))
+	# The four the memory records as deliberate divergences are among them, so the table agrees
+	# with the recorded position rather than quietly reporting compliance.
+	for layer in ('Mobile framework', 'Backend runtime'):
+		assert layer in report.diverged_layers, f'{layer} should read as diverged'
+
+
+def test_every_architecture_box_has_a_module_behind_it() -> None:
+	"""§15.1 is a picture, so the checkable part is whether each box has a module: a box drawn and
+	not built is an architecture claim with nothing under it. The two client-side boxes are the
+	exception and say so through `note` rather than being given a fabricated module."""
+	from afya.governance.service import GovernanceService
+	report = GovernanceService().stack_report()
+	assert report.unresolved_components == [], f'boxes with no module: {report.unresolved_components}'
+	without = [c.name for c in report.components if c.module is None]
+	assert without, 'the client-side boxes must be the ones with no module'
+	for c in report.components:
+		if c.module is None:
+			assert c.note, f'{c.name} has no module and no note saying why'
+	# Every band the diagram draws is represented, so a band cannot be dropped silently.
+	assert {c.band for c in report.components} == {'backend', 'integration', 'sync', 'local'}
+
+
+def test_the_canary_watches_a_phantom_module_fire() -> None:
+	"""The gate is the resolver walk, and the silent change to the table is a module path that no
+	longer lands — a renamed class, a moved module. Everything else still passes, because the other
+	boxes still resolve and the count is unchanged."""
+	from afya.governance import service as governance_service
+	from afya.governance.service import GovernanceService
+	original = governance_service.GovernanceService.ARCHITECTURE
+	assert original[0][2] == 'afya.service:create_app', 'canary target moved'
+	patched = (('API Gateway (rate limiting, auth, routing, audit)', 'backend', 'afya.nothing.service:Missing', None),
+		*original[1:])
+	try:
+		governance_service.GovernanceService.ARCHITECTURE = patched
+		report = GovernanceService().stack_report()
+		assert report.unresolved_components == ['API Gateway (rate limiting, auth, routing, audit)'], \
+			'the canary did not fire: a phantom module resolved'
+	finally:
+		governance_service.GovernanceService.ARCHITECTURE = original
+	assert GovernanceService().stack_report().unresolved_components == [], 'restore failed'

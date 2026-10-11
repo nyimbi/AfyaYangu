@@ -9,10 +9,12 @@ Each is now a decision the process makes and can be asked about, not a paragraph
 trust.
 """
 from afya.governance.views import (
-	RESIDENCY_RULES, HOST_JURISDICTIONS, LEGAL_REVIEW_EXCEPTION, AgreementParty, CapacityCheck,
-	CapacityReport, DataClass, DataSharingAgreement, Jurisdiction, ResidencyDecision, ScaleTarget,
+	RESIDENCY_RULES, HOST_JURISDICTIONS, LEGAL_REVIEW_EXCEPTION, AgreementParty, ArchitectureComponent,
+	CapacityCheck, CapacityReport, DataClass, DataSharingAgreement, Jurisdiction, ResidencyDecision,
+	ScaleTarget, StackLayer, StackReport, StackStatus,
 )
 from afya.logmixin import LogMixin
+from afya.refs import resolves
 
 # §15.4 table, verbatim. `higher_is_better` is False for latency and the recovery times, where
 # being under the target is the pass — a report that got this backwards would pass a 3-second p95.
@@ -149,6 +151,139 @@ class GovernanceService(LogMixin):
 		}
 
 	# --- §15.4 capacity ----------------------------------------------------------------------
+
+	# --- §15.2 the stack, and §15.1 the architecture ------------------------------------------
+
+	# §15.2's table, verbatim on the first three columns, with what the build actually runs. This is
+	# the section that overstates what exists — it names Flutter, Node.js and a list of datastores,
+	# and the repo ships two native clients, no Node at all, and one Postgres-protocol store — so the
+	# honest form of the table is a comparison rather than a copy. `evidence` is a `module:attr`
+	# reference for a layer that is code and a repo path for a layer that is configuration, and both
+	# are walked: a `deferred` layer names nothing and is reported as deferred rather than unbacked.
+	STACK: tuple[tuple[str, str, str, StackStatus, str | None, str | None, str | None], ...] = (
+		('Mobile framework', 'Flutter', 'Single codebase for Android and iOS; strong offline support; small binary',
+			StackStatus.diverged, 'SwiftUI + Kotlin', 'ios/', 'two native clients, so every string exists twice'),
+		# §15.2 names an ACID offline-first store and §15.1 draws the local data layer as one; the
+		# clients cache the last good response in SharedPreferences and UserDefaults, which is a
+		# cache rather than a database and has neither transactions nor a schema. Reporting this as
+		# shipped would be the stack table making exactly the claim it exists to check.
+		('Local DB', 'SQLite + Room (Android), Core Data (iOS)', 'Proven, ACID-compliant, offline-first',
+			StackStatus.diverged, 'SharedPreferences + UserDefaults',
+			'android/app/src/main/java/ke/go/health/afyayangu/BackendClient.kt',
+			'last-good-response cache, not an ACID store'),
+		('On-device ML', 'TensorFlow Lite, ONNX Runtime Mobile', 'Lightweight, mature, supports the required models',
+			StackStatus.shipped, 'ONNX Runtime', 'afya.ml.cough:YamnetCoughEngine', None),
+		('Backend runtime', 'Node.js (Fastify) + Python (FastAPI)', 'Node for APIs, Python for ML and data pipelines',
+			StackStatus.diverged, 'Python (FastAPI) only', 'afya.service:create_app', 'no Node process runs'),
+		('Primary DB', 'PostgreSQL 16', 'Robust, open-source, mature ecosystem',
+			StackStatus.shipped, 'PostgreSQL via asyncpg', 'afya.persistence.postgres_store:PostgresStore', None),
+		('Geospatial', 'PostGIS', 'Geofencing, geohashing, spatial queries',
+			StackStatus.diverged, 'application-level haversine', 'afya.surveillance.service:SurveillanceService.geofences_at',
+			'no PostGIS extension is required by any migration'),
+		('Time-series', 'TimescaleDB', 'Sensor metrics, monitoring diaries',
+			StackStatus.deferred, None, None, 'sensor rows land in the primary store'),
+		('Cache / queue', 'Redis', 'Sessions, rate limiting, job queues',
+			StackStatus.deferred, None, None, None),
+		('Object storage', 'S3-compatible (MinIO on-prem option)', 'Photos, documents, exports',
+			StackStatus.shipped, 'local filesystem port', 'afya.evidence.service:EvidenceService', 'S3/MinIO is a port swap'),
+		('Search', 'OpenSearch', 'Content search, facility search, misinformation tracking',
+			StackStatus.deferred, None, None, None),
+		('Message queue', 'RabbitMQ or Kafka', 'Async processing, alert fan-out',
+			StackStatus.deferred, None, None, None),
+		('WhatsApp', 'Meta WhatsApp Business API', 'Official channel',
+			StackStatus.shipped, 'WhatsApp Business API', 'afya.integrations.gateways:WhatsAppBusinessClient', None),
+		('SMS / USSD', "Africa's Talking or Telco direct", 'Proven in Kenya',
+			StackStatus.shipped, "Africa's Talking REST", 'afya.integrations.gateways:AtSmsRestSend', None),
+		('Cloud', 'AWS Africa (Cape Town) or Azure South Africa', 'Data residency, low latency',
+			StackStatus.shipped, 'configured per deployment', 'afya.governance.views:HOST_JURISDICTIONS',
+			'residency is enforced against the deployment\'s own hosts'),
+		('On-prem option', 'Kubernetes on MoH infrastructure', 'Data sovereignty option for sensitive components',
+			StackStatus.shipped, 'same image, on-prem host', 'afya.governance.views:RESIDENCY_RULES',
+			'case management and contact tracing may not leave Kenya'),
+		('CI/CD', 'GitHub Actions + Fastlane', 'Standard, cost-effective',
+			StackStatus.shipped, 'GitHub Actions', '.github/workflows/ci.yml', None),
+		('Monitoring', 'Prometheus + Grafana + Sentry', 'Standard observability',
+			StackStatus.deferred, None, None, None),
+		('Feature flags', 'Unleash', 'Tier 4 activation control',
+			StackStatus.diverged, 'in-process three-key gate', 'afya.registry.service:FeatureRegistry',
+			'§11.1\'s gate is the flag system; Unleash is not deployed'),
+	)
+
+	# §15.1's diagram boxes. The diagram is a picture, so the checkable part is not the picture but
+	# whether each box has a module behind it: a box drawn and not built is an architecture claim with
+	# nothing under it, which is the same failure as an unbacked mitigation in a different medium.
+	ARCHITECTURE: tuple[tuple[str, str, str | None, str | None], ...] = (
+		('API Gateway (rate limiting, auth, routing, audit)', 'backend', 'afya.service:create_app', None),
+		('Triage Service', 'backend', 'afya.triage.service:TriageService', None),
+		('Case Mgmt Service', 'backend', 'afya.surveillance.service:SurveillanceService', None),
+		('Exposure Notify', 'backend', 'afya.surveillance.service:ProximityToken', None),
+		('Content Service', 'backend', 'afya.info.service:InfoService', None),
+		('Facility Service', 'backend', 'afya.facilities.service:FacilityService', None),
+		('Medicine Registry', 'backend', 'afya.medicine.service:MedicineService', None),
+		('Records Service', 'backend', 'afya.records.service:RecordsService', None),
+		('Alerting Service', 'backend', 'afya.alerting.service:AlertingService', None),
+		('AI/ML Engine', 'backend', 'afya.ai.service:AIService', None),
+		('Consent Registry', 'backend', 'afya.privacy.service:PrivacyService', None),
+		('ADaM Platform', 'integration', 'afya.integrations.adam:AdamClient', None),
+		('JALI Chatbot', 'integration', 'afya.integrations.service:JaliClient', None),
+		('PHEOC Dashboards', 'integration', 'afya.integrations.service:PheocClient', None),
+		('719 Hotline', 'integration', 'afya.emergency.service:Inline719Port', None),
+		('PPB Registry', 'integration', 'afya.integrations.service:PPBClient', None),
+		('MoHF Facility', 'integration', 'afya.integrations.service:MoHFFacilityClient', None),
+		('SHA/NHIF', 'integration', 'afya.integrations.service:SHAClient', None),
+		('EPI Schedule', 'integration', 'afya.records.views:EPI_SCHEDULE', None),
+		('Lab Results', 'integration', 'afya.records.views:LabResult', None),
+		('Telco Gateways', 'integration', 'afya.integrations.service:TelcoGatewayClient', None),
+		('HTTPS/TLS REST API', 'sync', 'afya.service:create_app', None),
+		('BLE Proximity', 'sync', 'afya.surveillance.views:ProximityToken', None),
+		('SMS / USSD Gateway', 'sync', 'afya.integrations.gateways:AtSmsRestSend', None),
+		('WhatsApp Business API', 'sync', 'afya.integrations.gateways:WhatsAppBusinessClient', None),
+		('Hardware-Backed Keystore', 'local', None, 'the keystore is the OS\'s, reached from the clients'),
+		('SQLite / Room / Core Data', 'local', None, 'client-side store, not in this repo'),
+	)
+
+	def stack_report(self) -> StackReport:
+		"""§15.2's stack table and §15.1's diagram, each crossed against what the build contains.
+
+		Three findings, and they are different questions. `unbacked_layers` is a layer claiming to
+		ship with nothing in the repo pointing at it — the sharper failure, because the claim reads
+		as true. `deferred_layers` is a layer the spec names and the programme has not stood up,
+		which is honest and worth counting. `diverged_layers` is a layer running something else,
+		which the §23.3 fragmentation mitigation and every "we run the spec's stack" sentence
+		depends on being visible rather than buried.
+		"""
+		layers = [
+			StackLayer(layer=layer, specified=specified, rationale=rationale, status=status,
+				actual=actual, evidence=evidence, resolves=bool(evidence) and self._evidence_resolves(evidence),
+				note=note)
+			for layer, specified, rationale, status, actual, evidence, note in self.STACK
+		]
+		components = [
+			ArchitectureComponent(name=name, band=band, module=module,
+				resolves=module is not None and resolves(module), note=note)
+			for name, band, module, note in self.ARCHITECTURE
+		]
+		return StackReport(
+			layers=layers, components=components,
+			unbacked_layers=[l.layer for l in layers if l.status is StackStatus.shipped and not l.resolves],
+			unresolved_components=[c.name for c in components if c.module is not None and not c.resolves],
+			deferred_layers=[l.layer for l in layers if l.status is StackStatus.deferred],
+			diverged_layers=[l.layer for l in layers if l.status is StackStatus.diverged],
+		)
+
+	@staticmethod
+	def _evidence_resolves(evidence: str) -> bool:
+		"""Whether a layer's evidence points at something real.
+
+		A `module:attr` reference is walked the way §23's mitigations are; anything else is a repo
+		path and is checked against the filesystem. Both spellings are checked because the table uses
+		both — a stack layer can be code or it can be configuration, and a checker that knew only the
+		import form would pass every configuration layer for free.
+		"""
+		from pathlib import Path
+		if ':' in evidence:
+			return resolves(evidence)
+		return (Path(__file__).resolve().parents[3] / evidence).exists()
 
 	@staticmethod
 	def targets() -> list[ScaleTarget]:

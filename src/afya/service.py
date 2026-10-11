@@ -3144,6 +3144,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return governance.sharing_posture()
 
+	@app.get('/governance/stack')
+	async def governance_stack(_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""§15.2's stack table and §15.1's diagram against what the build actually contains.
+
+		Infrastructure-scoped: it names what runs and where, which is a deployment fact rather than
+		something a citizen endpoint should be asked to assert. The three findings are separate
+		questions — an unbacked layer is a claim reading as true, a deferred layer is one the
+		programme has not stood up, and a diverged layer is one running something other than the
+		spec's choice. Collapsing them would let a deferral read as compliance.
+		"""
+		return governance.stack_report().model_dump(mode='json')
+
 	@app.get('/governance/capacity')
 	async def governance_capacity(_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
 		"""§15.4 targets and, where the deployment has measured them, the observed value. With no

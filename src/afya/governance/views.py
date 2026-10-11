@@ -135,3 +135,59 @@ class CapacityReport(BaseModel):
 	checks: list[CapacityCheck]
 	unmeasured: list[str]
 	all_measured_targets_met: bool
+
+
+class StackStatus(str, Enum):
+	"""Whether the build runs what §15.2 names.
+
+	`shipped` is the layer the repo actually contains; `deferred` is one the spec names and the
+	programme has not stood up; `diverged` is a layer running something other than the spec's choice.
+	The three are different answers and collapsing them would let a deferral read as a divergence or
+	a divergence as compliance.
+	"""
+
+	shipped = 'shipped'
+	deferred = 'deferred'
+	diverged = 'diverged'
+
+
+class StackLayer(BaseModel):
+	"""One §15.2 row: the layer, the technology the section names, and what the build runs.
+
+	`actual` is None where nothing has been stood up, and `evidence` names what in the repo backs the
+	claim — a `module:attr` reference for a layer that is code, a path for a layer that is
+	configuration. A layer with no evidence is reported rather than trusted: the spec's stack table
+	is a claim about what runs, and a claim about what runs with nothing pointing at it is the
+	§15.2 version of an unbacked mitigation.
+	"""
+
+	model_config = MODEL_CONFIG
+	layer: str
+	specified: str
+	rationale: str
+	status: StackStatus
+	actual: str | None = None
+	evidence: str | None = None
+	resolves: bool = False
+	note: str | None = None
+
+
+class ArchitectureComponent(BaseModel):
+	"""One box in §15.1's diagram, and the module that is it."""
+
+	model_config = MODEL_CONFIG
+	name: str
+	band: str
+	module: str | None = None
+	resolves: bool = False
+	note: str | None = None
+
+
+class StackReport(BaseModel):
+	model_config = MODEL_CONFIG
+	layers: list[StackLayer]
+	components: list[ArchitectureComponent]
+	unbacked_layers: list[str]
+	unresolved_components: list[str]
+	deferred_layers: list[str]
+	diverged_layers: list[str]
