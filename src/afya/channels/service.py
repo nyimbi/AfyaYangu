@@ -7,7 +7,12 @@ from afya.channels.views import (
 )
 from afya.integrations.gateways import AtUssdCallback
 from afya.logmixin import LogMixin
-from afya.strings import USSD_MENU, answerable
+from afya.strings import (
+	SYMPTOM_WORDS, USSD_MENU, USSD_MENU_ANSWERS, USSD_SYMPTOM_CHOICE, USSD_SYMPTOM_PROMPT,
+	WHATSAPP_FACILITY, WHATSAPP_HOTLINE, WHATSAPP_WELCOME, answerable,
+)
+from afya.triage.service import TriageService
+from afya.triage.views import TriageInput, TriageResult
 
 
 class SmsGatewayPort(Protocol):
@@ -50,15 +55,21 @@ class AfricaTalkingSmsPort:
 
 
 class ChannelService(LogMixin):
-	def __init__(self, sms: SmsGatewayPort, zero_rating: Callable[[], Awaitable[list[ZeroRatingRule] | None]] | None = None) -> None:
+	def __init__(self, sms: SmsGatewayPort, zero_rating: Callable[[], Awaitable[list[ZeroRatingRule] | None]] | None = None,
+	             triage: TriageService | None = None) -> None:
 		"""`zero_rating` supplies §18.8's billing rules when the carrier is reachable, and None when
 		they have not been pulled. Injected rather than constructed here because the rules live on the
 		telco client and the channel service must not depend on the integration layer; a deployment
 		with no carrier configured passes nothing, and every free claim is then reported unverified
 		rather than assumed true.
+
+		`triage` is the single clinical engine §5.4 requires every channel to share. It is optional
+		only so a unit test can build the channel layer alone; the service wires the real one, and
+		`_triage_for` refuses rather than answering from a second implementation when it is absent.
 		"""
 		self._sms = sms
 		self._zero_rating = zero_rating
+		self._triage = triage
 		self._ussd_state: dict[str, int] = {}
 		self._chw_tasks: list[ChwTask] = []
 		assert self._ussd_state == {} and self._chw_tasks == []
@@ -113,8 +124,29 @@ class ChannelService(LogMixin):
 		choice = int(req.text) if req.text.isdigit() else 0
 		assert 0 <= choice <= 4, 'menu bounded'
 		if choice in (1, 2, 3, 4):
-			return UssdResponse(session_id=req.session_id, end_text=f'Selected {choice}: routed to feature.')
+			# §5.4: one triage engine behind every entry point, so a selection answers with the same
+			# clinical logic the app does. The menu is the section's, so the mapping is read off it —
+			# and the mismatch is reported rather than smoothed: §CHAN-2's menu says "Report symptoms"
+			# and the engine requires a symptom list, which a numeric selection cannot carry. The
+			# caller is told what to say instead of being handed a recommendation for symptoms it
+			# never named.
+			answer = USSD_MENU_ANSWERS[served][choice]
+			if choice == USSD_SYMPTOM_CHOICE:
+				answer += ' ' + USSD_SYMPTOM_PROMPT[served]
+			return UssdResponse(session_id=req.session_id, end_text=answer)
 		return UssdResponse(session_id=req.session_id, menu=USSD_MENU[served])
+
+	def _triage_for(self, inp: TriageInput, lang: str) -> TriageResult:
+		"""§5.4's single triage engine, or a refusal that says so.
+
+		The channel layer must not grow a second clinical implementation — that is the drift §5.4's
+		"same clinical logic regardless of entry point" exists to forbid, and a channel that answers
+		from its own keyword rules is exactly the second engine. A unit test that builds this service
+		without one gets a `RuntimeError` rather than a plausible reply.
+		"""
+		if self._triage is None:
+			raise RuntimeError('the channel service has no triage engine wired; §5.4 requires the shared one')
+		return self._triage.assess(inp, lang)
 
 	def ussd_carrier_callback(self, cb: AtUssdCallback, lang: str = 'en') -> dict[str, str]:
 		"""Africa's Talking callback -> {text: ..., action: CONTINUE|END} response envelope."""
@@ -123,16 +155,35 @@ class ChannelService(LogMixin):
 			return {'text': resp.menu, 'action': 'CON'}
 		return {'text': resp.end_text or '', 'action': 'END'}
 
-	def route_whatsapp(self, msg: WhatsAppIn) -> WhatsAppOut:
+	def route_whatsapp(self, msg: WhatsAppIn, lang: str = 'en') -> WhatsAppOut:
+		"""§CHAN-3's keyword router, answering through §5.4's shared triage engine.
+
+		The intents are §CHAN-3's own (symptoms, facility, hotline), and the symptom intent no longer
+		carries a private recommendation: it maps the body onto a `TriageInput` and returns what the
+		engine says, so the WhatsApp answer and the app answer are one fact. The body is free text
+		("I have fever"), so the symptoms it names are read out of it rather than assumed — a body
+		that mentions no symptom the engine knows enters with an empty list and is answered at the
+		low risk level, which is the honest reading of "no symptom named".
+		"""
 		body = msg.body.lower()
-		if 'fever' in body or 'symptom' in body:
-			reply = 'TRI: fever/symptom detected — malaria test first; call 719 if no improvement in 48h.'
+		if 'fever' in body or 'symptom' in body or any(s in body for s in SYMPTOM_WORDS):
+			# A body that says "fever" is a report of fever, and the engine has one way to hear it:
+			# its fever threshold. Without this the body entered at the 36.5 °C default — which means
+			# "no fever" — and §6.3's malaria trap never fired on the one channel where a feverish
+			# person with no thermometer is most likely to be writing. `symptom` alone (the word from
+			# §CHAN-3's intent list) names no symptom, so it enters with an empty list.
+			symptoms = [s for s in SYMPTOM_WORDS if s in body]
+			inp = TriageInput(
+				symptoms=symptoms or (['fever'] if 'fever' in body else []),
+				temperature_c=38.0 if 'fever' in body else 36.5,
+			)
+			reply = self._triage_for(inp, lang).recommendation
 		elif 'facility' in body or 'hospital' in body:
-			reply = 'FND: send your location to find the nearest facility.'
+			reply = WHATSAPP_FACILITY[answerable(lang)]
 		elif '719' in body:
-			reply = 'Call 719 (toll-free, 24/7).'
+			reply = WHATSAPP_HOTLINE[answerable(lang)]
 		else:
-			reply = "Welcome to Afya Yangu. Options: symptoms, facility, hotline."
+			reply = WHATSAPP_WELCOME[answerable(lang)]
 		return WhatsAppOut(to_msisdn=msg.from_msisdn, reply=reply)
 
 	async def schedule_bulletin(self, b: RadioBulletin) -> RadioBulletin:

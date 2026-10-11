@@ -211,6 +211,40 @@ async def test_tier4_refusals_carry_no_codes() -> None:
 		assert bad == [], f'feature codes served in a refusal: {bad}'
 
 
+async def test_the_channel_surfaces_carry_no_codes() -> None:
+	"""The surface this gate's jurisdiction missed, which is why the leak survived every run.
+
+	The scan covered the action catalogue, the friendly-copy table, the served `/mobile/*` payloads
+	and the native string literals — every one of them a *structured* surface. A channel reply is a
+	sentence: `route_whatsapp` answered a fever with "TRI: fever/symptom detected — malaria test
+	first", and the USSD menu answered every selection with "Selected 1: routed to feature", which
+	are the two things a person on WhatsApp or a feature phone actually reads. Neither was scanned,
+	because neither is a payload field.
+
+	Widened to the channel replies as they are *served*, not as they are written: the WhatsApp route,
+	the inbound-SMS route and every USSD selection are driven over HTTP and their reply strings are
+	scanned. A gate scoped to the fields a payload happens to have is the checker that enumerates one
+	of the ways the thing it checks can be written.
+	"""
+	app = create_app()
+	transport = httpx.ASGITransport(app=app)
+	bad: list[str] = []
+	async with httpx.AsyncClient(transport=transport, base_url='http://t') as c:
+		for body in ('I have fever', 'find facility', '719', 'hello'):
+			r = await c.post('/channels/whatsapp', json={'from_msisdn': '+254711222333', 'body': body})
+			bad += _scan(f'whatsapp {body!r}', r.text)
+		# The USSD menu and every selection's answer, in both languages with a table.
+		for lang in ('en', 'sw'):
+			menu = await c.post(f'/channels/ussd?lang={lang}',
+			                    json={'session_id': f's-{lang}', 'msisdn': '+254711222333', 'text': ''})
+			bad += _scan(f'ussd menu {lang}', menu.text)
+			for choice in ('1', '2', '3', '4'):
+				r = await c.post(f'/channels/ussd?lang={lang}',
+				                 json={'session_id': f's-{lang}', 'msisdn': '+254711222333', 'text': choice})
+				bad += _scan(f'ussd {lang} {choice}', r.text)
+	assert bad == [], f'feature codes served on a channel a person reads: {bad}'
+
+
 async def test_the_symptom_photo_gate_cannot_be_encoded_around() -> None:
 	"""The gate is on the *feature the request selects*, so the encoding must not change it.
 

@@ -61,3 +61,56 @@ def rec(lang: str, risk: str) -> str:
 	"""
 	assert risk in TRIAGE_RECS['en'], f'unknown risk level {risk}'
 	return TRIAGE_RECS[answerable(lang)][risk]
+
+
+# §CHAN-2's USSD menu as answers rather than as a second clinical engine. The menu is the section's
+# ("1. Ebola info / 2. Find facility / 3. Report symptoms / 4. Hotline 719") and each selection
+# answers with what §5.4's shared triage engine says — the app and the feature phone give the same
+# clinical answer, which is the whole of §5.4's first bullet.
+#
+# Choice 1 carries no code: it used to read "Selected 1: routed to feature", which is a developer's
+# sentence, and it now carries the §INF-001 line the menu names.
+USSD_MENU_ANSWERS: dict[str, dict[int, str]] = {
+	'en': {
+		1: 'Ebola spreads by direct contact with a sick person or a body. Wash hands often; do not touch. Call 719 if you have fever with bleeding.',
+		2: 'Send your location on the app or call 719 and ask for the nearest health facility.',
+		3: '',  # filled from the engine below; a numeric menu cannot name a symptom
+		4: 'Call 719 (toll-free, 24/7) for advice and for an ambulance.',
+	},
+	'sw': {
+		1: 'Ebola huenea kwa kugusa mtu mgonjwa au mwili. Osha mikono mara kwa mara; usiguse. Piga 719 kama una homa na kutokwa na damu.',
+		2: 'Tuma mahali ulipo kwenye programu au piga 719 uombe kituo cha afya cha karibu.',
+		3: '',
+		4: 'Piga 719 (bila malipo, saa 24) kwa ushauri na gari la wagonjwa.',
+	},
+}
+
+# §CHAN-2's third selection names a symptom report and the engine needs the symptoms. A numeric
+# selection carries none, so the caller is asked for them rather than handed a recommendation for
+# symptoms it never named — the alternative is a reply that reads as clinical advice and is really
+# the engine's answer to an empty list.
+USSD_SYMPTOM_CHOICE: int = 3
+USSD_SYMPTOM_PROMPT: dict[str, str] = {
+	'en': 'Reply with your symptoms in a word or two (for example: fever, headache, bleeding).',
+	'sw': 'Jibu kwa dalili zako kwa neno moja au mawili (kwa mfano: homa, kichwa, kutokwa na damu).',
+}
+
+# The symptom words §CHAN-3's free-text bodies are read against. Kept as the narrow set the engine
+# accepts: a body naming nothing here enters the engine with an empty symptom list and is answered
+# at the low risk level, which is what "no symptom named" means.
+SYMPTOM_WORDS: tuple[str, ...] = ('fever', 'headache', 'muscle_pain', 'sore_throat', 'vomiting', 'diarrhoea', 'rash', 'bleeding')
+
+# §CHAN-3's other three intents, in the languages with a table. These carry no clinical claim, so
+# they are text rather than an engine call — and none of them is a spec code.
+WHATSAPP_FACILITY: dict[str, str] = {
+	'en': 'Send your location on the app to find the nearest facility, or call 719 and ask.',
+	'sw': 'Tuma mahali ulipo kwenye programu kupata kituo cha afya cha karibu, au piga 719 uombe.',
+}
+WHATSAPP_HOTLINE: dict[str, str] = {
+	'en': 'Call 719 (toll-free, 24/7).',
+	'sw': 'Piga 719 (bila malipo, saa 24).',
+}
+WHATSAPP_WELCOME: dict[str, str] = {
+	'en': 'Welcome to Afya Yangu. Options: symptoms, facility, hotline.',
+	'sw': 'Karibu Afya Yangu. Chaguo: dalili, kituo cha afya, mstari wa dharura.',
+}

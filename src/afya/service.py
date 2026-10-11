@@ -159,6 +159,11 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	# the two cannot be wired independently. The rules are read lazily on each send: §18.8's
 	# frequency is "on change", and a rule cached at startup is a rule that goes stale silently.
 	telco = TelcoGatewayClient(cfg.telco_zero_rating_url, cfg.telco_airtime_url, cfg.telco_api_key or 'unconfigured', client)
+	# §5.4's first bullet — "a single triage engine, same clinical logic regardless of entry point" —
+	# needs one instance behind both the API routes and the channel handlers, so it is built here
+	# rather than inside the return dict. Two constructions would be two engines and the claim would
+	# be false the moment they diverged.
+	triage_svc = TriageService(registry)
 
 	async def telco_rules() -> list[ZeroRatingRule] | None:
 		"""The carrier's zero-rating rules, as rules. Failure is the channel service's to report.
@@ -179,7 +184,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'cough_engine': cough_engine,
 		# §24.7: the Tier-4 gate reads the DPO's DPIA, so the two services are wired, not independent.
 		'privacy': privacy_svc,
-		'triage': TriageService(registry),
+		'triage': triage_svc,
 		'surveillance': SurveillanceService(registry, privacy_svc),
 		'sensors': SensorService(registry),
 		'medicine': MedicineService(PPBClient(cfg.ppb_url, client, '')),
@@ -187,7 +192,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# §5.3 CHAN-1's zero-rating is an agreement with the carrier, so the channel service is
 		# handed the telco client's rules rather than a boolean. A deployment with no telco
 		# configured passes nothing and reports every free claim as unverified.
-		'channels': ChannelService(sms_port, telco_rules),
+		'channels': ChannelService(sms_port, telco_rules, triage_svc),
 		'emergency': EmergencyService(Inline719Port()),
 		'info': InfoService(),
 		'records': RecordsService(),
@@ -1215,8 +1220,10 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return channels.ussd(req, lang).model_dump(mode='json')
 
 	@app.post('/channels/whatsapp')
-	async def channels_whatsapp(msg: WhatsAppIn) -> dict[str, object]:
-		return channels.route_whatsapp(msg).model_dump(mode='json')
+	async def channels_whatsapp(msg: WhatsAppIn, lang: str = 'en') -> dict[str, object]:
+		"""`lang` is a query parameter for the same reason the USSD route takes one: WhatsApp
+		Business carries no locale header we can trust, and §5.4 puts the same engine behind it."""
+		return channels.route_whatsapp(msg, lang).model_dump(mode='json')
 
 	@app.post('/channels/ussd/callback')
 	async def channels_ussd_callback(cb: AtUssdCallback, lang: str = 'en', _body: bytes = Depends(require_webhook())) -> dict[str, str]:
@@ -2875,7 +2882,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'reference': ref}
 
 	@app.post('/integrations/telco/sms/inbound')
-	async def telco_sms_inbound(payload: dict[str, object], _body: bytes = Depends(require_webhook())) -> dict[str, object]:
+	async def telco_sms_inbound(payload: dict[str, object], lang: str = 'en', _body: bytes = Depends(require_webhook())) -> dict[str, object]:
 		"""Telco → App: an inbound SMS, routed through the same service the app's own messaging uses.
 
 		Routed via `route_whatsapp`'s keyword intent path rather than the USSD menu: an SMS body is
@@ -2888,7 +2895,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail='an inbound SMS needs text')
 		raw = str(payload.get('from', '')).strip()
 		msisdn = raw if raw.startswith('+') else ('+' + raw.lstrip('0') if raw.startswith('0') else '+' + raw)
-		out = channels.route_whatsapp(WhatsAppIn(from_msisdn=msisdn, body=body))
+		out = channels.route_whatsapp(WhatsAppIn(from_msisdn=msisdn, body=body), lang)
 		return {'reply': out.reply, 'source': 'sms'}
 
 	# --- §15.3 residency, §17.7 agreements, §15.4 capacity -----------------------------------
