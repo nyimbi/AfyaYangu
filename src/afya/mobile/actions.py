@@ -413,7 +413,7 @@ def catalogue() -> list[MobileAction]:
 		_a('ussd_menu', 'USSD menu', 'Channels', 'POST', '/channels/ussd', [_f('session_id', 'Session'), _f('msisdn', 'Phone number'), _f('text', 'Selection')]),
 		_a('whatsapp_send', 'WhatsApp reply', 'Channels', 'POST', '/channels/whatsapp', [_f('from_msisdn', 'Phone number'), _f('body', 'Message')]),
 		_a('queue_sync_op', 'Save for later (offline)', 'Sync', 'POST', '/sync/ops', [_f('op_id', 'Change number'), _f('dataset', 'What kind of change?', 'select', SYNC_DATASETS), _f('client_ts', 'When it happened', 'int')]),
-		_a('flush_sync', 'Send everything now', 'Sync', 'POST', '/sync/flush', []),
+		_a('flush_sync', 'Send everything now', 'Sync', 'POST', '/sync/flush', [_f('connection', 'Connection', 'select', ['wifi', 'metered', 'offline'], ph='wifi')]),
 		_a('offline_state', 'Is my work saved?', 'Sync', 'GET', '/sync/state', []),
 		_a('sensor_ingest', 'Save a reading', 'Sensors', 'POST', '/sensors/ingest', [_f('kind', 'Reading type', 'select', SENS_KINDS), _s(), _f('value', 'Value', 'decimal'), _f('county', 'County')]),
 		_a('analyse_cough', 'Check a cough recording', 'Sensors', 'POST', '/ml/cough/analyze', [_f('file', 'Recording', 'file')]),

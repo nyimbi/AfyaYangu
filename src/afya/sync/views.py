@@ -144,7 +144,32 @@ POLICY_BY_CONNECTION: dict[ConnectionClass, SyncPolicy] = {
 assert set(POLICY_BY_CONNECTION) == set(ConnectionClass), 'every connection class needs a policy'
 
 
+class SendOutcome(str, Enum):
+	"""Which edge of §16.2's flow a send took. The diagram has three exits from "Batch & send", and
+	they are not interchangeable: an ack marks the op synced, a missing ack earns a backoff, and no
+	network earns none — the phone was offline, which is not the op's fault and not something to
+	wait out once a network returns."""
+
+	acked = 'acked'
+	no_ack = 'no_ack'
+	no_network = 'no_network'
+
+
 class SyncOp(BaseModel):
+	"""One queued write, with the retry schedule §16.2's diagram draws.
+
+	`attempt` numbers the attempt about to be made — `enqueue` seeds it at 1 — and `retry_at_ms` is
+	when the op may next be offered to the network. Both are needed: `attempt` alone was a write-only
+	counter, so nothing could tell a first try from a fifth, and an op that could not be sent had
+	nowhere to record when it should be tried again — so it was re-sent on every flush, which is the
+	opposite of backoff.
+
+	`retry_at_ms` is `None` for an op that has never failed, which means *due now*. That is what
+	makes the offline case work: an op deferred because there was no network keeps its due-now
+	status, so the moment a network appears it goes out on the next flush rather than waiting out a
+	delay it earned during an outage it could not have avoided.
+	"""
+
 	model_config = MODEL_CONFIG
 	op_id: str = Field(pattern=r'^OP-[A-Z0-9]{6,}$')
 	dataset: str
@@ -152,8 +177,13 @@ class SyncOp(BaseModel):
 	client_ts: int
 	server_ts: int = 0
 	payload: dict[str, str] = Field(default_factory=dict)
-	attempt: int = 0
+	attempt: int = Field(default=0, ge=0)
 	synced: bool = False
+	retry_at_ms: int | None = None
+
+	def due(self, now_ms: int) -> bool:
+		"""Whether the backoff window has elapsed. An op that has never failed is always due."""
+		return self.retry_at_ms is None or now_ms >= self.retry_at_ms
 
 
 class SyncBatch(BaseModel):
@@ -174,10 +204,23 @@ class SyncBatch(BaseModel):
 
 
 class SyncStatus(BaseModel):
+	"""One flush's outcome.
+
+	`pending` and `deferred` are different facts and were one number. `pending` is everything still
+	queued; `deferred` is the subset §16.2's diagram routes to "Retry with exponential backoff" —
+	due now but unsent because no network was available — as against `waiting`, which is queued but
+	inside its backoff window and was not offered to the network at all. A client that conflated
+	them would re-send an op the backoff had just scheduled to wait, which is the retry storm the
+	backoff exists to prevent.
+	"""
+
 	model_config = MODEL_CONFIG
 	pending: int
 	synced: int
 	conflicts: int
+	deferred: int = 0
+	waiting: int = 0
+	next_retry_at_ms: int | None = None
 
 
 class OfflineState(BaseModel):

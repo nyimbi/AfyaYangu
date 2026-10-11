@@ -11,9 +11,15 @@ CREATE TABLE IF NOT EXISTS afya.sync_ops (
 	payload JSONB NOT NULL DEFAULT '{}'::jsonb,
 	attempt INTEGER NOT NULL DEFAULT 0,
 	synced BOOLEAN NOT NULL DEFAULT FALSE,
+	retry_at_ms BIGINT,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- §16.2's retry schedule, added to a table that may already exist. `CREATE TABLE IF NOT EXISTS`
+-- above is a no-op against a deployed database, so without this the column would appear only on
+-- fresh installs and the first flush that scheduled a retry would fail on every existing one.
+ALTER TABLE afya.sync_ops ADD COLUMN IF NOT EXISTS retry_at_ms BIGINT;
 
 CREATE TABLE IF NOT EXISTS afya.consents (
 	consent_id TEXT PRIMARY KEY,

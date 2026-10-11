@@ -46,17 +46,17 @@ class PostgresStore(LogMixin):
 	async def save_sync_op(self, op: SyncOp) -> None:
 		async with (await self.pool()).acquire() as c:
 			await c.execute(
-				'''INSERT INTO afya.sync_ops (op_id, dataset, server_version, client_ts, server_ts, payload, attempt, synced)
-				VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
-				ON CONFLICT (op_id) DO UPDATE SET server_version=$3, server_ts=$5, payload=$6::jsonb, attempt=$7, synced=$8, updated_at=now()''',
-				op.op_id, op.dataset, op.server_version, op.client_ts, op.server_ts, json.dumps(op.payload), op.attempt, op.synced,
+				'''INSERT INTO afya.sync_ops (op_id, dataset, server_version, client_ts, server_ts, payload, attempt, synced, retry_at_ms)
+				VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+				ON CONFLICT (op_id) DO UPDATE SET server_version=$3, server_ts=$5, payload=$6::jsonb, attempt=$7, synced=$8, retry_at_ms=$9, updated_at=now()''',
+				op.op_id, op.dataset, op.server_version, op.client_ts, op.server_ts, json.dumps(op.payload), op.attempt, op.synced, op.retry_at_ms,
 			)
 
 	async def sync_ops(self) -> list[SyncOp]:
 		async with (await self.pool()).acquire() as c:
-			rows = await c.fetch('SELECT op_id, dataset, server_version, client_ts, server_ts, payload, attempt, synced FROM afya.sync_ops ORDER BY client_ts')
+			rows = await c.fetch('SELECT op_id, dataset, server_version, client_ts, server_ts, payload, attempt, synced, retry_at_ms FROM afya.sync_ops ORDER BY client_ts')
 		return [
-			SyncOp(op_id=r['op_id'], dataset=r['dataset'], server_version=r['server_version'], client_ts=r['client_ts'], server_ts=r['server_ts'], payload=json.loads(r["payload"]), attempt=r['attempt'], synced=r['synced'])
+			SyncOp(op_id=r['op_id'], dataset=r['dataset'], server_version=r['server_version'], client_ts=r['client_ts'], server_ts=r['server_ts'], payload=json.loads(r["payload"]), attempt=r['attempt'], synced=r['synced'], retry_at_ms=r['retry_at_ms'])
 			for r in rows
 		]
 

@@ -118,7 +118,10 @@ RISKS: tuple[Risk, ...] = (
 		control_kind=ControlKind.code, control='afya.metrics.service:MetricsService', owner='mobile_lead'),
 	Risk(risk_id='R-T4', domain=RiskDomain.technical, statement='Sync failures in low connectivity',
 		likelihood=Rating.high, impact=Rating.medium, mitigation='Robust queue; exponential backoff; user-visible status',
-		control_kind=ControlKind.code, control='afya.sync.service:backoff_delay_s', owner='engineering_lead'),
+		# The mitigation names three things and the control used to name one function that computed a
+		# delay and was called by nothing. `SyncService.flush` is where all three happen — the queue
+		# is kept, the backoff is applied, and `SyncStatus` is what the indicator reads.
+		control_kind=ControlKind.code, control='afya.sync.service:SyncService.flush', owner='engineering_lead'),
 	Risk(risk_id='R-T5', domain=RiskDomain.technical, statement='Backend scalability',
 		likelihood=Rating.low, impact=Rating.high, mitigation='Load testing; auto-scaling; CDN',
 		control_kind=ControlKind.process, owner='engineering_lead'),

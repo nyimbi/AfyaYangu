@@ -17,7 +17,7 @@ from afya.sync.views import SyncOp
 from afya.persistence.views import StoreStats
 
 _SCHEMA = (
-	'CREATE TABLE IF NOT EXISTS sync_ops (op_id TEXT PRIMARY KEY, dataset TEXT NOT NULL, server_version INTEGER NOT NULL DEFAULT 0, client_ts INTEGER NOT NULL, server_ts INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL DEFAULT "{}", attempt INTEGER NOT NULL DEFAULT 0, synced INTEGER NOT NULL DEFAULT 0)',
+	'CREATE TABLE IF NOT EXISTS sync_ops (op_id TEXT PRIMARY KEY, dataset TEXT NOT NULL, server_version INTEGER NOT NULL DEFAULT 0, client_ts INTEGER NOT NULL, server_ts INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL DEFAULT "{}", attempt INTEGER NOT NULL DEFAULT 0, synced INTEGER NOT NULL DEFAULT 0, retry_at_ms INTEGER)',
 	'CREATE TABLE IF NOT EXISTS consents (consent_id TEXT PRIMARY KEY, subject_ref TEXT NOT NULL, purpose TEXT NOT NULL, data_types TEXT NOT NULL, retention_days INTEGER NOT NULL, legal_basis TEXT NOT NULL, withdrawn INTEGER NOT NULL DEFAULT 0)',
 	'CREATE TABLE IF NOT EXISTS facilities (facility_id TEXT PRIMARY KEY, json TEXT NOT NULL)',
 	# §17.4: "All access is logged." Append-only by construction — there is no UPDATE or DELETE
@@ -39,15 +39,30 @@ class SqliteStore(LogMixin):
 			if not self._ready:
 				for ddl in _SCHEMA:
 					await c.execute(ddl)
+				await self._migrate(c)
 				await c.commit()
 				self._ready = True
 			yield c
 
+	async def _migrate(self, c: aiosqlite.Connection) -> None:
+		"""Add columns a newer build needs to a table an older one created.
+
+		`CREATE TABLE IF NOT EXISTS` is a no-op against a file that already has the table, so a
+		handset that queued writes under the old build would keep its old schema and the first
+		insert naming `retry_at_ms` would fail — losing the queue the column was added to protect.
+		SQLite has no `ADD COLUMN IF NOT EXISTS`, so the column list is read first.
+		"""
+		rows = await (await c.execute('PRAGMA table_info(sync_ops)')).fetchall()
+		existing = {r[1] for r in rows}
+		if 'retry_at_ms' not in existing:
+			await c.execute('ALTER TABLE sync_ops ADD COLUMN retry_at_ms INTEGER')
+			self._log_info('sync_ops migrated', added='retry_at_ms')
+
 	async def save_sync_op(self, op: SyncOp) -> None:
 		async with self._conn() as c:
 			await c.execute(
-				'REPLACE INTO sync_ops VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-				(op.op_id, op.dataset, op.server_version, op.client_ts, op.server_ts, json.dumps(op.payload), op.attempt, int(op.synced)),
+				'REPLACE INTO sync_ops VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+				(op.op_id, op.dataset, op.server_version, op.client_ts, op.server_ts, json.dumps(op.payload), op.attempt, int(op.synced), op.retry_at_ms),
 			)
 			await c.commit()
 
@@ -55,7 +70,7 @@ class SqliteStore(LogMixin):
 		async with self._conn() as c:
 			rows = await (await c.execute('SELECT * FROM sync_ops')).fetchall()
 		return [
-			SyncOp(op_id=r[0], dataset=r[1], server_version=r[2], client_ts=r[3], server_ts=r[4], payload=json.loads(r[5]), attempt=r[6], synced=bool(r[7]))
+			SyncOp(op_id=r[0], dataset=r[1], server_version=r[2], client_ts=r[3], server_ts=r[4], payload=json.loads(r[5]), attempt=r[6], synced=bool(r[7]), retry_at_ms=r[8])
 			for r in rows
 		]
 

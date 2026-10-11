@@ -1,17 +1,137 @@
 import pytest
 
-from afya.sync.service import SyncService, apply_delta, backoff_delay_s, delta_payload
+from afya.sync.service import SendFn, SyncService, apply_delta, backoff_delay_s, delta_payload
 import pytest
 from pydantic import ValidationError
 
 from afya.sync.views import (
-	POLICY_BY_CONNECTION, ConflictRule, ConflictStrategy, ConnectionClass, SyncOp,
+	POLICY_BY_CONNECTION, ConflictRule, ConflictStrategy, ConnectionClass, SendOutcome, SyncBatch,
+	SyncOp,
 )
 
 
 async def test_enqueue_backoff_monotonic() -> None:
 	assert backoff_delay_s(1) < backoff_delay_s(2) < backoff_delay_s(10)
 	assert backoff_delay_s(99) == 600.0
+
+
+# --- §16.2 sync queue design: the two "No" edges ---------------------------------------------
+
+def _failing(outcome: SendOutcome) -> SendFn:
+	"""A transport that always reports `outcome`, so each edge of §16.2's diagram can be driven."""
+	calls: list[SyncBatch] = []
+
+	async def send(batch: SyncBatch) -> SendOutcome:
+		calls.append(batch)
+		return outcome
+
+	return send
+
+
+async def test_the_backoff_function_is_applied_and_not_merely_defined() -> None:
+	"""`backoff_delay_s` was defined, tested for monotonicity, and called by nothing.
+
+	§16.2's diagram names "Retry with exponential backoff" on both of its "No" edges, and a function
+	beside the flow is not the flow: `flush` had one path and it was success. The canary is that a
+	failing send must move `retry_at_ms` by exactly the function's own value.
+	"""
+	svc = SyncService(send=_failing(SendOutcome.no_ack))
+	await svc.enqueue(SyncOp(op_id='OP-BACKOFF01', dataset='symptom_logs', client_ts=1, payload={'a': 'b'}))
+	st = await svc.flush(now_ms=1000)
+	assert st.deferred == 1 and st.synced == 0
+	op = svc._queue['OP-BACKOFF01']  # noqa: SLF001
+	assert op.synced is False, 'a deferred op is deferred, not discarded'
+	# `attempt` numbers the attempt about to be made, so after one failure it reads 2, and the delay
+	# is the one the attempt that just failed earned.
+	assert op.attempt == 2
+	assert op.retry_at_ms == 1000 + int(backoff_delay_s(1) * 1000) == 3000
+
+
+async def test_an_op_inside_its_backoff_window_is_not_offered_to_the_network() -> None:
+	"""Offering it again is the retry storm the backoff was computed to prevent — the send must not
+	be called a second time before the delay elapses."""
+	svc = SyncService(send=_failing(SendOutcome.no_ack))
+	await svc.enqueue(SyncOp(op_id='OP-WINDOW001', dataset='symptom_logs', client_ts=1, payload={'a': 'b'}))
+	await svc.flush(now_ms=1000)
+	early = await svc.flush(now_ms=2999)
+	assert early.waiting == 1 and early.deferred == 0, 'still inside the window'
+	assert early.pending == 1, 'waiting is not dropping'
+	# Past the window it is offered again, and the second failure doubles the delay.
+	late = await svc.flush(now_ms=3000)
+	assert late.deferred == 1
+	op = svc._queue['OP-WINDOW001']  # noqa: SLF001
+	assert op.attempt == 3 and op.retry_at_ms == 3000 + int(backoff_delay_s(2) * 1000) == 7000
+
+
+async def test_an_op_that_could_not_be_sent_earns_no_backoff() -> None:
+	"""§16.2's first "No": there was no network. The phone was offline, which is not the op's fault,
+	so it keeps its due-now status and goes out the moment a network appears rather than waiting out
+	a delay it did not cause."""
+	svc = SyncService(send=_failing(SendOutcome.no_network))
+	await svc.enqueue(SyncOp(op_id='OP-NONET0001', dataset='symptom_logs', client_ts=1, payload={'a': 'b'}))
+	first = await svc.flush(now_ms=1000)
+	assert first.deferred == 1
+	op = svc._queue['OP-NONET0001']  # noqa: SLF001
+	assert op.retry_at_ms is None and op.attempt == 1, 'no network is not a failed attempt'
+	# Same instant: still due, because nothing was earned against it.
+	assert (await svc.flush(now_ms=1000)).deferred == 1
+	assert first.next_retry_at_ms is None, 'nothing is waiting on a clock'
+
+
+async def test_an_offline_flush_defers_and_does_not_pretend_to_have_sent() -> None:
+	"""The diagram's first diamond, answered from the connection rather than assumed. With no
+	transport configured the local model is the server, so without this an offline flush would mark
+	every op synced — reporting work done because nobody asked the network."""
+	svc = SyncService()
+	await svc.enqueue(SyncOp(op_id='OP-OFFLINE01', dataset='symptom_logs', client_ts=1, payload={'a': 'b'}))
+	st = await svc.flush(now_ms=1000, connection=ConnectionClass.offline)
+	assert st.synced == 0 and st.deferred == 1 and st.pending == 1
+	assert svc._queue['OP-OFFLINE01'].synced is False  # noqa: SLF001
+	# Back on wifi, it goes.
+	assert (await svc.flush(now_ms=1001)).synced == 1
+
+
+async def test_a_deferred_op_is_never_dropped_and_survives_a_restart(tmp_path) -> None:
+	"""§16.1(5). A scheduled retry has to outlive the process, or an op that failed once is lost by
+	the restart that follows — and the retry that was scheduled is the thing that was supposed to
+	save it."""
+	from afya.persistence.service import SqliteStore
+	db = str(tmp_path / 'q.db')
+	svc = SyncService(SqliteStore(db), send=_failing(SendOutcome.no_ack))
+	await svc.enqueue(SyncOp(op_id='OP-SURVIVE01', dataset='symptom_logs', client_ts=1, payload={'a': 'b'}))
+	await svc.flush(now_ms=1000)
+
+	second = SyncService(SqliteStore(db), send=_failing(SendOutcome.acked))
+	await second.load()
+	restored = second._queue['OP-SURVIVE01']  # noqa: SLF001
+	assert restored.retry_at_ms == 3000, 'the schedule must survive the restart that follows the failure'
+	assert restored.attempt == 2
+	assert (await second.flush(now_ms=3000)).synced == 1, 'and it goes when the window elapses'
+
+
+async def test_an_old_database_gains_the_retry_column() -> None:
+	"""`CREATE TABLE IF NOT EXISTS` is a no-op against a file that already has the table, so a
+	handset that queued writes under the old build would keep its old schema and the first insert
+	naming the new column would fail — losing the very queue the column was added to protect."""
+	import sqlite3
+	import tempfile
+	from afya.persistence.service import SqliteStore
+	with tempfile.TemporaryDirectory() as d:
+		path = f'{d}/old.db'
+		old = sqlite3.connect(path)
+		old.execute(
+			'CREATE TABLE sync_ops (op_id TEXT PRIMARY KEY, dataset TEXT NOT NULL, '
+			'server_version INTEGER NOT NULL DEFAULT 0, client_ts INTEGER NOT NULL, '
+			'server_ts INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL DEFAULT "{}", '
+			'attempt INTEGER NOT NULL DEFAULT 0, synced INTEGER NOT NULL DEFAULT 0)'
+		)
+		old.execute("INSERT INTO sync_ops VALUES ('OP-OLD0000001', 'symptom_logs', 0, 5, 0, '{}', 0, 0)")
+		old.commit()
+		old.close()
+
+		svc = SyncService(SqliteStore(path))
+		assert await svc.load() == 1, 'the pre-existing queue must still be readable'
+		assert (await svc.flush(1000)).synced == 1, 'and writable under the new schema'
 
 
 async def test_lww_client_wins() -> None:
@@ -161,6 +281,15 @@ async def test_sync_policy_and_delta_over_http() -> None:
 		})).json()
 		assert delta['delta'] == {'temp': '38.1', '-note': ''}
 		assert delta['changed_fields'] == 2 and delta['full_fields'] == 1
+
+		# §16.2's first diamond over HTTP: an offline flush defers rather than reporting success,
+		# and the op goes out on the next flush once the connection is back.
+		await c.post('/sync/ops', json={'op_id': 'OP-ROUTE00001', 'dataset': 'symptom_logs', 'client_ts': 1, 'payload': {'a': 'b'}})
+		off = (await c.post('/sync/flush', params={'connection': 'offline'})).json()
+		assert off['synced'] == 0 and off['deferred'] == 1 and off['pending'] == 1, off
+		assert (await c.post('/sync/flush', params={'connection': 'satellite'})).status_code == 422
+		back = (await c.post('/sync/flush', params={'connection': 'wifi'})).json()
+		assert back['synced'] == 1 and back['deferred'] == 0, back
 
 		empty = (await c.post('/sync/batch', params={'connection': 'wifi'})).json()
 		# An empty queue is still a 2-byte `[]` on the wire — the claim is that no *op* is sent,

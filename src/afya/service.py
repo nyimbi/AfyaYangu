@@ -1415,8 +1415,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'delta': delta, 'changed_fields': len(delta), 'full_fields': len(current)}
 
 	@app.post('/sync/flush')
-	async def sync_flush() -> dict[str, int]:
-		return (await sync.flush(0)).model_dump(mode='json')
+	async def sync_flush(connection: str = 'wifi') -> dict[str, object]:
+		"""§16.2's flow, run once: send what is due, schedule what failed, defer what cannot go.
+
+		`connection` is the diagram's first diamond. A client that says `offline` has its ops deferred
+		with no backoff earned — the phone was offline, not the op at fault — so they go out the
+		moment the connection returns instead of waiting out a delay they did not cause.
+		"""
+		try:
+			conn = ConnectionClass(connection)
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=f'unknown connection class {connection}') from exc
+		return (await sync.flush(clock_ms(), conn)).model_dump(mode='json')
 
 	@app.get('/sync/state')
 	async def sync_state(connection: str = 'offline') -> dict[str, object]:

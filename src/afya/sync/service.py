@@ -1,16 +1,33 @@
 """Sync service — local-write queue, exponential backoff, §16.3 conflict matrix, append-only proximity tokens."""
 import gzip
 import json
+from collections.abc import Awaitable, Callable
 
 from afya.logmixin import LogMixin
 from afya.sync.views import (
 	POLICY_BY_CONNECTION, RULE_BY_DATASET, AppealState, ConflictRecord, ConflictStrategy,
-	ConflictRule, ConnectionClass, OfflineState, STRATEGY_MATRIX, SyncBatch, SyncOp, SyncPolicy,
-	SyncStatus,
+	ConflictRule, ConnectionClass, OfflineState, SendOutcome, STRATEGY_MATRIX, SyncBatch, SyncOp,
+	SyncPolicy, SyncStatus,
 )
+
+# The transport seam. A deployment that reaches a real server supplies one; the local model is the
+# server when it does not. It is the same shape as `store`, and it exists because §16.2's two "No"
+# edges have no other way to fire: with no transport, an op that is written is an op the server
+# has, so "Ack received?" could only ever answer Yes and the retry the diagram schedules below it
+# was unreachable. The send returns *which* edge it took rather than a bool, because "the server
+# did not ack" and "there was no network" lead to the same box on the diagram and to opposite
+# behaviour in the queue.
+SendFn = Callable[[SyncBatch], Awaitable[SendOutcome]]
 
 
 def backoff_delay_s(attempt: int) -> float:
+	"""§16.2's exponential backoff: the delay after `attempt` failed attempts, capped at ten minutes.
+
+	The cap is what keeps a handset that has been offline overnight from waking to a delay measured
+	in days — an op must still be offered again the same session it is queued in, and 2^n is
+	unbounded. `attempt` numbers the attempt just made, so a first failure waits 2 s and the tenth
+	waits the ceiling; `enqueue` seeds it at 1 for the first try, so it is never 0 when read here.
+	"""
 	assert attempt >= 1, 'attempt starts at 1'
 	return min(600.0, 2.0 ** attempt)
 
@@ -42,7 +59,7 @@ def apply_delta(previous: dict[str, str], delta: dict[str, str]) -> dict[str, st
 
 
 class SyncService(LogMixin):
-	def __init__(self, store=None) -> None:
+	def __init__(self, store=None, send: SendFn | None = None) -> None:
 		self._queue: dict[str, SyncOp] = {}
 		self._server_state: dict[str, dict[str, SyncOp]] = {}
 		self._store = store
@@ -55,6 +72,10 @@ class SyncService(LogMixin):
 		# still held somewhere after the queue drops it.
 		self._conflicts: dict[str, ConflictRecord] = {}
 		self._last_synced_at_ms: int | None = None
+		# §16.2's transport. None means the local model *is* the server, which is the honest default
+		# for a deployment with no upstream and the reason the "Ack received? → No" branch was
+		# unreachable before: with no transport there is no answer but Yes.
+		self._send = send
 		assert self._queue == {} and self._server_state == {}
 
 	async def load(self) -> int:
@@ -218,12 +239,65 @@ class SyncService(LogMixin):
 			return (server, False)
 		return (server, False)
 
-	async def flush(self, now_ms: int) -> SyncStatus:
+	def _schedule_retry(self, op: SyncOp, now_ms: int, acked: bool) -> None:
+		"""§16.2's "Retry with exponential backoff" — the branch both "No" edges lead to.
+
+		`acked` is the difference between the diagram's two failure edges. An op the network carried
+		but the server did not acknowledge has failed a *send*, so it earns a backoff and waits it
+		out: the transport is up and the server is unhappy, and asking again immediately is the
+		hammering the backoff exists to prevent. An op that could not be sent because there was no
+		network has failed nothing — the phone was offline — so it is deferred with its due-now
+		status intact and goes out the instant a network appears. Both stay in the queue; §16.1's
+		"nothing is lost" is not a promise that can be kept by dropping them.
+		"""
+		if acked:
+			# `attempt` numbers the attempt *about to be made* — `enqueue` seeds it at 1 — so the
+			# delay is read off the attempt that just failed, and the counter then advances to the
+			# next one. Incrementing first would charge the op a doubling for an attempt it has not
+			# made yet, which is how a queue walks to its ceiling twice as fast as the spec's curve.
+			op.retry_at_ms = now_ms + int(backoff_delay_s(op.attempt) * 1000)
+			op.attempt += 1
+		else:
+			op.retry_at_ms = None
+
+	async def flush(self, now_ms: int, connection: ConnectionClass = ConnectionClass.wifi) -> SyncStatus:
+		"""Run the queue through §16.2's flow once.
+
+		`connection` is the diagram's first diamond — "Network available?" — and is why it is a
+		parameter rather than an assumption: an offline flush defers every due op without pretending
+		it was sent, which is the difference between a queue that reports the truth and one that
+		marks work done because nobody asked the network.
+		"""
 		await self.load()
 		synced = 0
+		deferred = 0
+		waiting = 0
 		for op in list(self._queue.values()):
 			if op.synced:
 				continue
+			# An op inside its backoff window is not offered to the network at all — offering it is
+			# the retry storm the backoff was computed to prevent.
+			if not op.due(now_ms):
+				waiting += 1
+				continue
+			# §16.2's "Network available? → No". Nothing is sent and no backoff is earned: the phone
+			# was offline, which the op had no part in, so it keeps its due-now status and goes out
+			# the moment a network appears.
+			if connection is ConnectionClass.offline:
+				deferred += 1
+				self._schedule_retry(op, now_ms, acked=False)
+				if self._store is not None:
+					await self._store.save_sync_op(op)
+				continue
+			# §16.2's transport, when one is configured: the second diamond, "Ack received?".
+			if self._send is not None:
+				outcome = await self._send(self.encode([op], connection))
+				if outcome is not SendOutcome.acked:
+					deferred += 1
+					self._schedule_retry(op, now_ms, acked=outcome is SendOutcome.no_ack)
+					if self._store is not None:
+						await self._store.save_sync_op(op)
+					continue
 			srv = self._server_state.get(op.dataset, {}).get(op.op_id)
 			if srv is None:
 				op.synced = True
@@ -264,5 +338,11 @@ class SyncService(LogMixin):
 		pending = len([o for o in self._queue.values() if not o.synced])
 		if synced:
 			self._last_synced_at_ms = now_ms
-		self._log_info('flush done', synced=synced, pending=pending, conflicts=len(self._conflicts))
-		return SyncStatus(pending=pending, synced=synced, conflicts=len(self._conflicts))
+		# The soonest any waiting op becomes due again, so a client can schedule its next attempt
+		# instead of polling on a fixed interval that is either too eager or too slow.
+		due_times = [o.retry_at_ms for o in self._queue.values() if not o.synced and o.retry_at_ms is not None]
+		self._log_info('flush done', synced=synced, pending=pending, deferred=deferred, waiting=waiting,
+		               conflicts=len(self._conflicts))
+		return SyncStatus(pending=pending, synced=synced, conflicts=len(self._conflicts),
+		                  deferred=deferred, waiting=waiting,
+		                  next_retry_at_ms=min(due_times) if due_times else None)
