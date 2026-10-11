@@ -99,6 +99,7 @@ from afya.retention.service import RetentionService
 from afya.retention.views import DeletionRequest
 from afya.governance.service import GovernanceService
 from afya.operations.service import OperationsService
+from afya.personas.service import PersonaService
 from afya.rollout.service import RolloutService
 from afya.security.service import SecurityService
 
@@ -206,6 +207,9 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# §20/§21: the rollout reads the registry (§20.6's retention table crossed against it) and
 		# the APK budget §22.5 sets, so it is constructed with the registry rather than beside it.
 		'rollout': RolloutService(registry),
+		# §4: who the launch is for. Constructed beside the rollout because §4.3's priorities are the
+		# ordering the rollout is a schedule for, and §22.7's equity targets need a population.
+		'personas': PersonaService(),
 		'security': SecurityService(),
 		'chw': ChwService(),
 		'auth': AuthService(),
@@ -265,6 +269,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	governance: GovernanceService = svc['governance']  # type: ignore[assignment]
 	operations: OperationsService = svc['operations']  # type: ignore[assignment]
 	rollout: RolloutService = svc['rollout']  # type: ignore[assignment]
+	personas: PersonaService = svc['personas']  # type: ignore[assignment]
 	security: SecurityService = svc['security']  # type: ignore[assignment]
 	chw: ChwService = svc['chw']  # type: ignore[assignment]
 	auth: AuthService = svc['auth']  # type: ignore[assignment]
@@ -1114,8 +1119,12 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/channels/ussd')
-	async def channels_ussd(req: UssdRequest) -> dict[str, object]:
-		return channels.ussd(req).model_dump(mode='json')
+	async def channels_ussd(req: UssdRequest, lang: str = 'en') -> dict[str, object]:
+		"""`lang` is a query parameter because USSD carries no headers: the carrier's gateway passes
+		the subscriber's language out of band, and the menu it returns is the whole user interface.
+		Without it the route was English-only and Swahili — the language §ACC-002 puts first — was
+		unreachable on the one channel §4.1's feature-phone persona can use."""
+		return channels.ussd(req, lang).model_dump(mode='json')
 
 	@app.post('/channels/whatsapp')
 	async def channels_whatsapp(msg: WhatsAppIn) -> dict[str, object]:
@@ -2905,6 +2914,37 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			return rollout.status(Phase(phase), max(1, int(active))).model_dump(mode='json')
 		except (ValueError, AssertionError) as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	# --- §4: who the launch is for ------------------------------------------------------------
+	# §4.1's personas, §4.2's audiences and §4.3's priorities. The catalogue is open — it is the
+	# product's own description of its users, carries nothing about a person, and the channels are
+	# already told who they are writing for. The coverage read is not: it is an audit of the build
+	# against the section, in the same family as `/rollout/readiness`.
+	@app.get('/personas')
+	async def personas_catalogue() -> dict[str, object]:
+		"""§4.1's seven personas with the §4.3 segments they belong to, and §4.2's audiences."""
+		return {
+			'personas': [p.model_dump(mode='json') for p in personas.personas()],
+			'secondary': [s.model_dump(mode='json') for s in personas.secondary()],
+		}
+
+	@app.get('/personas/segments')
+	async def personas_segments(priority: str | None = None) -> dict[str, object]:
+		"""§4.3's eight rows in priority order, each with the §4.1 personas that carry it. The
+		ordering is the section's, which is why `priority` filters rather than sorts."""
+		from afya.personas.views import Priority
+		try:
+			wanted = Priority(priority) if priority is not None else None
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'segments': [s.model_dump(mode='json') for s in personas.segments(wanted)]}
+
+	@app.get('/personas/coverage')
+	async def personas_coverage(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§4 crossed against the language matrix, the channel table and §17.4 — what the section
+		names that the product does not carry. Scoped like `/rollout/readiness` because it is the
+		same kind of answer: the build's own gaps, not a user-facing fact."""
+		return personas.coverage().model_dump(mode='json')
 
 	# --- §15.5 versioning: `/v1/` beside the bare paths --------------------------------------
 	# Both spellings reach the same routes. `v1` is the only version, so pinning it changes

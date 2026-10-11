@@ -7,7 +7,7 @@ from afya.channels.views import (
 )
 from afya.integrations.gateways import AtUssdCallback
 from afya.logmixin import LogMixin
-from afya.strings import SUPPORTED_LANGS, USSD_MENU
+from afya.strings import USSD_MENU, answerable
 
 
 class SmsGatewayPort(Protocol):
@@ -101,16 +101,20 @@ class ChannelService(LogMixin):
 		return out
 
 	def ussd(self, req: UssdRequest, lang: str = 'en') -> UssdResponse:
-		assert lang in SUPPORTED_LANGS, f'unsupported lang {lang}'
+		# §CHAN-2's menu ends "Language: English / Kiswahili / Dholuo / ...", so Dholuo arrives here
+		# by design. `answerable` serves English for a language with no table rather than asserting:
+		# a USSD session that dies mid-menu is a dead channel for the one persona §4.1 gives no
+		# smartphone, and there is no way to render a traceback on a feature phone.
+		served = answerable(lang)
 		assert req.text == '' or req.text.isdigit(), 'USSD selections numeric'
 		if req.text == '':
 			self._ussd_state[req.session_id] = 0
-			return UssdResponse(session_id=req.session_id, menu=USSD_MENU[lang])
+			return UssdResponse(session_id=req.session_id, menu=USSD_MENU[served])
 		choice = int(req.text) if req.text.isdigit() else 0
 		assert 0 <= choice <= 4, 'menu bounded'
 		if choice in (1, 2, 3, 4):
 			return UssdResponse(session_id=req.session_id, end_text=f'Selected {choice}: routed to feature.')
-		return UssdResponse(session_id=req.session_id, menu=USSD_MENU[lang])
+		return UssdResponse(session_id=req.session_id, menu=USSD_MENU[served])
 
 	def ussd_carrier_callback(self, cb: AtUssdCallback, lang: str = 'en') -> dict[str, str]:
 		"""Africa's Talking callback -> {text: ..., action: CONTINUE|END} response envelope."""

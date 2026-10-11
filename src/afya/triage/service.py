@@ -1,7 +1,7 @@
 """Triage service — febrile algorithm with malaria trap (§6.3), EVD escalation, symptom diary."""
 from afya.logmixin import LogMixin
 from afya.registry.service import FeatureRegistry
-from afya.strings import rec
+from afya.strings import answerable, rec
 from afya.triage.views import DiaryEntry, Differential, EBOLA_SYMPTOMS, RiskLevel, TriageInput, TriageResult
 
 
@@ -28,13 +28,19 @@ class TriageService(LogMixin):
 			level = RiskLevel.medium
 		else:
 			level = RiskLevel.low
+		# §ACC-002 names six voice-reporting languages; two have tables. The answer falls back to
+		# English and says so, rather than raising: a person on a feature phone asking for Dholuo
+		# cannot act on a stack trace, and §CHAN-2's own USSD menu offers Dholuo by name.
+		served = answerable(lang)
 		out = TriageResult(
 			risk_level=level,
 			recommendation=rec(lang, level.value),
 			treated_as_malaria_first=level is RiskLevel.malaria_suspect,
 			escalate_719=level in (RiskLevel.medium, RiskLevel.high),
+			served_in=served,
+			language_fallback=served != lang,
 		)
-		self._log_info('triage assessed', risk=out.risk_level.value)
+		self._log_info('triage assessed', risk=out.risk_level.value, lang=lang, served_in=served)
 		assert out.recommendation, 'recommendation required'
 		return out
 

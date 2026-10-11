@@ -13,7 +13,7 @@ from afya.community.views import (
 )
 from afya.info.principles import Subject, judge
 from afya.logmixin import LogMixin
-from afya.strings import SUPPORTED_LANGS
+from afya.strings import answerable
 
 # Misinformation topics with a pre-drafted, source-attributed correction (§6.4 response protocol).
 #
@@ -244,10 +244,15 @@ class CommunityService(LogMixin):
 		is the honest answer §6.2.8 asks for, and it is better than silence. A topic known to the
 		library but missing a language falls back to English and says so rather than returning a
 		string that pretends to be Swahili; `coverage()` is what surfaces that gap to an operator.
+
+		A language with no table at all is the same case one level up: `answerable` resolves it to
+		English rather than asserting. Refusing here would mean a rumour correction cannot be sent
+		to a Dholuo-speaking community — the audience §4.1's Persona F is, and the one §6.2.8's
+		response clock is most likely to be running for.
 		"""
-		assert lang in SUPPORTED_LANGS, f'unsupported lang {lang}'
 		texts = CORRECTION_LIBRARY.get(topic, CORRECTION_LIBRARY['unknown'])
-		return texts.get(lang) or texts['en']
+		served = answerable(lang)
+		return texts.get(served) or texts['en']
 
 	# --- §6.4 the response protocol, as a clock and as coverage ---------------------------------
 

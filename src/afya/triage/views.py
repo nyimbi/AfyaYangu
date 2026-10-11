@@ -30,6 +30,14 @@ class TriageResult(BaseModel):
 	recommendation: str
 	treated_as_malaria_first: bool
 	escalate_719: bool
+	# The language the recommendation is actually in. §ACC-002 names six voice languages and only two
+	# have string tables, so a request for Dholuo is answered in English — and this field is what
+	# keeps that from being invisible. A client that renders `recommendation` without reading this
+	# would present English to a Dholuo speaker as if it were her language.
+	served_in: str = 'en'
+	# True when `served_in` is not the language that was asked for, so a channel can add its own
+	# "this is in English" preamble rather than silently substituting.
+	language_fallback: bool = False
 
 
 class DiaryEntry(BaseModel):
