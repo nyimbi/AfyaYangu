@@ -50,6 +50,7 @@ from afya.info.service import InfoService
 from afya.info.views import WORKFLOW, ContentItem, CountyRisk
 from afya.privacy.service import PrivacyService
 from afya.privacy.views import _SCOPE, ConsentRecord, DPIAInput, RBACRole
+from afya.privacy import rbac
 from afya.records.service import RecordsService
 from afya.records.views import GrowthRecord, ImmunisationRecord, LabResult, WalletMember
 from afya.ml.cough import SR as WAV_SR, YamnetCoughEngine
@@ -2429,6 +2430,19 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/retention/transparency')
 	async def retention_transparency(period: str, subject_ref: str | None = None, _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
 		return retention.transparency_report(period, subject_ref).model_dump(mode='json')
+
+	@app.get('/privacy/rbac')
+	async def privacy_rbac(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§17.4's table against the routes and the token-issuing paths.
+
+		Auditor-scoped, like the other evidence views: it reports which rows of the access table no
+		implementation stands behind. Three scopes have no route and one role can never hold a token,
+		which is the same class as a §7.3 feature outside the tier map — a capability the spec claims
+		and no caller can reach. Reported rather than repaired here: adding a route so a scope has a
+		caller would be this code inventing an endpoint, and issuing `citizen_identified` needs an
+		identity-upgrade flow §15.5 does not specify.
+		"""
+		return rbac.report()
 
 	@app.get('/privacy/access-log')
 	async def privacy_access_log(limit: int = 100, _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
