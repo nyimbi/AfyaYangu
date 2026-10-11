@@ -3172,6 +3172,15 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'event_triggered': [s.obligation_id for s in statuses if s.cadence_days is None],
 		}
 
+	@app.get('/operations/governance')
+	async def operations_governance(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§24.1's six governance bodies and §24.3's five support channels, crossed against §24's duty
+		rows. A body accounting for no duty is a committee the register cannot tell apart from one
+		that governs; a support channel with no coverage window is one nobody reads.
+
+		Auditor-scoped: it names roles and headcounts, not people."""
+		return operations.governance().model_dump(mode='json')
+
 	@app.post('/operations/duties/{obligation_id}/performed')
 	async def operations_mark_duty(obligation_id: str, on_iso: str,
 	                               _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:

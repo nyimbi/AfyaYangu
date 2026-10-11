@@ -197,6 +197,65 @@ class SupportSla(BaseModel):
 	response_label: str
 
 
+class GovernanceBody(BaseModel):
+	"""One §24.1 row: a body, who sits on it, and what it decides.
+
+	`slug` is what §24's duty rows use as an `owner` (`clinical_advisory_group`, `community_advisory_panel`)
+	and `body` is the section's own name for it ("Clinical Advisory Group"). The two are kept apart
+	because the owners are lowercase identifiers written into `OBLIGATIONS` and the names are what a
+	governance document says — collapsing them would mean either the register carrying prose or the
+	section's names being rewritten to slugs.
+	"""
+
+	model_config = MODEL_CONFIG
+	slug: str = Field(min_length=1)
+	body: str = Field(min_length=1)
+	composition: list[str] = Field(min_length=1)
+	role: str = Field(min_length=1)
+	# The §24 duty owners this body accounts for. Stated rather than derived: §24.2–§24.7 name owners
+	# as role slugs (`clinical_advisory_group`, `content_lead`) and §24.1 names bodies and the roles
+	# that sit on them, so the join is a reading of two vocabularies. It is written down here so the
+	# reading can be checked and corrected, rather than living in a reader's head.
+	owners: list[str] = Field(default_factory=list)
+
+
+class SupportChannel(BaseModel):
+	"""One §24.3 row: a support channel, its coverage window, and who staffs it.
+
+	`coverage` is the section's own string — "8am–8pm, 7 days" and "24/7 (self-service)" are not the
+	same commitment and a boolean `always_on` would flatten the difference between a staffed line and
+	a help page. `staffing` is None for the self-service row, where the section writes an em dash
+	rather than a headcount; a zero there would read as an unstaffed channel.
+	"""
+
+	model_config = MODEL_CONFIG
+	channel: str = Field(min_length=1)
+	coverage: str = Field(min_length=1)
+	staffing: str | None = None
+	always_on: bool
+	agents: int | None = Field(default=None, ge=0)
+
+
+class GovernanceReport(BaseModel):
+	"""§24.1 and §24.3 crossed against §24's duty rows — who governs, and who answers the phone.
+
+	`unowned_bodies` is the finding. §24.1 names six bodies and §24.2–§24.7 assign duties to owners;
+	a body with no duty behind it is a committee that meets and decides nothing, and the register
+	cannot tell the difference between it and one that governs. `unstaffed_channels` is the reverse
+	for §24.3: a support channel with no coverage window is one a person can reach and nobody reads.
+	"""
+
+	model_config = MODEL_CONFIG
+	bodies: list[GovernanceBody]
+	support_channels: list[SupportChannel]
+	duty_owners: list[str]
+	unowned_bodies: list[str]
+	unlisted_owners: list[str]
+	unstaffed_channels: list[str]
+	staffed_agents: int
+	note: str
+
+
 class Obligation(BaseModel):
 	"""One recurring §24 duty. `cadence_days` is None for an event-triggered duty, and then
 	`trigger` names the event — §24.7's "on change" and "on publish" are real obligations that no

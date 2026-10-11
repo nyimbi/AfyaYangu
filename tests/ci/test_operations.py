@@ -287,3 +287,97 @@ async def test_a_duty_can_be_marked_done_through_the_route() -> None:
 		out = (await c.post('/operations/duties/OPS-8/performed', params={'on_iso': '2026-10-01'}, headers=h)).json()
 		assert out['ok'] is True and 'OPS-8' not in out['overdue']
 		assert (await c.post('/operations/duties/OPS-999/performed', params={'on_iso': TODAY}, headers=h)).status_code == 422
+
+
+# --- §24.1 governance, §24.3 support channels -------------------------------------------------
+
+def _spec_rows(heading: str, stop: str, columns: int) -> list[list[str]]:
+	"""A spec table's rows read out of `docs/spec.md`, so a revision to the section fails here."""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split(heading, 1)[1].split(stop, 1)[0]
+	rows: list[list[str]] = []
+	for line in section.splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip() for c in line.strip('|').split('|')]
+		if len(cells) != columns or cells[0] in ('Body', 'Channel', 'Function'):
+			continue
+		rows.append(cells)
+	return rows
+
+
+def test_the_governance_bodies_are_the_sections_six_rows() -> None:
+	"""§24.1, cell for cell. The composition cell is the section's, split on its commas — the
+	Operations Cell is four roles, and a body carrying one string would be a committee of one."""
+	from afya.operations.service import GOVERNANCE_BODIES
+	spec = _spec_rows('### 24.1 Governance', '\n### ', 3)
+	assert len(spec) == 6, f'§24.1 lists six bodies, found {len(spec)}'
+	assert [b.body for b in GOVERNANCE_BODIES] == [r[0].replace('**', '') for r in spec]
+	assert [b.role for b in GOVERNANCE_BODIES] == [r[2] for r in spec]
+	for row, (_, composition, _role) in zip(GOVERNANCE_BODIES, spec):
+		assert row.composition == [c.strip() for c in composition.split(',')], f'{row.body} composition'
+
+
+def test_every_duty_owner_sits_on_a_governance_body() -> None:
+	"""The finding. §24.2–§24.7 assign duties to owners and §24.1 seats those roles on bodies; an
+	owner on no body is a duty with nobody accountable for it."""
+	report = OperationsService().governance()
+	assert report.unlisted_owners == [], f'duty owners seated on no §24.1 body: {report.unlisted_owners}'
+	assert report.duty_owners == sorted({o.owner for o in OBLIGATIONS})
+	# The reverse is reported rather than repaired, and the Steering Committee is the honest instance:
+	# its role is "strategic direction, funding, escalation", none of which is a recurring duty §24
+	# schedules. A body given a fabricated owner to clear the list would be the register lying.
+	assert report.unowned_bodies == ['Steering Committee'], (
+		'a body accounting for no §24 duty must be named, not quietly given one')
+	assert 'clinical_advisory_group' in next(b for b in report.bodies if b.body == 'Clinical Advisory Group').owners
+	assert 'dpo' in next(b for b in report.bodies if b.body == 'Privacy and Ethics Board').owners
+
+
+def test_the_support_channels_are_the_sections_five_rows() -> None:
+	"""§24.3's coverage column, verbatim. "8am–8pm, 7 days" and "24/7 (self-service)" are different
+	commitments and a boolean would flatten the difference between a staffed line and a help page."""
+	from afya.operations.service import SUPPORT_CHANNELS
+	spec = _spec_rows('### 24.3 Support Operations', '\n**Response SLAs', 3)
+	assert len(spec) == 5, f'§24.3 lists five support channels, found {len(spec)}'
+	assert [c.channel for c in SUPPORT_CHANNELS] == [r[0] for r in spec]
+	assert [c.coverage for c in SUPPORT_CHANNELS] == [r[1] for r in spec]
+	report = OperationsService().governance()
+	assert report.unstaffed_channels == [], 'every channel has a coverage window'
+	assert report.staffed_agents == 8, '§24.3 rosters five WhatsApp agents and three on the phone'
+	# The self-service row carries an em dash in the Staffing column, which is not a headcount of
+	# zero — a zero would read as an unstaffed channel rather than one nobody is rostered on.
+	help_row = next(c for c in SUPPORT_CHANNELS if c.channel == 'In-app help')
+	assert help_row.staffing is None and help_row.agents is None and help_row.always_on
+	assert sum(c.always_on for c in SUPPORT_CHANNELS) == 3, 'in-app, CHW escalation and incidents are 24/7'
+
+
+def test_the_canary_watches_the_owner_join_fire() -> None:
+	"""Canary. Seat a duty owner on no body and the join must name it. If this passes, the check is
+	comparing the owner list against itself."""
+	from afya.operations import service as os_
+	original = os_.GOVERNANCE_BODIES
+	try:
+		os_.GOVERNANCE_BODIES = tuple(
+			b.model_copy(update={'owners': [o for o in b.owners if o != 'dpo']})
+			if b.slug == 'privacy_and_ethics_board' else b for b in original)
+		unlisted = os_.OperationsService().governance().unlisted_owners
+		assert unlisted == ['dpo'], f'the unseated owner went unnoticed: {unlisted}'
+	finally:
+		os_.GOVERNANCE_BODIES = original
+	assert os_.OperationsService().governance().unlisted_owners == [], 'canary left the module mutated'
+
+
+async def test_the_governance_route_is_scoped_and_serves_both_tables() -> None:
+	app, headers = _ops_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		assert (await c.get('/operations/governance')).status_code in (401, 403)
+		r = await c.get('/operations/governance', headers=headers['auditor'])
+		assert r.status_code == 200, r.text
+		body = r.json()
+		assert len(body['bodies']) == 6 and len(body['support_channels']) == 5
+		assert body['unowned_bodies'] == ['Steering Committee']
+		assert body['staffed_agents'] == 8
+		# The sysadmin holds `infrastructure`, not `audit_logs`: §17.4 gives the evidence reads to the
+		# auditor, and this route names roles and headcounts.
+		assert (await c.get('/operations/governance', headers=headers['sysadmin'])).status_code == 403

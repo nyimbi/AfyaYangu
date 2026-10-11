@@ -19,10 +19,53 @@ from datetime import date, datetime, timedelta, timezone
 
 from afya.logmixin import LogMixin
 from afya.operations.views import (
-	Incident, IncidentClass, IncidentKind, IncidentSeverity, IncidentStatus, Obligation,
-	ObligationStatus, OpsPosture, Rating, Risk, RiskAssessment, RiskDomain, SupportSla,
+	GovernanceBody, GovernanceReport, Incident, IncidentClass, IncidentKind, IncidentSeverity,
+	IncidentStatus, Obligation, ObligationStatus, OpsPosture, Rating, Risk, RiskAssessment,
+	RiskDomain, SupportChannel, SupportSla,
 )
 from afya.security.views import ControlKind
+
+# §24.1's six governance bodies, verbatim, with the §24 duty owners each one accounts for.
+#
+# `owners` is the join between two vocabularies §24 uses without relating them: §24.2–§24.7 assign a
+# duty to a role slug, and §24.1 says who sits on the body that role belongs to. `clinical_advisory_group`
+# and `community_advisory_panel` are already slugs in both places; `dpo` sits on the Privacy and
+# Ethics Board; `ciso` on the Technical Working Group; `programme_manager` and `content_lead` on the
+# Operations Cell; `comms_lead` on the Operations Cell's comms function and the Steering Committee's
+# escalation path. A body with no duty behind it is a committee that decides nothing.
+GOVERNANCE_BODIES: tuple[GovernanceBody, ...] = (
+	GovernanceBody(slug='steering_committee', body='Steering Committee',
+		composition=['MoH', 'PHEOC', 'implementing partner', 'telcos', 'NGO partners'],
+		role='Strategic direction, funding, escalation', owners=[]),
+	GovernanceBody(slug='clinical_advisory_group', body='Clinical Advisory Group',
+		composition=['Clinicians', 'epidemiologists', 'WHO', 'CDC'],
+		role='Clinical content, triage logic, case definitions', owners=['clinical_advisory_group']),
+	GovernanceBody(slug='technical_working_group', body='Technical Working Group',
+		composition=['Engineers', 'architects', 'security', 'data'],
+		role='Architecture, integration, security', owners=['ciso']),
+	GovernanceBody(slug='privacy_and_ethics_board', body='Privacy and Ethics Board',
+		composition=['DPO', 'legal', 'ethicists', 'civil society', 'community reps'],
+		role='DPIA, AI ethics, consent, oversight', owners=['dpo', 'legal']),
+	GovernanceBody(slug='community_advisory_panel', body='Community Advisory Panel',
+		composition=['CHWs', 'faith leaders', 'youth reps', "women's reps"],
+		role='Usability, cultural appropriateness, feedback', owners=['community_advisory_panel']),
+	GovernanceBody(slug='operations_cell', body='Operations Cell',
+		composition=['Programme manager', 'content lead', 'support lead', 'data lead'],
+		role='Day-to-day operations', owners=['programme_manager', 'content_lead', 'comms_lead']),
+)
+
+# §24.3's five support channels, verbatim. `staffing` is None where the section writes an em dash
+# rather than a headcount — the self-service help page is not an unstaffed channel, it is one nobody
+# is rostered on, and a zero would read as the first.
+SUPPORT_CHANNELS: tuple[SupportChannel, ...] = (
+	SupportChannel(channel='In-app help', coverage='24/7 (self-service)', always_on=True),
+	SupportChannel(channel='WhatsApp support', coverage='8am–8pm, 7 days', always_on=False,
+		staffing='5 agents', agents=5),
+	SupportChannel(channel='Phone support', coverage='8am–8pm, 7 days', always_on=False,
+		staffing='3 agents', agents=3),
+	SupportChannel(channel='CHW escalation', coverage='24/7', always_on=True, staffing='Roving'),
+	SupportChannel(channel='Technical incidents', coverage='24/7', always_on=True, staffing='On-call engineer'),
+)
 
 SUPPORT_SLAS: tuple[SupportSla, ...] = (
 	SupportSla(severity=IncidentSeverity.critical, definition='System down', response_hours=0.25, response_label='15 minutes'),
@@ -292,6 +335,40 @@ class OperationsService(LogMixin):
 	@staticmethod
 	def support_slas() -> list[SupportSla]:
 		return list(SUPPORT_SLAS)
+
+	def governance(self) -> GovernanceReport:
+		"""§24.1's six bodies and §24.3's five support channels, crossed against §24's duty rows.
+
+		`unowned_bodies` is the finding on the governance side: §24.1 names six bodies and §24.2–§24.7
+		assign duties to owners, so a body accounting for no duty is a committee the register cannot
+		tell apart from one that governs. The Steering Committee is the honest instance of it — its
+		role is "strategic direction, funding, escalation", none of which is a recurring duty §24
+		schedules, and it is reported rather than given a fabricated owner.
+
+		`unlisted_owners` is the reverse: a duty owner §24.1 seats on no body. `unstaffed_channels`
+		is §24.3's version — a support channel with no coverage window is one a person can reach and
+		nobody reads.
+		"""
+		owners = sorted({o.owner for o in OBLIGATIONS})
+		accounted = {o for b in GOVERNANCE_BODIES for o in b.owners}
+		unowned = [b.body for b in GOVERNANCE_BODIES if not b.owners]
+		unlisted = [o for o in owners if o not in accounted]
+		unstaffed = [c.channel for c in SUPPORT_CHANNELS if not c.coverage]
+		agents = sum(c.agents for c in SUPPORT_CHANNELS if c.agents is not None)
+		self._log_info('governance read', bodies=len(GOVERNANCE_BODIES), owners=len(owners),
+			unowned=len(unowned), unlisted=len(unlisted))
+		return GovernanceReport(
+			bodies=list(GOVERNANCE_BODIES), support_channels=list(SUPPORT_CHANNELS),
+			duty_owners=owners, unowned_bodies=unowned, unlisted_owners=unlisted,
+			unstaffed_channels=unstaffed, staffed_agents=agents,
+			note=(
+				f'{len(GOVERNANCE_BODIES)} bodies account for {len(accounted)} of {len(owners)} duty owners; '
+				f'{len(unstaffed)} support channel(s) with no coverage window'
+				if not unowned and not unlisted else
+				f'{len(unowned)} body/bodies account for no §24 duty; '
+				f'{len(unlisted)} duty owner(s) sit on no §24.1 body'
+			),
+		)
 
 	def open_incident(self, incident: Incident) -> IncidentStatus:
 		assert incident.incident_id not in {i.incident_id for i in self._incidents}, 'duplicate incident id'
