@@ -1,5 +1,13 @@
-"""Surveillance Tier-4 models — dormant outbreak superpower (spec §11, §19.4)."""
+"""Surveillance Tier-4 models — dormant outbreak superpower (spec §11, §19.4).
+
+`disease` is validated against §3.3 principle 12's vocabulary rather than a pattern written out
+here. The pattern this module used to carry omitted `measles`, which principle 12 names as one of
+the diseases Tier 4 activates for, so the county reporting measles was the county whose early-warning
+signal the system refused to compute.
+"""
 from pydantic import BaseModel, ConfigDict, Field
+
+from afya.registry.diseases import DISEASE_PATTERN
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -7,7 +15,7 @@ MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_ali
 class CountySignal(BaseModel):
 	model_config = MODEL_CONFIG
 	county: str
-	disease: str = Field(default='evd', pattern=r'^(evd|cholera|malaria|dengue|mpox|rvf)$')
+	disease: str = Field(default='evd', pattern=DISEASE_PATTERN)
 	week_isoyear: int = Field(ge=2024, le=2100)
 	week: int = Field(ge=1, le=53)
 	fever_reports: int = Field(ge=0)
@@ -18,7 +26,7 @@ class CountySignal(BaseModel):
 class SignalReading(BaseModel):
 	model_config = MODEL_CONFIG
 	county: str
-	disease: str = Field(default='evd', pattern=r'^(evd|cholera|malaria|dengue|mpox|rvf)$')
+	disease: str = Field(default='evd', pattern=DISEASE_PATTERN)
 	z_score: float
 	risk: str = Field(pattern=r'^(low|moderate|high)$')
 	weeks_observed: int = Field(ge=1)

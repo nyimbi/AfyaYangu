@@ -21,6 +21,8 @@ from typing import Literal, TypeAlias, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from afya.registry.diseases import DISEASES
+
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 FieldType: TypeAlias = Literal['text', 'int', 'decimal', 'bool', 'select', 'textarea', 'list', 'file', 'path']
@@ -64,7 +66,10 @@ CONTACT_SETTINGS = ['home', 'work', 'transport', 'worship', 'market', 'social', 
 MISINFO_MEDIA = ['text', 'voice', 'screenshot', 'whatsapp_forward']
 CHECKIN_KINDS = ['border_post', 'health_facility', 'isolation_unit', 'vaccination_point', 'school', 'workplace', 'event']
 CHECKIN_METHODS = ['qr', 'nfc', 'manual']
-VECTOR_DISEASES = ['evd', 'cholera', 'malaria', 'dengue', 'mpox', 'rvf', 'measles', 'other']
+# §3.3 principle 12's vocabulary, read from the one module that carries it. This was a fourth copy
+# of the list, and the copies had already drifted: this one and `community.CaseReport` had `measles`,
+# `surveillance.CountySignal` did not, and `alerts.AlertKind` had neither `measles` nor `other`.
+VECTOR_DISEASES = list(DISEASES)
 ADHERENCE_ACTIONS = ['taken', 'skipped', 'snoozed']
 INTENSITIES = ['low', 'balanced', 'maximum']
 OUTPUT_KINDS = ['triage', 'risk_score', 'hotspot', 'exposure', 'tier4_activation']

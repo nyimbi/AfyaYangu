@@ -3,6 +3,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from afya.registry.diseases import DISEASE_PATTERN
+
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 
@@ -84,7 +86,7 @@ class CaseReport(BaseModel):
 	geotagged: bool = False
 	photo_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
 	voice_note_lang: str | None = None
-	suspected_disease: str = Field(default='evd', pattern=r'^(evd|cholera|malaria|dengue|mpox|rvf|measles|other)$')
+	suspected_disease: str = Field(default='evd', pattern=DISEASE_PATTERN)
 	reported_offline: bool = False
 
 
