@@ -2233,6 +2233,16 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def ai_models() -> list[dict[str, object]]:
 		return [m.model_dump(mode='json') for m in ai.model_cards()]
 
+	@app.get('/ai/footprint')
+	async def ai_footprint() -> dict[str, object]:
+		"""§19.1's "~30 MB (loaded as needed, not all at once)" against the on-device cards.
+
+		The finding is the comparison, not the sum: five cards against a seven-row table read 8 MB
+		where the section states 30, because the speech model and the cough classifier were absent —
+		and `on_device` claimed on-device processing for languages that ship no recogniser. Open
+		because it is a statement about what the client carries, not about a person."""
+		return ai.footprint().model_dump(mode='json')
+
 	@app.post('/ai/fairness-audit')
 	async def ai_audit(audit: FairnessAudit) -> dict[str, object]:
 		try:
@@ -2969,6 +2979,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'phases': [p.model_dump(mode='json') for p in rollout.phases()],
 			'current': rollout.status(Phase.phase_1_information, 1 if not registry.tier4_active() else 4).model_dump(mode='json'),
 		}
+
+	@app.get('/rollout/app-size')
+	async def rollout_app_size() -> dict[str, object]:
+		"""§16.5's delivery table summed by where each row lands — base install against the §20.2
+		lever 5 budget, on-demand modules reported beside it rather than folded in.
+
+		Open like `/rollout/phases`: it is a plan a partner or a telco reads, and it names no person."""
+		return rollout.app_size().model_dump(mode='json')
 
 	@app.get('/rollout/readiness')
 	async def rollout_readiness(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:

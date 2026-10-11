@@ -16,8 +16,8 @@ from afya.logmixin import LogMixin
 from afya.metrics.service import KPIS
 from afya.registry.service import FeatureRegistry
 from afya.rollout.views import (
-	AntiPattern, GrowthLever, LaunchStep, Phase, PhaseSpec, ReadinessReport, RetentionMechanism,
-	RolloutStatus,
+	AntiPattern, AppSizePlan, GrowthLever, LaunchStep, ModuleDelivery, Phase, PhaseSpec,
+	ReadinessReport, RetentionMechanism, RolloutStatus,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -126,6 +126,24 @@ LAUNCH_SEQUENCE: tuple[LaunchStep, ...] = (
 	LaunchStep(sequence='Weeks 2-4', step='Iterate on onboarding based on drop-off data'),
 )
 
+# §16.5's delivery table, verbatim and in the section's order. `delivery` is the section's own
+# Delivery column collapsed to three slugs: "Initial download" is `initial`, "On-demand ..." is
+# `on_demand` with the parenthetical kept as `condition`, and "Automatic per county" is `automatic`.
+# The condition matters for the two rows whose on-demand-ness is a device fact rather than a choice —
+# the LiDAR module only exists on a phone with a LiDAR sensor, and §13.2's fallback is what the rest
+# of the fleet gets.
+MODULES: tuple[ModuleDelivery, ...] = (
+	ModuleDelivery(component='Base app', size_mb=15.0, delivery='initial'),
+	ModuleDelivery(component='Tier 1 features', size_mb=0.0, delivery='initial'),
+	ModuleDelivery(component='Tier 2 features', size_mb=0.0, delivery='initial'),
+	ModuleDelivery(component='Tier 3 features', size_mb=8.0, delivery='on_demand'),
+	ModuleDelivery(component='LiDAR module', size_mb=4.0, delivery='on_demand', condition='LiDAR devices only'),
+	ModuleDelivery(component='Acoustic module', size_mb=6.0, delivery='on_demand'),
+	ModuleDelivery(component='Medicine registry (offline)', size_mb=25.0, delivery='on_demand', condition='optional'),
+	ModuleDelivery(component='Offline content library', size_mb=15.0, delivery='on_demand', condition='optional'),
+	ModuleDelivery(component='Offline facility cache', size_mb=5.0, delivery='automatic', condition='per county'),
+)
+
 
 class RolloutService(LogMixin):
 	def __init__(self, registry: FeatureRegistry, apk_size_mb: float | None = None,
@@ -199,6 +217,35 @@ class RolloutService(LogMixin):
 				text = path.read_text(encoding='utf-8', errors='replace').strip()
 				return text.splitlines()[0][:120] if text else name
 		return None
+
+	def app_size(self) -> AppSizePlan:
+		"""§16.5's delivery table, summed by where each row lands.
+
+		The split is the section's own argument. §16.5 lists a 20 MB speech model, a 25 MB medicine
+		registry and a 15 MB content library and still closes "Base install under 15 MB", which is only
+		true because the Delivery column makes them on-demand. Summing the table into one number would
+		report ~60 MB and read as a budget breach the section does not have; summing only the initial
+		rows would report 15 MB and hide everything the person may later carry.
+
+		`within_budget` is therefore about the install, and the on-demand total is reported beside it
+		rather than folded in. The budget is `APK_BUDGET_MB`, read from §22.5's KPI table, so §20.2
+		lever 5, §16.5's closing line and §22.5's target stay one number instead of three.
+		"""
+		base = round(sum(m.size_mb for m in MODULES if m.delivery == 'initial'), 2)
+		on_demand = round(sum(m.size_mb for m in MODULES if m.delivery == 'on_demand'), 2)
+		full = round(base + on_demand + sum(m.size_mb for m in MODULES if m.delivery == 'automatic'), 2)
+		within = base <= APK_BUDGET_MB
+		self._log_info('app size plan', base_mb=base, on_demand_mb=on_demand, within=within)
+		return AppSizePlan(
+			components=list(MODULES), base_install_mb=base, on_demand_mb=on_demand, full_install_mb=full,
+			budget_mb=APK_BUDGET_MB, within_budget=within,
+			note=(
+				f'base install {base:g} MB against the {APK_BUDGET_MB:g} MB budget; '
+				f'{on_demand:g} MB more is available on demand and {full:g} MB with every module'
+				if within else
+				f'base install {base:g} MB exceeds the {APK_BUDGET_MB:g} MB budget §20.2 lever 5 and §22.5 set'
+			),
+		)
 
 	def readiness(self) -> ReadinessReport:
 		"""§20.2's two repo claims plus §20.6's registry coverage.

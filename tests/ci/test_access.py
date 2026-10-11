@@ -134,12 +134,34 @@ async def test_voice_matches_a_kiswahili_keyword() -> None:
 	assert out.on_device is True, 'Kiswahili ships on-device recognition'
 
 
-async def test_voice_works_offline_on_a_language_without_asr() -> None:
+async def test_a_language_without_recognition_is_not_reported_on_device() -> None:
+	"""§12.1 ACC-002's "offline speech recognition for core commands" is a claim about which languages
+	ship a recogniser, and `LANGUAGE_MATRIX` is where that is recorded.
+
+	This test previously asserted the opposite — that an offline request on Dholuo ran on-device —
+	because `on_device` was computed as `asr or req.offline`. That made the flag unfalsifiable: every
+	offline request was on-device by construction, including one in a language with no recogniser, so
+	§SEC-002's "raw sensor data never leaves the device" would have read as satisfied for a transcript
+	the handset cannot produce. The flag now answers the only question it can: does recognition ship
+	for this language.
+	"""
 	svc = AccessService()
 	online = svc.transcribe(VoiceRequest(subject_ref='sub-1', lang='luo', utterance='an a dhier'))
 	offline = svc.transcribe(VoiceRequest(subject_ref='sub-1', lang='luo', utterance='an a dhier', offline=True))
 	assert online.on_device is False
-	assert offline.on_device is True, 'offline path must run on device'
+	assert offline.on_device is False, 'offline does not conjure a recogniser Dholuo does not ship'
+	# The intent is still served — the gap is in recognition, not in the response.
+	assert offline.spoken_reply
+
+
+async def test_the_matrix_is_what_decides_on_device_not_the_request() -> None:
+	"""The flag must agree with `LANGUAGE_MATRIX` for every language, in both directions: a language
+	that ships recognition is on-device whether or not the caller said it was offline."""
+	svc = AccessService()
+	for name, meta in LANGUAGE_MATRIX.items():
+		code, asr = str(meta['code']), bool(meta['asr'])
+		out = svc.transcribe(VoiceRequest(subject_ref='sub-1', lang=code, utterance='homa', offline=False))
+		assert out.on_device is asr, f'{name}: on_device disagrees with the matrix'
 
 
 async def test_voice_unknown_utterance_falls_back_gracefully() -> None:

@@ -9,28 +9,57 @@ The governance rules of §19.3 are enforced as preconditions rather than documen
 import statistics
 
 from afya.ai.views import (
-	MIN_CELL_SIZE, AggregateCell, FairnessAudit, Hotspot, HotspotMap, ModelCard, RedressOutcome,
-	RaisedSignal, RedressRequest, RiskInputs, RiskScore, WarningAssessment, WarningSignal,
+	MIN_CELL_SIZE, AggregateCell, FairnessAudit, Hotspot, HotspotMap, ModelCard, ModelFootprint,
+	RaisedSignal, RedressOutcome, RedressRequest, RiskInputs, RiskScore, WarningAssessment,
+	WarningSignal,
 )
 from afya.logmixin import LogMixin
 
-# §19.1 on-device model footprint — these ship with the client, not the server.
+# §19.1's seven-row table, verbatim and in the section's order. `size_mb` is the section's own bound
+# — it writes "<1 MB", "<2 MB", "<20 MB" — and `framework` its fourth column.
+#
+# Two of the seven were absent until now: the speech model and the cough *classifier*. Both are
+# load-bearing rather than decorative. §ACC-002 lists "offline speech recognition for core commands"
+# among its features and `LANGUAGE_MATRIX` records which languages ship recognition, so the model
+# that recognition runs on is the thing that makes a transcript on-device; §14.2 lists "cough type
+# distribution" among its outputs, which is a classifier and not the detector. Their absence was not
+# visible as a missing route — it was visible as a footprint of 8 MB against §19.1's stated 30.
 ON_DEVICE_MODELS: tuple[ModelCard, ...] = (
 	ModelCard(model_id='triage-classifier', purpose='Symptom -> risk classification', owner='Mlinzi clinical lead',
 		inputs=['symptoms', 'temperature_c', 'exposure_flags'], outputs=['risk_level'], on_device=True, size_mb=1.0,
+		framework='TFLite',
 		limitations=['Not a diagnosis; the malaria trap is a base-rate prior, not a test', 'Requires the rule engine as the authoritative path'],
 		review_board_required=True),
 	ModelCard(model_id='cough-detection', purpose='Audio -> cough event', owner='Mlinzi ML lead',
 		inputs=['derived_acoustic_features'], outputs=['cough_count'], on_device=True, size_mb=2.0,
+		framework='TFLite',
 		limitations=['Audio never leaves the handset', 'Background noise degrades recall'], review_board_required=False),
+	ModelCard(model_id='cough-classification', purpose='Cough -> type', owner='Mlinzi ML lead',
+		inputs=['cough_segment'], outputs=['cough_type'], on_device=True, size_mb=1.0,
+		framework='TFLite',
+		limitations=[
+			'§14.2 is explicit that it cannot distinguish a dangerous cough from any other one, so the type is a trend, not a verdict',
+			'Runs on the segment the detector isolated; a missed cough is never classified',
+		], review_board_required=False),
 	ModelCard(model_id='fall-detection', purpose='IMU -> fall event', owner='Mlinzi ML lead',
 		inputs=['accelerometer', 'gyroscope'], outputs=['fall_verdict'], on_device=True, size_mb=1.0,
+		framework='TFLite',
 		limitations=['Reduced accuracy without a gyroscope'], review_board_required=False),
-	ModelCard(model_id='respiration-estimation', purpose='LiDAR motion series -> respiratory rate', owner='Mlinzi ML lead',
+	ModelCard(model_id='respiration-estimation', purpose='LiDAR -> respiratory rate', owner='Mlinzi ML lead',
 		inputs=['derived_motion_series'], outputs=['breaths_per_minute'], on_device=True, size_mb=3.0,
+		framework='TFLite',
 		limitations=['Depth frames are discarded on-device', 'Accuracy falls with large subject motion'], review_board_required=True),
+	ModelCard(model_id='speech-recognition', purpose='Voice -> text (local languages)', owner='Mlinzi ML lead',
+		inputs=['utterance'], outputs=['transcript'], on_device=True, size_mb=20.0,
+		framework='TFLite / Whisper-tiny',
+		limitations=[
+			'Recognition ships per language; `LANGUAGE_MATRIX` records which, and a language without it is answered online',
+			'§ACC-002 names six report languages and only two ship recognition today',
+			'Recognition is on-device; the transcript is what leaves the handset, never the audio',
+		], review_board_required=True),
 	ModelCard(model_id='image-quality', purpose='Photo -> quality score', owner='Mlinzi ML lead',
 		inputs=['photo'], outputs=['quality_score'], on_device=True, size_mb=1.0,
+		framework='TFLite',
 		limitations=['No dermatology verdict is produced — deliberately (§14.4)'], review_board_required=False),
 )
 
@@ -46,10 +75,22 @@ SERVER_MODELS: tuple[ModelCard, ...] = (
 	ModelCard(model_id='misinformation-detection', purpose='Cluster emerging rumours', owner='MoH risk communication',
 		inputs=['text_and_voice_submissions'], outputs=['topic_cluster', 'velocity'], on_device=False, size_mb=0.0,
 		limitations=['Corrections require human drafting and source attribution'], review_board_required=False),
+	ModelCard(model_id='content-recommendation', purpose='Personalise health education', owner='MoH health promotion',
+		inputs=['engagement_history'], outputs=['content_items'], on_device=False, size_mb=0.0,
+		limitations=[
+			'Ranks the existing library; it does not write content, so it cannot outrun §6.5 governance',
+			'§6.1 order is a demand prior and outranks personalisation for a life-safety item',
+			'Personalisation reads engagement history, which is health-adjacent — §SEC-004 keeps it from naming a person',
+		], review_board_required=False),
 	ModelCard(model_id='stockout-prediction', purpose='Predict medicine stockouts', owner='County supply chain',
 		inputs=['crowdsourced_reports', 'facility_data'], outputs=['probability_by_facility'], on_device=False, size_mb=0.0,
 		limitations=['Crowdsourced reports are proximity-gated and reliability-weighted'], review_board_required=False),
 )
+
+# §19.1's closing line, verbatim as a number. The section writes "~30 MB"; the cards carry the
+# per-row bounds it states ("<1 MB", "<2 MB", "<20 MB"), so the sum is an upper bound rather than a
+# measurement — which is why `footprint()` compares against it instead of claiming to weigh a build.
+STATED_FOOTPRINT_MB = 30.0
 
 # §19.3 fairness axes — a model is not deployable until each has been audited.
 FAIRNESS_AXES: tuple[str, ...] = ('gender', 'age_band', 'region', 'skin_tone')
@@ -167,7 +208,37 @@ class AIService(LogMixin):
 		assert card.owner, 'every model needs a named owner (§19.3 accountability)'
 		assert card.limitations, 'limitations must be disclosed (§19.3 transparency)'
 		assert card.purpose, 'model card needs a stated purpose'
+		# §19.1 states a framework for every one of its seven rows, so a *device* model without one is
+		# a row nobody transcribed from the section. §19.2 has no framework column at all, so the
+		# refusal is scoped to on-device cards rather than to the field.
+		assert not card.on_device or card.framework, f'{card.model_id} ships on device and names no §19.1 framework'
 		return card
+
+	def footprint(self) -> ModelFootprint:
+		"""§19.1's "~30 MB" against the on-device cards this module carries.
+
+		The comparison is the finding rather than a formality: with the speech model and the cough
+		classifier absent the cards summed to 8 MB, and a client that reported 8 MB against a stated
+		30 would have been describing a device carrying neither of the two models §ACC-002's offline
+		recognition and §14.2's cough-type output depend on. Both halves are reported — the sum and the
+		frameworks §19.1 names for every row — because either can drift on its own.
+		"""
+		device = [m for m in self.model_cards() if m.on_device]
+		summed = round(sum(m.size_mb for m in device), 2)
+		missing = [m.model_id for m in device if not m.framework]
+		within = summed <= STATED_FOOTPRINT_MB
+		notes: list[str] = []
+		if not within:
+			notes.append(f'{summed:g} MB exceeds §19.1\'s stated {STATED_FOOTPRINT_MB:g} MB')
+		if missing:
+			notes.append(f'§19.1 names a framework for every row; missing on: {", ".join(missing)}')
+		self._log_info('on-device footprint', models=len(device), summed_mb=summed, within=within)
+		return ModelFootprint(
+			models=len(device), stated_total_mb=STATED_FOOTPRINT_MB, summed_mb=summed,
+			within_statement=within, missing_frameworks=missing,
+			note='; '.join(notes) if notes else
+				f'{len(device)} device models, {summed:g} MB of §19.1\'s stated {STATED_FOOTPRINT_MB:g} MB, every framework named',
+		)
 
 	def audit_fairness(self, model_id: str, tested_axes: list[str], failures: list[str]) -> FairnessAudit:
 		assert model_id in {m.model_id for m in self.model_cards()}, 'unknown model'

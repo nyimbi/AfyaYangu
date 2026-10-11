@@ -4,8 +4,10 @@ These cover the guarantees the module exists to carry: minimum-cell suppression,
 human-in-the-loop early warning, on-device explainable risk scoring, model-card
 accountability, all-axis fairness audits, and human-reviewed redress.
 """
+import httpx
 import pytest
 from pydantic import ValidationError
+from typing import Any
 
 from afya.ai.service import (
 	FAIRNESS_AXES, MIN_CELL_SIZE, ON_DEVICE_MODELS, SERVER_MODELS, WARNING_Z, AIService,
@@ -14,6 +16,11 @@ from afya.ai.views import (
 	AggregateCell, FairnessAudit, HotspotMap, ModelCard, RedressOutcome, RedressRequest, RiskInputs,
 	RiskScore, WarningAssessment, WarningSignal,
 )
+
+
+def _svc_app() -> tuple[Any, dict[str, object]]:
+	from afya.service import build_services, create_app
+	return create_app(build_services()), {}
 
 
 def _cell(cell_id: str, county: str, population: int, fever_reports: int = 0) -> AggregateCell:
@@ -271,3 +278,89 @@ async def test_caller_cannot_supply_its_own_z_score() -> None:
 	out = svc.assess_warning('Nairobi', 'cholera', [_signal(0.0)])
 	assert out.review_required is False
 	assert out.raised == []
+
+
+# --- §19.1 the on-device model table and its stated footprint -----------------------------
+
+def _spec_device_table() -> list[tuple[str, str, float, str]]:
+	"""§19.1's seven rows read out of `docs/spec.md`, as (model, purpose, size, framework). The
+	section writes its sizes as bounds ("<1 MB", "<20 MB"), so `size_mb` carries the bound rather
+	than a measurement."""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split('### 19.1 On-Device AI Models', 1)[1].split('\n### ', 1)[0]
+	rows: list[tuple[str, str, float, str]] = []
+	for line in section.splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip() for c in line.strip('|').split('|')]
+		if len(cells) < 4 or cells[0] == 'Model':
+			continue
+		size = float(cells[2].replace('<', '').replace(' MB', '').strip())
+		rows.append((cells[0], cells[1], size, cells[3]))
+	return rows
+
+
+def test_the_on_device_table_is_the_sections_seven_rows() -> None:
+	"""§19.1's table, transcribed. Two of the seven were absent — the speech model and the cough
+	classifier — and their absence was invisible as a missing route; it showed up as a footprint of
+	8 MB against the section's stated 30."""
+	spec = _spec_device_table()
+	assert len(spec) == 7, f'§19.1 lists seven models, found {len(spec)}'
+	# The section writes "Symptom → risk classification" with a Unicode arrow; the module uses `->`
+	# throughout, as it does in every other card. The arrow is typography, not content, so it is
+	# normalised rather than asserted — the words either side are what a revision must not change.
+	norm = lambda s: s.replace('→', '->')  # noqa: E731
+	assert [norm(m.purpose) for m in ON_DEVICE_MODELS] == [norm(purpose) for _, purpose, _, _ in spec]
+	assert [m.size_mb for m in ON_DEVICE_MODELS] == [size for _, _, size, _ in spec]
+	assert [m.framework for m in ON_DEVICE_MODELS] == [fw for _, _, _, fw in spec]
+
+
+def test_the_footprint_reaches_the_sections_stated_total() -> None:
+	"""The comparison the two absent rows broke. §19.1 closes "~30 MB (loaded as needed, not all at
+	once)"; five cards summed to 8, because the 20 MB speech model and the 1 MB cough classifier are
+	21 of the 29."""
+	out = AIService().footprint()
+	assert out.models == 7
+	assert out.summed_mb == 29.0, 'the section states ~30 MB and its own bounds sum to 29'
+	assert out.within_statement is True
+	assert out.missing_frameworks == [], '§19.1 names a framework for every row'
+
+
+async def test_a_device_model_without_a_framework_is_refused() -> None:
+	"""§19.1 states a framework for all seven rows, so a device card without one is a row nobody
+	transcribed. The refusal is scoped to on-device cards: §19.2 has no framework column at all."""
+	svc = AIService()
+	card = ModelCard(model_id='x', purpose='p', owner='Someone', inputs=['a'], outputs=['b'], on_device=True,
+		size_mb=1.0, framework='', limitations=['l'], review_board_required=False)
+	with pytest.raises(AssertionError, match='names no §19.1 framework'):
+		svc.register_model(card)
+	# A server card with no framework is fine — the section that describes it has no such column.
+	server = card.model_copy(update={'model_id': 'y', 'on_device': False, 'size_mb': 0.0})
+	assert svc.register_model(server) is server
+
+
+def test_the_server_table_is_the_sections_five_rows() -> None:
+	"""§19.2's five models. Content recommendation was the absent one, and it is the only row whose
+	output a *user* sees — the other four route to an epidemiologist, a supply chain or a risk
+	communication officer."""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split('### 19.2 Server-Side AI', 1)[1].split('\n### ', 1)[0]
+	names = [
+		line.strip('|').split('|')[0].strip() for line in section.splitlines()
+		if line.startswith('|') and not set(line) <= set('|-: ') and 'Model' not in line
+	]
+	assert len(names) == 5, f'§19.2 lists five models, found {len(names)}'
+	assert len(SERVER_MODELS) == 5
+	assert all(not m.on_device for m in SERVER_MODELS)
+	assert 'content-recommendation' in {m.model_id for m in SERVER_MODELS}
+
+
+async def test_the_footprint_route_reports_the_comparison() -> None:
+	app, _ = _svc_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://testserver') as c:
+		out = (await c.get('/ai/footprint')).json()
+		assert out['models'] == 7 and out['summed_mb'] == 29.0
+		assert out['stated_total_mb'] == 30.0 and out['within_statement'] is True
+		assert out['missing_frameworks'] == []

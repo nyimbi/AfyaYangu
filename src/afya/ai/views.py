@@ -99,6 +99,14 @@ class WarningAssessment(BaseModel):
 # --- AI-004 governance ------------------------------------------------------------------
 
 class ModelCard(BaseModel):
+	"""One model, as §19.1 or §19.2 states it.
+
+	`framework` is §19.1's fourth column and §19.2 has no equivalent — the server table is Model,
+	Purpose, Inputs, Outputs — so the field is empty exactly where the spec is silent. `footprint()`
+	refuses a *device* model that leaves it blank, because §19.1 states a framework for all seven of
+	its rows: a blank one is a row nobody transcribed.
+	"""
+
 	model_config = MODEL_CONFIG
 	model_id: str
 	purpose: str
@@ -107,8 +115,33 @@ class ModelCard(BaseModel):
 	outputs: list[str]
 	on_device: bool
 	size_mb: float = Field(ge=0)
+	framework: str = ''
 	limitations: list[str]
 	review_board_required: bool
+
+
+class ModelFootprint(BaseModel):
+	"""§19.1's closing line — "Total on-device model footprint: ~30 MB (loaded as needed, not all at
+	once)" — against the cards the module actually carries.
+
+	`within_statement` is the finding. The five cards that existed summed to 8 MB against a stated 30,
+	which is not a rounding difference: the two absent rows are the speech model and the cough
+	classifier, 21 of the 29 MB, and both are load-bearing. The speech model is what §ACC-002's
+	"offline speech recognition" needs and what makes a transcript on-device at all; the cough
+	classifier is what §14.2's "cough type distribution" output comes from. A footprint report that
+	read 8 MB would have described a client that carries neither.
+
+	`missing_frameworks` is the second half: §19.1 names a framework for every one of its rows, so a
+	device model without one is a row that was not transcribed from the section.
+	"""
+
+	model_config = MODEL_CONFIG
+	models: int = Field(ge=0)
+	stated_total_mb: float = Field(ge=0)
+	summed_mb: float = Field(ge=0)
+	within_statement: bool
+	missing_frameworks: list[str]
+	note: str
 
 
 class FairnessAudit(BaseModel):

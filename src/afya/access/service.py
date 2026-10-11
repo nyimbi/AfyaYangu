@@ -85,14 +85,13 @@ class AccessService(LogMixin):
 	def transcribe(self, req: VoiceRequest) -> VoiceResult:
 		assert req.lang in {v['code'] for v in LANGUAGE_MATRIX.values()}, 'unsupported language'
 		lowered = req.utterance.lower()
+		asr = bool(next(v['asr'] for v in LANGUAGE_MATRIX.values() if v['code'] == req.lang))
 		for keywords, intent, reply in VOICE_INTENTS:
 			if any(k in lowered for k in keywords):
-				# On-device only when the language ships recognition and the request is offline-capable.
-				asr = bool(next(v['asr'] for v in LANGUAGE_MATRIX.values() if v['code'] == req.lang))
 				return VoiceResult(lang=req.lang, transcript=req.utterance, intent=intent, confidence=0.82,
-					spoken_reply=reply, on_device=asr or req.offline)
+					spoken_reply=reply, on_device=asr)
 		return VoiceResult(lang=req.lang, transcript=req.utterance, intent='unknown', confidence=0.3,
-			spoken_reply='I did not catch that. Try saying: fever, find care, or help.', on_device=req.offline)
+			spoken_reply='I did not catch that. Try saying: fever, find care, or help.', on_device=asr)
 
 	def battery_profile(self, subject_ref: str, intensity: str = 'balanced', battery_saver: bool = False) -> BatteryProfile:
 		assert intensity in INTENSITY_SENSORS, 'unknown intensity'

@@ -214,3 +214,70 @@ async def test_the_status_route_reports_the_live_tier_against_the_phase() -> Non
 		assert out['active_tier'] == 3, 'Tier 4 is dormant, so the deployment runs at Tier 3'
 		assert out['phase_mismatch'] is True, 'tier 3 over a tier-2 ceiling is the finding'
 		assert (await c.get('/rollout/status', params={'phase': 'nope'}, headers=h)).status_code == 422
+
+
+# --- §16.5 the app size plan ------------------------------------------------------------------
+
+def _spec_module_table() -> list[tuple[str, float, str]]:
+	"""§16.5's nine rows read out of `docs/spec.md`, so a revision to the section fails here."""
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	# Terminated by the next heading, not by a `---` rule: the table's own separator row contains
+	# `---`, so splitting on that cuts the table at its first line and yields nothing.
+	section = text.split('### 16.5 App Size Strategy', 1)[1].split('\n## ', 1)[0]
+	rows: list[tuple[str, float, str]] = []
+	for line in section.splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip() for c in line.strip('|').split('|')]
+		if len(cells) < 3 or cells[0] == 'Component':
+			continue
+		# §16.5 writes "Included" for the two tier rows rather than a figure, which is 0 MB of its
+		# own — they are part of the base app's 15 MB, not a separate download.
+		raw = cells[1].replace('<', '').replace('~', '').replace(' MB', '').strip()
+		size = 0.0 if raw == 'Included' else float(raw)
+		rows.append((cells[0], size, cells[2]))
+	return rows
+
+
+def test_the_module_table_is_the_sections_nine_rows() -> None:
+	"""§16.5's delivery table, transcribed. Nine rows, and the sizes are the section's own — the
+	section writes "<15 MB" and "~8 MB", so the numbers are bounds rather than measurements, which is
+	what `size_mb` carries."""
+	from afya.rollout.service import MODULES
+	spec = _spec_module_table()
+	assert len(spec) == 9, f'§16.5 lists nine components, found {len(spec)}'
+	assert [m.component for m in MODULES] == [name for name, _, _ in spec]
+	assert [m.size_mb for m in MODULES] == [size for _, size, _ in spec]
+
+
+async def test_the_base_install_is_under_budget_and_the_modules_are_not_folded_in() -> None:
+	"""The section's own distinction. §16.5 lists 25 MB and 15 MB modules and still closes "Base
+	install under 15 MB", which is only true because Delivery makes them on-demand. A plan that
+	summed the table into one number would report ~60 MB and read as a breach §16.5 does not have."""
+	plan = _svc().app_size()
+	assert plan.base_install_mb == 15.0, 'Base app is the only initial row with a size'
+	assert plan.within_budget is True
+	assert plan.on_demand_mb == 58.0, 'Tier 3 + LiDAR + acoustic + registry + library'
+	assert plan.full_install_mb == 78.0, 'and the 5 MB automatic facility cache'
+	assert plan.budget_mb == APK_BUDGET_MB
+
+
+async def test_the_automatic_row_counts_toward_the_install_and_on_demand_does_not() -> None:
+	"""`at_install` is the property the split rests on: the facility cache arrives without anyone
+	asking, so its 5 MB is spent on every device; the 25 MB registry is spent only where a person
+	chose it."""
+	from afya.rollout.service import MODULES
+	by_component = {m.component: m for m in MODULES}
+	assert by_component['Offline facility cache'].at_install is True
+	assert by_component['Offline facility cache'].delivery == 'automatic'
+	assert by_component['Medicine registry (offline)'].at_install is False
+	assert by_component['LiDAR module'].condition == 'LiDAR devices only'
+
+
+async def test_the_app_size_route_is_open_and_reports_the_split() -> None:
+	app, _ = _auditor_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://testserver') as c:
+		out = (await c.get('/rollout/app-size')).json()
+		assert out['base_install_mb'] == 15.0 and out['within_budget'] is True
+		assert len(out['components']) == 9
+		assert out['on_demand_mb'] > out['base_install_mb'], 'the modules a person may pull outweigh the base'

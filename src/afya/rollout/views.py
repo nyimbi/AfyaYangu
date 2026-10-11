@@ -148,3 +148,45 @@ class ReadinessReport(BaseModel):
 	unregistered_retention_features: list[str]
 	antipatterns: list[AntiPattern]
 	note: str
+
+
+class ModuleDelivery(BaseModel):
+	"""One §16.5 row: a component, its size, and how it reaches the device.
+
+	§16.5 is the table §19.1's "loaded as needed, not all at once" points at, and the two sections
+	disagree unless the delivery column is carried: a 20 MB speech model is only compatible with a
+	15 MB base install because the section makes it on-demand. `automatic` marks the one row that
+	arrives without the person asking (the per-county facility cache), because it is the only row
+	whose size is spent on every install whether or not anyone wants it.
+	"""
+
+	model_config = MODEL_CONFIG
+	component: str = Field(min_length=1)
+	size_mb: float = Field(ge=0)
+	delivery: str = Field(pattern=r'^(initial|on_demand|automatic)$')
+	condition: str | None = None
+
+	@property
+	def at_install(self) -> bool:
+		return self.delivery in ('initial', 'automatic')
+
+
+class AppSizePlan(BaseModel):
+	"""§16.5 as one answer: what ships at install, what a person may pull later, and whether the base
+	install stays under the budget two other sections state.
+
+	`base_install_mb` sums the initial rows and `within_budget` compares it against §20.2 lever 5's
+	15 MB — the same number §16.5's own "Base install under 15 MB" line gives, which is why the plan
+	reads the budget from the KPI table rather than restating it. The on-demand total is reported
+	separately rather than added: a plan whose full module set exceeds the budget is not a plan whose
+	*install* does, and §16.5's own ~60 MB total is the section saying so.
+	"""
+
+	model_config = MODEL_CONFIG
+	components: list[ModuleDelivery]
+	base_install_mb: float = Field(ge=0)
+	on_demand_mb: float = Field(ge=0)
+	full_install_mb: float = Field(ge=0)
+	budget_mb: float = Field(gt=0)
+	within_budget: bool
+	note: str
