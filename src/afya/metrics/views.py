@@ -97,6 +97,67 @@ class MetricReport(BaseModel):
 	by_family: dict[str, int] = Field(default_factory=dict)
 
 
+class EvaluationLevel(str, Enum):
+	"""§22.8's five evaluation levels, in the order the table lists them.
+
+	The order is the ladder: process asks whether the thing ran, outcome whether it changed
+	behaviour, impact whether it mattered, and the last two are the checks that keep the first
+	three honest. A report that reached impact without process evidence has skipped the rung that
+	would have shown the mechanism.
+	"""
+
+	process = 'process'
+	outcome = 'outcome'
+	impact = 'impact'
+	equity = 'equity'
+	privacy = 'privacy'
+
+
+class EvaluationMethod(BaseModel):
+	"""One §22.8 row: the level, the method, and how often it is done.
+
+	`cadence_days` is derived from the section's Frequency column rather than restated — monthly is
+	30, quarterly 91, semi-annually 182, annually 365 — and the derivation is why the row can be
+	late-checked at all. A cadence of "Quarterly" as a string is a duty nobody can be late for,
+	which is the state §24's `Obligation` model already refuses for the same reason.
+
+	`families` is which §22 metric families the level reads. That mapping is the part §22.8 leaves
+	implicit: "Early detection rates" is not a family name, and an evaluation level with no metrics
+	behind it is a review meeting with nothing to review.
+	"""
+
+	model_config = MODEL_CONFIG
+	level: EvaluationLevel
+	method: str = Field(min_length=1)
+	frequency: str = Field(min_length=1)
+	cadence_days: int = Field(gt=0)
+	families: list[MetricFamily] = Field(min_length=1)
+
+	def at_least_quarterly(self) -> bool:
+		"""Whether this level is reviewed at least quarterly. Three of §22.8's five are — Process
+		(monthly), Outcome and Equity (both quarterly) — and those are the ones a funder asks about
+		between annual reports, which is why the predicate is the cadence rather than the label."""
+		return self.cadence_days <= 91
+
+
+class EvaluationFramework(BaseModel):
+	"""§22.8 as one answer: the five levels, their cadences, and the two things a reader needs.
+
+	`uncovered_families` is the finding. §22 has seven metric families and §22.8 names five
+	evaluation levels; if a family is read by no level, the metrics under it are collected and
+	never looked at, which is the same shape as a §7.3 feature outside the tier map. `levels_by_
+	cadence` is the review calendar in order, because the frequency column is what turns a
+	framework into a schedule.
+	"""
+
+	model_config = MODEL_CONFIG
+	levels: list[EvaluationMethod]
+	families: list[str]
+	uncovered_families: list[str]
+	levels_by_cadence: list[str]
+	note: str
+
+
 class EquityGap(BaseModel):
 	"""An equity axis §22.7 names that no measurement covers, or a metric reported with no cut."""
 

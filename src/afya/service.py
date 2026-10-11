@@ -2292,6 +2292,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		have a number for, and which we are claiming without one."""
 		return metrics.equity().model_dump(mode='json')
 
+	@app.get('/metrics/evaluation')
+	async def metrics_evaluation(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§22.8's five evaluation levels, and the family coverage they add up to. A §22 metric family
+		no level reads is collected and never looked at; the route names it rather than reporting a
+		framework that looks complete because it has five rows."""
+		return metrics.evaluation().model_dump(mode='json')
+
 	# §19.4's readers span two §17.4 scopes: the county officer holds `county_aggregate` and the
 	# PHEOC analyst `national_aggregate`. Guarding on either alone locks out a named audience.
 	_ANALYTICS_SCOPES = ('county_aggregate', 'national_aggregate')

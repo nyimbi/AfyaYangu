@@ -11,7 +11,8 @@ what a funder reads, and a green report assembled from silence is the failure th
 from afya.governance.service import SCALE_TARGETS
 from afya.logmixin import LogMixin
 from afya.metrics.views import (
-	EquityAxis, EquityGap, EquityReport, Kpi, KpiResult, Measurement, MetricFamily, MetricReport,
+	EquityAxis, EquityGap, EquityReport, EvaluationFramework, EvaluationLevel, EvaluationMethod,
+	Kpi, KpiResult, Measurement, MetricFamily, MetricReport,
 )
 
 # §22, one row per KPI. (kpi_id, name, definition, target, unit, family, higher_is_better, source).
@@ -129,6 +130,30 @@ class MetricsService(LogMixin):
 			by_family=by_family,
 		)
 
+	def evaluation(self) -> EvaluationFramework:
+		"""§22.8's five-level framework, with the family coverage crossed against §22's seven.
+
+		The finding is `uncovered_families`: a metric family no evaluation level reads is collected
+		and never looked at. §22.8 names five levels and §22 has seven families, so the two do not
+		obviously cover each other — and the check is what makes that a fact rather than a reading
+		of two tables side by side.
+		"""
+		read = {f for level in EVALUATION for f in level.families}
+		all_families = list(MetricFamily)
+		uncovered = sorted(f.value for f in all_families if f not in read)
+		self._log_info('evaluation framework read', levels=len(EVALUATION), uncovered=len(uncovered))
+		return EvaluationFramework(
+			levels=list(EVALUATION),
+			families=[f.value for f in all_families],
+			uncovered_families=uncovered,
+			levels_by_cadence=[lvl.level.value for lvl in sorted(EVALUATION, key=lambda x: x.cadence_days)],
+			note=(
+				f'{len(uncovered)} §22 metric family/families read by no §22.8 evaluation level'
+				if uncovered else
+				'every §22 metric family is read by at least one evaluation level'
+			),
+		)
+
 	def equity(self) -> EquityReport:
 		"""§22.7 disaggregation coverage. An equity metric reported with no cut is a gap: the whole
 		point of the family is a disparity, and a single percentage cannot show one."""
@@ -155,6 +180,32 @@ class MetricsService(LogMixin):
 			note='§22.7 metrics are disaggregated by gender, geography, age and device (§22.8).',
 		)
 
+
+
+# §22.8's five evaluation levels. `cadence_days` is the Frequency column as a number so a level can
+# be late-checked; the string alone is a duty nobody can be late for.
+#
+# `families` is the mapping §22.8 leaves implicit — the section names methods ("Early detection
+# rates, care-seeking behaviour, contact tracing completeness") and the §22 families are what those
+# methods read. Stated here rather than inferred, because a level with no family behind it is a
+# review meeting with nothing to review, and `uncovered_families` is what catches the reverse.
+EVALUATION: tuple[EvaluationMethod, ...] = (
+	EvaluationMethod(level=EvaluationLevel.process, frequency='Monthly', cadence_days=30,
+		method='Feature usage, funnel analysis, technical performance',
+		families=[MetricFamily.reach, MetricFamily.engagement, MetricFamily.technical]),
+	EvaluationMethod(level=EvaluationLevel.outcome, frequency='Quarterly', cadence_days=91,
+		method='Early detection rates, care-seeking behaviour, contact tracing completeness',
+		families=[MetricFamily.health_outcome]),
+	EvaluationMethod(level=EvaluationLevel.impact, frequency='Annually', cadence_days=365,
+		method='Contribution to outbreak control, health system strengthening, cost-effectiveness',
+		families=[MetricFamily.north_star]),
+	EvaluationMethod(level=EvaluationLevel.equity, frequency='Quarterly', cadence_days=91,
+		method='Disaggregated analysis by gender, geography, age, device',
+		families=[MetricFamily.equity]),
+	EvaluationMethod(level=EvaluationLevel.privacy, frequency='Semi-annually', cadence_days=182,
+		method='DPIA review, audit findings, user trust survey',
+		families=[MetricFamily.privacy_trust]),
+)
 
 def capacity_agreement() -> list[tuple[str, float, float]]:
 	"""The §22.5 rows that repeat a §15.4 target, as (kpi_id, §22 target, §15.4 target). A caller
