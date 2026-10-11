@@ -53,6 +53,9 @@ from afya.ml.cough import SR as WAV_SR, YamnetCoughEngine
 from afya.registry.activation import TriggerFiring, TriggerScope
 from afya.registry.gate import ActivationService
 from afya.registry.service import FeatureRegistry, Tier4Activation, Tier
+from afya.registry.taxonomy import (
+	DIVERGENCES as TIER_DIVERGENCES, PREFIXES, STRATEGIC_LOGIC, TIER_MAP, TIERS,
+)
 from afya.surveillance.service import SurveillanceService
 from afya.surveillance.views import CountySignal, Geofence
 from afya.sensors.service import SensorService
@@ -551,6 +554,26 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/features')
 	async def features() -> list[dict[str, object]]:
 		return [f.model_dump(mode='json') for f in registry.available()]
+
+	@app.get('/features/taxonomy')
+	async def features_taxonomy() -> dict[str, object]:
+		"""§7.1's four tiers, §7.2's sixteen prefixes, and §7.3's map — the scheme the ids are drawn
+		from, which nothing served.
+
+		Open: it names no person and no number about one, and it is what a client reads to know why a
+		feature id begins the way it does. The three crossings travel with it, because a taxonomy
+		served without the places the spec's own tables disagree is a second document rather than a
+		check."""
+		return {
+			'tiers': [t.model_dump(mode='json') for t in TIERS],
+			'prefixes': [{'prefix': p, 'domain': d} for p, d in PREFIXES],
+			'tier_map': [{'tier': tier, 'features': list(ids)} for tier, ids in TIER_MAP],
+			'strategic_logic': STRATEGIC_LOGIC,
+			'unmapped_features': registry.unmapped_features(),
+			'spec_tier_mismatches': registry.spec_tier_mismatches(),
+			'ebola_specific_mismatches': registry.ebola_specific_mismatches(),
+			'divergences': TIER_DIVERGENCES,
+		}
 
 	# --- triage ---
 	@app.post('/triage/preliminary', response_model=TriageResult)

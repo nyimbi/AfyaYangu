@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from afya.ids import uuid7str
 from afya.privacy.views import DPIAInput
+from afya.registry.taxonomy import DIVERGENCES as TIER_DIVERGENCES, TIER_OF, domain_of, id_pattern
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -21,13 +22,24 @@ class Tier(IntEnum):
 
 CHANNELS: tuple[str, ...] = ('radio', 'sms', 'ussd', 'whatsapp', 'social', 'chw', 'native')
 
+# §7.3's row labels for the registry's `Tier` members, so a mismatch can be reported in the
+# section's own spelling rather than as an integer a reader has to map back.
+TIER_NAMES: dict[int, str] = {0: 'Cross-cutting', 1: 'Tier 1', 2: 'Tier 2', 3: 'Tier 3', 4: 'Tier 4'}
+
 
 class FeatureSpec(BaseModel):
 	model_config = MODEL_CONFIG
-	id: str = Field(pattern=r'^(CHAN|INF|TRI|FND|MED|EMG|REC|MON|SENS|LOC|COM|ALT|AI|ACC|SEC)-\d{3}$')
+	# §7.2's prefix table, not a second copy of it: the regex was hand-written once and fell one
+	# prefix behind the section (`GTM-xxx`, Go-to-market, is declared and has no feature).
+	id: str = Field(pattern=id_pattern())
 	name: str
 	tier: Tier
 	channels: list[str]
+
+	@property
+	def domain(self) -> str:
+		"""The §7.2 domain the id belongs to — what the prefix means, not what it spells."""
+		return domain_of(self.id)
 
 
 class Tier4Activation(BaseModel):
@@ -200,3 +212,51 @@ class FeatureRegistry(LogMixin):
 
 	def by_tier(self, tier: Tier) -> list[FeatureSpec]:
 		return [f for f in self.FEATURES if f.tier is tier]
+
+	# --- §7.1 and §7.3, as crossings ----------------------------------------------------------
+
+	def unmapped_features(self) -> list[str]:
+		"""Feature ids the registry carries that §7.3's summary does not name.
+
+		§7.3 is a summary of the spec's own features, so an id it does not name is either a typo or a
+		feature the summary has not caught up with. Both need saying: a feature outside the tier map
+		is one whose tier nothing in the spec states, and the registry is then the only authority for
+		it — which is exactly the state §7.3 exists to prevent.
+		"""
+		return sorted(f.id for f in self.FEATURES if f.id not in TIER_OF)
+
+	def spec_tier_mismatches(self) -> dict[str, str]:
+		"""Where §7.3's tier and the registry's disagree, excluding the recorded §14 divergences.
+
+		The exclusion is the point rather than a convenience: four sensor ids are listed in §7.3's
+		Tier 4 and given their own tiers by §14, and the code follows §14. What this reports is
+		everything *else* — a feature that moved tier without the section that assigns it moving too.
+		"""
+		out: dict[str, str] = {}
+		for f in self.FEATURES:
+			if f.id in TIER_DIVERGENCES or f.id not in TIER_OF:
+				continue
+			listed = TIER_OF[f.id]
+			actual = TIER_NAMES[int(f.tier)]
+			if listed != actual:
+				out[f.id] = f'§7.3 lists {listed}, registry has {actual}'
+		return out
+
+	def ebola_specific_mismatches(self) -> list[str]:
+		"""Features §7.1 marks Ebola-specific that the registry places outside Tier 4, excluding the
+		recorded §14 divergences.
+
+		§7.1's fourth column is the check behind §11's dormancy rule: exactly one tier is Yes, and it
+		is the tier that sleeps until PHEOC triggers it. A feature the section marks Ebola-specific
+		and the registry places elsewhere is one the activation gate cannot reach — it would be live
+		year-round, which is the opposite of what the column says.
+
+		The four sensor ids are excluded because their explanation is already recorded: §7.3's summary
+		puts them in Tier 4 and §14 gives each its own tier, and the code follows §14. A gate that
+		re-reported them would flag a resolved divergence on every run, which is how a real one gets
+		ignored — the same failure as a check scoped wider than its jurisdiction.
+		"""
+		return sorted(
+			f.id for f in self.FEATURES
+			if f.id not in TIER_DIVERGENCES and f.tier is not Tier.tier4 and TIER_OF.get(f.id) == 'Tier 4'
+		)
