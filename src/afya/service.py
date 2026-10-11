@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 import json
 import os
 
+from afya.brand.service import BRAND, NON_GOALS, PRINCIPLES, VISION, brand_is_clean, brand_violations
 from afya.config import ServiceConfig
 from afya.persistence.service import SqliteStore
 from afya.channels.cost import ZeroRatingRule, parse_rules, zero_rating_gaps
@@ -573,6 +574,30 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'spec_tier_mismatches': registry.spec_tier_mismatches(),
 			'ebola_specific_mismatches': registry.ebola_specific_mismatches(),
 			'divergences': TIER_DIVERGENCES,
+		}
+
+	@app.get('/brand')
+	async def brand_section() -> dict[str, object]:
+		"""§3: the vision, the two names, the twelve principles, the five non-goals, and the verdict
+		of the brand check §20.2 declares.
+
+		The check travels with the section rather than staying a function a caller has to know to
+		import — §3.2's "It is not 'the Ebola app'" had a check named in `rollout.ANTIPATTERNS` and
+		nothing running it, which is how a control that exists comes to look applied. It is open: it
+		names no person and no number about one, and the principles are what a reviewer cites when
+		refusing a feature."""
+		return {
+			'vision': VISION,
+			'brand': BRAND.model_dump(mode='json'),
+			'principles': [p.model_dump(mode='json') for p in PRINCIPLES],
+			'non_goals': [g.value for g in NON_GOALS],
+			# The anti-pattern's own check, run against the name this build serves. A rename that
+			# puts a disease in the product name shows up here and at import, not in a review.
+			'name_check': {
+				'name': BRAND.public_name,
+				'violations': brand_violations(BRAND.public_name),
+				'clean': brand_is_clean(BRAND.public_name),
+			},
 		}
 
 	# --- triage ---
