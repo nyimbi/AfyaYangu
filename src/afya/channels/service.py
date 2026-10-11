@@ -8,8 +8,8 @@ from afya.channels.views import (
 from afya.integrations.gateways import AtUssdCallback
 from afya.logmixin import LogMixin
 from afya.strings import (
-	SYMPTOM_WORDS, USSD_MENU, USSD_MENU_ANSWERS, USSD_SYMPTOM_CHOICE, USSD_SYMPTOM_PROMPT,
-	WHATSAPP_FACILITY, WHATSAPP_HOTLINE, WHATSAPP_WELCOME, answerable,
+	SYMPTOM_WORDS, USSD_INFO_ANSWERS, USSD_MENU, USSD_MENU_ANSWERS, USSD_SYMPTOMS, USSD_SYMPTOM_MAP,
+	USSD_TREE, WHATSAPP_FACILITY, WHATSAPP_HOTLINE, WHATSAPP_WELCOME, answerable, ussd_symptom_menu_text,
 )
 from afya.triage.service import TriageService
 from afya.triage.views import TriageInput, TriageResult
@@ -112,28 +112,59 @@ class ChannelService(LogMixin):
 		return out
 
 	def ussd(self, req: UssdRequest, lang: str = 'en') -> UssdResponse:
-		# §CHAN-2's menu ends "Language: English / Kiswahili / Dholuo / ...", so Dholuo arrives here
-		# by design. `answerable` serves English for a language with no table rather than asserting:
-		# a USSD session that dies mid-menu is a dead channel for the one persona §4.1 gives no
-		# smartphone, and there is no way to render a traceback on a feature phone.
+		"""§CHAN-2's menu, walked as the tree the section draws.
+
+		The section's structure is five top-level items with a symptom submenu under the first and
+		three questions under the third, and it must "complete within 2 USSD sessions" — so the walk
+		is two levels deep and every path ends. The session state records the level reached, which is
+		what makes a second request a continuation rather than a fresh menu.
+
+		`answerable` serves English for a language with no table rather than asserting: a USSD session
+		that dies mid-menu is a dead channel for the one persona §4.1 gives no smartphone, and there
+		is no way to render a traceback on a feature phone.
+		"""
 		served = answerable(lang)
-		assert req.text == '' or req.text.isdigit(), 'USSD selections numeric'
-		if req.text == '':
+		assert all(c.isdigit() or c == '*' for c in req.text) and req.text == req.text.strip(), 'USSD input is digits joined by *'
+		# Africa's Talking sends the accumulated input ("1*2"), so the walk is over the segments
+		# rather than over the last keystroke — a handler that read only the last digit would lose
+		# which submenu the caller was in.
+		segments = [int(s) for s in req.text.split('*') if s.strip().isdigit()] if req.text else []
+		if not segments:
 			self._ussd_state[req.session_id] = 0
 			return UssdResponse(session_id=req.session_id, menu=USSD_MENU[served])
-		choice = int(req.text) if req.text.isdigit() else 0
-		assert 0 <= choice <= 4, 'menu bounded'
-		if choice in (1, 2, 3, 4):
-			# §5.4: one triage engine behind every entry point, so a selection answers with the same
-			# clinical logic the app does. The menu is the section's, so the mapping is read off it —
-			# and the mismatch is reported rather than smoothed: §CHAN-2's menu says "Report symptoms"
-			# and the engine requires a symptom list, which a numeric selection cannot carry. The
-			# caller is told what to say instead of being handed a recommendation for symptoms it
-			# never named.
-			answer = USSD_MENU_ANSWERS[served][choice]
-			if choice == USSD_SYMPTOM_CHOICE:
-				answer += ' ' + USSD_SYMPTOM_PROMPT[served]
-			return UssdResponse(session_id=req.session_id, end_text=answer)
+		top = segments[0]
+		if not 1 <= top <= len(USSD_TREE):
+			return UssdResponse(session_id=req.session_id, menu=USSD_MENU[served])
+		label, children = USSD_TREE[top - 1]
+		assert label, 'every §CHAN-2 item has a label'
+
+		# Level 1 → 2: the two items §CHAN-2 gives children.
+		if children and len(segments) == 1:
+			self._ussd_state[req.session_id] = top
+			if top == 1:
+				return UssdResponse(session_id=req.session_id, menu=ussd_symptom_menu_text(served))
+			return UssdResponse(session_id=req.session_id, end_text=USSD_MENU_ANSWERS[served][top])
+		# Level 2 under "Health information": the three questions, answered from §INF's own content.
+		if top == 3 and len(segments) == 2:
+			sub = segments[1]
+			if 1 <= sub <= len(USSD_INFO_ANSWERS[served]):
+				return UssdResponse(session_id=req.session_id, end_text=USSD_INFO_ANSWERS[served][sub - 1])
+			return UssdResponse(session_id=req.session_id, end_text=USSD_MENU_ANSWERS[served][3])
+		# Level 2 under "Report symptoms": the submenu names the symptom, and §5.4's shared engine
+		# answers — so a feature phone and the app give one clinical answer. A submenu entry the
+		# engine has no word for ("Cough", "Other") enters with an empty list, which is the honest
+		# reading of "named nothing the engine knows" rather than a symptom assumed from the label.
+		if top == 1 and len(segments) == 2:
+			sub = segments[1]
+			if not 1 <= sub <= len(USSD_SYMPTOMS):
+				return UssdResponse(session_id=req.session_id, menu=ussd_symptom_menu_text(served))
+			key = USSD_SYMPTOMS[sub - 1][0]
+			symptoms = list(USSD_SYMPTOM_MAP[key])
+			inp = TriageInput(symptoms=symptoms, temperature_c=38.0 if 'fever' in symptoms else 36.5)
+			return UssdResponse(session_id=req.session_id, end_text=self._triage_for(inp, served).recommendation)
+		# Every other path ends: the two leaves answer, and a third segment has nowhere to go.
+		if top in USSD_MENU_ANSWERS[served]:
+			return UssdResponse(session_id=req.session_id, end_text=USSD_MENU_ANSWERS[served][top])
 		return UssdResponse(session_id=req.session_id, menu=USSD_MENU[served])
 
 	def _triage_for(self, inp: TriageInput, lang: str) -> TriageResult:

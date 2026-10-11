@@ -48,32 +48,123 @@ def test_ussd_flow() -> None:
 	svc = make_channel_service()
 	first = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text=''))
 	assert first.menu and first.menu.startswith('CON Afya Yangu')
-	second = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='2'))
-	assert second.end_text and 'facility' in second.end_text
-	# §5.4: the selection answers with the shared engine's words, not a developer's sentence. The
-	# hotline selection is the one that reaches no clinical logic, so it is the one that proves the
-	# menu is answered rather than acknowledged.
-	hotline = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='4'))
-	assert hotline.end_text and '719' in hotline.end_text
-	# And the symptom selection asks for the symptoms rather than inventing an answer for an empty
-	# list — a numeric menu cannot name one, and a recommendation for symptoms nobody named is
-	# clinical advice the engine never gave.
-	symptoms = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='3'))
-	assert symptoms.end_text and 'symptom' in symptoms.end_text.lower()
-	assert 'malaria' not in (symptoms.end_text or '').lower(), 'no recommendation for unnamed symptoms'
+	assert '1. Report symptoms' in first.menu and '5. Language' in first.menu
+	# §CHAN-2's two-level walk. Item 1 opens the symptom submenu rather than answering, because the
+	# section gives it children.
+	submenu = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='1'))
+	assert submenu.menu and '1. Fever' in submenu.menu and '4. Bleeding' in submenu.menu
+	# The second segment names the symptom and §5.4's shared engine answers — the fever entry reaches
+	# §6.3's malaria trap on a feature phone.
+	fever = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='1*1'))
+	assert fever.end_text and 'malaria' in fever.end_text.lower(), fever.end_text
+	# A submenu entry the engine has no word for answers at the low risk level rather than inventing
+	# a symptom from the label.
+	cough = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='1*2'))
+	assert cough.end_text and 'malaria' not in cough.end_text.lower(), cough.end_text
+	# The leaves answer directly.
+	assert 'facility' in (svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='2')).end_text or '')
+	# Item 3 opens its three questions, and each is answered.
+	info = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='3'))
+	assert info.end_text and 'Ebola' in info.end_text
+	travel = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='3*3'))
+	assert travel.end_text and 'Travel' in travel.end_text
+	# Out-of-range input re-serves the menu rather than crashing a feature-phone session.
+	assert svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='9')).menu
+	assert svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='1*9')).menu
 
 
 def test_ussd_swahili_menu() -> None:
+	"""§CHAN-2's labels are the section's English ones in both languages — the tree is a structure and
+	a translated tree would be a second structure. What is localised is the prompt and the answers, so
+	that is what is asserted: the symptom submenu prompt and the triage recommendation come back in
+	Swahili, and the carrier envelope carries the same text the handler returned."""
 	from afya.integrations.gateways import AtUssdCallback
-	svc = ChannelService(make_sms_port())
+	svc = make_channel_service()
 	menu = svc.ussd(UssdRequest(session_id='s2', msisdn='+254711222333', text=''), lang='sw').menu
-	assert menu and 'Tafuta kituo' in menu
+	assert menu and 'Ripoti dalili' in menu, menu
+	submenu = svc.ussd(UssdRequest(session_id='s2', msisdn='+254711222333', text='1'), lang='sw').menu
+	assert submenu and 'Jibu kwa namba ya dalili yako' in submenu, submenu
 	carrier = svc.ussd_carrier_callback(AtUssdCallback(session_id='s2', phone_number='+254711222333', text=''), lang='sw')
-	assert carrier['action'] == 'CON' and 'Ebola' in carrier['text']
-	assert svc.ussd_carrier_callback(AtUssdCallback(session_id='s2', phone_number='+254711222333', text='3'), lang='sw')['action'] == 'END'
+	assert carrier['action'] == 'CON' and 'Afya Yangu' in carrier['text']
+	# A fever selection answered in Swahili, through the same engine.
+	fever = svc.ussd_carrier_callback(AtUssdCallback(session_id='s2', phone_number='+254711222333', text='1*1'), lang='sw')
+	assert fever['action'] == 'END' and 'malaria' in fever['text'].lower(), fever['text']
 
 
-def test_whatsapp_routing() -> None:
+def test_the_ussd_menu_is_the_sections_tree() -> None:
+	"""§CHAN-2's menu, read out of the spec rather than retyped.
+
+	The section draws a five-item tree with a five-way symptom submenu under the first item and three
+	questions under the third. The code served a flat four-item menu — "1. Ebola info / 2. Find
+	facility / 3. Report symptoms / 4. Hotline 719" — which disagrees with the section on the count,
+	the order and the first item, and which put the symptom path third when §CHAN-2's own integration
+	note is about it. The comparison is against `docs/spec.md` so a revision fails here until the tree
+	moves with it.
+	"""
+	from pathlib import Path
+	from afya.strings import (
+		USSD_INFO_ANSWERS, USSD_LANGUAGES, USSD_MENU, USSD_SESSION_LIMIT_CHARS, USSD_SYMPTOMS,
+		USSD_TREE, USSD_YES_NO_PROMPTS, ussd_menu_text,
+	)
+
+	spec = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = spec.split('#### CHAN-2: USSD', 1)[1].split('\n---', 1)[0]
+	block = section.split('```', 2)[1]
+	lines = block.splitlines()
+
+	# The top level is the unindented "N. " lines; the indented ones are submenu entries and the
+	# "→" prompts. Indentation is the section's own signal for depth, so it is read rather than
+	# stripped — the first attempt stripped it and counted thirteen top-level items.
+	top = [ln.strip() for ln in lines if ln and not ln.startswith(' ') and len(ln) > 3 and ln[0].isdigit() and ln[1:3] == '. ']
+	assert len(top) == 5, top
+	assert [t[3:] for t in top] == [label for label, _ in USSD_TREE]
+	# The symptom submenu is the section's five entries, indented under the first item.
+	under_one = [ln.strip() for ln in lines if ln.startswith('   ') and ln.strip()[:1].isdigit() and ln.strip()[1:3] == '. ']
+	assert under_one[:5] == ['1. Fever', '2. Cough', '3. Diarrhoea / vomiting', '4. Bleeding', '5. Other'], under_one
+	assert USSD_TREE[0][1] == tuple(label for _, label in USSD_SYMPTOMS)
+	# The "→" prompts are children of their items and are carried as the section writes them, so a
+	# submenu that drops them is visible. There are three: two under the symptom path and one under
+	# the clinic lookup, and the two that ask a yes/no question are the ones a flat menu loses.
+	prompts = [ln.strip() for ln in lines if ln.strip().startswith('→')]
+	assert prompts == [
+		'→ Send my location? 1=Yes 2=No', '→ Request callback? 1=Yes 2=No', '→ Enter your area code',
+	]
+	assert [p for p in prompts if '1=Yes 2=No' in p] == list(USSD_YES_NO_PROMPTS)
+	# The symptom submenu is the section's five entries, under the first item.
+	assert [label for _, label in USSD_SYMPTOMS] == ['Fever', 'Cough', 'Diarrhoea / vomiting', 'Bleeding', 'Other']
+	assert USSD_TREE[0][1] == tuple(label for _, label in USSD_SYMPTOMS)
+	# The health-information questions are the section's three.
+	assert USSD_TREE[2][1] == ('What is Ebola?', 'How do I protect my family?', 'Is it safe to travel?')
+	assert len(USSD_INFO_ANSWERS['en']) == 3
+	# The served menu is the tree rendered, not a second string — and it is localised, which the
+	# first cut of this got wrong: the structure was the section's and the Swahili menu was English.
+	# `USSD_MENU['en']` is the section's labels; the Swahili one is a translation of the same tree.
+	assert USSD_MENU['en'] == ussd_menu_text('en')
+	assert USSD_MENU['en'].splitlines()[1:] == [f'{i}. {label}' for i, (label, _) in enumerate(USSD_TREE, 1)]
+	assert USSD_MENU['sw'] != USSD_MENU['en'], 'a language with a table is not served the English menu'
+	assert USSD_MENU['sw'].count('\n') == USSD_MENU['en'].count('\n'), 'same structure, different words'
+	# §CHAN-2's own session budget and language list, carried as the section writes them.
+	assert USSD_SESSION_LIMIT_CHARS == 360
+	assert USSD_LANGUAGES == ('English', 'Kiswahili', 'Dholuo')
+	assert 'Dholuo' in section and '360 characters' in section
+	# The menu fits the budget it states, which is the constraint the section gives the structure.
+	assert len(USSD_MENU['en']) <= USSD_SESSION_LIMIT_CHARS, len(USSD_MENU['en'])
+
+
+def test_the_symptom_submenu_reaches_the_shared_engine() -> None:
+	"""§CHAN-2's first item is a symptom report and §5.4 says every channel shares one engine, so the
+	submenu is the crossing where the two sections meet. Every entry either names a symptom the engine
+	knows or is recorded as naming none — a label mapped to nothing silently is a symptom the engine
+	never hears about."""
+	from afya.strings import USSD_SYMPTOMS, USSD_SYMPTOM_MAP
+	from afya.triage.views import EBOLA_SYMPTOMS
+
+	assert set(USSD_SYMPTOM_MAP) == {key for key, _ in USSD_SYMPTOMS}
+	for key, symptoms in USSD_SYMPTOM_MAP.items():
+		assert set(symptoms) <= EBOLA_SYMPTOMS, (key, symptoms)
+	# The two entries with no engine word are named, not left to be discovered.
+	assert USSD_SYMPTOM_MAP['cough'] == () and USSD_SYMPTOM_MAP['other'] == ()
+	assert USSD_SYMPTOM_MAP['diarrhoea_vomiting'] == ('diarrhoea', 'vomiting')
 	svc = make_channel_service()
 	# §5.4's shared engine, reached through §CHAN-3's keyword intent: the reply is the engine's own
 	# recommendation for a fever, which is where §6.3's malaria trap lives.

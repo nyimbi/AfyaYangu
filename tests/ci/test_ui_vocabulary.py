@@ -233,15 +233,17 @@ async def test_the_channel_surfaces_carry_no_codes() -> None:
 		for body in ('I have fever', 'find facility', '719', 'hello'):
 			r = await c.post('/channels/whatsapp', json={'from_msisdn': '+254711222333', 'body': body})
 			bad += _scan(f'whatsapp {body!r}', r.text)
-		# The USSD menu and every selection's answer, in both languages with a table.
+		# The USSD menu, the symptom submenu and every walk path's answer, in both languages with a
+		# table. The submenu is a separate surface: it is served on the second keystroke and the first
+		# version of this gate never pressed one.
 		for lang in ('en', 'sw'):
 			menu = await c.post(f'/channels/ussd?lang={lang}',
 			                    json={'session_id': f's-{lang}', 'msisdn': '+254711222333', 'text': ''})
 			bad += _scan(f'ussd menu {lang}', menu.text)
-			for choice in ('1', '2', '3', '4'):
+			for text in ('1', '1*1', '1*2', '1*3', '1*4', '1*5', '2', '3', '3*1', '3*2', '3*3', '4', '5', '9', '1*9'):
 				r = await c.post(f'/channels/ussd?lang={lang}',
-				                 json={'session_id': f's-{lang}', 'msisdn': '+254711222333', 'text': choice})
-				bad += _scan(f'ussd {lang} {choice}', r.text)
+				                 json={'session_id': f's-{lang}', 'msisdn': '+254711222333', 'text': text})
+				bad += _scan(f'ussd {lang} {text}', r.text)
 	assert bad == [], f'feature codes served on a channel a person reads: {bad}'
 
 
