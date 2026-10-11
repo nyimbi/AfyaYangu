@@ -19,9 +19,9 @@ from datetime import date, datetime, timedelta, timezone
 
 from afya.logmixin import LogMixin
 from afya.operations.views import (
-	GovernanceBody, GovernanceReport, Incident, IncidentClass, IncidentKind, IncidentSeverity,
-	IncidentStatus, Obligation, ObligationStatus, OpsPosture, Rating, Risk, RiskAssessment,
-	RiskDomain, SupportChannel, SupportSla,
+	FundingStage, GovernanceBody, GovernanceReport, Incident, IncidentClass, IncidentKind,
+	IncidentSeverity, IncidentStatus, Obligation, ObligationStatus, OpsPosture, Rating, Risk,
+	RiskAssessment, RiskDomain, SupportChannel, SupportPlan, SupportSla, TrainingRow,
 )
 from afya.security.views import ControlKind
 
@@ -65,6 +65,58 @@ SUPPORT_CHANNELS: tuple[SupportChannel, ...] = (
 		staffing='3 agents', agents=3),
 	SupportChannel(channel='CHW escalation', coverage='24/7', always_on=True, staffing='Roving'),
 	SupportChannel(channel='Technical incidents', coverage='24/7', always_on=True, staffing='On-call engineer'),
+)
+
+# §24.4's training matrix, verbatim. `hours` is the Duration column as a number — "2 days" is 16
+# hours at an 8-hour day, "4 hours" is 4 — so the matrix can be totalled. `body` is the §24.1 body
+# accountable for the audience, joined on the composition §24.1 states: CHWs, faith leaders and
+# community reps sit on the Community Advisory Panel, county health teams and PHEOC analysts are
+# government bodies the Steering Committee convenes, support agents staff the Operations Cell's
+# support function. `body` is None where §24 names nobody — the radio partners are briefed by the
+# comms lead and no §24.1 body owns that, which is reported rather than papered over.
+TRAINING: tuple[TrainingRow, ...] = (
+	TrainingRow(audience='CHWs', content='App use, case reporting, triage, referral',
+		format='In-person + e-learning', duration='2 days', hours=16.0, body='Community Advisory Panel'),
+	TrainingRow(audience='Facility staff', content='App integration, referral handling',
+		format='In-person', duration='4 hours', hours=4.0),
+	TrainingRow(audience='County health teams', content='Dashboards, alerting, data use',
+		format='In-person', duration='1 day', hours=8.0, body='Steering Committee'),
+	TrainingRow(audience='PHEOC analysts', content='Analytics, AI outputs, escalation',
+		format='In-person', duration='2 days', hours=16.0, body='Steering Committee'),
+	TrainingRow(audience='Support agents', content='All features, escalation paths',
+		format='In-person + shadowing', duration='3 days', hours=24.0, body='Operations Cell'),
+	TrainingRow(audience='Community leaders', content='Awareness, referral',
+		format='Community session', duration='2 hours', hours=2.0, body='Community Advisory Panel'),
+	TrainingRow(audience='Radio partners', content='Messaging, verification',
+		format='Briefing pack', duration='1 hour', hours=1.0),
+)
+
+# §24.5's funding model, verbatim. `sustainability` is None where the section writes an em dash: the
+# emergency and build bands are not meant to sustain, and a fabricated answer would read as a plan
+# for the integration the next row says has not begun.
+FUNDING: tuple[FundingStage, ...] = (
+	FundingStage(phase='Phase 0–1 (emergency)',
+		primary_funding=['Government emergency funds', 'donor grants'], phase_floor=0, phase_ceiling=1),
+	FundingStage(phase='Phase 2–3 (build)', primary_funding=['Donor grants', 'PPP'],
+		phase_floor=2, phase_ceiling=3),
+	FundingStage(phase='Phase 4–5 (scale)',
+		primary_funding=['Donor grants', 'government budget line'],
+		sustainability='Begin integration into MoH budget', phase_floor=4, phase_ceiling=5),
+	FundingStage(phase='Phase 6+ (sustain)',
+		primary_funding=['Government budget', 'telco CSR', 'foundation grants'],
+		sustainability='Fully integrated into national health budget', phase_floor=6, phase_ceiling=6),
+)
+
+COST_DRIVERS: tuple[str, ...] = (
+	'Engineering', 'content', 'translation', 'cloud', 'SMS/WhatsApp', 'support', 'training', 'evaluation',
+)
+
+COST_MITIGATIONS: tuple[str, ...] = (
+	'Zero-rating reduces user cost but may require telco CSR commitment',
+	'Open-source reduces licensing',
+	'Shared infrastructure with MoH',
+	'Volunteer CHW network (with incentives)',
+	'Grant funding for outbreak-specific work',
 )
 
 SUPPORT_SLAS: tuple[SupportSla, ...] = (
@@ -335,6 +387,43 @@ class OperationsService(LogMixin):
 	@staticmethod
 	def support_slas() -> list[SupportSla]:
 		return list(SUPPORT_SLAS)
+
+	def support_plan(self) -> SupportPlan:
+		"""§24.4's training matrix and §24.5's funding model.
+
+		`untrained_audiences` is the finding: §24.4 names seven audiences and §24.1 names six bodies
+		with the roles that sit on them, so an audience no body accounts for is a group expected to
+		use the product with nobody in the governance structure responsible for teaching them.
+		`unfunded_stages` is the other direction — a §21 phase no §24.5 band pays for.
+
+		The body join is stated in `TRAINING` rather than derived, because §24.4's audiences
+		("Radio partners") and §24.1's bodies ("Operations Cell") are two vocabularies the spec never
+		relates, and the two audiences with no body are the honest answer rather than a gap to close
+		by inventing one.
+		"""
+		# Imported here rather than at module scope: `rollout` pulls in `metrics`, which pulls in
+		# `governance`, and §24.5's bands are the only thing in this module that needs §21's phase
+		# list. A top-level import would make the cycle a matter of what the other two modules do next.
+		from afya.rollout.service import PHASES
+		untrained = [t.audience for t in TRAINING if t.body is None]
+		covered = {n for f in FUNDING for n in range(f.phase_floor, f.phase_ceiling + 1)}
+		unfunded = [p.phase.value for p in PHASES if p.phase.order not in covered]
+		hours = sum(t.hours for t in TRAINING)
+		self._log_info('support plan read', audiences=len(TRAINING), stages=len(FUNDING),
+			untrained=len(untrained), hours=hours)
+		return SupportPlan(
+			training=list(TRAINING), funding=list(FUNDING), refresher='Quarterly',
+			new_feature_training='On release', cost_drivers=list(COST_DRIVERS),
+			cost_mitigations=list(COST_MITIGATIONS), training_hours=hours,
+			untrained_audiences=untrained, unfunded_stages=unfunded,
+			note=(
+				f'{len(TRAINING)} audiences, {hours:g} training hours; {len(FUNDING)} §24.5 funding bands '
+				f'covering §21 phases 0–{max(covered)}'
+				if not untrained and not unfunded else
+				f'{len(untrained)} audience(s) with no §24.1 body accountable; '
+				f'{len(unfunded)} §21 phase(s) no §24.5 band funds'
+			),
+		)
 
 	def governance(self) -> GovernanceReport:
 		"""§24.1's six bodies and §24.3's five support channels, crossed against §24's duty rows.

@@ -256,6 +256,70 @@ class GovernanceReport(BaseModel):
 	note: str
 
 
+class TrainingRow(BaseModel):
+	"""One §24.4 row: who is trained, on what, in what format, for how long.
+
+	`hours` is the Duration column as a number so the matrix can be totalled and a cadence read off
+	it; `duration` keeps the section's own string, because "2 days" and "4 hours" are both durations
+	and only one of them is a number of hours. `audience` is the section's own label and `owner` the
+	§24.1 body or §24 role accountable for delivering it, where one can be named without inventing
+	one — the radio-partner briefing is run by the comms lead, and nothing in §24 says who trains the
+	community leaders.
+	"""
+
+	model_config = MODEL_CONFIG
+	audience: str = Field(min_length=1)
+	content: str = Field(min_length=1)
+	format: str = Field(min_length=1)
+	duration: str = Field(min_length=1)
+	hours: float = Field(gt=0)
+	# The §24.1 body that owns this audience's training, joined on the composition §24.1 states.
+	body: str | None = None
+
+
+class FundingStage(BaseModel):
+	"""One §24.5 row: a phase band, what pays for it, and what it moves toward.
+
+	`sustainability` is None where the section writes an em dash — the emergency and build phases
+	have no sustainability column because they are not meant to sustain, and a fabricated one would
+	read as a plan for the thing the next row says has not started yet.
+	"""
+
+	model_config = MODEL_CONFIG
+	phase: str = Field(min_length=1)
+	primary_funding: list[str] = Field(min_length=1)
+	sustainability: str | None = None
+	# The §21 phases this band pays for, as the range its label states: "Phase 0–1" is 0 through 1,
+	# "Phase 6+" is 6 to the last phase. A single ceiling was the first cut and it made the coverage
+	# check vacuous — every phase is at or below the last band's ceiling by construction, so the
+	# check could never name one. A range can be narrowed and a band dropped, which is what the check
+	# is for.
+	phase_floor: int = Field(ge=0)
+	phase_ceiling: int = Field(ge=0)
+
+
+class SupportPlan(BaseModel):
+	"""§24.4's training matrix and §24.5's funding model as one answer.
+
+	`untrained_audiences` is the finding. §24.4 names seven audiences and §24.1 names six bodies with
+	the roles that sit on them; an audience no §24.1 body accounts for is a group of people expected
+	to use the product with nobody in the governance structure responsible for teaching them.
+	`unfunded_stages` is the other direction: a §21 phase no §24.5 band pays for.
+	"""
+
+	model_config = MODEL_CONFIG
+	training: list[TrainingRow]
+	funding: list[FundingStage]
+	refresher: str
+	new_feature_training: str
+	cost_drivers: list[str]
+	cost_mitigations: list[str]
+	training_hours: float
+	untrained_audiences: list[str]
+	unfunded_stages: list[str]
+	note: str
+
+
 class Obligation(BaseModel):
 	"""One recurring §24 duty. `cadence_days` is None for an event-triggered duty, and then
 	`trigger` names the event — §24.7's "on change" and "on publish" are real obligations that no

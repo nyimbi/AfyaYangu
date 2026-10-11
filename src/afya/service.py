@@ -3181,6 +3181,15 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		Auditor-scoped: it names roles and headcounts, not people."""
 		return operations.governance().model_dump(mode='json')
 
+	@app.get('/operations/support-plan')
+	async def operations_support_plan(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§24.4's training matrix and §24.5's funding model, crossed against §24.1's bodies and §21's
+		phases. An audience no body accounts for is one nobody in the governance structure is
+		responsible for teaching; a §21 phase no funding band covers is one nothing pays for.
+
+		Auditor-scoped: it is a staffing and funding plan, and it names roles rather than people."""
+		return operations.support_plan().model_dump(mode='json')
+
 	@app.post('/operations/duties/{obligation_id}/performed')
 	async def operations_mark_duty(obligation_id: str, on_iso: str,
 	                               _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:

@@ -291,8 +291,14 @@ async def test_a_duty_can_be_marked_done_through_the_route() -> None:
 
 # --- §24.1 governance, §24.3 support channels -------------------------------------------------
 
-def _spec_rows(heading: str, stop: str, columns: int) -> list[list[str]]:
-	"""A spec table's rows read out of `docs/spec.md`, so a revision to the section fails here."""
+def _spec_rows(heading: str, stop: str, columns: int, header: str) -> list[list[str]]:
+	"""A spec table's rows read out of `docs/spec.md`, so a revision to the section fails here.
+
+	`header` is the first cell of the table's header row, passed in rather than enumerated: the
+	first cut of this helper listed three header names and silently swallowed the two tables whose
+	header it had not thought of, which is a checker enumerating one of the ways its target can be
+	written. The caller knows which table it is reading.
+	"""
 	from pathlib import Path
 	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
 	section = text.split(heading, 1)[1].split(stop, 1)[0]
@@ -301,7 +307,7 @@ def _spec_rows(heading: str, stop: str, columns: int) -> list[list[str]]:
 		if not line.startswith('|') or set(line) <= set('|-: '):
 			continue
 		cells = [c.strip() for c in line.strip('|').split('|')]
-		if len(cells) != columns or cells[0] in ('Body', 'Channel', 'Function'):
+		if len(cells) != columns or cells[0] == header:
 			continue
 		rows.append(cells)
 	return rows
@@ -311,7 +317,7 @@ def test_the_governance_bodies_are_the_sections_six_rows() -> None:
 	"""§24.1, cell for cell. The composition cell is the section's, split on its commas — the
 	Operations Cell is four roles, and a body carrying one string would be a committee of one."""
 	from afya.operations.service import GOVERNANCE_BODIES
-	spec = _spec_rows('### 24.1 Governance', '\n### ', 3)
+	spec = _spec_rows('### 24.1 Governance', '\n### ', 3, 'Body')
 	assert len(spec) == 6, f'§24.1 lists six bodies, found {len(spec)}'
 	assert [b.body for b in GOVERNANCE_BODIES] == [r[0].replace('**', '') for r in spec]
 	assert [b.role for b in GOVERNANCE_BODIES] == [r[2] for r in spec]
@@ -338,7 +344,7 @@ def test_the_support_channels_are_the_sections_five_rows() -> None:
 	"""§24.3's coverage column, verbatim. "8am–8pm, 7 days" and "24/7 (self-service)" are different
 	commitments and a boolean would flatten the difference between a staffed line and a help page."""
 	from afya.operations.service import SUPPORT_CHANNELS
-	spec = _spec_rows('### 24.3 Support Operations', '\n**Response SLAs', 3)
+	spec = _spec_rows('### 24.3 Support Operations', '\n**Response SLAs', 3, 'Channel')
 	assert len(spec) == 5, f'§24.3 lists five support channels, found {len(spec)}'
 	assert [c.channel for c in SUPPORT_CHANNELS] == [r[0] for r in spec]
 	assert [c.coverage for c in SUPPORT_CHANNELS] == [r[1] for r in spec]
@@ -381,3 +387,104 @@ async def test_the_governance_route_is_scoped_and_serves_both_tables() -> None:
 		# The sysadmin holds `infrastructure`, not `audit_logs`: §17.4 gives the evidence reads to the
 		# auditor, and this route names roles and headcounts.
 		assert (await c.get('/operations/governance', headers=headers['sysadmin'])).status_code == 403
+
+
+# --- §24.4 training, §24.5 funding ------------------------------------------------------------
+
+def test_the_training_matrix_is_the_sections_seven_rows() -> None:
+	"""§24.4, cell for cell. `hours` is the Duration column as a number so the matrix can be
+	totalled; the section's own string stays beside it, because "2 days" and "4 hours" are both
+	durations and only one of them is a number of hours."""
+	from afya.operations.service import TRAINING
+	spec = _spec_rows('### 24.4 Training', '\n**Refresher', 4, 'Audience')
+	assert len(spec) == 7, f'§24.4 lists seven audiences, found {len(spec)}'
+	assert [t.audience for t in TRAINING] == [r[0] for r in spec]
+	assert [t.content for t in TRAINING] == [r[1] for r in spec]
+	assert [t.format for t in TRAINING] == [r[2] for r in spec]
+	assert [t.duration for t in TRAINING] == [r[3] for r in spec]
+	# An 8-hour training day, which is what makes "2 days" comparable with "4 hours" at all.
+	expected = {'2 days': 16.0, '4 hours': 4.0, '1 day': 8.0, '3 days': 24.0, '2 hours': 2.0, '1 hour': 1.0}
+	for t in TRAINING:
+		assert t.hours == expected[t.duration], f'{t.audience}: {t.duration}'
+	report = OperationsService().support_plan()
+	assert report.training_hours == 71.0
+	assert report.refresher == 'Quarterly' and report.new_feature_training == 'On release'
+
+
+def test_the_funding_model_is_the_sections_four_bands_and_covers_every_phase() -> None:
+	"""§24.5, cell for cell, with the primary-funding cell split on its commas. The finding is the
+	other direction: a §21 phase no band pays for is a phase nothing funds."""
+	from afya.operations.service import FUNDING
+	spec = _spec_rows('### 24.5 Funding Model', '\n**Cost drivers', 3, 'Phase')
+	assert len(spec) == 4, f'§24.5 lists four bands, found {len(spec)}'
+	assert [f.phase for f in FUNDING] == [r[0] for r in spec]
+	for band, (_, funding, _sustain) in zip(FUNDING, spec):
+		parts = [p.strip() for p in funding.replace(' + ', ', ').split(',')]
+		assert band.primary_funding == parts, f'{band.phase} funding'
+	report = OperationsService().support_plan()
+	assert report.unfunded_stages == [], f'§21 phases no §24.5 band funds: {report.unfunded_stages}'
+	# The bands tile §21's seven phases with no gap and no overlap. A single ceiling per band was the
+	# first cut and it made the coverage check vacuous — every phase is at or below the last band's
+	# ceiling by construction, so the check could never name one.
+	covered = [n for f in FUNDING for n in range(f.phase_floor, f.phase_ceiling + 1)]
+	assert sorted(covered) == list(range(7)), f'§24.5 must tile §21 phases 0-6: {sorted(covered)}'
+	# The em dash in the sustainability column is None, not an empty string: the emergency and build
+	# bands are not meant to sustain, and a fabricated answer would read as a plan for the
+	# integration the next row says has not begun.
+	assert [f.sustainability for f in FUNDING[:2]] == [None, None]
+	assert FUNDING[-1].sustainability == 'Fully integrated into national health budget'
+
+
+def test_an_audience_no_governance_body_accounts_for_is_reported() -> None:
+	"""The finding. §24.4 names seven audiences and §24.1 names six bodies; an audience no body
+	accounts for is a group expected to use the product with nobody responsible for teaching them."""
+	report = OperationsService().support_plan()
+	assert report.untrained_audiences == ['Facility staff', 'Radio partners'], (
+		'the audiences with no §24.1 body must be named, not quietly assigned one')
+	# CHWs sit on the Community Advisory Panel and support agents staff the Operations Cell, so those
+	# two audiences do resolve — the list is short because the join is narrow, not because it is off.
+	by_audience = {t.audience: t.body for t in report.training}
+	assert by_audience['CHWs'] == 'Community Advisory Panel'
+	assert by_audience['Support agents'] == 'Operations Cell'
+	assert sum(t.body is not None for t in report.training) == 5
+
+
+def test_the_cost_drivers_and_mitigations_are_the_sections_lists() -> None:
+	"""§24.5's two closing lists, verbatim. A cost driver dropped is a line item nobody budgeted."""
+	from afya.operations.service import COST_DRIVERS, COST_MITIGATIONS
+	assert COST_DRIVERS == ('Engineering', 'content', 'translation', 'cloud', 'SMS/WhatsApp',
+	                        'support', 'training', 'evaluation')
+	assert len(COST_MITIGATIONS) == 5
+	assert COST_MITIGATIONS[0].startswith('Zero-rating reduces user cost')
+	# The open-source mitigation is the same claim §20.2 lever 3 makes, and §24.5 is where it is
+	# counted as a cost saving rather than as a trust measure.
+	assert any('Open-source' in m for m in COST_MITIGATIONS)
+
+
+def test_the_canary_watches_the_audience_join_fire() -> None:
+	"""Canary. Give the radio partners a body and the untrained list must lose them. If this passes,
+	the check is comparing the training list against itself."""
+	from afya.operations import service as os_
+	original = os_.TRAINING
+	try:
+		os_.TRAINING = tuple(
+			t.model_copy(update={'body': 'Operations Cell'}) if t.audience == 'Radio partners' else t
+			for t in original)
+		untrained = os_.OperationsService().support_plan().untrained_audiences
+		assert untrained == ['Facility staff'], f'the join went unnoticed: {untrained}'
+	finally:
+		os_.TRAINING = original
+	assert os_.OperationsService().support_plan().untrained_audiences == ['Facility staff', 'Radio partners']
+
+
+async def test_the_support_plan_route_is_scoped_and_serves_both_tables() -> None:
+	app, headers = _ops_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		assert (await c.get('/operations/support-plan')).status_code in (401, 403)
+		r = await c.get('/operations/support-plan', headers=headers['auditor'])
+		assert r.status_code == 200, r.text
+		body = r.json()
+		assert len(body['training']) == 7 and len(body['funding']) == 4
+		assert body['training_hours'] == 71.0
+		assert body['unfunded_stages'] == []
+		assert (await c.get('/operations/support-plan', headers=headers['sysadmin'])).status_code == 403
