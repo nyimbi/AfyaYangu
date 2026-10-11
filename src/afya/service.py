@@ -3190,6 +3190,16 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		Auditor-scoped: it is a staffing and funding plan, and it names roles rather than people."""
 		return operations.support_plan().model_dump(mode='json')
 
+	@app.get('/operations/sustainability')
+	async def operations_sustainability(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§24.6's eight mitigations, each resolved against the artefact it names — the same rule §23's
+		mitigation column follows, applied to the section that argues the product outlives the
+		outbreak. A mitigation naming a capability the build does not have is a claim that reads as a
+		plan and is not one.
+
+		Auditor-scoped: it is a funding and continuity argument, and it names no person."""
+		return operations.sustainability().model_dump(mode='json')
+
 	@app.post('/operations/duties/{obligation_id}/performed')
 	async def operations_mark_duty(obligation_id: str, on_iso: str,
 	                               _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:

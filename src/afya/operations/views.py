@@ -320,6 +320,42 @@ class SupportPlan(BaseModel):
 	note: str
 
 
+class SustainabilityMitigation(BaseModel):
+	"""One §24.6 mitigation: what the section proposes, and — where the section names something that
+	exists in this repo — a `module:attr` reference the register can resolve.
+
+	§24.6's eight mitigations are the argument that the product survives the outbreak, and seven of
+	them name a thing the build either has or has not: the brand that positions it as permanent
+	infrastructure, the Tier 1–3 retention engine, the funding band that integrates it into the MoH
+	budget, the multi-disease scope, the metric set that measures non-outbreak impact, the partner
+	map and the open-source client. Those seven carry a `control` and resolve. The eighth — regional
+	expansion — is a plan for other countries and names no artefact, so it carries no reference and
+	is reported as unresolvable rather than given one that always lands.
+	"""
+
+	model_config = MODEL_CONFIG
+	number: int = Field(ge=1, le=8)
+	mitigation: str = Field(min_length=1)
+	control: str | None = None
+
+
+class SustainabilityReport(BaseModel):
+	"""§24.6's eight mitigations crossed against the artefacts they name.
+
+	Two lists, because the register distinguishes them and this section must too. `process_mitigations`
+	is the mitigations naming no artefact at all — a commitment about the world, not a claim about
+	the build, which is the `ControlKind.process` case §23's register already carries. `unbacked_
+	mitigations` is the sharper failure: a mitigation that *names* a `module:attr` and does not
+	resolve, which is a plan pointing at something that is not there.
+	"""
+
+	model_config = MODEL_CONFIG
+	mitigations: list[SustainabilityMitigation]
+	process_mitigations: list[str]
+	unbacked_mitigations: list[str]
+	note: str
+
+
 class Obligation(BaseModel):
 	"""One recurring §24 duty. `cadence_days` is None for an event-triggered duty, and then
 	`trigger` names the event — §24.7's "on change" and "on publish" are real obligations that no

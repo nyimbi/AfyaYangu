@@ -488,3 +488,68 @@ async def test_the_support_plan_route_is_scoped_and_serves_both_tables() -> None
 		assert body['training_hours'] == 71.0
 		assert body['unfunded_stages'] == []
 		assert (await c.get('/operations/support-plan', headers=headers['sysadmin'])).status_code == 403
+
+
+# --- §24.6 sustainability ---------------------------------------------------------------------
+
+def test_the_sustainability_mitigations_are_the_sections_eight() -> None:
+	"""§24.6's eight numbered mitigations, verbatim. A mitigation dropped is an argument for the
+	product's survival that nobody is making."""
+	import re
+	from pathlib import Path
+	from afya.operations.service import SUSTAINABILITY
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split('### 24.6 Sustainability Beyond the Outbreak', 1)[1].split('\n### ', 1)[0]
+	# The section's mitigations are a numbered list with the lead bolded, so the text is the rest of
+	# the line after the bolded clause — which is what `mitigation` carries.
+	spec = [re.sub(r'\*\*', '', m.group(1)).strip()
+	        for m in re.finditer(r'^\d+\.\s+(.*)$', section, flags=re.MULTILINE)]
+	assert len(spec) == 8, f'§24.6 lists eight mitigations, found {len(spec)}'
+	assert [m.mitigation for m in SUSTAINABILITY] == spec
+	assert [m.number for m in SUSTAINABILITY] == list(range(1, 9))
+
+
+def test_every_mitigation_naming_an_artefact_resolves_and_the_rest_say_so() -> None:
+	"""The finding. Seven name something in this build and resolve; the eighth names no artefact and
+	is reported as a process commitment rather than given a reference that always lands."""
+	svc = OperationsService()
+	report = svc.sustainability()
+	assert report.unbacked_mitigations == [], f'§24.6 naming a missing artefact: {report.unbacked_mitigations}'
+	assert report.process_mitigations == ['8. Regional expansion shares cost across countries']
+	# `resolve(None)` returns True — the §23 convention that a process control resolves by
+	# definition — which is why the process list is computed from `control is None` rather than read
+	# off `resolve`. A check that took resolve's word for it would report eight of eight.
+	assert svc.resolve(None) is True
+	assert sum(m.control is not None for m in report.mitigations) == 7
+	# §24.6 mitigation 3 is the same integration §24.5's last band states, and it resolves against
+	# the funding table rather than against a second copy of the claim.
+	assert next(m for m in report.mitigations if m.number == 3).control == 'afya.operations.service:FUNDING'
+
+
+def test_the_canary_watches_the_sustainability_check_fire() -> None:
+	"""Canary. Point a mitigation at a module this build does not have and the check must name it.
+	If this passes, the check is resolving against nothing."""
+	from afya.operations import service as os_
+	original = os_.SUSTAINABILITY
+	try:
+		os_.SUSTAINABILITY = tuple(
+			m.model_copy(update={'control': 'afya.nothing.service:MISSING'}) if m.number == 7 else m
+			for m in original)
+		unbacked = os_.OperationsService().sustainability().unbacked_mitigations
+		assert len(unbacked) == 1 and 'Open-source community' in unbacked[0], f'went unnoticed: {unbacked}'
+	finally:
+		os_.SUSTAINABILITY = original
+	assert os_.OperationsService().sustainability().unbacked_mitigations == [], 'canary left the module mutated'
+
+
+async def test_the_sustainability_route_is_scoped_and_serves_the_mitigations() -> None:
+	app, headers = _ops_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		assert (await c.get('/operations/sustainability')).status_code in (401, 403)
+		r = await c.get('/operations/sustainability', headers=headers['auditor'])
+		assert r.status_code == 200, r.text
+		body = r.json()
+		assert len(body['mitigations']) == 8
+		assert body['unbacked_mitigations'] == []
+		assert len(body['process_mitigations']) == 1
+		assert (await c.get('/operations/sustainability', headers=headers['sysadmin'])).status_code == 403

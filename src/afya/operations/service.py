@@ -21,7 +21,8 @@ from afya.logmixin import LogMixin
 from afya.operations.views import (
 	FundingStage, GovernanceBody, GovernanceReport, Incident, IncidentClass, IncidentKind,
 	IncidentSeverity, IncidentStatus, Obligation, ObligationStatus, OpsPosture, Rating, Risk,
-	RiskAssessment, RiskDomain, SupportChannel, SupportPlan, SupportSla, TrainingRow,
+	RiskAssessment, RiskDomain, SupportChannel, SupportPlan, SupportSla, SustainabilityMitigation,
+	SustainabilityReport, TrainingRow,
 )
 from afya.security.views import ControlKind
 
@@ -117,6 +118,28 @@ COST_MITIGATIONS: tuple[str, ...] = (
 	'Shared infrastructure with MoH',
 	'Volunteer CHW network (with incentives)',
 	'Grant funding for outbreak-specific work',
+)
+
+# §24.6's eight mitigations, verbatim. Seven name something this repo either has or has not, so they
+# carry a `control` and the register resolves it — the same rule §23's mitigation column already
+# follows. The eighth is a plan for other countries rather than a claim about this build, so it
+# carries no reference and is reported as unresolvable rather than given one that always lands.
+SUSTAINABILITY: tuple[SustainabilityMitigation, ...] = (
+	SustainabilityMitigation(number=1, mitigation='Position as permanent health infrastructure, not an outbreak tool',
+		control='afya.brand.service:BRAND'),
+	SustainabilityMitigation(number=2, mitigation='Tier 1–3 features are useful year-round — this is the retention engine',
+		control='afya.rollout.service:RETENTION'),
+	SustainabilityMitigation(number=3, mitigation='Integrate into MoH budget by Phase 6',
+		control='afya.operations.service:FUNDING'),
+	SustainabilityMitigation(number=4, mitigation='Multi-disease scope justifies ongoing investment',
+		control='afya.registry.diseases:DISEASE_ROWS'),
+	SustainabilityMitigation(number=5, mitigation='Measurable health impact in non-outbreak periods (immunisation, medication adherence, malaria)',
+		control='afya.metrics.service:KPIS'),
+	SustainabilityMitigation(number=6, mitigation='Telco partnership provides ongoing distribution and zero-rating',
+		control='afya.rollout.service:PARTNERS'),
+	SustainabilityMitigation(number=7, mitigation='Open-source community reduces maintenance cost',
+		control='afya.rollout.service:LICENCE_FILES'),
+	SustainabilityMitigation(number=8, mitigation='Regional expansion shares cost across countries'),
 )
 
 SUPPORT_SLAS: tuple[SupportSla, ...] = (
@@ -387,6 +410,34 @@ class OperationsService(LogMixin):
 	@staticmethod
 	def support_slas() -> list[SupportSla]:
 		return list(SUPPORT_SLAS)
+
+	def sustainability(self) -> SustainabilityReport:
+		"""§24.6's eight mitigations, each resolved against the artefact it names.
+
+		The same rule §23's mitigation column follows, applied to the section that argues the product
+		outlives the outbreak. Two lists, and they are different findings: `unbacked_mitigations` is a
+		mitigation that *names* a `module:attr` and does not resolve, which is a plan pointing at
+		something that is not there; `process_mitigations` is one that names no artefact at all, which
+		is a commitment about the world rather than a claim about the build. §23's register makes the
+		same split through `ControlKind`, and `resolve(None)` returning True is that convention rather
+		than a silent pass.
+		"""
+		unbacked = [f'{m.number}. {m.mitigation}' for m in SUSTAINABILITY
+			if m.control is not None and not self.resolve(m.control)]
+		process = [f'{m.number}. {m.mitigation}' for m in SUSTAINABILITY if m.control is None]
+		resolved = len(SUSTAINABILITY) - len(unbacked) - len(process)
+		self._log_info('sustainability read', mitigations=len(SUSTAINABILITY),
+			resolved=resolved, process=len(process), unbacked=len(unbacked))
+		return SustainabilityReport(
+			mitigations=list(SUSTAINABILITY), process_mitigations=process,
+			unbacked_mitigations=unbacked,
+			note=(
+				f'{resolved} of {len(SUSTAINABILITY)} §24.6 mitigations name an artefact that resolves; '
+				f'{len(process)} name no artefact and are reported as process commitments'
+				if not unbacked else
+				f'{len(unbacked)} §24.6 mitigation(s) name an artefact this build does not have'
+			),
+		)
 
 	def support_plan(self) -> SupportPlan:
 		"""§24.4's training matrix and §24.5's funding model.
