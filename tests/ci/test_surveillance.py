@@ -33,8 +33,12 @@ async def test_geofence_alert_semantics() -> None:
 
 
 async def test_activation_gate_via_surveillance() -> None:
+	"""§17.3: the DPIA key is derived rather than passed, so a service with no privacy registry
+	cannot hold it — `review=None` is the only answer it can give, and the gate stays shut however
+	PHEOC and the flag are set. The second call used to pass `dpia_reviewed=True` and open."""
 	reg = FeatureRegistry()
 	svc = SurveillanceService(reg)
-	assert not await svc.activate_tier4(False, True, True)
-	assert await svc.activate_tier4(True, True, True, bulletin='PHEOC trigger')
-	assert reg.tier4_active()
+	assert not await svc.activate_tier4(False, True)
+	assert not await svc.activate_tier4(True, True, bulletin='PHEOC trigger'), \
+		'no privacy registry means no review, so the key cannot be held'
+	assert not reg.tier4_active()

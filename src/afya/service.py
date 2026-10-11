@@ -53,6 +53,7 @@ from afya.info.service import InfoService
 from afya.info.views import WORKFLOW, ContentItem, CountyRisk
 from afya.privacy.service import PrivacyService
 from afya.privacy.views import _SCOPE, ConsentCategory, ConsentRecord, DPIAInput, RBACRole
+from afya.privacy.service import BLOCKING_TOPICS, DPIA_TOPICS
 from afya.privacy import rbac
 from afya.records.service import RecordsService
 from afya.records.views import GrowthRecord, ImmunisationRecord, LabResult, WalletMember
@@ -143,6 +144,16 @@ class BreathEstimateRequest(BaseModel):
 class InteractionsRequest(BaseModel):
 	model_config = MODEL_CONFIG
 	drugs: list[str]
+
+
+class DPIAReviewRequest(BaseModel):
+	"""§17.3's review as a thing that happened: which processing, when, and by whom. The `reviewed_by`
+	and `reviewed_at_iso` are required rather than defaulted, because a review with no reviewer and no
+	date is the boolean this replaced wearing two extra fields."""
+	model_config = MODEL_CONFIG
+	processing: DPIAInput
+	reviewed_at_iso: str
+	reviewed_by: str
 
 
 def build_services(http: AsyncClient | None = None, db_path: str | None = None) -> dict[str, object]:
@@ -1587,7 +1598,43 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/privacy/dpia')
 	async def privacy_dpia(inp: DPIAInput) -> dict[str, object]:
-		return privacy.assess_dpia(inp).model_dump(mode='json')
+		"""Assess a proposed use against §17.3's eight topics. Stores nothing — this is the
+		question "what would a DPIA say about this", which anyone may ask about their own plan."""
+		report = privacy.assess_dpia(inp)
+		return {**report.model_dump(mode='json'),
+			'topics': [topic for topic, _field, _finding in DPIA_TOPICS],
+			'raised': [topic for topic, field, _finding in DPIA_TOPICS if getattr(inp, field)]}
+
+	@app.get('/privacy/dpia/topics')
+	async def privacy_dpia_topics(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§17.3's eight bullets as the list the assessment walks, with the field that describes each.
+
+		Auditor-scoped because it is a coverage claim about the assessment itself: the thing worth
+		checking is that the topics the section names and the topics the code can find are the same
+		eight, and that is not something a citizen endpoint should be asked to assert.
+		"""
+		return {
+			'topics': [
+				{'topic': topic, 'field': field, 'finding': finding, 'blocking': finding in BLOCKING_TOPICS}
+				for topic, field, finding in DPIA_TOPICS
+			],
+			'reviews': [r.model_dump(mode='json') for r in privacy.dpia_reviews()],
+		}
+
+	@app.post('/privacy/dpia/review')
+	async def privacy_dpia_review(review: DPIAReviewRequest, _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""Record that §17.3's DPIA for this processing was conducted. The one way the Tier-4
+		`dpia_review` key can be earned, and it takes a named reviewer and a timestamp rather than a
+		boolean — a review is a thing that happened, at a time, by someone.
+
+		A blocked assessment is refused here too, so the violation cannot be recorded away and then
+		cited as reviewed at the gate.
+		"""
+		try:
+			record = privacy.review_dpia(review.processing, review.reviewed_at_iso, review.reviewed_by)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return record.model_dump(mode='json')
 
 	@app.get('/privacy/regulatory')
 	async def privacy_regulatory(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
@@ -1618,13 +1665,17 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		"""§11.1: all three keys or nothing. The response names what is missing and what the
 		activation unlocks, so a refusal is diagnosable instead of a bare false.
 
-		`dpia_reviewed` is not taken on the caller's word: the DPIA is assessed from the deployment
-		described in the request, and a blocked assessment cannot be acknowledged away — §17.2's
-		data-minimisation violation is the risk this key exists to hold shut.
+		The `dpia_review` key is not taken on the caller's word and is not even a field the caller
+		sends: the DPIA is assessed from the deployment described in the request, and the key is held
+		only by a recorded §17.3 review that still covers that processing. Before this, a request
+		carrying `dpia_reviewed: true` and nothing else held the key — the DPIA was assessed only if
+		`dpia_input` happened to be present, so the one input the gate exists for was optional.
 		"""
 		report = surveillance.assess_tier4(auth.dpia_input) if auth.dpia_input is not None else None
+		review = surveillance.dpia_review_for(auth.dpia_input)
 		active = await surveillance.activate_tier4(
-			auth.authorized_by_pheoc, auth.dpia_reviewed, auth.flag_enabled, auth.bulletin_text, dpia=report,
+			auth.authorized_by_pheoc, auth.flag_enabled, auth.bulletin_text,
+			dpia=report, review=review, dpia_input=auth.dpia_input,
 		)
 		return {
 			'activated': active,
@@ -1634,6 +1685,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'unmet_keys': registry.activation.unmet_keys(),
 			'unlocked_features': [s.id for s in registry.by_tier(Tier.tier4)] if active else [],
 			'dpia_risks': list(report.risks) if report is not None else [],
+			'dpia_review_id': registry.activation.dpia_review_id,
 			'message': (
 				'Outbreak capabilities are live for this event.'
 				if active else 'Outbreak capabilities stay dark until all three keys are held.'
@@ -1687,7 +1739,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		retention clocks begin." Closing also clears the three-key gate, because an event that is
 		closed and a gate that is still open is the state the clause exists to prevent."""
 		report = activation.deactivate(at_iso, closed_by)
-		registry.activate(Tier4Activation(authorized_by_pheoc=False, dpia_reviewed=False, flag_enabled=False))
+		registry.activate(Tier4Activation(authorized_by_pheoc=False, flag_enabled=False))
 		return report.model_dump(mode='json')
 
 	# A geofence is a risk zone every device inside it is told about. An anonymous caller could

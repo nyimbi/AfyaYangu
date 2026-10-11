@@ -131,6 +131,13 @@ CITIZEN_ROLES: frozenset[RBACRole] = frozenset({RBACRole.citizen_anonymous, RBAC
 
 
 class DPIAInput(BaseModel):
+	"""The processing a DPIA is being run over, one field per topic §17.3 lists.
+
+	The section names eight topics and this carried five, so three of them — location tracking and
+	geofencing, contact tracing assistance, and data sharing with health authorities — could not be
+	described to the assessment at all. A topic with no field is a topic the DPIA is structurally
+	unable to find, which is worse than one it finds and clears: the report reads as complete.
+	"""
 	model_config = MODEL_CONFIG
 	processing_id: str = Field(default_factory=uuid7str)
 	raw_sensor_data_retained: bool = False
@@ -138,12 +145,34 @@ class DPIAInput(BaseModel):
 	cross_border_transfer: bool = False
 	children_data: bool = False
 	proximity_logging: bool = False
+	location_tracking: bool = False
+	contact_tracing: bool = False
+	data_sharing_with_authorities: bool = False
 
 
 class DPIAReport(BaseModel):
 	model_config = MODEL_CONFIG
 	risks: list[str]
 	requires_dpia: bool
+	blocked: bool
+
+
+class DPIARecord(BaseModel):
+	"""A conducted DPIA, and the answer §17.3's last line needs.
+
+	"Reviewed and updated before each Tier 4 activation" is a statement about a review that
+	happened, so the gate cannot be satisfied by a boolean the caller supplies about itself. This
+	carries which assessment was reviewed and when, and `covers_current_processing` is what decides
+	whether it still answers for the processing now being turned on.
+	"""
+	model_config = MODEL_CONFIG
+	review_id: str = Field(default_factory=uuid7str)
+	reviewed_at_iso: str
+	reviewed_by: str
+	processing_id: str
+	fingerprint: str
+	topics: list[str]
+	risks: list[str]
 	blocked: bool
 
 

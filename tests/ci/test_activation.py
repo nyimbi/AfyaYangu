@@ -55,7 +55,7 @@ def _spec_rows() -> list[list[str]]:
 
 def _svc(active: bool = False) -> ActivationService:
 	return ActivationService(FeatureRegistry(Tier4Activation(
-		authorized_by_pheoc=active, dpia_reviewed=active, flag_enabled=active,
+		authorized_by_pheoc=active, dpia_review_id='r1' if active else None, flag_enabled=active,
 	)))
 
 
@@ -491,7 +491,7 @@ async def test_closing_the_event_resets_the_gate_and_returns_the_clocks(tmp_path
 		_, sysadmin = await _tokens(c, services)
 		from afya.registry.service import Tier4Activation as Keys
 		services['registry'].activate(Keys(  # type: ignore[attr-defined]
-			authorized_by_pheoc=True, dpia_reviewed=True, flag_enabled=True))
+			authorized_by_pheoc=True, dpia_review_id='r1', flag_enabled=True))
 		assert (await c.get('/health')).json()['tier4'] is True
 
 		resp = await c.post('/tier4/deactivate', headers=sysadmin, params={
@@ -533,7 +533,7 @@ async def test_the_proximity_route_resolves_row_one_and_claims_no_more(tmp_path)
 
 		from afya.registry.service import Tier4Activation as Keys
 		services['registry'].activate(Keys(  # type: ignore[attr-defined]
-			authorized_by_pheoc=True, dpia_reviewed=True, flag_enabled=True))
+			authorized_by_pheoc=True, dpia_review_id='r1', flag_enabled=True))
 		await _declare(c, sysadmin)
 		assert (await c.post('/location/proximity/encounter', json=token)).status_code == 200
 

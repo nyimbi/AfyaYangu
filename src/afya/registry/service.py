@@ -46,12 +46,21 @@ class Tier4Activation(BaseModel):
 	model_config = MODEL_CONFIG
 	activation_id: str = Field(default_factory=uuid7str)
 	authorized_by_pheoc: bool
-	dpia_reviewed: bool
 	flag_enabled: bool
 	bulletin_text: str | None = None
 	# §24.7: the DPIA precedes each Tier-4 activation. Carried here rather than in a second model
 	# so the gate and the assessment of what it turns on cannot be described separately.
 	dpia_input: DPIAInput | None = None
+	# §17.3's review is a record, so the key names the record it was held by — and nothing else holds
+	# it. `dpia_reviewed` used to be a stored boolean, which made it a field a caller could set: a
+	# request carrying `dpia_reviewed: true` and no DPIA at all turned the outbreak capabilities on.
+	# It is derived now, so there is no path to the key except recording a review.
+	dpia_review_id: str | None = None
+
+	@property
+	def dpia_reviewed(self) -> bool:
+		"""Whether §17.3's DPIA has been reviewed — true only when a review record is named."""
+		return self.dpia_review_id is not None
 
 	def is_active(self) -> bool:
 		return self.authorized_by_pheoc and self.dpia_reviewed and self.flag_enabled
@@ -181,7 +190,7 @@ class FeatureRegistry(LogMixin):
 	)
 
 	def __init__(self, activation: Tier4Activation | None = None) -> None:
-		self._activation = activation or Tier4Activation(authorized_by_pheoc=False, dpia_reviewed=False, flag_enabled=False)
+		self._activation = activation or Tier4Activation(authorized_by_pheoc=False, flag_enabled=False)
 		assert self._activation is not None
 
 	def activate(self, activation: Tier4Activation) -> None:

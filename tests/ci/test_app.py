@@ -104,26 +104,57 @@ async def test_tier4_activation_gate() -> None:
 	# reachable by anyone, and its three keys were a body the caller filled in about itself.
 	svc = build_services()
 	ops = svc['auth'].provision_staff('ops-0', RBACRole.sysadmin, registrar='MoH ops').access_token  # type: ignore[union-attr]
+	aud = svc['auth'].provision_staff('dpo-0', RBACRole.auditor, registrar='ODPC liaison').access_token  # type: ignore[union-attr]
 	h = {'authorization': f'Bearer {ops}'}
+	ha = {'authorization': f'Bearer {aud}'}
 	app = create_app(svc)
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://testserver') as client:
 		assert (await client.post('/tier4/activate', json={'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True})).status_code in (401, 403)
-		denied = (await client.post('/tier4/activate', json={'authorized_by_pheoc': False, 'dpia_reviewed': True, 'flag_enabled': True}, headers=h)).json()
-		assert denied['activated'] is False
-		assert denied['unmet_keys'] == ['pheoc_authorization'], 'the refusal must name the missing key'
-		assert denied['unlocked_features'] == [], 'nothing unlocks on a partial gate'
-		# §17.2: a DPIA that finds raw sensor retention cannot be acknowledged away by the caller
-		# passing dpia_reviewed=True alongside it — the assessment blocks the key it describes.
-		blocked = (await client.post('/tier4/activate', headers=h, json={
+		# §17.3: the `dpia_reviewed` field is gone from the request, and sending it is a 422 — the key
+		# is derived from a recorded review, not from anything the caller says about itself.
+		assert (await client.post('/tier4/activate', headers=h, json={
 			'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True,
-			'dpia_input': {'raw_sensor_data_retained': True},
+		})).status_code == 422, 'a caller may not assert the DPIA key'
+		denied = (await client.post('/tier4/activate', json={'authorized_by_pheoc': False, 'flag_enabled': True}, headers=h)).json()
+		assert denied['activated'] is False
+		# Both keys are missing: PHEOC withheld its own, and no review has been recorded at all.
+		assert denied['unmet_keys'] == ['pheoc_authorization', 'dpia_review'], 'the refusal must name the missing keys'
+		assert denied['unlocked_features'] == [], 'nothing unlocks on a partial gate'
+		# The processing this deployment is turning on. A review must exist for exactly this.
+		processing = {'proximity_logging': True, 'automated_decisions': True, 'children_data': True}
+		unreviewed = (await client.post('/tier4/activate', headers=h, json={
+			'authorized_by_pheoc': True, 'flag_enabled': True, 'dpia_input': processing,
 		})).json()
-		assert blocked['activated'] is False and blocked['unmet_keys'] == ['dpia_review'], \
-			'a blocked DPIA must hold the key shut however the caller describes it'
-		assert blocked['dpia_risks'], 'the refusal must say what the assessment found'
-		granted = (await client.post('/tier4/activate', json={'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True}, headers=h)).json()
+		assert unreviewed['activated'] is False and unreviewed['unmet_keys'] == ['dpia_review'], \
+			'an assessed-but-unreviewed DPIA holds the key shut'
+		assert unreviewed['dpia_risks'], 'the refusal must say what the assessment found'
+		assert unreviewed['dpia_review_id'] is None
+		# §17.2: a DPIA that finds raw sensor retention cannot be recorded as reviewed at all — the
+		# violation has to be fixed in the processing, not acknowledged away.
+		blocking = {**processing, 'raw_sensor_data_retained': True}
+		refused = await client.post('/privacy/dpia/review', headers=ha, json={
+			'processing': blocking, 'reviewed_at_iso': '2026-10-12T09:00:00Z', 'reviewed_by': 'DPO',
+		})
+		assert refused.status_code == 422 and 'data-minimisation' in refused.json()['detail']
+		# The DPO records the review for the processing actually being turned on.
+		recorded = (await client.post('/privacy/dpia/review', headers=ha, json={
+			'processing': processing, 'reviewed_at_iso': '2026-10-12T09:00:00Z', 'reviewed_by': 'DPO',
+		})).json()
+		assert recorded['review_id'] and recorded['fingerprint']
+		# A review for one processing does not answer for a different one — §17.3's "reviewed and
+		# updated before each activation", where the update is a topic the last review never saw.
+		widened = {**processing, 'cross_border_transfer': True}
+		stale = (await client.post('/tier4/activate', headers=h, json={
+			'authorized_by_pheoc': True, 'flag_enabled': True, 'dpia_input': widened,
+		})).json()
+		assert stale['activated'] is False and stale['unmet_keys'] == ['dpia_review'], \
+			'a review does not cover processing it never assessed'
+		granted = (await client.post('/tier4/activate', json={
+			'authorized_by_pheoc': True, 'flag_enabled': True, 'dpia_input': processing,
+		}, headers=h)).json()
 		assert granted['activated'] is True
 		assert granted['unmet_keys'] == []
+		assert granted['dpia_review_id'] == recorded['review_id'], 'the gate names the review it was held by'
 		assert granted['unlocked_features'], 'activation must name what it turned on'
 		assert (await client.get('/health')).json()['tier4'] is True
 		assert (await client.post('/triage/evd', json={'symptoms': ['fever'], 'temperature_c': 39.2, 'ebola_contact': True})).json()['risk_level'] == 'high'

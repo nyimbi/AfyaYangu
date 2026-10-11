@@ -60,13 +60,29 @@ class SurveillanceService(LogMixin):
 		so the flag is read from the assessment, not asserted by the caller."""
 		return self._privacy.assess_dpia(inp) if self._privacy is not None else None
 
-	async def activate_tier4(self, authorized_by_pheoc: bool, dpia_reviewed: bool, flag_enabled: bool, bulletin: str | None = None, dpia: Any | None = None) -> bool:
+	def dpia_review_for(self, inp: Any | None) -> Any | None:
+		"""The recorded §17.3 review covering this processing, or None. The gate reads this rather
+		than a boolean the caller supplies about itself."""
+		return self._privacy.dpia_review_for(inp) if self._privacy is not None else None
+
+	async def activate_tier4(self, authorized_by_pheoc: bool, flag_enabled: bool, bulletin: str | None = None,
+			dpia: Any | None = None, review: Any | None = None, dpia_input: Any | None = None) -> bool:
+		"""Evaluate the three-key gate. The `dpia_review` key is *derived*, never passed.
+
+		It used to be a parameter, and that was the whole defect: `dpia_reviewed=True` with no DPIA
+		anywhere in the request held the key, so §17.3's "reviewed and updated before each Tier 4
+		activation" was satisfied by a caller's sentence about itself. The key is now held only by a
+		recorded review that still covers the processing being turned on — which means an
+		unreviewed activation stays dark rather than reporting a key it never earned.
+		"""
 		from afya.registry.service import Tier4Activation
-		if dpia is not None and getattr(dpia, 'blocked', False):
-			# A blocked DPIA is not "reviewed": §17.2's data-minimisation violation cannot be
-			# acknowledged away by a caller passing dpia_reviewed=True alongside it.
-			dpia_reviewed = False
-		activation = Tier4Activation(authorized_by_pheoc=authorized_by_pheoc, dpia_reviewed=dpia_reviewed, flag_enabled=flag_enabled, bulletin_text=bulletin)
+		blocked = dpia is not None and getattr(dpia, 'blocked', False)
+		# A blocked assessment is not a review and neither is a missing one. §17.2's
+		# data-minimisation violation has to be fixed in the processing, not acknowledged away.
+		review_id = None if blocked else getattr(review, 'review_id', None)
+		activation = Tier4Activation(authorized_by_pheoc=authorized_by_pheoc,
+			flag_enabled=flag_enabled, bulletin_text=bulletin, dpia_input=dpia_input,
+			dpia_review_id=review_id)
 		self._registry.activate(activation)
 		active = self._registry.tier4_active()
 		self._log_warn('tier4 gate evaluated', active=active, unmet=activation.unmet_keys())

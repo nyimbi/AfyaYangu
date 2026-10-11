@@ -36,18 +36,42 @@ FEATURE_CODE = re.compile(r'\b(?:CHAN|INF|TRI|FND|MED|EMG|REC|MON|SENS|LOC|COM|A
 REPO = Path(__file__).resolve().parents[2]
 
 
-def _outbreak_app() -> tuple[Any, dict[str, str]]:
-	"""The app and an operator's token for it.
+OUTBREAK_PROCESSING: dict[str, bool] = {'proximity_logging': True, 'automated_decisions': True}
+"""What this deployment's outbreak capabilities actually process.
 
-	The token must come from the *same* service instance the app was built with — `AuthService`
+Named here rather than inline at each call because the Tier-4 `dpia_review` key is held by a
+recorded §17.3 review *of a specific processing*, so two tests describing the same activation two
+different ways would each need their own review and one would silently stop opening the gate.
+"""
+
+
+def _outbreak_app() -> tuple[Any, dict[str, str], dict[str, str]]:
+	"""The app, an operator's token and an auditor's token for it.
+
+	The tokens must come from the *same* service instance the app was built with — `AuthService`
 	holds issued tokens in memory, so a token minted on a fresh `build_services()` is unknown to a
 	separately built app and every request reads as unauthenticated.
+
+	Two roles because §17.3's gate takes two now: the operator holds the infrastructure scope that
+	fires the activation, and the DPO's auditor scope records the review that holds the key. One
+	token doing both would be a test asserting a gate weaker than the deployment's.
 	"""
 	from afya.privacy.views import RBACRole
 	from afya.service import build_services
 	services = build_services()
 	ops = services['auth'].provision_staff('ops-0', RBACRole.sysadmin, registrar='MoH ops').access_token  # type: ignore[union-attr]
-	return create_app(services), {'authorization': f'Bearer {ops}'}
+	dpo = services['auth'].provision_staff('dpo-0', RBACRole.auditor, registrar='ODPC liaison').access_token  # type: ignore[union-attr]
+	return create_app(services), {'authorization': f'Bearer {ops}'}, {'authorization': f'Bearer {dpo}'}
+
+
+async def _open_outbreak(c: httpx.AsyncClient, h: dict[str, str], ha: dict[str, str]) -> None:
+	"""Record §17.3's review for this deployment's processing, then fire the three-key gate."""
+	await c.post('/privacy/dpia/review', headers=ha, json={
+		'processing': OUTBREAK_PROCESSING, 'reviewed_at_iso': '2026-10-12T09:00:00Z', 'reviewed_by': 'DPO',
+	})
+	await c.post('/tier4/activate', headers=h, json={
+		'authorized_by_pheoc': True, 'flag_enabled': True, 'dpia_input': OUTBREAK_PROCESSING,
+	})
 
 
 def _silent_wav(seconds: int = 2) -> bytes:
@@ -149,7 +173,7 @@ async def test_dormant_capabilities_are_withheld_until_activation() -> None:
 	assert len(available(False)) < len(available(True)), 'activation must reveal something'
 	assert {a.id for a in available(True)} - {a.id for a in available(False)} == set(hidden)
 
-	app, h = _outbreak_app()
+	app, h, ha = _outbreak_app()
 	transport = httpx.ASGITransport(app=app)
 	async with httpx.AsyncClient(transport=transport, base_url='http://t') as c:
 		# Read with the operator's token. The exact-equality claim is made above against the pure
@@ -158,8 +182,7 @@ async def test_dormant_capabilities_are_withheld_until_activation() -> None:
 		# screen is not unlocked *for a sysadmin* by activating the outbreak, it was never his.
 		before = {a['id'] for a in (await c.get('/mobile/actions', headers=h)).json()}
 		assert not (before & hidden), 'dormant capabilities served before activation'
-		await c.post('/tier4/activate', headers=h,
-		             json={'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True})
+		await _open_outbreak(c, h, ha)
 		after = {a['id'] for a in (await c.get('/mobile/actions', headers=h)).json()}
 		assert after - before, 'activation must reveal something to the caller who opened the gate'
 		assert (after - before) <= set(hidden), 'activation revealed a control that was never dormant'
@@ -375,10 +398,9 @@ async def test_an_operator_control_is_not_offered_to_a_citizen() -> None:
 	The list is crossed against the routes' real guards in `test_operator_scopes_match_the_routes`,
 	so a guard that changes cannot leave a stale control behind.
 	"""
-	app, h = _outbreak_app()
+	app, h, ha = _outbreak_app()
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
-		await c.post('/tier4/activate', headers=h,
-		             json={'authorized_by_pheoc': True, 'dpia_reviewed': True, 'flag_enabled': True})
+		await _open_outbreak(c, h, ha)
 		anon = (await c.post('/auth/anonymous', json={'subject_ref': 'U1'})).json()['token']
 		citizen = {a['id'] for a in (await c.get('/mobile/actions', headers={'authorization': f'Bearer {anon}'})).json()}
 		operator = {a['id'] for a in (await c.get('/mobile/actions', headers=h)).json()}

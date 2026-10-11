@@ -43,7 +43,7 @@ async def test_tier4_dormant_rejects_respiration(svc: SensorService) -> None:
 
 
 async def test_tier4_active_accepts_respiration() -> None:
-	reg = FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_reviewed=True, flag_enabled=True))
+	reg = FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_review_id='r1', flag_enabled=True))
 	svc = SensorService(reg)
 	v = await svc.ingest(SenseIngest(kind=SenseKind.respiration, subject_ref='U1', value=30.0, county='Nairobi'))
 	assert v.anomaly and v.band == 'alert'
@@ -376,7 +376,7 @@ async def test_an_anomaly_carries_the_clinician_prompt_and_the_limits() -> None:
 	from afya.registry.service import FeatureRegistry, Tier4Activation
 	from afya.sensors.views import SenseIngest, SenseKind
 	# Cough sensing is Tier 4, so the outbreak event has to be open before it can be read at all.
-	reg = FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_reviewed=True, flag_enabled=True))
+	reg = FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_review_id='r1', flag_enabled=True))
 	svc = SensorService(reg)
 	out = await svc.qualified_verdict(SenseIngest(kind=SenseKind.cough, subject_ref='U1', value=40,
 	                                              quality=0.9, county='Nairobi'))
@@ -407,7 +407,7 @@ async def test_the_ingest_route_returns_the_disclosure_not_just_the_band() -> No
 	# Open the outbreak event so a Tier-4 capability can be read; the disclosure is the same
 	# question either way, and this keeps the test about the disclosure.
 	services["registry"].activate(Tier4Activation(  # type: ignore[attr-defined]
-		authorized_by_pheoc=True, dpia_reviewed=True, flag_enabled=True))
+		authorized_by_pheoc=True, dpia_review_id='r1', flag_enabled=True))
 	app = create_app(services)
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		token = (await c.post('/auth/anonymous', json={'subject_ref': 'U1'})).json()['token']

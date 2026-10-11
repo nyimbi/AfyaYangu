@@ -5,7 +5,8 @@ from afya.identity.service import IdentityService
 from afya.logmixin import LogMixin
 from afya.privacy.views import (
 	AccessRequest, BreachEvent, BreachNotification, ConsentCategory, ConsentRecord, ConsentScope,
-	ConsentToggle, DPIAInput, DPIAReport, InstrumentAssessment, InstrumentKind, InstrumentObligation,
+	ConsentToggle, DPIAInput, DPIARecord, DPIAReport, InstrumentAssessment, InstrumentKind,
+	InstrumentObligation,
 	LegalBasis, ObligationKind, PrincipleImplementation, RBACRole, RegulatoryInstrument,
 	RegulatoryReport, _SCOPE,
 )
@@ -186,6 +187,41 @@ PRIVACY_PRINCIPLES: tuple[tuple[str, str, tuple[InstrumentObligation, ...]], ...
 )
 
 
+# §17.3's eight bullets, in the section's order, each with the field that describes it and the
+# finding the assessment raises when it is present. The topic list is data because the assessment is
+# only as complete as it: `assess_dpia` walks this, so a bullet added to the section and not here is
+# the one failure mode that would otherwise be silent — a report that names eight topics while
+# reading seven.
+DPIA_TOPICS: tuple[tuple[str, str, str], ...] = (
+	('LiDAR and acoustic monitoring (novel, potentially intrusive)', 'raw_sensor_data_retained',
+		'raw sensor data retention violates data minimisation (spec 17.2)'),
+	('Location tracking and geofencing', 'location_tracking',
+		'location tracking requires a documented lawful basis and a geofence audit trail'),
+	('Proximity logging and exposure notification', 'proximity_logging',
+		'proximity logging requires opt-in transparency per DESIRE lesson'),
+	('Contact tracing assistance', 'contact_tracing',
+		'contact tracing assistance is a novel intrusion and needs its own DPIA review'),
+	('AI-based risk scoring', 'automated_decisions',
+		'automated health risk decisions require human override'),
+	('Data sharing with health authorities', 'data_sharing_with_authorities',
+		'sharing with health authorities requires a data-sharing agreement and aggregation floor'),
+	("Processing of children's data", 'children_data',
+		'children data requires guardian consent path'),
+	('Cross-border data transfer', 'cross_border_transfer',
+		'cross-border transfer requires ODPC approval + SCCs'),
+)
+
+BLOCKING_TOPICS: frozenset[str] = frozenset({
+	'raw sensor data retention violates data minimisation (spec 17.2)',
+})
+"""The findings that stop the gate rather than merely inform it.
+
+One, and it is §17.2's data-minimisation rule: §13.1 says raw sensor data never leaves the handset,
+so a deployment that retains it is not a risk to weigh but a rule already broken. The other seven
+are reviewable risks — they need a DPIA and a decision, which is what a DPIA is for.
+"""
+
+
 def _handling(sensitivity: Any) -> Any:
 	"""The §13.1 handling row for a sensitivity class. Imported at call time because
 	`afya.sensors.service` reaches back into the registry, and a module-level import would put the
@@ -209,6 +245,7 @@ class PrivacyService(LogMixin):
 		"""
 		self._consents: dict[str, ConsentRecord] = {}
 		self._audit: list[tuple[bool, AccessRequest]] = []
+		self._dpia_reviews: list[DPIARecord] = []
 		self._store = store
 		self._identity = identity
 		assert self._consents == {} and self._audit == []
@@ -418,19 +455,66 @@ class PrivacyService(LogMixin):
 		return list(self._audit)
 
 	def assess_dpia(self, inp: DPIAInput) -> DPIAReport:
-		risks: list[str] = []
-		if inp.raw_sensor_data_retained:
-			risks.append('raw sensor data retention violates data minimisation (spec 17.2)')
-		if inp.automated_decisions:
-			risks.append('automated health risk decisions require human override')
-		if inp.cross_border_transfer:
-			risks.append('cross-border transfer requires ODPC approval + SCCs')
-		if inp.children_data:
-			risks.append('children data requires guardian consent path')
-		if inp.proximity_logging:
-			risks.append('proximity logging requires opt-in transparency per DESIRE lesson')
-		blocked = 'raw sensor data retention violates data minimisation (spec 17.2)' in risks
+		"""The eight §17.3 topics against the processing described, walked rather than spelled out.
+
+		Spelled out, this was five `if` statements and the section names eight topics: location
+		tracking, contact tracing and sharing with health authorities had no field to be described
+		by, so the assessment could not report them and its silence read as clearance.
+		"""
+		risks = [finding for _topic, field, finding in DPIA_TOPICS if getattr(inp, field)]
+		blocked = any(r in BLOCKING_TOPICS for r in risks)
 		return DPIAReport(risks=risks, requires_dpia=bool(risks), blocked=blocked)
+
+	@staticmethod
+	def dpia_fingerprint(inp: DPIAInput) -> str:
+		"""Which of §17.3's topics this processing raises, as one stable string.
+
+		The gate asks "has this been reviewed", and the answer has to be about *this* processing
+		rather than about some DPIA that happened once. The fingerprint is the set of topics the
+		processing raises, sorted and joined, so a review recorded for a proximity-logging rollout
+		does not answer for one that has since added cross-border transfer.
+		"""
+		raised = sorted(field for _topic, field, _finding in DPIA_TOPICS if getattr(inp, field))
+		return ','.join(raised)
+
+	def review_dpia(self, inp: DPIAInput, reviewed_at_iso: str, reviewed_by: str) -> DPIARecord:
+		"""Record that the DPIA for this processing was conducted. Refuses a blocked assessment.
+
+		The point of recording rather than asserting is that a review is a thing that happened at a
+		time by someone; a boolean the caller supplies about itself is not. A blocked assessment is
+		not reviewable into existence either — §17.2's data-minimisation violation has to be fixed
+		in the processing, which is what `blocked` means.
+		"""
+		assert reviewed_at_iso, 'a review must carry when it happened'
+		assert reviewed_by, 'a review must carry who conducted it'
+		report = self.assess_dpia(inp)
+		assert not report.blocked, \
+			'a DPIA that finds a data-minimisation violation cannot be recorded as reviewed'
+		record = DPIARecord(
+			reviewed_at_iso=reviewed_at_iso, reviewed_by=reviewed_by,
+			processing_id=inp.processing_id, fingerprint=self.dpia_fingerprint(inp),
+			topics=[topic for topic, _f, _r in DPIA_TOPICS if getattr(inp, _f)],
+			risks=report.risks, blocked=report.blocked,
+		)
+		self._dpia_reviews.append(record)
+		return record
+
+	def dpia_review_for(self, inp: DPIAInput | None) -> DPIARecord | None:
+		"""The most recent review that still answers for this processing, or None.
+
+		None is the honest answer for the two ways a review fails to cover: none was ever recorded,
+		or the processing has changed since the last one — §17.3 says "reviewed and updated before
+		each Tier 4 activation", and an update that added a topic is exactly the case the word
+		"updated" is there for.
+		"""
+		if inp is None:
+			return None
+		wanted = self.dpia_fingerprint(inp)
+		covering = [r for r in self._dpia_reviews if r.fingerprint == wanted]
+		return max(covering, key=lambda r: r.reviewed_at_iso) if covering else None
+
+	def dpia_reviews(self) -> list[DPIARecord]:
+		return list(self._dpia_reviews)
 
 	def anonymize(self, data: dict[str, Any]) -> dict[str, Any]:
 		assert isinstance(data, dict), 'data must be dict'

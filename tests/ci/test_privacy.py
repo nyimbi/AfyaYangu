@@ -474,3 +474,124 @@ async def test_the_regulatory_report_is_auditor_scoped_and_the_ids_stay_in_it() 
 	assert out['instrument_count'] == 6 and len(out['principles']) == 7
 	assert any('Kenya Data Protection Act 2019' == i['instrument'] for i in out['instruments'])
 	assert 'unbacked' in out, 'the finding is what the auditor is reading this for'
+
+
+# --- §17.3 the DPIA: the eight topics, and the review the gate is held by ------------------------
+
+def _dpia_bullets() -> list[str]:
+	"""§17.3's eight bullets, read out of the spec so a revision fails here rather than passing."""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split('### 17.3 Data Protection Impact Assessment (DPIA)', 1)[1].split('\n### ', 1)[0]
+	return [line.strip('- ').strip() for line in section.splitlines() if line.startswith('- ')]
+
+
+def test_the_eight_topics_are_the_sections_bullets() -> None:
+	"""§17.3 lists eight topics, and this carried five fields — so location tracking, contact tracing
+	and sharing with health authorities could not be described to the assessment at all. A topic with
+	no field is one the DPIA cannot find, and its silence then reads as clearance."""
+	from afya.privacy.service import DPIA_TOPICS
+	spec = _dpia_bullets()
+	assert len(spec) == 8, f'the section names {len(spec)} topics'
+	assert [topic for topic, _f, _r in DPIA_TOPICS] == spec
+	# Every topic names a field that actually exists on the input, so the walk cannot raise.
+	from afya.privacy.views import DPIAInput
+	for _topic, field, _finding in DPIA_TOPICS:
+		assert field in DPIAInput.model_fields, f'{field} is not a DPIAInput field'
+
+
+def test_every_topic_raises_its_own_finding() -> None:
+	"""Each topic, set alone, produces exactly one risk — the one the table pairs it with. A topic
+	whose field is read but whose finding never fires is a topic the assessment reports as clear."""
+	from afya.privacy.service import DPIA_TOPICS, PrivacyService
+	svc = PrivacyService()
+	for topic, field, finding in DPIA_TOPICS:
+		# Built through the model's own constructor rather than a dict, so a field the table names
+		# and the model does not have fails here rather than being silently dropped by pydantic.
+		report = svc.assess_dpia(DPIAInput.model_validate({field: True}))
+		assert report.risks == [finding], f'{topic} raised {report.risks}'
+		assert report.requires_dpia is True
+
+
+def test_an_empty_processing_needs_no_dpia() -> None:
+	"""The other direction: a topic the processing does not raise is not reported. Without this the
+	first test would pass against an assessment that appended all eight findings unconditionally."""
+	from afya.privacy.service import PrivacyService
+	from afya.privacy.views import DPIAInput
+	report = PrivacyService().assess_dpia(DPIAInput())
+	assert report.risks == [] and report.requires_dpia is False and report.blocked is False
+
+
+def test_the_review_key_is_held_by_a_record_and_not_by_a_boolean() -> None:
+	"""§17.3's last line is about a review that *happened*, so the gate cannot be satisfied by a
+	caller's sentence about itself. This is the defect the unit exists for: a request carrying
+	`dpia_reviewed: true` and no DPIA at all turned the outbreak capabilities on."""
+	from afya.privacy.service import PrivacyService
+	from afya.privacy.views import DPIAInput
+	from afya.registry.service import FeatureRegistry, Tier4Activation
+	# The field is gone, so no request can carry it.
+	assert 'dpia_reviewed' not in Tier4Activation.model_fields
+	assert 'dpia_reviewed' not in DPIAInput.model_fields
+	svc = PrivacyService()
+	processing = DPIAInput(proximity_logging=True)
+	assert svc.dpia_review_for(processing) is None, 'nothing is reviewed before anything is recorded'
+	record = svc.review_dpia(processing, '2026-10-12T09:00:00Z', 'DPO')
+	assert record.review_id and svc.dpia_review_for(processing) is not None
+	# And the gate reads the record, not a flag: the activation names the review it was held by.
+	activation = Tier4Activation(authorized_by_pheoc=True, flag_enabled=True, dpia_review_id=record.review_id)
+	assert activation.dpia_reviewed is True and FeatureRegistry(activation).tier4_active()
+	unheld = Tier4Activation(authorized_by_pheoc=True, flag_enabled=True)
+	assert unheld.dpia_reviewed is False and unheld.unmet_keys() == ['dpia_review']
+
+
+def test_a_review_does_not_cover_processing_it_never_assessed() -> None:
+	"""§17.3 says "reviewed and updated before each Tier 4 activation" and "updated" is the load-
+	bearing word: an activation that has added a topic is not covered by the review that predates it,
+	so the fingerprint is what the lookup compares rather than a bare "a DPIA was done once"."""
+	from afya.privacy.service import PrivacyService
+	from afya.privacy.views import DPIAInput
+	svc = PrivacyService()
+	narrow = DPIAInput(proximity_logging=True)
+	svc.review_dpia(narrow, '2026-10-12T09:00:00Z', 'DPO')
+	widened = DPIAInput(proximity_logging=True, cross_border_transfer=True)
+	assert svc.dpia_review_for(widened) is None, 'the added topic is not covered'
+	assert svc.dpia_review_for(DPIAInput(cross_border_transfer=True)) is None
+	assert svc.dpia_review_for(narrow) is not None, 'and the reviewed processing still is'
+	# A review with no reviewer or no timestamp is refused — it is the boolean wearing two fields.
+	import pytest as _pytest
+	for kwargs in ({'reviewed_at_iso': '', 'reviewed_by': 'DPO'}, {'reviewed_at_iso': 'x', 'reviewed_by': ''}):
+		with _pytest.raises(AssertionError):
+			PrivacyService().review_dpia(narrow, **kwargs)  # type: ignore[arg-type]
+
+
+def test_a_blocking_finding_cannot_be_recorded_as_reviewed() -> None:
+	"""§17.2's data-minimisation rule is not a risk to weigh — §13.1 says raw sensor data never
+	leaves the handset, so retaining it is a rule already broken. Recording the review would let the
+	violation be cited at the gate as reviewed, which is the whole failure mode."""
+	from afya.privacy.service import PrivacyService
+	from afya.privacy.views import DPIAInput
+	svc = PrivacyService()
+	blocking = DPIAInput(raw_sensor_data_retained=True, proximity_logging=True)
+	assert svc.assess_dpia(blocking).blocked is True
+	with pytest.raises(AssertionError, match='data-minimisation'):
+		svc.review_dpia(blocking, '2026-10-12T09:00:00Z', 'DPO')
+	assert svc.dpia_reviews() == [], 'a refused review records nothing'
+
+
+def test_the_canary_watches_a_topic_with_no_finding_fire() -> None:
+	"""The gate is the topic table, and the silent change to it is a field dropped from the walk —
+	the topic stays in the list, the assessment stops reading it, and every other test still passes
+	because the seven remaining topics still report. This canaries that exact edit."""
+	from afya.privacy import service as privacy_service
+	from afya.privacy.service import PrivacyService
+	from afya.privacy.views import DPIAInput
+	original = privacy_service.DPIA_TOPICS
+	assert original[3][0] == 'Contact tracing assistance', 'canary target moved'
+	patched = tuple(row for i, row in enumerate(original) if i != 3)
+	try:
+		privacy_service.DPIA_TOPICS = patched  # type: ignore[misc]
+		report = PrivacyService().assess_dpia(DPIAInput(contact_tracing=True))
+		assert report.risks == [], 'the canary did not fire: a dropped topic still reported'
+	finally:
+		privacy_service.DPIA_TOPICS = original
+	assert PrivacyService().assess_dpia(DPIAInput(contact_tracing=True)).risks, 'restore failed'

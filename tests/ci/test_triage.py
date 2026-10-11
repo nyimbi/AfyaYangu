@@ -37,7 +37,7 @@ async def test_tri003_gated_when_dormant(svc: TriageService) -> None:
 
 
 async def test_tri003_active_after_gate() -> None:
-	registry = FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_reviewed=True, flag_enabled=True))
+	registry = FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_review_id='r1', flag_enabled=True))
 	assert registry.tier4_active()
 	out = TriageService(registry).assess_evd(TriageInput(symptoms=['fever'], temperature_c=39.0, ebola_contact=True))
 	assert out.risk_level is RiskLevel.high

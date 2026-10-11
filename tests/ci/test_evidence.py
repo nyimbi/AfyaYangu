@@ -13,7 +13,7 @@ def fake_jpeg() -> bytes:
 
 @pytest.fixture
 def svc(tmp_path) -> EvidenceService:
-	reg = FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_reviewed=True, flag_enabled=True))
+	reg = FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_review_id='r1', flag_enabled=True))
 	return EvidenceService(reg, FileSystemEvidenceStore(str(tmp_path / 'evidence')))
 
 

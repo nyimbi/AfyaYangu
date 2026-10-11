@@ -20,10 +20,10 @@ def test_tier4_dormant_by_default() -> None:
 
 
 def test_activation_requires_all_three_gates() -> None:
-	assert not FeatureRegistry(Tier4Activation(authorized_by_pheoc=False, dpia_reviewed=True, flag_enabled=True)).tier4_active()
-	assert not FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_reviewed=False, flag_enabled=True)).tier4_active()
-	assert not FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_reviewed=True, flag_enabled=False)).tier4_active()
-	assert FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_reviewed=True, flag_enabled=True)).tier4_active()
+	assert not FeatureRegistry(Tier4Activation(authorized_by_pheoc=False, dpia_review_id='r1', flag_enabled=True)).tier4_active()
+	assert not FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_review_id=None, flag_enabled=True)).tier4_active()
+	assert not FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_review_id='r1', flag_enabled=False)).tier4_active()
+	assert FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_review_id='r1', flag_enabled=True)).tier4_active()
 
 
 def test_get_raises_unknown() -> None:

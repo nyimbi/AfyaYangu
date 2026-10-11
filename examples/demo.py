@@ -36,8 +36,8 @@ async def main() -> None:
 	await sync.enqueue(SyncOp(op_id='OP-DEMOAAA123', dataset='symptom_logs', client_ts=100, payload={'fever': '1'}))
 	print('sync flush:', (await sync.flush(0)).model_dump(mode='json'))
 
-	print('tier4 dormant:', await surv.activate_tier4(False, True, True))
-	print('tier4 active:', await surv.activate_tier4(True, True, True, bulletin='PHEOC activation'))
+	print('tier4 dormant:', await surv.activate_tier4(False, True))  # no review recorded, so the key stays shut
+	print('tier4 active:', await surv.activate_tier4(True, True, bulletin='PHEOC activation'))
 	print('TRI-003 now available:', tr.assess_evd(TriageInput(symptoms=['fever'], temperature_c=39.3, ebola_contact=True)).risk_level.value)
 
 

@@ -24,7 +24,7 @@ sys.argv.append('')
 
 
 async def seed(svc: dict[str, object]) -> None:
-	svc['registry'].__init__(Tier4Activation(authorized_by_pheoc=False, dpia_reviewed=True, flag_enabled=False))  # noqa: PLC2801
+	svc['registry'].__init__(Tier4Activation(authorized_by_pheoc=False, dpia_review_id='demo-review', flag_enabled=False))  # noqa: PLC2801
 	fac = svc['facilities']
 	for f in (
 		Facility(facility_id='F-KNH', name='Kenyatta National Hospital (ED)', kind=FacilityKind.ed, county='Nairobi', lat=-1.3001, lon=36.8066, ed_status='operational — 41 beds', hours24=True),

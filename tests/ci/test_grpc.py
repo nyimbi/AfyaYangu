@@ -60,7 +60,7 @@ async def test_list_features_filters_by_tier(stub: pb_grpc.AfyaInternalStub) -> 
 
 async def test_list_features_tier4_withheld_until_activated(server) -> None:
 	srv, port = server
-	registry = FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_reviewed=True, flag_enabled=True))
+	registry = FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_review_id='r1', flag_enabled=True))
 	active = grpc.aio.server()
 	pb_grpc.add_AfyaInternalServicer_to_server(AfyaInternalService({'registry': registry, 'triage': TriageService(registry)}), active)
 	active_port = active.add_insecure_port('[::]:0')
