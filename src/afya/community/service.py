@@ -11,6 +11,7 @@ from afya.community.views import (
 	ContactTracingSummary, IssueReceipt, IssueStatus, MisinfoCluster, MisinfoSubmission, PeerAlert,
 	PeerAlertReceipt,
 )
+from afya.identity.service import IdentityService
 from afya.info.principles import Subject, judge
 from afya.logmixin import LogMixin
 from afya.strings import answerable
@@ -73,7 +74,14 @@ TRACING_PROMPTS: tuple[str, ...] = (
 
 
 class CommunityService(LogMixin):
-	def __init__(self) -> None:
+	def __init__(self, identity: IdentityService | None = None) -> None:
+		"""`identity` is §5.4's single identity model, injected rather than constructed here because the
+		index it holds is shared with the channel layer — two instances would resolve the same phone to
+		two subjects and the deduplication would find nothing. Optional only so a unit test can build
+		the community service alone; `_dedup_key` refuses rather than falling back to the raw number,
+		because a key built on the MSISDN alone silently fails to match a report the same person filed
+		from the app, which is the cross-channel case §5.4 is about.
+		"""
 		self._issues: dict[str, CommunityIssue] = {}
 		self._issue_status: dict[str, IssueStatus] = {}
 		self._cases: dict[str, CaseReport] = {}
@@ -82,7 +90,30 @@ class CommunityService(LogMixin):
 		self._contacts: dict[str, ContactList] = {}
 		self._misinfo: list[MisinfoSubmission] = []
 		self._detected: dict[str, int] = {}
-		assert self._issues == {} and self._cases == {}
+		self._identity = identity
+		# dedup key -> the report already open under it. §5.4 says reports are deduplicated, and the
+		# key is the resolved subject rather than the raw number so a USSD report and an app report
+		# by the same person collide.
+		self._open_by_reporter: dict[str, str] = {}
+		assert self._issues == {} and self._cases == {} and self._open_by_reporter == {}
+
+	def _dedup_key(self, report: CaseReport) -> str | None:
+		"""§5.4's dedup key for a report, or None when the report carries no phone.
+
+		None is not "no duplicate": it means the report cannot be deduplicated, and the two are
+		reported differently. A CHW logging offline has no MSISDN and never will, so treating the
+		absence as a match would merge every offline report into one case.
+
+		The key is the phone number in its one spelling, which is what §5.4 says the dedup is by. It
+		goes through the identity model rather than being used raw, because the model is where the
+		spelling is decided — a report filed from `0712345678` and the same case filed from
+		`+254712345678` must collide, and only the shared normalisation makes them.
+		"""
+		if report.reporter_msisdn is None:
+			return None
+		if self._identity is None:
+			raise RuntimeError('the community service has no identity model wired; §5.4 requires the shared one')
+		return self._identity.dedup_key(report.reporter_msisdn)
 
 	# --- COM-005 community reporting ------------------------------------------------------
 
@@ -115,13 +146,39 @@ class CommunityService(LogMixin):
 	# --- COM-101 CHW case reporting -------------------------------------------------------
 
 	async def submit_case(self, report: CaseReport) -> CaseReportView:
+		"""§5.4's "single case-report backend — deduplicated by phone number", performed.
+
+		The dedup is over *open* cases, keyed on the identity model's resolved subject. A closed case
+		is a completed episode and a second report from the same person after it is a new one, not a
+		duplicate — the same reasoning that makes a re-infection a new case rather than an amendment.
+
+		The duplicate is still stored. Dropping it would lose the channel it arrived on, which is what
+		§5.4's cross-channel journeys are made of (WhatsApp → USSD → CHW is one person reporting twice
+		on purpose), and it would make a person who reported twice unable to see that the second one
+		landed. What the dedup changes is the *alert*: the officer is told once per open case, because
+		an alert per duplicate is how a surveillance queue fills with the same patient.
+		"""
 		assert report.symptoms, 'symptom checklist required'
 		if report.photo_sha256 is not None:
 			assert report.geotagged, 'photo evidence requires geotag consent (§COM-101)'
+		officer = f'{report.county} disease surveillance officer'
+		key = self._dedup_key(report)
+		existing = self._open_by_reporter.get(key) if key is not None else None
+		if existing is not None and self._case_status[existing] is not CaseStatus.closed:
+			self._cases[report.report_id] = report
+			self._case_status[report.report_id] = CaseStatus.reported
+			self._log_info('case report deduplicated onto an open case', report=report.report_id, open_case=existing)
+			return CaseReportView(
+				report_id=report.report_id, status=CaseStatus.reported, surveillance_officer=officer,
+				alerts_sent=0, deduplicated=True,
+				next_step=f'Already reported — this is the same case as {existing}. The officer was alerted once; no second alert was sent.',
+			)
 		self._cases[report.report_id] = report
 		self._case_status[report.report_id] = CaseStatus.reported
-		officer = f'{report.county} disease surveillance officer'
-		self._log_warn('case report submitted', report=report.report_id, disease=report.suspected_disease, county=report.county)
+		if key is not None:
+			self._open_by_reporter[key] = report.report_id
+		self._log_warn('case report submitted', report=report.report_id, disease=report.suspected_disease, county=report.county,
+		               deduplicable=key is not None)
 		# AVADAR lesson: alerting is automatic, never a second manual step.
 		return CaseReportView(
 			report_id=report.report_id, status=CaseStatus.reported, surveillance_officer=officer,

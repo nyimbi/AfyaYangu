@@ -18,6 +18,8 @@ from afya.channels.attention import attention_report
 from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import ChwTask, SmsOut, UssdRequest, WhatsAppIn
 from afya.emergency.service import EmergencyService, Inline719Port
+from afya.identity.service import IdentityService
+from afya.identity.views import IdentityLink, PhoneConsent
 from afya.emergency.views import EmergencyCard, IMUSample, SOSEvent
 from afya.evidence.service import EvidenceService, FileSystemEvidenceStore
 from afya.integrations.gateways import AtSmsRestSend, AtUssdCallback
@@ -49,7 +51,7 @@ from afya.info.recency import instant_iso
 from afya.info.service import InfoService
 from afya.info.views import WORKFLOW, ContentItem, CountyRisk
 from afya.privacy.service import PrivacyService
-from afya.privacy.views import _SCOPE, ConsentRecord, DPIAInput, RBACRole
+from afya.privacy.views import _SCOPE, ConsentCategory, ConsentRecord, DPIAInput, RBACRole
 from afya.privacy import rbac
 from afya.records.service import RecordsService
 from afya.records.views import GrowthRecord, ImmunisationRecord, LabResult, WalletMember
@@ -148,7 +150,12 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	registry = FeatureRegistry()
 	sms_port = AtSmsRestSend(cfg.at_base_url, cfg.at_api_key, cfg.at_username, client) if cfg.at_api_key else AfricaTalkingSmsPort(cfg.at_base_url, cfg.at_api_key or 'dev-key')
 	store = SqliteStore(db_path) if db_path else None
-	privacy_svc = PrivacyService(store)
+	# §5.4's single identity model, built before the two services that must share it — the case-report
+	# backend (dedup by phone) and the consent registry (a grant on one channel visible on another).
+	# Built here rather than inside either one because a second instance resolves the same phone to a
+	# different subject, and both claims then fail silently while reporting themselves as working.
+	identity_svc = IdentityService()
+	privacy_svc = PrivacyService(store, identity_svc)
 	try:
 		from afya.ml.cough import YamnetCoughEngine as YCE
 		cough_engine: object = YCE()
@@ -192,7 +199,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# §5.3 CHAN-1's zero-rating is an agreement with the carrier, so the channel service is
 		# handed the telco client's rules rather than a boolean. A deployment with no telco
 		# configured passes nothing and reports every free claim as unverified.
-		'channels': ChannelService(sms_port, telco_rules, triage_svc),
+		'channels': ChannelService(sms_port, telco_rules, triage_svc, identity_svc, privacy_svc),
 		'emergency': EmergencyService(Inline719Port()),
 		'info': InfoService(),
 		'records': RecordsService(),
@@ -207,7 +214,8 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'evidence': EvidenceService(registry, FileSystemEvidenceStore('var/evidence')),
 		'sync': SyncService(store),
 		'monitoring': MonitoringService(),
-		'community': CommunityService(),
+		'identity': identity_svc,
+		'community': CommunityService(identity_svc),
 		'alerting': AlertingService(),
 		'realtime': RealtimeService(),
 		'location': LocationService(),
@@ -276,6 +284,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	medicine: MedicineService = svc['medicine']  # type: ignore[assignment]
 	monitoring: MonitoringService = svc['monitoring']  # type: ignore[assignment]
 	community: CommunityService = svc['community']  # type: ignore[assignment]
+	identity: IdentityService = svc['identity']  # type: ignore[assignment]
 	alerting: AlertingService = svc['alerting']  # type: ignore[assignment]
 	realtime: RealtimeService = svc['realtime']  # type: ignore[assignment]
 	location: LocationService = svc['location']  # type: ignore[assignment]
@@ -2470,6 +2479,81 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'entries': [{'role': r, 'dataset': d, 'allowed': a, 'at_ms': t} for r, d, a, t in rows],
 		}
 
+	# --- §5.4 identity model ---
+	@app.get('/identity/model')
+	async def identity_model(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§5.4's single identity model, and the deduplication finding it carries.
+
+		Auditor-scoped like the other evidence views, and for the same reason §17.2 gives: the model
+		holds an MSISDN-to-subject index, which is personal data, so "how many phones have resolved"
+		is not a number a caller may read. The report carries the *shape* — the bases a link may have,
+		whether the case-report dedup is performed, and the gap where it is not — and no phone and no
+		subject.
+
+		`can_deduplicate` is False and travels with its reason. The section promises the dedup; the
+		identifier alone cannot perform it, because a person is not their phone (§4.1 has shared
+		handsets, CHWs reporting for others, borrowed phones), so the finding is stated rather than
+		papered over with a rule this code would have invented.
+		"""
+		return identity.report()
+
+	@app.post('/identity/link')
+	async def identity_link(link: IdentityLink, _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		"""§5.4's "optional linkage to an app profile", as an act the person performs.
+
+		`require_self` with no named subject: the link's `subject_ref` is forced to the caller's own
+		token subject rather than taken from the body, so a caller cannot join someone else's profile
+		to a phone. The body's `subject_ref` is therefore read only to reject a mismatch, which is a
+		422 with a reason rather than a silent overwrite.
+
+		The `consent_id` must be a live grant (§17.1), which `IdentityService.link` asserts — a link
+		with no consent on record is the automatic merge §3.3 principle 6 forbids.
+		"""
+		caller = _subject
+		if link.subject_ref != caller:
+			raise HTTPException(status_code=422, detail='a link joins your own profile to a phone')
+		if not privacy.has_consent(caller, 'identity_linkage') and not privacy.has_category_consent(caller, ConsentCategory.symptom_storage):
+			raise HTTPException(status_code=422, detail='linkage needs a recorded consent (§17.1)')
+		try:
+			out = await identity.link(link)
+		except (AssertionError, ValueError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		# The grants the phone made while it was anonymous move onto the profile. This is the one
+		# place both services are in hand, so it is where the migration happens — a ledger that read
+		# through to the old handle would leave two records for one grant and a withdrawal would then
+		# stop being one tap. `moved` is reported so a client can tell the person what came across.
+		moved = sum(privacy.reassign_subject(handle, out.subject_ref)
+		            for handle in identity.absorbed_subjects(out.msisdn))
+		return {'link_id': out.link_id, 'basis': out.basis.value, 'linked': True, 'consents_moved': moved}
+
+	@app.get('/identity/links')
+	async def identity_links(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""The links on record, without the phones. A link is what makes one person's channel
+		activity join their app profile, so who holds one is an audit fact; the number itself is
+		§17.2 personal data and stays out of the payload."""
+		return {'count': len(identity.links()),
+		        'links': [{'link_id': l.link_id, 'basis': l.basis.value} for l in identity.links()]}
+
+	@app.post('/privacy/consent/by-phone')
+	async def privacy_consent_by_phone(grant: PhoneConsent,
+	                                   _body: bytes = Depends(require_webhook())) -> dict[str, object]:
+		"""A consent granted on a channel, written to the one registry the app reads.
+
+		Webhook-guarded because the caller is a carrier-side integration holding a phone and no app
+		token — the same shape as the inbound SMS and USSD callbacks. The subject is resolved through
+		§5.4's identity model, so the grant is the same record the app's toggle reads: that is what
+		makes "consent granted on one channel applies across channels" true rather than a slogan.
+		"""
+		try:
+			category = ConsentCategory(grant.category)
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=f'unknown consent category {grant.category!r}') from exc
+		try:
+			rec = await privacy.record_consent_for_phone(grant.msisdn, category)
+		except (AssertionError, RuntimeError, ValueError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'consent_id': rec.consent_id, 'category': rec.purpose}
+
 	# --- CHW trust layer (§5 CHAN-005, §11.4 COM-101) ---
 	@app.post('/chw/provision')
 	async def chw_provision(profile: ChwProfile, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, bool]:
@@ -2893,10 +2977,24 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		body = str(payload.get('text', '')).strip()
 		if not body:
 			raise HTTPException(status_code=422, detail='an inbound SMS needs text')
-		raw = str(payload.get('from', '')).strip()
-		msisdn = raw if raw.startswith('+') else ('+' + raw.lstrip('0') if raw.startswith('0') else '+' + raw)
+		# §5.4's one spelling of a phone number, from §5.4's one identity model. This route used to
+		# strip a leading zero and the USSD callback prepend a `+`, so the same handset arrived as
+		# `+254712345678` on one channel and `+0712345678` on the other — two identities for one
+		# person, and a case-report dedup that could never match across the two.
+		# Resolved through §5.4's identity model, which is also where the carrier's spelling is turned
+		# into E.164 — the route does not normalise a second time. An earlier cut did, and the call was
+		# dead: `subject_of` reaches `resolve`, which normalises, so the route's own call could not
+		# change any answer. Two call sites for one rule is how a rule acquires two behaviours, so the
+		# model's stands alone, and the canonical spelling is read back from the model rather than
+		# recomputed here.
+		try:
+			subject = channels.subject_of(str(payload.get('from', '')).strip())
+		except (AssertionError, ValueError) as exc:
+			raise HTTPException(status_code=422, detail=f'an inbound SMS needs a Kenyan sender number: {exc}') from exc
+		msisdn = identity.msisdn_for(subject)
+		assert msisdn is not None, 'a resolved subject has a phone'
 		out = channels.route_whatsapp(WhatsAppIn(from_msisdn=msisdn, body=body), lang)
-		return {'reply': out.reply, 'source': 'sms'}
+		return {'reply': out.reply, 'source': 'sms', 'linked': identity.is_linked(subject)}
 
 	# --- §15.3 residency, §17.7 agreements, §15.4 capacity -----------------------------------
 	# Three spec sections that were prose and nothing else. Residency is a decision made before a

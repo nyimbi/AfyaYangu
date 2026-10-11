@@ -88,6 +88,13 @@ class CaseReport(BaseModel):
 	voice_note_lang: str | None = None
 	suspected_disease: str = Field(default='evd', pattern=DISEASE_PATTERN)
 	reported_offline: bool = False
+	# §5.4's "deduplicated by phone number" needs the number the report came from, and the model had
+	# no field for it — so a case filed over USSD and the same case filed in the app were two cases
+	# and the count PHEOC reads was inflated by exactly the duplicates the section promises are gone.
+	# Optional because a CHW logging offline carries no MSISDN: the phone is a channel's identity, and
+	# a report that did not come over a channel has none. Absent means "cannot be deduplicated", which
+	# `CommunityService.submit_case` reports rather than treats as "no duplicate".
+	reporter_msisdn: str | None = Field(default=None, pattern=r'^\+[1-9]\d{6,14}$')
 
 
 class CaseReportView(BaseModel):
@@ -97,6 +104,10 @@ class CaseReportView(BaseModel):
 	surveillance_officer: str
 	alerts_sent: int = Field(ge=0)
 	next_step: str
+	# True when §5.4's dedup recognised this report as one already open. The caller is told rather
+	# than silently given the first report's id: a person who reports twice because the first
+	# acknowledgement never arrived must not be left believing a second case was opened.
+	deduplicated: bool = False
 
 
 # --- COM-102 peer alert network ----------------------------------------------------------

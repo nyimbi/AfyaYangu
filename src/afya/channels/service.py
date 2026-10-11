@@ -5,8 +5,11 @@ from afya.channels.cost import ChannelCostVerdict, ZeroRatingRule, cost_report, 
 from afya.channels.views import (
 	ChwTask, PushPayload, RadioBulletin, SmsOut, UssdRequest, UssdResponse, WhatsAppIn, WhatsAppOut,
 )
+from afya.identity.service import IdentityService
 from afya.integrations.gateways import AtUssdCallback
 from afya.logmixin import LogMixin
+from afya.privacy.service import PrivacyService
+from afya.privacy.views import ConsentCategory
 from afya.strings import (
 	SYMPTOM_WORDS, USSD_INFO_ANSWERS, USSD_MENU, USSD_MENU_ANSWERS, USSD_SYMPTOMS, USSD_SYMPTOM_MAP,
 	USSD_TREE, WHATSAPP_FACILITY, WHATSAPP_HOTLINE, WHATSAPP_WELCOME, answerable, ussd_symptom_menu_text,
@@ -56,7 +59,8 @@ class AfricaTalkingSmsPort:
 
 class ChannelService(LogMixin):
 	def __init__(self, sms: SmsGatewayPort, zero_rating: Callable[[], Awaitable[list[ZeroRatingRule] | None]] | None = None,
-	             triage: TriageService | None = None) -> None:
+	             triage: TriageService | None = None, identity: IdentityService | None = None,
+	             privacy: PrivacyService | None = None) -> None:
 		"""`zero_rating` supplies §18.8's billing rules when the carrier is reachable, and None when
 		they have not been pulled. Injected rather than constructed here because the rules live on the
 		telco client and the channel service must not depend on the integration layer; a deployment
@@ -66,10 +70,18 @@ class ChannelService(LogMixin):
 		`triage` is the single clinical engine §5.4 requires every channel to share. It is optional
 		only so a unit test can build the channel layer alone; the service wires the real one, and
 		`_triage_for` refuses rather than answering from a second implementation when it is absent.
+
+		`identity` is §5.4's single identity model and `privacy` the registry built on it. Both are
+		optional for the same reason and for a sharper one: the channel layer's only identity is an
+		MSISDN, and without the index a USSD session cannot see the consent the same person granted in
+		the app — so `subject_of` refuses rather than minting a second subject for a phone the app
+		already knows, which would be a silent duplicate rather than a visible failure.
 		"""
 		self._sms = sms
 		self._zero_rating = zero_rating
 		self._triage = triage
+		self._identity = identity
+		self._privacy = privacy
 		self._ussd_state: dict[str, int] = {}
 		self._chw_tasks: list[ChwTask] = []
 		assert self._ussd_state == {} and self._chw_tasks == []
@@ -167,6 +179,47 @@ class ChannelService(LogMixin):
 			return UssdResponse(session_id=req.session_id, end_text=USSD_MENU_ANSWERS[served][top])
 		return UssdResponse(session_id=req.session_id, menu=USSD_MENU[served])
 
+	# --- §5.4's identity and consent crossings ---------------------------------------------------
+
+	def subject_of(self, msisdn: str) -> str:
+		"""The subject a channel's phone belongs to, through §5.4's single identity model.
+
+		A channel has an MSISDN and nothing else. Resolving it here — rather than letting each channel
+		mint its own handle — is what makes a USSD session, a WhatsApp message and an app profile one
+		person, and it is the step the section's cross-channel journeys ("WhatsApp → USSD → CHW") are
+		made of. Refuses when the index is absent instead of minting a subject locally: a second index
+		is a second person, and the duplicate would be invisible.
+		"""
+		if self._identity is None:
+			raise RuntimeError('the channel service has no identity model wired; §5.4 requires the shared one')
+		return self._identity.resolve(msisdn)
+
+	def may_store_symptoms(self, msisdn: str) -> bool:
+		"""§5.4's "consent granted on one channel applies across channels", asked from a channel.
+
+		False when the registry is absent, which is the safe direction: a deployment that cannot read
+		the consent ledger has no basis to store anything, and a default of True would be the app
+		storing health data on the strength of a wiring mistake.
+
+		Called by `ussd_carrier_callback` before it accepts a symptom report, so the grant a person
+		made in the app is what permits their USSD report to be kept — the crossing §5.4 claims, at
+		the one point where a channel actually has a phone and something worth storing.
+		"""
+		if self._privacy is None:
+			return False
+		return self._privacy.has_category_consent_for_phone(msisdn, ConsentCategory.symptom_storage)
+
+	@staticmethod
+	def _normalise(raw: str) -> str:
+		"""§5.4's identity model's E.164 spelling, imported at call time.
+
+		Deferred because `afya.identity` and this module would otherwise import each other — the
+		identity service has no dependency on the channels, and this is the only direction that needs
+		the function. A local `'+' + raw` was the second implementation of a rule that must have one.
+		"""
+		from afya.identity.service import IdentityService
+		return IdentityService.normalise(raw)
+
 	def _triage_for(self, inp: TriageInput, lang: str) -> TriageResult:
 		"""§5.4's single triage engine, or a refusal that says so.
 
@@ -180,11 +233,27 @@ class ChannelService(LogMixin):
 		return self._triage.assess(inp, lang)
 
 	def ussd_carrier_callback(self, cb: AtUssdCallback, lang: str = 'en') -> dict[str, str]:
-		"""Africa's Talking callback -> {text: ..., action: CONTINUE|END} response envelope."""
-		resp = self.ussd(UssdRequest(session_id=cb.session_id, msisdn='+' + cb.phone_number.lstrip('+'), text=cb.text), lang)
+		"""Africa's Talking callback -> {text: ..., action: CONTINUE|END} response envelope.
+
+		The subject is resolved from the carrier's own `phone_number` rather than minted per session,
+		because §5.4's identity is the phone: a person who reports over USSD and then opens the app is
+		one subject, and a session-scoped handle would make them a new person every time the menu was
+		opened. `store_symptoms` is §5.4's cross-channel consent — the grant made in the app is what
+		permits this session's report to be kept, and a session that has no such grant still gets its
+		answer, because refusing to triage someone is not a privacy protection.
+		"""
+		# Normalised through §5.4's one identity model rather than by prepending a `+`: the carrier
+		# sends the number bare and the telco inbound route strips a leading zero, so the two entry
+		# points used to spell the same handset two ways. Two spellings are two phones, and the dedup
+		# and the consent crossing both then find nothing.
+		msisdn = self._normalise(cb.phone_number)
+		resp = self.ussd(UssdRequest(session_id=cb.session_id, msisdn=msisdn, text=cb.text), lang)
+		store_symptoms = self.may_store_symptoms(msisdn)
+		if not store_symptoms:
+			self._log_info('ussd session has no symptom-storage grant', session=cb.session_id)
 		if resp.menu:
-			return {'text': resp.menu, 'action': 'CON'}
-		return {'text': resp.end_text or '', 'action': 'END'}
+			return {'text': resp.menu, 'action': 'CON', 'store_symptoms': str(store_symptoms).lower()}
+		return {'text': resp.end_text or '', 'action': 'END', 'store_symptoms': str(store_symptoms).lower()}
 
 	def route_whatsapp(self, msg: WhatsAppIn, lang: str = 'en') -> WhatsAppOut:
 		"""§CHAN-3's keyword router, answering through §5.4's shared triage engine.

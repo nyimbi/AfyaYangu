@@ -1,6 +1,7 @@
 """Privacy service — consent ledger, DPIA gate, RBAC, anonymization, breach notification (spec §17)."""
 from typing import Any
 
+from afya.identity.service import IdentityService
 from afya.logmixin import LogMixin
 from afya.privacy.views import (
 	AccessRequest, BreachEvent, BreachNotification, ConsentCategory, ConsentRecord, ConsentScope,
@@ -54,10 +55,19 @@ def _handling(sensitivity: Any) -> Any:
 
 
 class PrivacyService(LogMixin):
-	def __init__(self, store=None) -> None:
+	def __init__(self, store=None, identity: 'IdentityService | None' = None) -> None:
+		"""`identity` is §5.4's single identity model, and it is what makes the ledger a *registry*
+		rather than a table keyed by a name only the app knows. A channel holds an MSISDN and the
+		ledger holds a `subject_ref`; without the index between them, "consent granted on one channel
+		applies across channels" cannot be checked anywhere. Optional only so a unit test can build
+		the ledger alone, and the phone-keyed reads answer False rather than raising when it is
+		absent — an unknown phone has granted nothing, which is the same answer as a missing index
+		for every question a caller can ask.
+		"""
 		self._consents: dict[str, ConsentRecord] = {}
 		self._audit: list[tuple[bool, AccessRequest]] = []
 		self._store = store
+		self._identity = identity
 		assert self._consents == {} and self._audit == []
 
 	async def record_consent(self, record: ConsentRecord) -> ConsentRecord:
@@ -135,6 +145,73 @@ class PrivacyService(LogMixin):
 			c.subject_ref == subject_ref and c.purpose == category.value and not c.withdrawn
 			for c in self._consents.values()
 		)
+
+	# --- §5.4's single consent registry -----------------------------------------------------------
+
+	def subject_for_msisdn(self, msisdn: str) -> str | None:
+		"""The subject a phone resolves to, through §5.4's identity model.
+
+		The ledger is keyed by `subject_ref` and a channel arrives holding an MSISDN, so without this
+		step the two never meet and "consent granted on one channel applies across channels" is false
+		in the only place it is checkable. Reads rather than mints: a consent lookup must not create an
+		identity for a number that has never messaged, because the record it would then be asked about
+		cannot exist.
+		"""
+		if self._identity is None:
+			return None
+		return self._identity.subject_for(msisdn)
+
+	def has_category_consent_for_phone(self, msisdn: str, category: ConsentCategory) -> bool:
+		"""§5.4's cross-channel consent, asked the way a channel asks it.
+
+		A USSD session holds a phone and nothing else, and the thing it needs to know — may I store
+		this person's symptoms — was decided in the app. Resolving the phone to the subject and reading
+		the one ledger is what makes the answer the same on both channels. False when the phone
+		resolves to no subject: an unknown phone has granted nothing, which is the correct reading of a
+		registry that is opt-in rather than of a lookup that failed.
+		"""
+		subject = self.subject_for_msisdn(msisdn)
+		if subject is None:
+			return False
+		return self.has_category_consent(subject, category)
+
+	def reassign_subject(self, old: str, new: str) -> int:
+		"""Move every grant from one subject to another, and report how many moved.
+
+		Called when a phone is linked to an app profile: the grants were written against the anonymous
+		handle the phone was messaging under, and the app reads the profile's subject, so a person who
+		consented over USSD and then installed the app would find the toggle off — §5.4's "consent
+		granted on one channel applies across channels" failing in the one place it is checkable.
+
+		The records are *moved* rather than read through a second lookup, because two records for one
+		grant is how a withdrawal stops being one tap: the app would withdraw its copy and the channel's
+		would survive. A withdrawn record moves too — the withdrawal is a fact about the person, and
+		leaving it behind would resurrect a grant nobody renewed.
+		"""
+		moved = 0
+		for consent_id, rec in list(self._consents.items()):
+			if rec.subject_ref == old:
+				self._consents[consent_id] = rec.model_copy(update={'subject_ref': new})
+				moved += 1
+		if moved:
+			self._log_info('consent reassigned to a linked profile', count=moved)
+		return moved
+
+	async def record_consent_for_phone(self, msisdn: str, category: ConsentCategory,
+	                                   retention_days: int = 365) -> ConsentRecord:
+		"""A grant made on a channel, written to the one registry the app reads.
+
+		The subject is resolved through the identity model, so a person who grants on USSD and then
+		opens the app sees the toggle already on — and a person who withdraws in the app has withdrawn
+		it for the USSD session too, because there is one record and not one per channel.
+		"""
+		if self._identity is None:
+			raise RuntimeError('the privacy service has no identity model wired; §5.4 requires the shared one')
+		subject = self._identity.resolve(msisdn)
+		return await self.record_consent(ConsentRecord(
+			subject_ref=subject, purpose=category.value, data_types=[category.value],
+			retention_days=retention_days, legal_basis=LegalBasis.consent,
+		))
 
 	def sensor_consented(self, subject_ref: str, sensor: str) -> bool:
 		"""Whether a subject consented to one sensor. §SEC-001's per-sensor rule means a blanket

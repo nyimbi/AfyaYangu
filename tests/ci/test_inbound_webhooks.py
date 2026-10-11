@@ -46,6 +46,10 @@ BODIES: dict[str, dict[str, Any]] = {
 	'/integrations/hotline/follow-up': {'case_ref': 'C-1', 'message': 'Lab result ready.'},
 	'/integrations/hotline/outcome': {'outcome_code': 'transported', 'consented': True},
 	'/integrations/telco/sms/inbound': {'from': '0712345678', 'text': 'I have fever'},
+	# §5.4's cross-channel consent: a grant made on a channel, written to the one registry the app
+	# reads. The caller is a carrier-side integration holding a phone and no app token, so the phone
+	# is a query parameter and the category a query parameter beside it.
+	'/privacy/consent/by-phone': {'msisdn': '+254712345678', 'category': 'symptom_storage'},
 }
 
 

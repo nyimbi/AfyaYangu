@@ -25,7 +25,10 @@ from afya.mobile.actions import (
 	dormant_slugs,
 	tier4_feature_ids,
 )
-from afya.service import create_app
+from afya.auth.service import AuthService
+from afya.privacy.service import PrivacyService
+from afya.privacy.views import ConsentRecord, LegalBasis
+from afya.service import build_services, create_app
 
 # The registry's own id grammar, reused so the gate cannot drift from what ids actually look like.
 FEATURE_CODE = re.compile(r'\b(?:CHAN|INF|TRI|FND|MED|EMG|REC|MON|SENS|LOC|COM|ALT|AI|ACC|SEC)-\d{3}\b')
@@ -226,7 +229,8 @@ async def test_the_channel_surfaces_carry_no_codes() -> None:
 	scanned. A gate scoped to the fields a payload happens to have is the checker that enumerates one
 	of the ways the thing it checks can be written.
 	"""
-	app = create_app()
+	services = build_services()
+	app = create_app(services)
 	transport = httpx.ASGITransport(app=app)
 	bad: list[str] = []
 	async with httpx.AsyncClient(transport=transport, base_url='http://t') as c:
@@ -244,6 +248,40 @@ async def test_the_channel_surfaces_carry_no_codes() -> None:
 				r = await c.post(f'/channels/ussd?lang={lang}',
 				                 json={'session_id': f's-{lang}', 'msisdn': '+254711222333', 'text': text})
 				bad += _scan(f'ussd {lang} {text}', r.text)
+		# §5.4's identity and consent refusals. These are the newest class of message a person reads
+		# — "this phone number already belongs to another person", "a link joins your own profile to a
+		# phone" — and they reach a screen, so the same rule applies to them as to a menu. Driven
+		# through the routes rather than scanned in the source, because a refusal built from a service
+		# exception is not a string literal anywhere.
+		anon = (await c.post('/auth/anonymous', json={})).json()['token']
+		hdr = {'authorization': f'Bearer {anon}'}
+		for body in ({'msisdn': '+254712345678', 'subject_ref': 'not-mine', 'consent_id': 'c1', 'basis': 'self_entered'},
+		             {'msisdn': 'not-a-number', 'subject_ref': 'x', 'consent_id': 'c1', 'basis': 'self_entered'},
+		             {'msisdn': '+254712345678', 'subject_ref': 'x', 'consent_id': '', 'basis': 'self_entered'},
+		             {'msisdn': '+254712345678', 'subject_ref': 'x', 'consent_id': 'c1', 'basis': 'nonsense'}):
+			r = await c.post('/identity/link', json=body, headers=hdr)
+			bad += _scan(f'identity link {body}', r.text)
+		for params in ({'msisdn': 'not-a-number', 'category': 'symptom_storage'},
+		               {'msisdn': '+254712345678', 'category': 'not-a-category'}):
+			r = await c.post('/privacy/consent/by-phone', json=params)
+			bad += _scan(f'consent by phone {params}', r.text)
+		# The refusal a *second* person gets when they try to claim a phone someone else has already
+		# linked to a profile. Reached by actually doing it rather than by constructing the state, so
+		# the message is the one a real caller reads — and this is the path where a service exception,
+		# not a string literal, becomes what a person sees.
+		other = (await c.post('/auth/anonymous', json={})).json()['token']
+		auth_svc: AuthService = services['auth']  # type: ignore[assignment]
+		privacy_svc: PrivacyService = services['privacy']  # type: ignore[assignment]
+		other_subject = auth_svc.resolve_anonymous(other).subject_ref
+		await privacy_svc.record_consent(
+			ConsentRecord(subject_ref=other_subject, purpose='identity_linkage', data_types=['identity_linkage'],
+			              retention_days=365, legal_basis=LegalBasis.consent))
+		await c.post('/identity/link', json={'msisdn': '+254733444555', 'subject_ref': other_subject,
+		                                     'consent_id': 'c1', 'basis': 'self_entered'},
+		             headers={'authorization': f'Bearer {other}'})
+		claim = await c.post('/identity/link', json={'msisdn': '+254733444555', 'subject_ref': 'someone-else',
+		                                             'consent_id': 'c2', 'basis': 'chw_registered'}, headers=hdr)
+		bad += _scan('identity link claimed phone', claim.text)
 	assert bad == [], f'feature codes served on a channel a person reads: {bad}'
 
 
