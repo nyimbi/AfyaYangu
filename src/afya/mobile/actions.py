@@ -17,7 +17,7 @@ codes live in FEATURE_OF, which is deliberately not serialised, so the backend k
 traceability to the spec without the code ever reaching a screen. tests/ci/test_ui_vocabulary.py
 enforces this.
 """
-from typing import Literal, TypeAlias, cast
+from typing import Callable, Literal, TypeAlias, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -440,22 +440,38 @@ def dormant_slugs() -> frozenset[str]:
 	return DORMANT_SLUGS | frozenset(slug for slug, feat in FEATURE_OF.items() if feat in tier4)
 
 
-def available(tier4_active: bool, scopes: frozenset[str] | None = None) -> list[MobileAction]:
+def available(
+	tier4_active: bool, scopes: frozenset[str] | None = None,
+	feature_available: Callable[[str], bool] | None = None,
+) -> list[MobileAction]:
 	"""Actions the client may show right now.
 
 	Two ways a control is withheld, for the same reason — a person must never see a switch that
-	would refuse them. Dormant outbreak capabilities stay hidden until PHEOC activates the event
-	(§11.1). And an operator control is hidden from a caller whose role does not hold the §17.4
-	dataset its route checks: `publish_content` is not a citizen action, and offering a health-
-	information form to a phone that will get a 403 is the dormancy bug wearing a different hat.
+	would refuse them. Dormant outbreak capabilities stay hidden until §11.1 activates them. And an
+	operator control is hidden from a caller whose role does not hold the §17.4 dataset its route
+	checks: `publish_content` is not a citizen action, and offering a health-information form to a
+	phone that will get a 403 is the dormancy bug wearing a different hat.
+
+	`feature_available` is §11.1's model, asked per feature, and it is what makes the individual
+	triggers mean anything here. `tier4_active` is a single boolean — the PHEOC declaration — and
+	with only that, a person who had asked for monitoring (row 5) or been identified as a contact
+	(row 3) still saw no diary: the one control the row exists to give them stayed hidden behind a
+	national declaration, while the route behind it would have served them. Passing the model in
+	keeps this module free of the registry (it is imported by the client-facing surface) and keeps
+	`tier4_active` as the honest default for operator tooling, which has no subject.
+
+	The gate applies only to a dormant slug. `dormant_slugs()` is what marks an action as an
+	outbreak capability, so a feature below Tier 4 is not asked at all — asking it would hide the
+	whole catalogue whenever the event is off, which is the failure this predicate must not have.
 
 	`scopes` is the caller's scope set. `None` means "show everything", which is what the
 	catalogue's own tests and the operator tooling want; a request supplies the real set.
 	"""
 	hidden = dormant_slugs()
+	allowed = feature_available or (lambda _feature_id: tier4_active)
 	rows = [
 		a for a in catalogue()
-		if (tier4_active or a.id not in hidden)
+		if (a.id not in hidden or allowed(FEATURE_OF[a.id]))
 		and (scopes is None or OPERATOR_SCOPES.get(a.id) is None or OPERATOR_SCOPES[a.id] in scopes)
 	]
 	assert rows, 'catalogue must never be empty'

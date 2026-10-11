@@ -53,6 +53,12 @@ WORKER_ROUTES: frozenset[tuple[str, str]] = frozenset({
 	('GET', '/integrations/adam/contacts'),
 	('GET', '/integrations/adam/case-definitions'),
 	('GET', '/retention/transparency'),      # auditor; `audit_logs` scope
+	# §11.1's activation table. `subject_ref` is a *query* parameter here, not a person the caller
+	# acts for: it is the question "what would this feature resolve to for this subject", asked by an
+	# operator reading the table. The route binds no personal data — it returns the five trigger rows,
+	# which features no row reaches, and the recorded firings — so the subject-binding guard would be
+	# the wrong guard and would refuse the operator the view exists for.
+	('GET', '/tier4/activation'),            # operator; `infrastructure` or `audit_logs` scope
 	('POST', '/auth/anonymous'),             # issues the token; the subject is what it returns
 	('POST', '/chw/provision'),              # sysadmin; `infrastructure` scope
 	('POST', '/chw/activity'),               # CHW logs its own activity; `assigned` scope
@@ -63,6 +69,12 @@ WORKER_ROUTES: frozenset[tuple[str, str]] = frozenset({
 	('GET', '/chw/{chw_ref}/activity'),
 	('POST', '/channels/chw/tasks'),
 	('GET', '/channels/chw/tasks/{chw_ref}'),
+	# §11.1's trigger record. `TriggerFiring.subject_ref` is a body field, so the gate reads it as a
+	# named subject — but the route *writes* the activation a person's features resolve from, and a
+	# person must not be able to assert that a county has a confirmed case or that somebody else is a
+	# contact. It is `infrastructure`-scoped for exactly that reason; row 5, the one trigger a person
+	# fires about themselves, has its own route (`/tier4/activation/request`) under `require_self`.
+	('POST', '/tier4/activation/fire'),      # operator; `infrastructure` scope
 })
 
 # The one route that must carry no guard at all: it is what issues a token, so requiring a token
@@ -116,7 +128,11 @@ def _guard_of(app: Any, method: str, path: str) -> str | None:
 				return 'require_self_or_guardian'
 			if 'require_self' in name:
 				return 'require_self'
-			if 'require_scope' in name:
+			# `require_any_scope` is the same guard as `require_scope` over a set of datasets, and it
+			# was not recognised here — so a route using it read as *unguarded* to this gate. That is
+			# the checker that enumerates one of the two ways to write the thing: `/tier4/activation`
+			# is scope-guarded twice over and the gate reported it as carrying no guard at all.
+			if 'require_scope' in name or 'require_any_scope' in name:
 				return 'require_scope'
 	return None
 

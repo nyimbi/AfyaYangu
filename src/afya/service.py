@@ -50,6 +50,8 @@ from afya.privacy.views import _SCOPE, ConsentRecord, DPIAInput, RBACRole
 from afya.records.service import RecordsService
 from afya.records.views import GrowthRecord, ImmunisationRecord, LabResult, WalletMember
 from afya.ml.cough import SR as WAV_SR, YamnetCoughEngine
+from afya.registry.activation import TriggerFiring, TriggerScope
+from afya.registry.gate import ActivationService
 from afya.registry.service import FeatureRegistry, Tier4Activation, Tier
 from afya.surveillance.service import SurveillanceService
 from afya.surveillance.views import CountySignal, Geofence
@@ -159,6 +161,10 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 
 	return {
 		'registry': registry,
+		# §11.1's activation model: the registry's three-key gate answers "is the event on", and this
+		# answers the three scopes the table also has. Built from the registry rather than beside it,
+		# so a declared event and the keys that permit it stay one fact.
+		'activation': ActivationService(registry),
 		'store': store,
 		'cough_engine': cough_engine,
 		# §24.7: the Tier-4 gate reads the DPO's DPIA, so the two services are wired, not independent.
@@ -221,6 +227,10 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	svc = services or build_services(db_path=os.environ.get('AFYA_DB_PATH'))
 	assert {'registry', 'triage', 'surveillance', 'facilities', 'channels', 'sync', 'privacy', 'evidence'} <= svc.keys(), 'core services required'
 	registry: FeatureRegistry = svc['registry']  # type: ignore[assignment]
+	# §11.1's activation model: five triggers over three scopes, where `registry.tier4_active()` is
+	# one boolean. Bound here rather than reached through the dict so every route resolves through the
+	# same object, and so a firing recorded by one route is visible to the next.
+	activation: ActivationService = svc['activation']  # type: ignore[assignment]
 	triage: TriageService = svc['triage']  # type: ignore[assignment]
 	sensors: SensorService = svc['sensors']  # type: ignore[assignment]
 	surveillance: SurveillanceService = svc['surveillance']  # type: ignore[assignment]
@@ -1487,6 +1497,56 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			),
 		}
 
+	@app.get('/tier4/activation')
+	async def tier4_activation_view(county: str | None = None, subject_ref: str | None = None, _subject: str = Depends(require_any_scope(('infrastructure', 'audit_logs')))) -> dict[str, object]:
+		"""§11.1's table, what has fired, and which Tier-4 features no row turns on.
+
+		Read by two roles through their own scopes: `infrastructure`, which fires the triggers and
+		closes the event and therefore has to see what is firing, and `audit_logs`, which reviews the
+		response afterwards. Guarding on either alone locks out one of the two — the shape
+		`require_any_scope` exists for.
+
+		`unassigned_features` is the finding: §11.1 names seven features and the registry has eighteen
+		in Tier 4, and the twelve no row reaches are dormant by §7.3's tier model with no trigger that
+		turns them on. Reported rather than resolved, because deciding which trigger governs SENS-001
+		is a product question and inventing an assignment here would make the gap look closed.
+		"""
+		from afya.registry.activation import DIVERGENCES, TRIGGERS, unassigned
+		state = activation.state(county=county, subject_ref=subject_ref)
+		tier4 = frozenset(s.id for s in registry.by_tier(Tier.tier4))
+		return {
+			'triggers': [
+				{'number': t.number, 'trigger': t.trigger, 'scope': t.scope.value,
+				 'scope_label': t.scope_label, 'features': list(t.features),
+				 'firing': state.scope_met(t)}
+				for t in TRIGGERS
+			],
+			'pheoc_event_active': state.pheoc_event_active,
+			'unassigned_features': list(unassigned(tier4)),
+			'divergences': DIVERGENCES,
+			'firings': [f.model_dump(mode='json') for f in activation.firings()],
+		}
+
+	@app.post('/tier4/activation/fire')
+	async def tier4_activation_fire(firing: TriggerFiring, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Record a §11.1 trigger. Operator-scoped: a county finding or a tracing decision is not
+		something a citizen asserts about themselves, and row 5's self-request is the one exception —
+		it is fired through the person's own route, not here."""
+		try:
+			await activation.fire(firing)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'fired': firing.trigger_number, 'scope': firing.scope.value}
+
+	@app.post('/tier4/deactivate')
+	async def tier4_deactivate(at_iso: str, closed_by: str, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""§11.1's closing clause: "Automatic when PHEOC closes the event. Users are notified. Data
+		retention clocks begin." Closing also clears the three-key gate, because an event that is
+		closed and a gate that is still open is the state the clause exists to prevent."""
+		report = activation.deactivate(at_iso, closed_by)
+		registry.activate(Tier4Activation(authorized_by_pheoc=False, dpia_reviewed=False, flag_enabled=False))
+		return report.model_dump(mode='json')
+
 	# A geofence is a risk zone every device inside it is told about. An anonymous caller could
 	# declare a high-alert outbreak zone over Nairobi and every phone there would read it.
 	@app.post('/surveillance/geofence')
@@ -1527,26 +1587,37 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		]
 
 	@app.get('/mobile/actions')
-	async def mobile_actions(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+	async def mobile_actions(county: str | None = None, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
 		"""What this caller may actually do.
 
-		Two filters, both against showing a control that would refuse. Dormant outbreak capabilities
-		are withheld until PHEOC activates the event (§11.1). And an operator control is withheld
-		from a caller whose role does not hold the dataset its route checks — a health-information
-		form offered to a citizen token is a 403 waiting to happen, which is the same failure.
+		Two filters, both against showing a control that would refuse. An outbreak capability is shown
+		only if §11.1 activates it for this caller — asked of the activation model per feature, not of
+		the PHEOC declaration alone, because rows 3 and 5 activate the contact diary for *one person*
+		and a person who asked for monitoring would otherwise be shown no diary while the route behind
+		it would have served them. And an operator control is withheld from a caller whose role does
+		not hold the dataset its route checks: a health-information form offered to a citizen token is
+		a 403 waiting to happen, which is the same failure.
 
 		No token means a citizen: the app's own screens work unauthenticated, so the citizen set is
 		the default rather than a refusal.
 		"""
 		from afya.mobile.actions import available
 		scopes: frozenset[str] = frozenset()
+		subject_ref: str | None = None
 		if authorization:
 			try:
-				_subject, role = require_token(authorization)
+				subject_ref, role = require_token(authorization)
 				scopes = frozenset(_SCOPE.get(role, set()))
 			except HTTPException:
 				scopes = frozenset()
-		return [act.model_dump(mode='json') for act in available(registry.tier4_active(), scopes)]
+		state = activation.state(county=county, subject_ref=subject_ref)
+		return [
+			act.model_dump(mode='json')
+			for act in available(
+				registry.tier4_active(), scopes,
+				feature_available=lambda fid: activation.feature_available(fid, state),
+			)
+		]
 
 	@app.get('/places/nearest')
 	async def places_nearest(lat: float, lon: float, kinds: list[str] | None = None, limit: int = 5) -> list[dict[str, object]]:
@@ -1686,13 +1757,22 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/monitoring/contact/enrol')
-	async def monitoring_enrol(subject_ref: str, officer: str | None = None, _subject: str = Depends(require_self())) -> dict[str, object]:
+	async def monitoring_enrol(subject_ref: str, officer: str | None = None, county: str | None = None, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§11.1 rows 3 and 5: a contact gets the diary, or a person asks for it.
+
+		This used to be `if not registry.tier4_active()`, one global gate, so the diary was
+		unreachable until PHEOC declared a *national* event — while §11.1 activates MON-009 for an
+		individual on two separate triggers and §11's own constraint says Tier 4 "activates
+		automatically for users in affected areas". The person identified as a contact in a county
+		with no declared event is exactly who the row is for.
+		"""
 		try:
 			registry.get('MON-009')
 		except KeyError as exc:
 			raise HTTPException(status_code=404, detail='unknown feature') from exc
-		if not registry.tier4_active():
-			raise HTTPException(status_code=403, detail='contact monitoring is dormant until PHEOC activates the outbreak event')
+		state = activation.state(county=county, subject_ref=subject_ref)
+		if not activation.feature_available('MON-009', state):
+			raise HTTPException(status_code=403, detail=activation.reason('MON-009', state))
 		return monitoring.enrol(subject_ref, officer).model_dump(mode='json')
 
 	@app.post('/monitoring/contact/day')
@@ -1899,9 +1979,12 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return realtime.stats().model_dump(mode='json')
 
 	@app.post('/alerting/exposure')
-	async def alerting_exposure(subject_ref: str, case_ref: str | None = None, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
-		if not registry.tier4_active():
-			raise HTTPException(status_code=403, detail='exposure notification is dormant until PHEOC activates the event')
+	async def alerting_exposure(subject_ref: str, case_ref: str | None = None, county: str | None = None, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+		"""§11.1 rows 1, 2 and 4: ALT-004 is activated by a declared event, by a case in the county, or
+		by the person entering a risk zone — three rows, so any one of them is enough."""
+		state = activation.state(county=county, subject_ref=subject_ref)
+		if not activation.feature_available('ALT-004', state):
+			raise HTTPException(status_code=403, detail=activation.reason('ALT-004', state))
 		return (await alerting.notify_exposure(subject_ref, case_ref)).model_dump(mode='json')
 
 	@app.post('/alerting/exposure/ack')
@@ -1918,10 +2001,46 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/location/proximity/encounter')
 	async def location_encounter(token: EncounterToken) -> dict[str, bool]:
-		if not registry.tier4_active():
-			raise HTTPException(status_code=403, detail='proximity logging is dormant until PHEOC activates the event')
+		"""§11.1 row 1 activates LOC-002: an encounter is logged while the outbreak response is on.
+
+		Rows 4 and 5 activate it too, and neither can be resolved here. `EncounterToken` is a Private
+		Encounter Token — "identifies an encounter without identifying a person", §11.5 — so there is
+		no subject on the request to match against a contact list or a risk-zone roster, and a
+		`getattr(token, 'subject_ref', None)` would resolve to `None` on every call: a row that can
+		never fire, dressed as one that can. The individual routes below are where those two fire,
+		against the caller's own subject.
+		"""
+		state = activation.state(county=token.county)
+		if not activation.feature_available('LOC-002', state):
+			raise HTTPException(status_code=403, detail=activation.reason('LOC-002', state))
 		await location.log_encounter(token)
 		return {'ok': True}
+
+	@app.post('/tier4/activation/request')
+	async def tier4_activation_request(county: str | None = None, _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		"""§11.1 row 5, "User requests activation" — the one trigger a person fires about themselves.
+
+		It needs its own route because the operator route is `infrastructure`-scoped and a citizen does
+		not hold it; and `names_subject=False` because the subject is the token's own and there is no
+		`subject_ref` in the request to compare against — the guard would otherwise 422 every call for
+		failing to name a subject that naming would only let a caller forge. The route then fires the
+		trigger for the subject the token resolved to, so a person can turn this on for themselves and
+		for nobody else.
+
+		Firing it turns on the two features the row names for that person — the contact diary
+		(MON-009) and proximity logging (LOC-002) — without a national declaration.
+		"""
+		await activation.fire(TriggerFiring(
+			trigger_number=5, scope=TriggerScope.individual, subject_ref=_subject, county=county,
+			evidence='the person asked for outbreak monitoring', fired_by=_subject,
+			fired_at_iso=now_iso(),
+		))
+		from afya.registry.activation import TRIGGER
+		state = activation.state(county=county, subject_ref=_subject)
+		return {
+			'activated': [f for f in TRIGGER[5].features if activation.feature_available(f, state)],
+			'message': 'Outbreak monitoring is on for you. You can turn it off at any time.',
+		}
 
 	@app.post('/location/proximity/declare')
 	async def location_declare(decl: ExposureDeclaration) -> dict[str, bool]:
