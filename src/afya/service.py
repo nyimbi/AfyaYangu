@@ -40,7 +40,7 @@ from afya.mental.instruments import (
 from afya.mental.service import MentalHealthService, MoodEntry, Screening, WHO5
 from afya.mental.support import ReferralRequest
 from afya.women.service import WomenService
-from afya.women.views import CycleLog
+from afya.women.views import ContraceptionRequest, CycleLog
 from afya.alerts.service import AlertsService
 from afya.alerts.views import AirQuality, CommunityAlert, FloodReport, WaterQuality
 from afya.blood.service import BloodRequest, BloodService, Donor
@@ -1896,6 +1896,43 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def women_predict(ref: str, ref_date: str = '2026-10-08', _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> dict[str, object]:
 		try:
 			return women.predict(ref, ref_date).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	# --- §REC-004's other four Features ------------------------------------------------------------
+	@app.get('/women/contraception/methods')
+	async def women_methods() -> dict[str, object]:
+		"""WHO's method table, so a client offers the methods the server records against."""
+		return {'methods': women.contraception_methods()}
+
+	@app.post('/women/contraception')
+	async def women_contraception(req: ContraceptionRequest, _subject: str = Depends(require_self())) -> dict[str, object]:
+		try:
+			return women.set_contraception(req).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/women/contraception/{ref}/due')
+	async def women_contraception_due(ref: str, on_iso: str, _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> dict[str, object]:
+		"""The reminders, as data: a client schedules them locally (§ACC-004 wants no polling)."""
+		return {'due': [p.model_dump(mode='json') for p in women.contraception_due(ref, on_iso)]}
+
+	@app.get('/women/menopause/{ref}')
+	async def women_menopause(ref: str, today_iso: str, _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> dict[str, object]:
+		"""§REC-004's menopause support — the twelve-month rule applied to the person's own logs."""
+		return women.menopause(ref, today_iso).model_dump(mode='json')
+
+	@app.post('/women/referral')
+	async def women_referral(body: dict[str, str], _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		"""§REC-004's referral to services.
+
+		`names_subject=False` because this route never reads a subject from the caller: it refers the
+		token's own holder, so there is nothing to compare the token against and no way to name someone
+		else. The guard still requires a citizen role and still writes the access log.
+		"""
+		reason = body.get('reason', '')
+		try:
+			return women.refer(_subject, reason).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 

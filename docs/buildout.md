@@ -1554,3 +1554,82 @@ attached, the state route hiding the dispatch, and a cancelled alert handed a re
 
 **Counts: 5 rows left `missing` — 5 to `carried` (4 §EMG-001, 1 §EMG-002) — 87 → 82.** 493 rows,
 `carried` 394, `missing` 82, `deferred` 17.
+
+## §REC-004 — a tracker whose every date was wrong, and four features it never had
+
+The audit had this section at two Features carried of six, and the two it counted were wrong in a way
+no gate could see. Three defects in the code the audit had already marked carried:
+
+- **Every predicted date was wrong.** `_add_days` was `int(month) * 30 + int(day)` arithmetic — a
+  30-day month for every month, on both branches, and the "fast" branch (`day <= 28`) never carried
+  the month at all. January 31 plus 28 days came out `2026-03-03` where the calendar says
+  `2026-02-28`. The same 30-day month measured the cycle span, so a real 31-day cycle read as 30 and
+  a 28-day one as 27. A date an app shows a person about their own body has to be the date
+  `datetime` computes, so `_add_days`, `_days_between` and `_months_between` are now calendar
+  arithmetic, and the tests cover a leap year (`2024-02-29`) and a year boundary.
+- **The anchor was the last *logged* entry, not the latest period.** `predict` read `logs[-1]`, so a
+  person who backfilled a missed earlier period — the ordinary way a tracker is used — moved their
+  own anchor backwards and the prediction followed it. A backfilled December log against
+  January–March entries produced a next-period date in January, for a person standing in March.
+  `_ordered` sorts by `start_iso` and every calculation reads the sorted list.
+- **`ref_date` was an argument nobody used.** A prediction is anchored to the last period and is
+  therefore always in that period's future, so a person who has not logged for three months got a
+  confident date in the past — the tracker telling them they were due last month. There is now an
+  overdue branch that says so, in the section's own terms, and names the clinician route.
+
+Then the four Features the audit had at `missing`, built from the archived sources rather than
+invention (`sources/who-reproductive-health/`, checksummed in `sources/INDEX.md`):
+
+- **Fertility awareness.** `fertile_window_days` was declared on the model and set to `None` on
+  every path — the window existed only inside the `advise` string, so no client could read it as a
+  value. It is now a value on both spellings: the pair of cycle days a calendar reader wants, and
+  `fertile_from_iso`/`fertile_to_iso`/`ovulation_iso` as dates, because a person plans by date. The
+  window is derived from two NHS figures — ovulation `LUTEAL_PHASE_DAYS` before the next period, the
+  window opening `SPERM_SURVIVAL_DAYS` before that. **The NHS source gives no egg-viability figure**,
+  so `EGG_VIABILITY_DAYS = 1` and the gap is recorded in `INDEX.md` rather than filled with a
+  12-to-24-hour number nobody published.
+- **Contraception reminders.** `ContraceptionPlan` records the method and carries `next_due_iso`;
+  `contraception_due` returns the ones whose date has arrived. WHO groups contraceptives into three
+  reliability bands and **states no percentage for any method**, so the code repeats WHO's own
+  strings — `highly effective and long-lasting`, `works well when taken correctly`, `less reliable` —
+  and the method table is served so a client renders the groups we record against. A method the
+  source does not list cannot be recorded as one it does.
+- **Menopause support.** `MenopauseStatus` runs the fact sheet's twelve-month rule over the person's
+  own logs: twelve consecutive months with no period is how WHO defines the end of perimenopause.
+  The state is `perimenopausal` until then, and `contraception_still_recommended` is true through the
+  whole transition, because the source's sentence is "Pregnancy is still possible during
+  perimenopause. Contraception is recommended to avoid unintended pregnancy until after 12
+  consecutive months without menstruation." The 45–55 range is what "most women" experience — a
+  population figure, not a test to apply to a person — so the tracker never uses age to reach a
+  state.
+- **Referral to services.** `ReproductiveReferral` names the services and lists by name the
+  counselling lines whose numbers nobody verified. It reads `mental.COUNSELLING_LINES`, the same
+  table §REC-005's referral and §INF-006's directory read, so a number cannot drift between the
+  three screens that show it.
+
+**A model that cannot be filled from the catalogue is a defect, not a licence.**
+`test_mobile_catalogue.py::test_every_action_can_fill_the_body_its_route_requires` failed on
+`set_contraception`, and it was right: `label`, `reliability` and `prevents_sti` are read from WHO's
+table by the service, so they are not inputs and a form cannot fill them. The fix is the one the
+gate's own history records for `Booking` and `FairnessAudit` — **split into a request and a result**
+so the verdict stops being an input. `ContraceptionRequest` carries what a caller may say about their
+own contraception and nothing about how well it works; a caller that sends a reliability band is
+refused by `extra='forbid'`, which is a stronger statement than ignoring it.
+
+Eighteen canaries were run against `tests/ci/canary_rec004.py` — the 30-day month returning, the span
+in 30-day months, the anchor reverting to `logs[-1]`, the window dropped from the value, the window
+dates dropped, the estimate caveat dropped, the overdue branch disabled, the reliability read from
+the caller, a long-acting method given a schedule, an unknown method accepted, the STI note dropped,
+the due filter loosened, the twelve-month rule shortened, contraception not recommended, the symptom
+list altered, unverified numbers dropped, a spec code leaking into the referral, and the IDOR guard
+loosened. All eighteen fire. Three of them had to be re-pointed after the `ContraceptionPlan` →
+`ContraceptionRequest` split moved the code they patched — **a canary whose target the code has moved
+past is a canary that did not run**, and the `assert count == 1` guard is what says so.
+
+**Counts: 4 rows left `missing` — 4 to `carried` — 82 → 78.** 493 rows, `carried` 398, `missing` 78,
+`deferred` 17.
+
+**Not done in this unit, and named so it is not mistaken for done.** §REC-004's clause "Privacy:
+PIN-protected. Excluded from cloud backup by default" is not implemented. It is a privacy requirement
+alongside the six Features, not one of them, and it belongs with §MON-003's `hiv_pin_set` in a unit of
+its own rather than folded into a tracker change.

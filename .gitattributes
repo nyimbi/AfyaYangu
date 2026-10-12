@@ -1,0 +1,14 @@
+# `sources/` is an archive, not source code: the bytes are the evidence.
+#
+# Git's default (`core.autocrlf=input` on this machine) strips CR at commit time, so a publisher's
+# CRLF file lands in the object store as LF and the blob no longer matches the SHA-256 recorded in
+# `sources/INDEX.md`. That is not a cosmetic difference — the checksum is how a reader confirms the
+# text an extraction was taken from is the text that is committed, and it cannot be confirmed against
+# a file git has rewritten. `-text` turns the conversion off for the archive.
+#
+# Two files predate this and are still affected: `who-epilepsy-factsheet.html` and
+# `who-sickle-cell-factsheet.html` are recorded at their worktree hashes (`3a5d06b544369c16`,
+# `abbe6bdab575a5e9`) while their committed blobs are the LF-rewritten `87f834e958c31cbe` and
+# `b1b231f4ac545ea1`. They are left as they are — re-adding them would rewrite a hash a reader may
+# already have checked — and named in `sources/INDEX.md` instead.
+sources/** -text

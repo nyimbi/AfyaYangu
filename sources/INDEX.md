@@ -11,6 +11,7 @@ that uses it, with its retrieval URL, date, and checksum.
 | PHQ-9 and GAD-7 instruments, with the Pfizer instruction manual | `afya.mental.instruments`, `afya.mental.service` — §REC-005's screenings | `phq9-gad7/` |
 | Psychological first aid: guide for field workers (WHO, 2011), English and Kiswahili | `afya.mental.support` — §REC-005's coping strategies and outbreak-specific support | `who-pfa/` |
 | WHO Pocket Book of Hospital Care for Children, 2nd ed. (2013) | `afya.medicine.formulary` — §MED-003's dose ranges, formulations and maximum doses | `who-pocket-book/` |
+| WHO fact sheets, menopause (2024) and family planning/contraception (2025); NHS UK, fertility in the menstrual cycle | `afya.women.content` — §REC-004's contraception, fertility awareness, menopause support and referral | `who-reproductive-health/` |
 
 Every source is stored as the published artefact **and** as layout-preserving text (`pdftotext
 -layout`), with both checksums recorded. The text copy is what a tool reads: an agent given a PDF
@@ -129,6 +130,16 @@ with its own citation to the primary source, and the primary citation is recorde
 | `epilepsy-management.html` | Epilepsy: antiseizure medicines, status epilepticus protocol | `9bda42218c266320` |
 | `who-sickle-cell-factsheet.html` | WHO fact sheet, sickle cell disease | `3a5d06b544369c16` |
 | `who-epilepsy-factsheet.html` | WHO fact sheet, epilepsy (the treatment gap) | `abbe6bdab575a5e9` |
+
+**Two rows above do not match their committed blobs, and the cause is now fixed.** These two WHO
+fact sheets are served with CRLF line endings, and `core.autocrlf=input` stripped the CR at commit
+time, so the object store holds LF-rewritten copies — `87f834e958c31cbe` and `b1b231f4ac545ea1`
+respectively. The checksums above are the **worktree** bytes, which is what the extraction was taken
+from and what a reader re-hashing the file on disk will get. `.gitattributes` now marks `sources/**`
+`-text` so no future source is rewritten, but these two are left as they are rather than re-added:
+re-committing them would change a hash a reader may already have checked against this table, and the
+worktree hash is the one that answers the question the table exists to answer. The six files under
+`who-reproductive-health/` were added after the fix and their blobs match.
 
 Retrieval URLs are the filenames' subjects: `https://www.kidney.org/professionals/kdoqi/gfr_calculator/formula`,
 `https://en.wikipedia.org/wiki/Chronic_kidney_disease`, `https://en.wikipedia.org/wiki/Status_epilepticus`,
@@ -377,3 +388,101 @@ of HTML — check `file` on anything retrieved this way before computing its che
 - **It is a hospital-care manual for children under five.** Adult dosing is out of its scope
   entirely; the calculator is therefore bounded to a paediatric weight range and says so rather
   than extrapolating an adult dose from a child's table.
+
+---
+
+## WHO reproductive health — §REC-004's contraception, fertility awareness and menopause
+
+§REC-004's six Features are period logging, cycle prediction, contraception reminders, fertility
+awareness, menopause support and referral to services. The first two were implemented; the other
+four are statements about reproductive physiology, and a threshold in them has to come from
+somewhere. These two WHO fact sheets are where the numbers come from.
+
+**Publisher:** World Health Organization.
+**Fact sheets:** "Menopause", 16 October 2024; "Family planning/contraception methods", 3 July 2025.
+**Retrieved:** 2026-10-13.
+
+The fertile-window arithmetic needs a source of its own: neither WHO fact sheet states when ovulation
+happens. NHS UK's "Fertility in the menstrual cycle" page does, and it is archived here for that one
+purpose. It is a national health service's patient-facing page, which is the right standing for a
+figure the app shows a person about their own body — but it is a *different publisher* from the two
+WHO fact sheets, and the two must not be conflated: WHO supplies the contraception and menopause
+claims, NHS supplies the ovulation timing.
+
+**Publisher (fertile window):** NHS UK.
+**Retrieved:** 2026-10-13.
+
+| File | What it is | SHA-256 (first 16) |
+|---|---|---|
+| `who-menopause-factsheet.html` | WHO fact sheet, menopause — perimenopause, the 12-month rule, symptoms | `5e7e0121f34f4a2c` |
+| `who-menopause-factsheet.txt` | the same, layout-preserving text | `533511f14fff04ac` |
+| `who-family-planning-factsheet.html` | WHO fact sheet, family planning/contraception methods | `6fd0098338805078` |
+| `who-family-planning-factsheet.txt` | the same, layout-preserving text | `9f5caeccd83b0486` |
+| `nhs-fertility-menstrual-cycle.html` | NHS UK, fertility in the menstrual cycle — ovulation timing | `2cb57edbcca4099c` |
+| `nhs-fertility-menstrual-cycle.txt` | the same, layout-preserving text | `1dd1a35d05d6a0d3` |
+
+Retrieval URLs: `https://www.who.int/news-room/fact-sheets/detail/menopause`,
+`https://www.who.int/news-room/fact-sheets/detail/family-planning-contraception` and
+`https://www.nhs.uk/conditions/periods/fertility-in-the-menstrual-cycle/`.
+
+### What the sources support, and what they do not
+
+- **The 12-month rule, which is the load-bearing figure.** The menopause fact sheet states:
+  "Pregnancy is still possible during perimenopause. Contraception is recommended to avoid
+  unintended pregnancy until after 12 consecutive months without menstruation." That is the one
+  number that ties §REC-004's contraception reminder to its menopause support — a person is
+  *perimenopausal*, and still needs contraception, until twelve consecutive months have passed with
+  no period. The code computes those months from the person's own logged cycles and reports the
+  count; it does not decide on its own that someone has reached menopause.
+- **The age range, as a population fact and not a rule about a person.** "Most women experience
+  menopause between the ages of 45 and 55 years." The fact sheet says *most*, and the code repeats
+  that framing — an age outside the range is not treated as an error, and the tracker never tells
+  someone they are or are not menopausal on the strength of their age.
+- **Perimenopause is defined, and its end is defined relative to the last period.** "Perimenopause
+  refers to the period from when these signs are first observed and ends one year after the final
+  menstrual period." The tracker's own state therefore turns on the last logged period, not on a
+  date a user types.
+- **The symptoms the section's "menopause support" can name, verbatim.** Hot flushes and night
+  sweats, changes in the regularity and flow of the cycle culminating in cessation, vaginal dryness
+  and pain during intercourse, incontinence, difficulty sleeping, and changes in mood, depression
+  and anxiety. The fact sheet also notes loss of bone density as a contributor to osteoporosis and
+  fractures, and that the cardiovascular advantage women have over men "gradually disappears" after
+  menopause.
+- **Contraceptive methods, as WHO groups them, with the effectiveness distinction the fact sheet
+  itself draws.** "Some, like implants, intrauterine devices (IUDs), and sterilization, are highly
+  effective and long-lasting. Others, such as pills, injections, patches, and vaginal rings, are
+  used regularly and work well when taken correctly. Barrier methods like condoms are effective at
+  preventing pregnancy, if used correctly." And the one method that does more: "Only one
+  contraceptive method, condoms, can prevent both pregnancy and the transmission of sexually
+  transmitted infections, including HIV."
+- **Fertility-awareness methods are grouped as *less reliable*, and the code must say so.** The
+  fact sheet lists "fertility awareness-based methods or withdrawal" among the options and states
+  they "are less reliable". This is the sentence the tracker's own fertile-window output has to
+  carry: a calendar estimate is not a contraceptive method of the same standing as an implant, and
+  presenting the window as a green light would be the tracker causing the pregnancy it exists to
+  help avoid.
+- **The fertile window is derived from two NHS figures, and both are stated with their spread.** NHS
+  UK gives the luteal phase as "around 10 to 16 days" before the next period and sperm survival as
+  "up to 7 days after sex". The window is therefore *ovulation minus sperm survival* to *ovulation
+  plus the egg's own viability* — and NHS gives no egg-viability figure, so the code takes the
+  conservative end: the window is reported as the 7 days before the estimated ovulation day, and
+  `EGG_VIABILITY_DAYS` is 1 with the gap recorded rather than a 24-hour figure invented to fill it.
+  The ovulation day is `median cycle length - 14`, and NHS states the caveat the code must repeat:
+  "Women who have a regular, 28-day cycle are likely to be fertile around day 14 of their menstrual
+  cycle, but this won't apply to women whose cycles are shorter or longer."
+- **What the NHS source does *not* give: a probability, or a window the app may call safe.** It
+  says a regular 28-day cycle makes day 14 likely, and that it is "difficult to pinpoint exactly
+  when ovulation happens". Nothing here supports a green day or a red day, so the tracker reports a
+  window and never a verdict.
+- **What the sources do *not* give: any efficacy percentage, any method-specific failure rate, and
+  any clinical threshold for when a symptom needs review.** The fact sheet groups methods into
+  "highly effective", "work well when taken correctly" and "less reliable" and states no number for
+  any of them. The code repeats WHO's own three groups and invents no percentage, and the
+  menopause-support output says a symptom affecting health and well-being "should be discussed with
+  a health-care provider" — the fact sheet's own sentence — rather than naming a threshold it does
+  not state.
+- **What it does *not* give: a definition of infertility the tracker may apply to a person.** The
+  fact sheet defines it as "the inability to conceive after 12 months of regular unprotected sex",
+  which is a definition and not a diagnosis, and it states that "modern contraceptive methods do not
+  cause infertility" — the misconception the tracker's contraception output corrects. The code
+  repeats both and diagnoses neither.
