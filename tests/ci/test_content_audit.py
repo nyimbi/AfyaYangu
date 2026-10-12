@@ -319,11 +319,10 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§SEC-003': 3,
 		'§SEC-004': 1,
 		'§SEC-006': 2,
-		'§TRI-003': 4,
-		# §EMG-003, §FND-001, §FND-002, §FND-003, §FND-004, §FND-005, §TRI-001 and §TRI-002 are
-		# audited and carry nothing missing: every Content, Access clause, filter dimension, test
-		# type and Output resolves to code, so the sections have no row here — absence from this
-		# dict is the strongest verdict the audit has.
+		# §EMG-003, §FND-001, §FND-002, §FND-003, §FND-004, §FND-005, §TRI-001, §TRI-002 and
+		# §TRI-003 are audited and carry nothing missing: every Content, Access clause, filter
+		# dimension, test type and Output resolves to code, so the sections have no row here —
+		# absence from this dict is the strongest verdict the audit has.
 	}, per_feature
 
 
@@ -345,15 +344,23 @@ def test_med_004_can_render_its_own_example() -> None:
 		'the availability must carry the age as a number, not only the timestamp it derives from'
 
 
-def test_tri_003_names_four_exposures_the_input_cannot_distinguish() -> None:
+def test_tri_003_names_four_exposures_and_the_input_carries_them() -> None:
 	"""§11.2 names funeral attendance, healthcare work, contact with a case and bushmeat consumption
-	as separate inputs. `TriageInput` carries one `ebola_contact` boolean, so a funeral and a
-	bushmeat exposure read identically to the classifier."""
-	from afya.triage.views import TriageInput
-	assert 'ebola_contact' in TriageInput.model_fields
-	for named in ('funeral', 'healthcare_work', 'bushmeat'):
-		assert not any(named in f for f in TriageInput.model_fields), \
-			f'{named} is carried now, so §11.2\'s exposure list is no longer a gap'
+	as separate inputs, and this test used to hold the opposite: `TriageInput` carried one
+	`ebola_contact` boolean, so a funeral and a bushmeat exposure read identically to the classifier.
+
+	It holds the closure now. The four are a closed vocabulary on the input, each is its own entry in
+	the county team's notification, and each carries its own note — the gap was never that the words
+	were absent from the tree, it was that the classifier could not tell them apart.
+	"""
+	from afya.triage.views import EBOLA_EXPOSURES, EXPOSURE_NOTE, TriageInput
+	assert 'ebola_contact' in TriageInput.model_fields, 'the boolean stays; the four refine it'
+	assert set(EBOLA_EXPOSURES) == set(EXPOSURE_NOTE), 'every route the section names has its note'
+	assert len(EBOLA_EXPOSURES) == 4
+	for named in ('funeral_attendance', 'healthcare_work', 'case_contact', 'bushmeat_consumption'):
+		assert named in EBOLA_EXPOSURES, named
+	assert 'exposures' in TriageInput.model_fields and 'isolation' in TriageInput.model_fields, \
+		"§11.2's two remaining Additional inputs must have fields"
 
 
 def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world() -> None:

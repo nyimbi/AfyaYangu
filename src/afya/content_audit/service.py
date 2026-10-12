@@ -446,12 +446,12 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	('INF-010', 'Content', 'Support for grieving families', 'carried', 'afya.info.content_seed:seed_rows', 'The `burial-grieving-families` item covers the compounded grief, the quarantine the family may have been in, and the psychosocial follow-up.'),
 	('INF-010', 'Content', 'What happens if the family cannot conduct the burial themselves', 'carried', 'afya.info.content_seed:seed_rows', 'The `burial-family-cannot` item says the burial team performs the burial, the family is told where the grave is, and no family is left without a grave to visit.'),
 	# --- §11.2 TRI-003: Ebola-Specific Triage ------------------------------------------------
-	('TRI-003', 'Additional inputs', 'Specific exposure history (funeral attendance, healthcare work, contact with a case, consumption of bushmeat)', 'missing', None, '`TriageInput` carries one `ebola_contact` boolean; the four named exposures are not distinguished, so a funeral and a bushmeat exposure read the same'),
+	('TRI-003', 'Additional inputs', 'Specific exposure history (funeral attendance, healthcare work, contact with a case, consumption of bushmeat)', 'carried', 'afya.triage.views:EBOLA_EXPOSURES', None),
 	('TRI-003', 'Additional inputs', 'Vaccination status (if a vaccine is available and deployed)', 'deferred', None, 'the section conditions this on a vaccine being deployed, which is a fact about the world rather than about this tree — nothing here can carry it until one is'),
-	('TRI-003', 'Additional inputs', 'Isolation status', 'missing', None, '`TriageResult` says "isolate immediately" as advice and carries no status input'),
+	('TRI-003', 'Additional inputs', 'Isolation status', 'carried', 'afya.triage.views:ISOLATION_STATES', None),
 	('TRI-003', 'Outputs', 'Ebola suspicion classification', 'carried', 'afya.triage.service:TriageService.assess_evd', None),
-	('TRI-003', 'Outputs', 'Immediate action (call 719, do not travel by public transport, await instructions)', 'missing', None, 'the high-risk recommendation names 719 and isolation but not the transport instruction'),
-	('TRI-003', 'Outputs', 'Isolation guidance for the household', 'missing', None, '`JOB_AIDS["isolation_basics"]` is CHW-facing reference material, not an output of triage'),
+	('TRI-003', 'Outputs', 'Immediate action (call 719, do not travel by public transport, await instructions)', 'carried', 'afya.triage.service:_immediate_actions', None),
+	('TRI-003', 'Outputs', 'Isolation guidance for the household', 'carried', 'afya.triage.service:_household_isolation', None),
 	('TRI-003', 'Outputs', 'Contact list building (see COM-103)', 'carried', 'afya.community.service:CommunityService.add_contact', None),
 	# --- §11.3 MON-009: 21-Day Contact Monitoring Diary --------------------------------------
 	('MON-009', 'Features', 'Daily temperature logging (manual or via Bluetooth thermometer)', 'carried', 'afya.monitoring.views:MonitoringDay', '`temperature_c` is required on every entry and `source` is a `MeasurementSource`, so a typed reading and a paired `ble_device` one are told apart (§14.9)'),

@@ -318,6 +318,8 @@ def catalogue() -> list[MobileAction]:
 		_f('ebola_contact', 'Contact with someone sick with Ebola?', 'bool'),
 		_f('affected_area_travel', 'Been to an area with an outbreak?', 'bool'),
 		_f('exposure_site', 'Attended a funeral or other known exposure site?', 'bool'),
+		_f('exposures', 'Exposures', 'list', ph='funeral_attendance, bushmeat_consumption'),
+		_f('isolation', 'Isolating?', 'select', ['not_isolated', 'isolated_at_home', 'isolated_at_facility']),
 		_f('red_flags', 'Red flags', 'list', ph='convulsions, confusion, bleeding gums'),
 		_f('age_band', 'Age', 'select', ['under_5', '5_17', '18_49', '50_64', '65_plus']),
 		_f('pregnant', 'Pregnant?', 'bool')]

@@ -145,3 +145,36 @@ class ExposureAck(BaseModel):
 	subject_ref: str
 	acknowledged_iso: str
 	request_callback: bool = False
+
+
+class CountyRrtNotification(BaseModel):
+	"""§11.2 TRI-003's Escalation: the consented notification to the county rapid response team.
+
+	Not a `CommunityAlert`: that is a hazard announcement to a county's *residents*, issued by PHEOC
+	and broadcast. This goes the other way — from one person's triage result to the team that
+	responds — and its audience is named, so it carries a destination rather than a `county` the
+	feed fans out over. Publishing a triage result into the community feed would be the one thing
+	§8.1's Privacy clause forbids.
+
+	`case_ref` is optional and is the *only* identifier that may travel: §COM-102's rule that an
+	alert about a case carries nothing that identifies the case applies here from the other end.
+	`subject_ref` is present because the team has to be able to reach the person, and it is a
+	pseudonymous reference rather than a name — what it resolves to is §5.4's identity model's
+	answer, held behind the team's own credentials, not this payload's.
+	"""
+
+	model_config = MODEL_CONFIG
+	notification_id: str
+	county: str
+	subject_ref: str
+	case_ref: str | None = None
+	risk_level: str = Field(pattern=r'^(high_ebola_suspicion|emergency)$')
+	headline: str = Field(max_length=120)
+	body: str = Field(max_length=600)
+	# The exposures the person reported, as slugs. The team's first question is what the contact
+	# was, and a notification that made them open the app to find out is a notification that
+	# delayed the response.
+	exposures: list[str] = []
+	isolation: str | None = None
+	consent_basis: str
+	issued_iso: str

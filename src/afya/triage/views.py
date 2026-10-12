@@ -1,7 +1,9 @@
 """Triage domain models (spec TRI-001/002/003, §6.3 malaria trap, §8.1)."""
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from typing import Self
+
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from afya.ids import uuid7str
 
@@ -63,6 +65,76 @@ WATCH_FOR: tuple[tuple[str, str], ...] = (
 	('rash, or bleeding gums', 'call 719 and mention the rash or bleeding'),
 )
 
+# §11.2 TRI-003's four exposure routes, each with the fact that makes it one. The strings are the
+# section's own names, snake_cased, and they are a closed vocabulary validated on the model for the
+# reason `RED_FLAGS` is: an exposure list a client can extend is an exposure list the classifier
+# cannot reason about.
+#
+# The evidence is `sources/ebola-transmission/` — WHO's Ebola disease fact sheet (24 April 2025) and
+# CDC's About Ebola Disease page — and each entry is the source's own mechanism rather than a
+# restatement of it:
+#
+# - `funeral_attendance` and `case_contact` are the two the WHO fact sheet states outright —
+#   "close contact with patients when infection control precautions are not strictly practiced" and
+#   "burial ceremonies that involve direct contact with the body of a person who has died".
+# - `healthcare_work` is the same sentence from the other side: the source's qualifier is *without
+#   precautions*, so the exposure is unprotected clinical contact, not the occupation.
+# - `bushmeat_consumption` is the animal-source route. The fact sheet's wording is contact with "the
+#   blood, secretions, organs or other bodily fluids of infected animals such as fruit bats,
+#   chimpanzees, gorillas, monkeys, forest antelope or porcupines found ill or dead" — it does not
+#   say that eating cooked bushmeat transmits Ebola, and neither does this code. What the field
+#   records is the exposure a triage clinician asks about, and `EXPOSURE_NOTE` says what it means.
+EBOLA_EXPOSURES: tuple[str, ...] = (
+	'funeral_attendance', 'healthcare_work', 'case_contact', 'bushmeat_consumption',
+)
+
+# What each exposure means for the person reading the answer. Written as the *action*, because an
+# exposure is not a diagnosis and a list of routes with no instruction is a frightening fact with no
+# use. Every one of the four ends at the same place — the 21-day window — because the WHO fact sheet
+# gives one incubation range for the disease, not one per route.
+EXPOSURE_NOTE: dict[str, str] = {
+	'funeral_attendance': 'You were near the body of someone who had died. That is the contact Ebola spreads through, so the next 21 days are the window to watch.',
+	'healthcare_work': 'You cared for a sick person without full protective equipment. Watch yourself for 21 days and tell 719 that you had unprotected contact.',
+	'case_contact': 'You were in close contact with someone who may have had Ebola. Watch yourself for 21 days and call 719 if any fever or symptom starts.',
+	'bushmeat_consumption': 'You handled or ate meat from a wild animal found sick or dead. Watch yourself for 21 days and call 719 if a fever starts.',
+}
+
+# §11.2 TRI-003's isolation status, as the states a person can actually be in rather than a boolean.
+# `not_isolated` is a member and it is the one that matters: "isolate now" is advice, and advice
+# given to someone already isolating is a different message from advice given to someone who is not.
+ISOLATION_STATES: tuple[str, ...] = ('not_isolated', 'isolated_at_home', 'isolated_at_facility')
+
+# §11.2 TRI-003's "Isolation guidance for the household". The mechanism is the source's — Ebola
+# spreads by direct contact with blood and body fluids — and the arrangements are the standard
+# treatment-unit ones. The first line says which is which, because the WHO fact sheet states the
+# mechanism and gives no home-care procedure, and a guidance block that implies otherwise is a
+# citation the source does not carry. See `sources/INDEX.md`, "Ebola transmission".
+HOUSEHOLD_ISOLATION_GUIDANCE: tuple[str, ...] = (
+	'The virus passes through direct contact with blood or body fluids, so the aim is that nobody else touches them.',
+	'One room for the sick person, and one caregiver who is the only person who goes in. No visitors.',
+	'If there is no separate room, keep at least two metres away and sleep in a different room.',
+	'A separate latrine or bucket for the sick person, emptied by the caregiver only.',
+	'The caregiver covers hands and face before going in, and washes with soap and running water after every visit.',
+	'Bedding, clothes and anything with blood or fluid on it stays in the room and is not washed by hand — ask 719 who collects it.',
+	'No one else prepares or shares food with the sick person. Use separate plates and cutlery and wash them separately.',
+	'If the person dies, do not wash, touch or kiss the body. Call 719 for a safe and dignified burial team.',
+)
+
+# §11.2 TRI-003's third Output, "Immediate action (call 719, do not travel by public transport, await
+# instructions)". Three instructions and the section prints them in this order. Rendered as a model
+# rather than as a sentence appended to `recommendation`, because the recommendation is a *clinical*
+# string with a translation table behind it (§ACC-002) and this is an operational instruction set a
+# client renders as a checklist — folding it into the sentence would put it in a language table's
+# scope and behind a translator who never saw it.
+IMMEDIATE_ACTIONS: tuple[tuple[str, str, str], ...] = (
+	('call', 'Call 719 now and say you may have Ebola',
+	 'Tell them where you are, that you have symptoms, and whether you had contact with a case or attended a funeral.'),
+	('do_not_travel', 'Do not travel by public transport',
+	 'Do not take a matatu, bus or boda. You would be sitting close to other people for the whole journey.'),
+	('await_instructions', 'Stay where you are and wait to be told what to do',
+	 'The county team will tell you which facility to go to and will send transport if you need it. Do not go to a clinic unannounced.'),
+)
+
 
 class TriageInput(DerivedFields, BaseModel):
 	model_config = MODEL_CONFIG
@@ -76,6 +148,16 @@ class TriageInput(DerivedFields, BaseModel):
 	# known case could only be triaged by claiming contact.
 	red_flags: list[str] = []
 	exposure_site: bool = False
+	# §11.2 TRI-003's "Additional inputs", which are TRI-001's epidemiological criteria asked in more
+	# detail. The section names four routes and the input had one boolean, so a funeral and a
+	# bushmeat exposure read identically to the classifier — and they are not the same exposure:
+	# a funeral is contact with a body, bushmeat is contact with an animal source. `EBOLA_EXPOSURES`
+	# is the closed list; `exposure_note` says what each one means to the person who reported it.
+	exposures: list[str] = []
+	# §11.2 TRI-003's isolation status. Optional, because a triage is still a triage without it, and
+	# `None` is a third answer: the person was not asked. "Not asked" and "not isolated" produce
+	# different guidance — the first has to say what isolation means, the second only where to do it.
+	isolation: str | None = Field(default=None, pattern=r'^(not_isolated|isolated_at_home|isolated_at_facility)$')
 	age_band: str | None = Field(default=None, pattern=r'^(under_5|5_17|18_49|50_64|65_plus)$')
 	pregnant: bool | None = None
 	# §11.7 AI-003's first bullet is "sudden increase in fever triage *in a locality*", and a
@@ -87,6 +169,8 @@ class TriageInput(DerivedFields, BaseModel):
 	def model_post_init(self, _context: object) -> None:
 		assert all(f in RED_FLAGS for f in self.red_flags), \
 			f'unknown red flag: {[f for f in self.red_flags if f not in RED_FLAGS]}'
+		assert all(e in EBOLA_EXPOSURES for e in self.exposures), \
+			f'unknown exposure: {[e for e in self.exposures if e not in EBOLA_EXPOSURES]}'
 
 	@computed_field
 	@property
@@ -98,8 +182,28 @@ class TriageInput(DerivedFields, BaseModel):
 		been where the virus is? Three booleans that must be OR-ed at each use site is the shape that
 		drifts, and the `or` was already written twice in the algorithm. Derived rather than passed so
 		the two spellings cannot disagree.
+
+		§11.2's four named exposures feed it too, and that is the whole point of the field: the
+		section's own three criteria *are* the general form of the four, so a person who reports
+		healthcare work without precautions has contact history whether or not they also ticked the
+		boolean. `case_contact` maps onto `ebola_contact` and `funeral_attendance` onto
+		`exposure_site`, but the mapping is done here rather than left to the caller — a client that
+		had to know which of the four implies which of the three would be the second place the two
+		lists are related.
 		"""
-		return self.ebola_contact or self.affected_area_travel or self.exposure_site
+		return (self.ebola_contact or self.affected_area_travel or self.exposure_site
+			or bool(self.exposures))
+
+	@computed_field
+	@property
+	def exposure_notes(self) -> list[str]:
+		"""What each reported exposure means, in the order the source lists them.
+
+		Ordered by `EBOLA_EXPOSURES` rather than by the order the client sent them, so the same set
+		of exposures renders the same way twice — a list that reshuffles with the request is a list
+		the reader has to re-read.
+		"""
+		return [EXPOSURE_NOTE[e] for e in EBOLA_EXPOSURES if e in self.exposures]
 
 
 class TriageAction(BaseModel):
@@ -129,6 +233,41 @@ class WatchForItem(BaseModel):
 	action: str = Field(min_length=1)
 
 
+class ImmediateAction(BaseModel):
+	"""§11.2 TRI-003's second Output, "Immediate action (call 719, do not travel by public transport,
+	await instructions)".
+
+	Three instructions, each with what it means in practice. `step` is the section's own name for the
+	instruction and is a closed vocabulary (`IMMEDIATE_ACTIONS`), so a client can lay the three out in
+	order and a test can assert all three are present — the audit's finding was that the high-risk
+	recommendation named 719 and isolation and the transport instruction was simply absent, which is
+	a missing instruction no client could recover.
+	"""
+
+	model_config = MODEL_CONFIG
+	step: str = Field(pattern=r'^(call|do_not_travel|await_instructions)$')
+	instruction: str = Field(min_length=1)
+	detail: str = Field(min_length=1)
+
+
+class HouseholdIsolation(BaseModel):
+	"""§11.2 TRI-003's third Output, "Isolation guidance for the household".
+
+	`already_isolating` is carried because the same eight lines read differently to a person who has
+	already moved out of the shared room and one who has not: the first needs the lines confirmed,
+	the second needs them as instructions. `guidance` is the list either way — the section asks for
+	guidance, not for a filtered subset of it — and the flag is what a client uses to decide whether
+	to lead with "keep doing this" or with "start now".
+	"""
+
+	model_config = MODEL_CONFIG
+	already_isolating: bool = False
+	guidance: list[str] = Field(min_length=1)
+	# The source's own distinction, carried so the block does not read as a citation it cannot
+	# support: the mechanism is WHO's, the home arrangements are standard treatment-unit practice.
+	provenance: str = Field(min_length=1)
+
+
 class TriageResult(BaseModel):
 	model_config = MODEL_CONFIG
 	risk_level: RiskLevel
@@ -151,6 +290,53 @@ class TriageResult(BaseModel):
 	# clinician reading the card can see which branch produced it. A person who arrived with
 	# convulsions and no fever is `emergency` by a different path than one with bleeding.
 	red_flag_triggered: bool = False
+	# §11.2 TRI-003's second and third Outputs. Both are empty on every rung except Ebola suspicion,
+	# and the validator below is what keeps that true — see `_ebola_branch_carries_its_outputs`.
+	immediate_actions: list[ImmediateAction] = []
+	household_isolation: HouseholdIsolation | None = None
+	# §11.2 TRI-003's Escalation: "an automatic, consented notification to the county rapid response
+	# team if the user opts in". The opt-in is the caller's, because the consent lives in §SEC-001's
+	# ledger and is read by the service that holds it; this field is what the *answer* says about
+	# whether the notification went. `county_rrt_notified` is false both when the person declined
+	# and when the branch is not the Ebola one, and `county_rrt_note` says which — a client cannot
+	# tell a decline from a non-event, and a person who declined must not be told a team was told.
+	county_rrt_notified: bool = False
+	county_rrt_note: str = ''
+
+	@model_validator(mode='after')
+	def _ebola_branch_carries_its_outputs(self) -> Self:
+		"""§11.2 prints the transport instruction and the household guidance as Outputs of the Ebola
+		branch, and an Output that is present on the wrong rung is as wrong as one missing from the
+		right rung.
+
+		"Await instructions" is not a sentence for a person with a mild fever, and a household
+		isolation block served to someone whose triage said "monitor; hydrate" would tell a family to
+		separate over a headache. So the two travel together and only on `high_ebola_suspicion`: the
+		branch is the gate, the validator is the gate's enforcement, and a caller constructing a
+		`TriageResult` by hand cannot produce the pair without the classification that earns it.
+		"""
+		ebola = self.risk_level is RiskLevel.high_ebola_suspicion
+		assert bool(self.immediate_actions) is ebola, (
+			'the immediate-action list belongs to the Ebola suspicion branch and to no other'
+		)
+		assert (self.household_isolation is not None) is ebola, (
+			'household isolation guidance belongs to the Ebola suspicion branch and to no other'
+		)
+		if ebola:
+			assert {a.step for a in self.immediate_actions} == {s for s, _, _ in IMMEDIATE_ACTIONS}, (
+				'§11.2 prints three immediate actions; all three must travel'
+			)
+		assert not (self.county_rrt_notified and not ebola), (
+			'the county team is notified of an Ebola suspicion, and of nothing else'
+		)
+		# Only the direction the model can know. The note is written by the route, which holds the
+		# consent ledger — so "every Ebola branch carries a note" is a property of the *route*, not
+		# of the model, and asserting it here would fail for `assess`, which answers the clinical
+		# question and has no business knowing whether the caller had a token.
+		assert not (self.county_rrt_notified and not self.county_rrt_note), (
+			'a notification is reported with the sentence that explains it'
+		)
+		return self
 
 	@computed_field
 	@property

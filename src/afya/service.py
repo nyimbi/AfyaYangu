@@ -89,7 +89,7 @@ from afya.sensors.views import SenseIngest
 from afya.sync.service import SyncService, apply_delta, delta_payload
 from afya.sync.views import ConnectionClass, SyncOp
 from afya.triage.service import TriageService
-from afya.triage.views import EBOLA_SYMPTOMS, DiaryEntry, TriageInput, TriageResult
+from afya.triage.views import EBOLA_SYMPTOMS, DiaryEntry, RiskLevel, TriageInput, TriageResult
 
 # spec-coverage domains (§9.1, §9.6, §10.2-10.4, §11.4-11.5, §12, §17, §19)
 from afya.access.service import AccessService
@@ -234,7 +234,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	# needs one instance behind both the API routes and the channel handlers, so it is built here
 	# rather than inside the return dict. Two constructions would be two engines and the claim would
 	# be false the moment they diverged.
-	triage_svc = TriageService(registry)
+	triage_svc = TriageService(registry, privacy_svc)
 	facilities_svc = FacilityService()
 
 	async def telco_rules() -> list[ZeroRatingRule] | None:
@@ -440,6 +440,34 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			return worker.subject_ref, RBACRole(worker.role)
 		except (AssertionError, ValueError) as exc:
 			raise HTTPException(status_code=401, detail='Invalid or expired token') from exc
+
+	def optional_subject():  # type: ignore[no-untyped-def]
+		"""The token's subject when one was presented, and `None` when none was.
+
+		For a route that must work without a token and does something extra when there is one.
+		`/triage/evd` is the case: §8.1's triage is Tier 1 with anonymous mode, so refusing a caller
+		with no token would break the feature — but §11.2's Escalation needs a subject, because
+		consent is held per person in §SEC-001's ledger. A guard would make the escalation mandatory
+		with the identity; this makes the identity optional and the *consent* the thing that
+		decides, which is what the section actually conditions the notification on.
+
+		A malformed token is treated as no token rather than as a 401. The triage is still owed to
+		the caller, and an expired token must not turn a clinical answer into an error page — the
+		escalation is the part that is lost, and the result says so.
+		"""
+		async def dependency(authorization: str | None = Header(default=None)) -> str | None:
+			if not authorization or not authorization.lower().startswith('bearer '):
+				return None
+			presented = authorization.split(' ', 1)[1].strip()
+			try:
+				return auth.resolve_anonymous(presented).subject_ref
+			except AssertionError:
+				pass
+			try:
+				return auth.resolve_worker(presented).subject_ref
+			except (AssertionError, ValueError):
+				return None
+		return dependency
 
 	def require_scope(dataset: str):  # type: ignore[no-untyped-def]
 		"""Route guard: the token's role must cover the dataset it is asking for (§17 RBAC)."""
@@ -733,11 +761,41 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return triage.assess(inp, lang)
 
 	@app.post('/triage/evd', response_model=TriageResult)
-	async def triage_evd(inp: TriageInput) -> TriageResult:
+	async def triage_evd(inp: TriageInput, subject: str | None = Depends(optional_subject())) -> TriageResult:
+		"""§11.2's Ebola branch, including its Escalation.
+
+		The notification is attempted only when the branch produced an Ebola suspicion, and the
+		consent is read from §SEC-001's ledger rather than taken from the body — a caller cannot
+		consent on the person's behalf by posting a boolean. When it does not go, the result says
+		which of the two reasons it was, because "you declined to share" and "you are not a
+		suspected case" are different things to be told and a client cannot tell them apart from a
+		false.
+		"""
 		try:
-			return triage.assess_evd(inp)
+			result = triage.assess_evd(inp)
 		except PermissionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
+		if result.risk_level in (RiskLevel.high_ebola_suspicion, RiskLevel.emergency):
+			notification = (triage.notify_county_rrt(inp, result, subject)
+			                if subject is not None else None)
+			if notification is not None:
+				result.county_rrt_notified = True
+				result.county_rrt_note = (
+					'The county rapid response team has been told, because you agreed to share '
+					'your health information with health authorities.'
+				)
+			else:
+				result.county_rrt_note = (
+					'Your result was not shared with the county team. You have not agreed to '
+					'share your health information with health authorities, or no county was given. '
+					'You can change that in your privacy settings, or call 719 yourself.'
+				)
+		return result
+
+	@app.get('/triage/rrt/{county}')
+	async def triage_rrt(county: str, _subject: str = Depends(require_scope('assigned'))) -> list[dict[str, object]]:
+		"""What the county rapid response team reads — §11.2's Escalation, from their side."""
+		return [n.model_dump(mode='json') for n in triage.rrt_notifications(county)]
 
 	@app.post('/triage/diary')
 	async def triage_diary(entry: DiaryEntry, _subject: str = Depends(require_self())) -> dict[str, bool]:

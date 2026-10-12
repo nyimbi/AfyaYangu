@@ -1,11 +1,19 @@
 """Triage service — febrile algorithm with malaria trap (§6.3), EVD escalation, symptom diary."""
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
 from afya.logmixin import LogMixin
 from afya.registry.service import FeatureRegistry
 from afya.strings import answerable, rec
 from afya.triage.views import (
 	DiaryEntry, DiaryExport, DiaryPrompt, DiaryTrend, Differential, EBOLA_SYMPTOMS, EMERGENCY_FLAGS,
-	RiskLevel, TriageAction, TriageInput, TriageResult, TrendDirection, WATCH_FOR, WatchForItem,
+	HOUSEHOLD_ISOLATION_GUIDANCE, IMMEDIATE_ACTIONS, ImmediateAction, HouseholdIsolation, RiskLevel,
+	TriageAction, TriageInput, TriageResult, TrendDirection, WATCH_FOR, WatchForItem,
 )
+
+if TYPE_CHECKING:
+	from afya.alerting.views import CountyRrtNotification
+	from afya.privacy.service import PrivacyService
 
 
 def _one_tap(level: RiskLevel, red_flag: bool) -> list[TriageAction]:
@@ -45,11 +53,113 @@ def _watch_for(level: RiskLevel) -> list[WatchForItem]:  # noqa: ARG001 — the 
 	return [WatchForItem(sign=sign, action=action) for sign, action in WATCH_FOR]
 
 
+def _immediate_actions() -> list[ImmediateAction]:
+	"""§11.2 TRI-003's second Output, "Immediate action (call 719, do not travel by public transport,
+	await instructions)".
+
+	All three, in the section's order, with the third being the one that is easy to leave out and
+	the one that matters most operationally: a person who calls 719 and then takes a matatu to the
+	nearest clinic has exposed everyone on the route, and "await instructions" is the instruction
+	that prevents it. The audit found the transport instruction absent from the payload entirely —
+	the recommendation named 719 and isolation and said nothing about how not to arrive.
+	"""
+	return [ImmediateAction(step=step, instruction=instruction, detail=detail)
+		for step, instruction, detail in IMMEDIATE_ACTIONS]
+
+
+def _household_isolation(inp: TriageInput) -> HouseholdIsolation:
+	"""§11.2 TRI-003's third Output, "Isolation guidance for the household".
+
+	The same eight lines for everyone, and `already_isolating` says which of the two readings
+	applies. `None` isolation status counts as not isolating, because the guidance is the same and
+	the person is in the same room as their household either way — what `isolation` changes is
+	whether the message leads with confirmation or with instruction, not what it says.
+
+	`provenance` is carried because the WHO fact sheet states the mechanism and gives no home-care
+	procedure. The first line is the source's; the arrangements are the standard treatment-unit
+	ones. A block that let a reader assume all of it was WHO's would be a citation the source does
+	not carry — see `sources/INDEX.md`, "Ebola transmission".
+	"""
+	isolating = inp.isolation in ('isolated_at_home', 'isolated_at_facility')
+	return HouseholdIsolation(
+		already_isolating=isolating,
+		guidance=list(HOUSEHOLD_ISOLATION_GUIDANCE),
+		provenance=(
+			'The mechanism is from the WHO Ebola disease fact sheet (24 April 2025). The home '
+			'arrangements are standard Ebola treatment-unit practice; WHO gives no home-care '
+			'procedure in that source.'
+		),
+	)
+
+
 class TriageService(LogMixin):
-	def __init__(self, registry: FeatureRegistry) -> None:
+	def __init__(self, registry: FeatureRegistry, privacy: 'PrivacyService | None' = None) -> None:
 		self._registry = registry
+		self._privacy = privacy
 		self._diary: dict[str, DiaryEntry] = {}
+		self._rrt: list['CountyRrtNotification'] = []
 		assert registry.available() and self._diary == {}, 'registry must be available'
+
+	def notify_county_rrt(self, inp: TriageInput, result: TriageResult, subject_ref: str,
+	                      case_ref: str | None = None) -> 'CountyRrtNotification | None':
+		"""§11.2 TRI-003's Escalation, as the one path that can send it.
+
+		Three conditions and all three are checked here rather than at the route: the branch has to
+		be an Ebola suspicion or an emergency that carries one, the person has to hold §SEC-001's
+		`share_health_authorities` consent, and the notification has to have a county to go to. A
+		route that checked two of the three would be a route that could send a triage result about
+		someone who never consented, which is the failure §8.1's Privacy clause exists to prevent.
+
+		**A service with no consent ledger refuses rather than notifies.** The first version of this
+		method skipped the check when `self._privacy is None`, which is a control that fails open —
+		and it fails open in the one direction that matters, since the thing it would send is a
+		person's triage result to a health authority. Consent that cannot be established is consent
+		that is not held; `test_tri003.py` asserts the refusal, because a gate whose unwired path
+		notifies is a gate that is only as good as the wiring being right.
+
+		`None` is a real answer and it is returned for every one of the three failures. The caller
+		distinguishes them from `result.county_rrt_note`, which is set by the route that holds both
+		this return value and the reason. Returning a notification marked "not sent" would put a
+		triage result in a list a client renders.
+		"""
+		assert subject_ref, 'subject_ref required'
+		if result.risk_level not in (RiskLevel.high_ebola_suspicion, RiskLevel.emergency):
+			return None
+		if self._privacy is None or not self._privacy.has_notification_consent(subject_ref):
+			self._log_info('rrt notification withheld: consent not established',
+				subject_ref=subject_ref, wired=self._privacy is not None)
+			return None
+		if not inp.county:
+			self._log_info('rrt notification withheld: no county', subject_ref=subject_ref)
+			return None
+		from afya.alerting.views import CountyRrtNotification
+		from afya.ids import uuid7str
+		notification = CountyRrtNotification(
+			notification_id='RRT-' + uuid7str().replace('-', '').upper()[-8:],
+			county=inp.county,
+			subject_ref=subject_ref,
+			case_ref=case_ref,
+			risk_level=result.risk_level.value,
+			headline='Possible Ebola case reported through triage',
+			body=(
+				f'A person in {inp.county} reported symptoms through the app and the triage '
+				f'classified them as {result.risk_level.value.replace("_", " ")}. '
+				f'They have been told to call 719, not to travel by public transport and to wait '
+				f'for instructions. Contact them to arrange assessment and transport.'
+			),
+			exposures=list(inp.exposures),
+			isolation=inp.isolation,
+			consent_basis='share_health_authorities consent held by the subject',
+			issued_iso=datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ'),
+		)
+		self._rrt.append(notification)
+		self._log_warn('county rapid response team notified', county=inp.county,
+			risk=result.risk_level.value)
+		return notification
+
+	def rrt_notifications(self, county: str) -> list['CountyRrtNotification']:
+		"""What the county team reads. Filtered by county, because a notification is addressed to one."""
+		return [n for n in self._rrt if n.county == county]
 
 	def assess(self, inp: TriageInput, lang: str = 'en') -> TriageResult:
 		"""§8.1's ladder, walked in the order the section's own Outputs list it.
@@ -85,6 +195,9 @@ class TriageService(LogMixin):
 		# English and says so, rather than raising: a person on a feature phone asking for Dholuo
 		# cannot act on a stack trace, and §CHAN-2's own USSD menu offers Dholuo by name.
 		served = answerable(lang)
+		# §11.2's second and third Outputs travel only on the Ebola suspicion rung, and the
+		# `TriageResult` validator enforces that pairing rather than trusting this branch to.
+		ebola_branch = level is RiskLevel.high_ebola_suspicion
 		out = TriageResult(
 			risk_level=level,
 			recommendation=rec(lang, level.value),
@@ -96,6 +209,8 @@ class TriageService(LogMixin):
 			actions=_one_tap(level, emergency_flag),
 			watch_for=_watch_for(level),
 			red_flag_triggered=emergency_flag,
+			immediate_actions=_immediate_actions() if ebola_branch else [],
+			household_isolation=_household_isolation(inp) if ebola_branch else None,
 		)
 		self._log_info('triage assessed', risk=out.risk_level.value, lang=lang, served_in=served)
 		assert out.recommendation, 'recommendation required'

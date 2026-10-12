@@ -106,12 +106,14 @@ def test_the_mixin_drops_only_what_the_model_computes() -> None:
 
 	`TriageInput` rather than a body with no computed fields at all: 98 of the schema's 105 bodies
 	compute nothing, and `extra='forbid'` on those is already covered by the tests that construct
-	them. The interesting case is the body that computes one field and must drop that one and no
-	other, which is exactly what `exposure_history` is.
+	them. The interesting case is the body that computes fields and must drop exactly those and no
+	other, which is what `exposure_history` and `exposure_notes` are. §11.2's four named exposures
+	added the second one, and both are checked below rather than only the name that broke — a drop
+	proved for one computed field and assumed for the rest is the same defect one field over.
 	"""
 	from afya.triage.views import TriageInput
 
-	assert set(TriageInput.model_computed_fields) == {'exposure_history'}
+	assert set(TriageInput.model_computed_fields) == {'exposure_history', 'exposure_notes'}
 	assert TriageInput(symptoms=['fever'], temperature_c=38.0).symptoms == ['fever']
 	# The computed name is accepted and *recomputed* rather than stored, which is the property that
 	# makes this safe: a client echoing `exposure_history=True` over a payload with no exposure does
@@ -119,6 +121,10 @@ def test_the_mixin_drops_only_what_the_model_computes() -> None:
 	echoed = TriageInput(symptoms=['fever'], temperature_c=38.0, exposure_history=True)  # type: ignore[call-arg]
 	assert echoed.exposure_history is False, 'a derived field is recomputed, never taken from the caller'
 	assert TriageInput(symptoms=['fever'], temperature_c=38.0, ebola_contact=True).exposure_history is True
+	# The same property on the second computed field, so the drop is not proved for one name and
+	# assumed for the rest.
+	notes = TriageInput(symptoms=['fever'], temperature_c=38.0, exposure_notes=['anything'])  # type: ignore[call-arg]
+	assert notes.exposure_notes == [], 'a derived list is recomputed, never taken from the caller'
 	with pytest.raises(Exception):
 		TriageInput(symptoms=['fever'], typo=1)  # type: ignore[call-arg]
 

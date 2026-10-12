@@ -569,7 +569,13 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/ml/cough/analyze'),    # a pure computation: audio in, verdict out, nothing stored
 	('POST', '/triage/diagnose'),     # the same: no subject, no record, no shared state
 	('POST', '/triage/preliminary'),
-	('POST', '/triage/evd'),
+	# `/triage/evd` left this list when §11.2's Escalation arrived. It now carries an *optional*
+	# identity dependency, which is what the walker counts as guarded, and that is the honest
+	# reading: the route reads §SEC-001's consent ledger for the token's subject, so a token is the
+	# difference between a result that notifies the county team and one that cannot. §8.1's triage
+	# is Tier 1 with anonymous mode, so the identity is optional and the *consent* decides — but the
+	# route is no longer a pure computation with nothing behind it, and leaving it on this list
+	# would say it was.
 	('POST', '/ai/risk-score'),       # derived on-device score; the caller supplies the inputs
 	('POST', '/ai/fairness-audit'),
 	('POST', '/facilities/nearest'),  # a read expressed as a POST: a coordinate in, a list out

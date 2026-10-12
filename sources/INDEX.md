@@ -486,3 +486,60 @@ Retrieval URLs: `https://www.who.int/news-room/fact-sheets/detail/menopause`,
   which is a definition and not a diagnosis, and it states that "modern contraceptive methods do not
   cause infertility" — the misconception the tracker's contraception output corrects. The code
   repeats both and diagnoses neither.
+
+---
+
+## Ebola transmission, exposure and the 21-day window
+
+§11.2 TRI-003 names four exposure routes (funeral attendance, healthcare work, contact with a case,
+consumption of bushmeat) and an isolation status; §8.1's triage rests on the incubation period and on
+contact with a case. Those are clinical facts with a source, and the two publications below are where
+they come from. They are archived because a claim about transmission that cites a URL nobody kept is
+a claim resting on something unreadable.
+
+**Retrieved:** 2026-10-13.
+
+| File | What it is | SHA-256 (first 16) |
+|---|---|---|
+| `who-ebola-factsheet.html` | WHO fact sheet, Ebola disease, 24 April 2025 | `d23ffbf0f470ec65` |
+| `cdc-ebola-about.html` | CDC, About Ebola Disease | `fedfc577a53bceeb` |
+
+URLs: `https://www.who.int/news-room/fact-sheets/detail/ebola-disease`,
+`https://www.cdc.gov/ebola/about/index.html`.
+
+**What the WHO fact sheet supports, quoted:**
+
+- **Incubation period.** "The incubation period or interval from infection to onset of symptoms
+  varies from 2 to 21 days." This is the 21-day window §MON-009 and §COM-102 both rest on, and it is
+  a *range with a lower bound* — the source says 2 to 21, so a follow-up scheduled on day 3 is inside
+  the window and one scheduled on day 1 would be before symptoms could appear.
+- **Transmission by direct contact.** "People can get infected with the virus from a [person] …
+  through close contact with patients when infection control precautions are not strictly practiced.
+  Burial ceremonies that involve direct contact with the body of a person who has died can also
+  contribute to the transmission of Ebola disease." This is the source for treating funeral
+  attendance and healthcare work without precautions as exposures.
+- **Animal-source exposure.** "The virus can get into the human population when people have close
+  contact with the blood, secretions, organs or other bodily fluids of infected animals such as fruit
+  bats, chimpanzees, gorillas, monkeys, forest antelope or porcupines found ill or dead or in the
+  rainforest." This is the bushmeat route. The source's own wording is **contact with an infected
+  animal or its fluids** — it does not say that eating cooked bushmeat transmits Ebola, and the code
+  below does not claim it does.
+- **Bleeding is not the common presentation.** "Despite a perception that bleeding is a common
+  symptom, this is less [common] …" — the fact sheet's own correction, which is why `bleeding` is
+  one red flag among eight and not the definition of the disease.
+
+**What the WHO fact sheet does NOT support:** any *household* isolation procedure. It states that
+outbreak control includes "infection prevention and control" and "safe and dignified burials" but
+gives no home-care instructions. The household guidance in `afya.triage.views` therefore does not
+claim to be WHO's — it is written from the transmission mechanism the source states (direct contact
+with blood or body fluids) plus the CDC page's "avoid contact with" list below, and it says so.
+
+**What the CDC page supports, quoted:** the avoid-contact list — "Clothes, bedding, needles, medical
+equipment, or other items that may have touched an infected person's blood or body fluids; The body
+of someone who is suspected or confirmed to have had Ebola disease (for instance, as part of a
+funeral or burial practices); Bats, forest antelopes, primates, and blood, fluids, or raw meat from
+these or unknown animals" — and "Wear personal protective equipment if you come in contact with
+people who are sick or have died from Ebola disease". The code's "one caregiver, no visitors, own
+latrine" is the standard Ebola treatment-unit arrangement, not a sentence either source prints; it is
+carried as guidance with that provenance recorded here rather than attributed to a page that does not
+say it.

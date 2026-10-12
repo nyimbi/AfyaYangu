@@ -1717,3 +1717,100 @@ serves the kind and the immunisation schedule does not call it, so the client jo
 §MON-007's "larviciding campaign notifications" is a `missing` row with no producer, and the
 `CampaignNotice`/`publish_campaign` machinery built here is its obvious carrier — it should be reused
 rather than duplicated, and that is a §MON-007 unit.
+
+## §TRI-003 — an Ebola triage that could not tell a funeral from a bushmeat exposure
+
+§11.2 prints three Additional inputs and four Outputs. Two were implemented — the Ebola suspicion
+classification and the contact list. The other five had no carrier, and they failed in four ways.
+
+**One boolean stood in for four named exposures.** The section names funeral attendance, healthcare
+work, contact with a case and consumption of bushmeat. `TriageInput` carried `ebola_contact: bool`,
+so a person who had washed a cousin's body and a person who had handled bushmeat reported the same
+fact — to a classifier that keys its whole Ebola rung on exposure history, and to a county team whose
+first question is what the contact was. The four are now a closed vocabulary (`EBOLA_EXPOSURES`),
+refused if unknown by `model_post_init` for the same reason `RED_FLAGS` is closed: an exposure list a
+client can extend is one the classifier cannot reason about. Each carries its own note
+(`EXPOSURE_NOTE`), and the notes render in the section's order rather than the request's, so two
+identical reports do not produce two differently-ordered answers.
+
+The four feed `exposure_history` **inside the model**, not at the call site. §8.1's three
+epidemiological criteria are the general form of §11.2's four, so a person who reports healthcare
+work without precautions has contact history whether or not they also ticked a boolean — and a client
+that had to know which of the four implies which of the three would be the second place the two lists
+are related.
+
+**The transport instruction was simply absent.** §11.2's third Output is "Immediate action (call 719,
+do not travel by public transport, await instructions)". The high-risk recommendation named 719 and
+isolation and said nothing about how not to arrive. It is the instruction that matters most
+operationally: a person who calls 719 and then takes a matatu to the nearest clinic has exposed
+everyone on the route. All three now travel as a list of `ImmediateAction`, on the section's order —
+rendered as a model rather than appended to `recommendation`, because `recommendation` is a clinical
+string with a translation table behind it (§ACC-002) and folding an operational checklist into it
+would put the checklist behind a translator who never saw it.
+
+**"Isolate now" was advice with no input behind it.** The result said isolate and carried no status,
+so the same sentence went to a person already in a separate room and to one who was not. `isolation`
+is now one of three states, and `None` is a real fourth answer — "not asked" is not "not isolated",
+and a default would make every caller that never asked claim the person told them. It changes the
+*message*, not the guidance: `HouseholdIsolation.already_isolating` says which of the two readings
+applies.
+
+**The household guidance was behind a CHW's login.** `JOB_AIDS["isolation_basics"]` is §5.3
+job-aid reference material for a community health worker; a person triaged at home cannot reach it.
+Eight lines now travel as an Output, with their `provenance` on them — the WHO fact sheet states the
+mechanism and gives no home-care procedure, so the block says which part is the source's and which is
+standard treatment-unit practice. A block that let a reader assume all of it was WHO's would be a
+citation the source does not carry.
+
+**The Escalation had no carrier either.** "Any Ebola-suspected triage result triggers an automatic,
+consented notification to the county rapid response team if the user opts in." There was no
+notification, no consent read and no route. `TriageService.notify_county_rrt` is now the one path
+that can send it, and it checks three conditions rather than one: the branch has to be an Ebola
+suspicion, the person has to hold §SEC-001's `share_health_authorities` consent, and there has to be
+a county to address it to. The mapping from §11.2's "if the user opts in" to §SEC-001's category is a
+judgement, so it is a *named* method on the privacy service (`has_notification_consent`) rather than
+a call at the triage site — a judgement written at the call site is one a reader re-derives.
+
+**A control that failed open, caught before it shipped.** The first `notify_county_rrt` skipped the
+consent check when `self._privacy is None` — and notified. That is the worst direction for it to fail
+in: the thing it would send is a person's triage result to a health authority. Consent that cannot be
+established is consent that is not held, so an unwired service refuses, and canary 10 plants exactly
+this defect and watches the test catch it.
+
+**The gate is the model's, not the service's.** `TriageResult._ebola_branch_carries_its_outputs`
+asserts that the immediate-action list and the household block travel together and only on
+`high_ebola_suspicion`. A service-level assert is only reached by callers that go through the
+service; a route that constructed a `TriageResult` would not touch it. The same validator refuses a
+result that claims a notification went out for a rung that is not Ebola, or that reports one without
+the sentence explaining it.
+
+**The route takes an optional identity.** `/triage/evd` is §8.1's Tier 1 triage, which has anonymous
+mode — refusing a caller with no token would break the feature. But §11.2's Escalation needs a
+subject, because consent is held per person. So the identity is optional (`optional_subject()`) and
+the *consent* decides the escalation. A malformed token is treated as no token rather than as a 401:
+the triage is still owed to the caller, and an expired token must not turn a clinical answer into an
+error page. `/triage/rrt/{county}` reads the team's queue behind `assigned` — a CHW scope, and the
+test mints that token through the app's own PKCE flow because `provision_staff` refuses a role the
+app issues, which is the point of that refusal.
+
+Twenty canaries were run against `tests/ci/canary_tri003.py` and all twenty fire: the four exposures
+ceasing to be contact history, the vocabulary opening, every exposure getting the same sentence, the
+notes following the request order, the action list emptied, the transport instruction dropped alone,
+the pair leaking onto every rung, the validator loosened, consent not consulted, an unwired service
+notifying, every classification escalating, a notification with no county filed, the county filter
+dropped, isolation status not reaching the guidance, the exposures not travelling to the team, a case
+identifier invented from the subject, §11.1's gate removed, the route escalating without the ledger,
+the route claiming a notification that did not go, and the county view unscoped.
+
+**Counts: 4 rows left `missing` — 4 to `carried` — 74 → 70.** 493 rows, `carried` 406, `missing` 70,
+`deferred` 17.
+
+**Sources.** `sources/ebola-transmission/` holds the WHO Ebola disease fact sheet (24 April 2025) and
+CDC's About Ebola Disease page, both checksummed in `sources/INDEX.md` with what each does and does
+not support. The 21-day window and the contact-with-a-body route are the fact sheet's; the household
+procedure is not, and the code says so where it is served.
+
+**Not done in this unit, and named so it is not mistaken for done.** §TRI-003's "Vaccination status
+(if a vaccine is available and deployed)" stays `deferred` — it is conditioned on a fact about the
+world, not on this tree. `case_ref` is a parameter with no caller: nothing in this tree mints a case
+identifier for a triage result, so the notification carries `None` unless a future caller has one.

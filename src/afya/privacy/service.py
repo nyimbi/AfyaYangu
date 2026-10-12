@@ -359,6 +359,24 @@ class PrivacyService(LogMixin):
 			for c in self._consents.values()
 		)
 
+	def has_notification_consent(self, subject_ref: str) -> bool:
+		"""§11.2 TRI-003's Escalation, asked the way the triage engine asks it.
+
+		The section names its own consent — "an automatic, consented notification to the county rapid
+		response team if the user opts in" — and the ledger's matching category is §SEC-001's
+		`share_health_authorities`, which is the same permission in the same words: sharing this
+		person's health data with a health authority. A second category for it would be two toggles
+		for one decision, and a person who switched off "share with health authorities" would still be
+		notified about.
+
+		It exists as a named method rather than as a call to `has_category_consent` at the triage
+		site because the mapping is a judgement, and a judgement written at the call site is one a
+		reader has to re-derive. It is also the one place to change if the section ever names a
+		category of its own.
+		"""
+		assert subject_ref, 'subject_ref required'
+		return self.has_category_consent(subject_ref, ConsentCategory.share_health_authorities)
+
 	# --- §5.4's single consent registry -----------------------------------------------------------
 
 	def subject_for_msisdn(self, msisdn: str) -> str | None:
