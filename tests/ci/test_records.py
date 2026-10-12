@@ -144,14 +144,26 @@ def test_the_wallet_contents_are_the_sections_bullets() -> None:
 
 
 def test_the_contents_report_names_what_is_unbacked() -> None:
-	"""The finding: seven of the section's eight contents have a model and discharge summaries does
-	not. Reported rather than padded — the wallet is what a person opens when they have lost the
-	paper, so an item with nothing behind it is a document the app promises to keep and cannot."""
+	"""The finding, and the day it closed.
+
+	Seven of the section's eight contents had a model and discharge summaries did not — reported
+	rather than padded, because the wallet is what a person opens when they have lost the paper, so
+	an item with nothing behind it is a document the app promises to keep and cannot. The eighth
+	now has a carrier: the `discharge` kind of `WalletDocument`, which is where the paper a facility
+	handed someone gets filed.
+
+	The test asserts the *report* rather than the absence of a gap, and asserts the reference still
+	resolves, so the day a `module:attr` rots this fails for the reason it exists — a rotted
+	reference reads exactly like a carried item until something imports it.
+	"""
 	from afya.records.service import RecordsService
 	report = RecordsService().wallet_contents()
 	assert len(report.items) == 8
-	assert report.unbacked_items == ['Discharge summaries'], report.unbacked_items
-	assert all(i.resolves for i in report.items if i.module is not None), \
+	assert report.unbacked_items == [], (
+		f'every §9.2 content has a carrier; these do not: {report.unbacked_items}'
+	)
+	assert all(i.module is not None for i in report.items), 'an item with no carrier is unbacked'
+	assert all(i.resolves for i in report.items), \
 		'a module:attr reference that does not import is a rotted reference, not a missing document'
 	# A module-less item must say why, so the gap is explained rather than merely listed.
 	assert all(i.note for i in report.items if i.module is None)
@@ -176,7 +188,7 @@ async def test_the_ten_profile_cap_is_enforced_at_enrolment() -> None:
 
 
 async def test_the_contents_view_is_auditor_scoped() -> None:
-	"""The report names module references and the unbacked item, which is evidence about the build."""
+	"""The report names module references for every §9.2 content, which is evidence about the build."""
 	import httpx
 	from afya.privacy.views import RBACRole
 	from afya.service import build_services, create_app
@@ -188,5 +200,5 @@ async def test_the_contents_view_is_auditor_scoped() -> None:
 		assert (await c.get('/records/wallet/contents')).status_code in (401, 403)
 		body = (await c.get('/records/wallet/contents',
 			headers={'authorization': f'Bearer {tok}'})).json()
-		assert body['unbacked_items'] == ['Discharge summaries']
+		assert body['unbacked_items'] == []
 		assert body['max_profiles'] == 10 and body['max_profiles_enforced'] is True

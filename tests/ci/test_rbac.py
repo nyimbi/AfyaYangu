@@ -56,26 +56,41 @@ def test_the_route_scopes_are_read_from_the_source_not_from_a_list() -> None:
 	whichever of the two it was written beside. The canary in the module's history replaced a guard
 	with a different scope and this function moved; a list would not have."""
 	found = route_scopes()
-	assert found == {'assigned', 'audit_logs', 'county_aggregate', 'infrastructure',
-	                 'national_aggregate', 'self'}, sorted(found)
+	assert found == {'assigned', 'audit_logs', 'consented_patient', 'county_aggregate',
+	                 'infrastructure', 'national_aggregate', 'self'}, sorted(found)
 	# The assertion is exact rather than a superset, so a `route_scopes` that reported every scope it
 	# could think of would fail it — the only way this test can be wrong in the direction that
 	# matters. `self` arrives both route-level and through the guards' own `dataset` literal.
 	assert 'self' in found
 	# A scope that appears in no guard is not reported as guarded, which is what makes the gap real.
-	assert 'family' not in found and 'consented_patient' not in found and 'community_aggregate' not in found
+	assert 'family' not in found and 'community_aggregate' not in found
 
 
-def test_the_three_scopes_with_no_route_are_reported_with_their_roles() -> None:
-	"""The finding. `family`, `community_aggregate` and `consented_patient` are §17.4's "Own and
-	linked family data", "community aggregates" and "Patients who have consented to share", and no
-	route requires any of them — so the table names an access three roles have and no caller can
-	exercise. Reported rather than repaired: adding a route so a scope has a caller would be this
-	code inventing an endpoint the spec does not ask for."""
-	assert unreachable_scopes() == ['community_aggregate', 'consented_patient', 'family']
+def test_the_two_scopes_with_no_route_are_reported_with_their_roles() -> None:
+	"""The finding, and the one that closed.
+
+	`family` and `community_aggregate` are §17.4's "Own and linked family data" and "community
+	aggregates", and no route requires either — so the table names an access two roles have and no
+	caller can exercise. Reported rather than repaired: adding a route so a scope has a caller would
+	be this code inventing an endpoint the spec does not ask for.
+
+	`consented_patient` was the third and is no longer here. §17.4's clinician row is "Patients who
+	have consented to share", and §10.1's "Provider-side view (for participating facilities)" is the
+	sentence that asks for the route — a clinician reading a record through a share the patient
+	issued. The share *is* the consent that makes the row reachable, so `GET
+	/records/share/{grant_id}/view` is the endpoint the spec asks for rather than one invented to
+	give a scope a caller, and the scope left this list when the route arrived. The other two remain
+	because nothing in the spec asks for the route that would close them: a `family`-scoped caller
+	needs the identity upgrade §15.5 does not specify, and a `community_aggregate` route would be a
+	new aggregate surface, not an existing one.
+	"""
+	assert unreachable_scopes() == ['community_aggregate', 'family']
 	assert roles_with_scope('family') == [RBACRole.citizen_identified]
 	assert roles_with_scope('community_aggregate') == [RBACRole.chw]
 	assert roles_with_scope('consented_patient') == [RBACRole.clinician]
+	# The scope the provider view guards on is one the table declares, and the route is what makes it
+	# reachable — asserted through the same reader the finding uses, so this cannot drift from it.
+	assert 'consented_patient' in route_scopes()
 	# And every guarded scope is one the table declares, so the comparison is not against noise.
 	assert route_scopes() <= declared_scopes()
 
@@ -145,6 +160,6 @@ async def test_the_report_is_served_to_the_auditor() -> None:
 
 	assert body == report()
 	assert len(body['roles']) == 8
-	assert [r['scope'] for r in body['unreachable_scopes']] == ['community_aggregate', 'consented_patient', 'family']
+	assert [r['scope'] for r in body['unreachable_scopes']] == ['community_aggregate', 'family']
 	assert body['identity_gap'] == 'citizen_identified'
 	assert set(body['guarded_scopes']) >= {'assigned', 'audit_logs', 'infrastructure'}

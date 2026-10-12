@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import json
 import os
+from datetime import datetime, timezone
 from typing import cast
 
 from afya.brand.service import BRAND, NON_GOALS, PRINCIPLES, VISION, brand_is_clean, brand_violations
@@ -62,7 +63,7 @@ from afya.privacy.views import _SCOPE, ConsentCategory, ConsentRecord, DPIAInput
 from afya.privacy.service import BLOCKING_TOPICS, DPIA_TOPICS
 from afya.privacy import rbac
 from afya.records.service import RecordsService
-from afya.records.views import GrowthRecord, ImmunisationRecord, LabResult, WalletMember
+from afya.records.views import GrowthRecord, ImmunisationRecord, LabResult, ShareGrant, WalletDocument, WalletMember
 from afya.ml.cough import SR as WAV_SR, YamnetCoughEngine
 from afya.registry.activation import TriggerFiring, TriggerScope
 from afya.registry.gate import ActivationService
@@ -1342,12 +1343,174 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def records_wallet_contents(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
 		"""Whether §9.2's eight wallet contents are carried, and whether the ten-profile cap is kept.
 
-		The section lists eight documents a family wallet holds. Seven have a model and one —
-		discharge summaries — does not, which is reported rather than padded: a wallet payload that
-		says "wallet" while holding seven of the section's eight items is the shape this surface
-		exists to make visible.
+		The section lists eight documents a family wallet holds. All eight are carried now: seven had
+		a model and the eighth, discharge summaries, is the `discharge` kind of `WalletDocument` —
+		which is where the paper a facility hands a person gets filed. The report is still served
+		auditor-scoped and still names each item's carrier, because the question it answers is what
+		the build holds on the day it is asked, and a report that only ever agreed with itself would
+		be worth nothing the next time a section gains an item.
 		"""
 		return records.wallet_contents().model_dump(mode='json')
+
+	# --- §9.2/§10.1: the wallet's documents and the operations over them -------------------------
+
+	@app.post('/records/documents')
+	async def records_add_document(doc: WalletDocument, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, object]:
+		"""File a document in the wallet — §9.2's eight kinds, one envelope.
+
+		This is where "photo capture and storage" lands: the client uploads the photograph through
+		the existing evidence route, receives a reference, and files the document here with that
+		reference as `media_ref`. The wallet stores the reference and the capture metadata and never
+		the bytes, which is the same split `ContentItem.media_ref` uses for audio and video.
+		"""
+		try:
+			await records.add_document(doc)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'ok': True, 'doc_id': doc.doc_id}
+
+	@app.get('/records/{member_ref}/documents')
+	async def records_documents(member_ref: str, kind: str | None = None,
+	                            _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> list[dict[str, object]]:
+		"""One member's wallet documents, newest first, optionally narrowed to one of §9.2's kinds."""
+		try:
+			records.assert_owns(_subject, member_ref)
+			kinds = [kind] if kind else None
+			return [d.model_dump(mode='json') for d in records.documents(member_ref, kinds)]
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.get('/records/timeline')
+	async def records_timeline(_subject: str = Depends(require_self(names_subject=False))) -> list[dict[str, object]]:
+		"""§10.1's "Timeline view of all health events", across everyone the caller may read.
+
+		Self-scoped rather than member-scoped: the timeline's whole content is the union across the
+		wallet, and a caller who had to name a member to see their own family's history would not be
+		looking at a timeline. Which members are included is decided by `owns`, per member.
+
+		`names_subject=False` because there is no subject to name: the wallet is the caller's own, so
+		a guard demanding `?subject_ref=` would be asking for a value that decides nothing and
+		refusing every client that did not send one.
+		"""
+		return [e.model_dump(mode='json') for e in records.timeline(_subject)]
+
+	@app.get('/records/search')
+	async def records_search(q: str, _subject: str = Depends(require_self(names_subject=False))) -> list[dict[str, object]]:
+		"""§REC-001's "Search", over every document the caller may read."""
+		try:
+			return [d.model_dump(mode='json') for d in records.search(_subject, q)]
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/records/share')
+	async def records_share(grant: ShareGrant, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, object]:
+		"""§REC-001's secure link and §10.1's time-limited provider share, as one grant.
+
+		The caller is recorded as the issuer rather than trusted to name themselves: a grant that
+		said someone else issued it would attribute a disclosure to the wrong person, and §17.1's
+		accountability is about who disclosed, not who typed.
+		"""
+		grant = grant.model_copy(update={'issued_by': _subject})
+		try:
+			await records.grant_share(grant)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'ok': True, 'grant_id': grant.grant_id, 'expires_iso': grant.expires_iso}
+
+	@app.get('/records/{member_ref}/shares')
+	async def records_shares(member_ref: str, _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> list[dict[str, object]]:
+		"""Every share issued over this member, live and expired — "who has seen my record"."""
+		try:
+			records.assert_owns(_subject, member_ref)
+			return [g.model_dump(mode='json') for g in records.grants_for(member_ref)]
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.post('/records/share/{grant_id}/revoke')
+	async def records_revoke_share(grant_id: str, _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		"""Withdraw a share. §17.1: consent that cannot be taken back is not consent.
+
+		The grant is looked up and checked against the caller before it is withdrawn, because a
+		revocation that only needed a grant id would let anyone who guessed one switch off a share
+		they are not party to — a denial of care with a §17.1 label on it.
+		"""
+		try:
+			grant = records.grants_for_member(grant_id)
+			records.assert_owns(_subject, grant.member_ref)
+			grant = await records.revoke_share(grant_id)
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+		return grant.model_dump(mode='json')
+
+	@app.get('/records/share/{grant_id}/view')
+	async def records_share_view(grant_id: str, at_iso: str,
+	                             _subject: str = Depends(require_scope('consented_patient'))) -> dict[str, object]:
+		"""§10.1's provider-side view: what a clinician reads through a grant, refused past its end.
+
+		Guarded on `consented_patient`, which is §17.4's clinician row — "Patients who have consented
+		to share". The share *is* the consent that makes the row reachable, which is why this route
+		is what closes the `unreachable_scopes` finding for that scope rather than a route invented to
+		give a scope a caller. The expiry is enforced by the service, not by this route, so the same
+		refusal applies wherever the view is read from.
+		"""
+		try:
+			return records.share_view(grant_id, at_iso).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+	@app.get('/records/{member_ref}/export')
+	async def records_export(member_ref: str, fmt: str = 'pdf', at_iso: str = '',
+	                         _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> dict[str, object]:
+		"""§REC-001's PDF export and §10.1's export for school, travel or employment.
+
+		`at_iso` is a parameter rather than a call to the clock so the rendered document's own
+		timestamp is the one the caller asked for; a default of '' is filled from the clock here.
+		"""
+		stamp = at_iso or datetime.now(timezone.utc).isoformat(timespec='seconds')
+		try:
+			return records.export(_subject, member_ref, fmt, stamp).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/records/{member_ref}/backup')
+	async def records_backup(member_ref: str, at_iso: str = '',
+	                         _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> dict[str, object]:
+		"""§REC-001/§10.1's encrypted cloud backup, refused without the `cloud_backup` consent.
+
+		The consent is read from the privacy service rather than taken as a request field: a caller
+		who could assert their own consent in the body would be the label with nothing enforcing it.
+		"""
+		from afya.privacy.views import ConsentCategory
+		stamp = at_iso or datetime.now(timezone.utc).isoformat(timespec='seconds')
+		consented = privacy.has_category_consent(_subject, ConsentCategory.cloud_backup)
+		try:
+			envelope = await records.backup(_subject, member_ref, stamp, consented)
+		except AssertionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
+		return envelope.model_dump(mode='json')
+
+	@app.get('/records/{member_ref}/growth-chart')
+	async def records_growth_chart(member_ref: str, sex: str = 'boy',
+	                               _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> dict[str, object]:
+		"""§REC-003's percentile chart: the child's series against the WHO reference lines."""
+		try:
+			records.assert_owns(_subject, member_ref)
+			return records.growth_chart(member_ref, sex).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.get('/records/{member_ref}/vaccination-certificate')
+	async def records_vaccination_certificate(member_ref: str, purpose: str = 'travel', at_iso: str = '',
+	                                          _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> dict[str, object]:
+		"""§10.1's vaccination certificate for travel, school or employment, sealed by the deployment."""
+		from afya.config import ServiceConfig
+		stamp = at_iso or datetime.now(timezone.utc).isoformat(timespec='seconds')
+		secret = ServiceConfig.from_env().webhook_secret or 'afya-dev-seal'
+		try:
+			cert = records.vaccination_certificate(_subject, member_ref, purpose, stamp, secret)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return cert.model_dump(mode='json')
 
 	# --- channels ---
 	@app.get('/channels/cost')

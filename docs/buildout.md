@@ -837,3 +837,85 @@ reading aloud.
 - **Counts: 8 rows flipped `missing` → `carried`, 146 → 139.** §INF-002 leaves
   `test_the_missing_bullets_are_pinned_by_feature`. 490 rows, `carried` 335, `missing` 139,
   `deferred` 16. 1042 tests green, pyright clean.
+
+## §REC-001/§REC-002/§REC-003: the wallet was five row types with no set to operate on
+
+§9.2 lists eight things a family health wallet holds and §10.1 lists four operations over them —
+timeline, search, export, share — plus a provider view, a certificate and a backup. Thirteen audit
+rows, six of them marked `missing` for the same reason: the documents existed as five unrelated row
+types (`ImmunisationRecord`, `LabResult`, `Prescription`, `InsuranceCard`, a `Booking` in another
+module) and there was no set, so each operation would have had to be written once per type. They are
+not thirteen features. They are four operations over one set, and the set was what was absent.
+
+- **One envelope, four operations.** `WalletDocument` carries §9.2's eight kinds with `payload:
+  dict[str, object]` for each kind's typed fields, so the envelope is lossless rather than a second,
+  poorer copy. The alternative — eight nullable columns — makes every kind's fields optional for
+  every other kind, which is a schema that can hold nothing. `kind` is a closed set, so a document
+  that is not one of the eight is refused at the model.
+- **`media_ref`, not bytes.** "Photo capture and storage" is the client uploading through the
+  existing evidence route and filing the document with the returned reference. A wallet holding image
+  blobs would put every family's photographs in the row a query returns; `ContentItem.media_ref` is
+  the same split for audio and video.
+- **The timeline is a sort, not a second store.** An event log written on each filing path would
+  drift from the wallet the first time a path forgot, and the timeline would be missing a document
+  the wallet holds while both looked correct. It asks `owns` per member, so a member who turns 18
+  drops out of their guardian's timeline on their own birthday — §17.6's transfer, applied to the
+  view and not only to the record routes.
+- **One grant serves REC-001's secure link and REC-002's provider share.** They are the same
+  mechanism; written as two features they would have produced two expiry rules, and the one that
+  dropped the expiry would be the one nobody noticed. `expires_iso` is required, `share_view` refuses
+  past it (inclusive at the boundary), and a grant ending before it begins is refused at issue. The
+  refusal is the feature: a time-limited share whose reader is not stopped at the limit is an
+  unlimited share with a date on it, and the date is the part that gets tested.
+- **Revocation checks who is asking.** `revoke_share` takes an id alone, which is right for the
+  service and wrong for a route — an id is a value a caller can guess, and a revocation that only
+  needed one would let a stranger switch off a share they are not party to: a denial of care with
+  §17.1 on it. The route reads the grant, checks ownership, and only then withdraws it. Found by the
+  route test, not by review.
+- **`issued_by` defaults and the server overwrites it.** It was `min_length=1`, so the route refused
+  every client that did not send a value the server discards — a required field the caller types and
+  nothing reads. It now defaults, the route sets it from the token, and the service refuses a grant
+  that reaches it unattributed: §17.1's accountability is about who disclosed, not who typed.
+- **`names_subject=False` on the self-scoped reads.** `/records/timeline`, `/records/search` and the
+  revoke route took `require_self()`'s default, which demands the request name a subject matching the
+  token. There is no subject to name — the wallet is the caller's own — so every client that did not
+  send a redundant `?subject_ref=` got a 422 on a route whose whole content is "mine". Also found by
+  the route test.
+- **A real PDF, not a `.pdf` filename.** No PDF library is installed, so `afya.records.pdf` writes
+  the format: header, numbered objects, a cross-reference table with true byte offsets, trailer. The
+  two load-bearing parts have tests — the offsets must land on the objects they name, and a `(` in a
+  title ("(review)" in a clinic note) must be escaped or the literal closes early and the file opens
+  to garbage. Verified by a real reader: `pdftotext` extracts the text with the parentheses intact.
+- **The certificate is a view of the dose log.** One keeping its own copy could disagree with the
+  record it certifies, and the disagreement would surface at a border post. The seal is an HMAC over
+  the canonical fields and `certificate_seal_holds` is what a clinic runs — present so the seal is a
+  mechanism rather than a hex digest printed at the bottom of a page. `issuer` says in words that it
+  is a deployment seal and not a Ministry of Health signature, because this deployment holds no such
+  key and a document implying one would be forged authority.
+- **The backup states its own cipher.** It is consent-gated on `ConsentCategory.cloud_backup`, read
+  from the privacy service rather than taken as a request field, and it reports `cipher=none` and
+  `user_held_key=False`. §SEC-003 asks for end-to-end encryption with a user-held key;
+  `retention.encryption_posture()` asserts both as posture booleans, and this deployment holds no key
+  it does not also hold the data with. The §SEC-003 finding stays open and is now stated by the
+  service that would have to implement it rather than inherited from a neighbouring boolean.
+- **Growth is the WHO standard, exactly.** §REC-003 asks for percentile charts and undernutrition
+  alerts, and both need a z-score: the old band compared against a hand-written table at six ages out
+  of sixty and called a 12-month boy at 7.7 kg — WHO's own -2 SD, the threshold the alert hangs on —
+  `normal`. `z = ((x/M)**L - 1)/(L*S)` over the published LMS parameters, evaluated at the child's own
+  age rather than interpolated, and `L≠1` for weight because it is right-skewed. The published SD
+  columns are rounded to one decimal: 0.1 kg on a 3.3 kg infant is 3% of body weight and enough to
+  move a classification across its boundary, which is why the parameters are used and the printed
+  column only checked against them. `sources/who-child-growth-standards/` archives the six WHO PDFs
+  and `sources/INDEX.md` records the retrieval URLs, checksums and method.
+- **The two WHO height tables overlap at 24 months** — recumbent length and standing height, about
+  0.7 cm apart — so concatenating them put two rows and two medians on one month. The standing table
+  wins at the boundary, which is the measurement a child of that age gets, and an assertion now
+  refuses a joined table with a duplicate month. Found by a test asserting the reference spans 61
+  months, not by reading the join.
+- **Canaries run the shipped check, not a copy.** The xref canary re-runs `_xref_offsets_that_miss`
+  over patched bytes and asserts the patch applied first, so it cannot pass against untouched code —
+  a canary against a re-implementation passes while the real check rots.
+- **Counts: 13 rows flipped `missing` → `carried`, 139 → 126.** §REC-001 14/14 carried, §REC-002 7/7.
+  490 rows, `carried` 348, `missing` 126, `deferred` 16. §REC-003 keeps 2 missing (weight-for-length
+  and BMI-for-age wasting, which the section's wording leaves unspecified) and §SEC-003 keeps 3 (the
+  end-to-end key, now stated by the service rather than by a boolean). 1071 tests green, pyright clean.

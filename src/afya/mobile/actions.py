@@ -21,6 +21,7 @@ from typing import Callable, Literal, TypeAlias, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from afya.records.views import WALLET_DOC_KINDS
 from afya.registry.diseases import DISEASES
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -97,6 +98,18 @@ FEATURE_OF: dict[str, str] = {
 	'verify_medicine': 'MED-001', 'drug_interactions': 'MED-002', 'dosage': 'MED-003', 'report_stock': 'MED-004',
 	'sos': 'EMG-001', 'emergency_card': 'EMG-003',
 	'immunisation_gaps': 'REC-001', 'family_wallet': 'REC-001', 'growth_flag': 'REC-003',
+	# §9.2 REC-001's features, and §10.1 REC-002's seven additions over it. Both sections describe
+	# operations over one set of wallet documents, so the actions below serve both: `wallet_search`
+	# and `file_document` are REC-001's, and the timeline, chart, certificate, export, share and
+	# backup are REC-002's. The split is recorded here rather than in the routes because the routes
+	# are deliberately shared — one document store, four operations.
+	'wallet_documents': 'REC-001', 'file_document': 'REC-001', 'wallet_search': 'REC-001',
+	'export_record': 'REC-001',
+	'health_timeline': 'REC-002', 'share_record': 'REC-002', 'record_shares': 'REC-002',
+	'revoke_share': 'REC-002', 'provider_view': 'REC-002', 'backup_wallet': 'REC-002',
+	'vaccination_certificate': 'REC-002',
+	# The chart is §REC-003's "percentile charts", which is the growth section rather than the wallet.
+	'growth_chart': 'REC-003',
 	'add_lab': 'REC-007', 'view_labs': 'REC-007', 'register_donor': 'REC-004', 'find_donors': 'REC-004',
 	'wellbeing_check': 'REC-005', 'counselling_lines': 'REC-005',
 	'log_bp': 'REC-006', 'log_glucose': 'REC-006', 'bp_trend': 'REC-006', 'track_refill': 'REC-006',
@@ -175,6 +188,11 @@ OPERATOR_SCOPES: dict[str, str] = {
 	'chw_case_load': 'assigned', 'chw_cases': 'assigned', 'chw_open_tasks': 'assigned',
 	'chw_profile': 'assigned', 'log_chw_activity': 'assigned', 'submit_case': 'assigned',
 	'advance_case': 'assigned', 'peer_alert': 'assigned', 'send_exposure_notice': 'assigned',
+	# §10.1's provider-side view. §17.4's clinician row is "Patients who have consented to share",
+	# and the scope that carries it is `consented_patient` — a clinician reading a record through a
+	# share the patient issued. It is an operator action for that reason: a citizen's catalogue must
+	# not carry a screen that reads *another person's* record, which is what this is by construction.
+	'provider_view': 'consented_patient',
 	# County-level analysis and the provisioning of workers.
 	'early_warning': 'county_aggregate', 'hotspots': 'county_aggregate',
 	'provision_chw': 'infrastructure', 'transparency_report': 'audit_logs',
@@ -317,6 +335,19 @@ def catalogue() -> list[MobileAction]:
 		_a('growth_flag', 'Is my child growing well?', 'Records', 'POST', '/records/growth', [_f('member_ref', 'Family member'), _f('age_months', 'Age in months', 'int'), _f('weight_kg', 'Weight in kg', 'decimal'), _f('height_cm', 'Height in cm', 'decimal')]),
 		_a('add_lab', 'Add a lab result', 'Records', 'POST', '/records/labs', [_f('member_ref', 'Family member'), _f('test', 'Test', 'select', ['mRDT', 'widal', 'hba1c', 'fbc', 'viral_load', 'glucose_f', 'bp', 'other']), _f('value', 'Result'), _f('unit', 'Unit', ph='optional'), _f('flag', 'Is it normal?', 'select', ['normal', 'abnormal', 'critical', 'unknown']), _f('performed_iso', 'Date of test')]),
 		_a('view_labs', 'My lab results', 'Records', 'GET', '/records/{ref}/labs', [_f('ref', 'Family member', 'path')]),
+		# §9.2 REC-001 and §10.1 REC-002: the wallet's documents, and the operations over them.
+		_a('wallet_documents', 'Everything in the wallet', 'Records', 'GET', '/records/{member_ref}/documents', [_f('ref', 'Family member', 'path'), _f('kind', 'Type of document', 'select', list(WALLET_DOC_KINDS))]),
+		_a('file_document', 'Add a document', 'Records', 'POST', '/records/documents', [_f('doc_id', 'Reference', ph='generated for you'), _f('member_ref', 'Family member'), _f('kind', 'Type of document', 'select', list(WALLET_DOC_KINDS)), _f('title', 'What is it?'), _f('occurred_iso', 'Date on the document'), _f('detail', 'What does it say?', 'textarea'), _f('facility_id', 'Facility', ph='optional'), _f('media_ref', 'Photo reference', ph='from the camera upload'), _f('captured_iso', 'When the photo was taken')]),
+		_a('health_timeline', 'My health history', 'Records', 'GET', '/records/timeline', []),
+		_a('wallet_search', 'Find a document', 'Records', 'GET', '/records/search', [_f('q', 'What are you looking for?')]),
+		_a('share_record', 'Share my record', 'Records', 'POST', '/records/share', [_f('grant_id', 'Share reference', ph='generated for you'), _f('member_ref', 'Family member'), _f('recipient', 'Who is it for?', ph='leave blank for a link'), _f('kinds', 'What they can see', 'list', list(WALLET_DOC_KINDS)), _f('issued_iso', 'From'), _f('expires_iso', 'Until')]),
+		_a('record_shares', 'Who has seen my record?', 'Records', 'GET', '/records/{member_ref}/shares', [_f('ref', 'Family member', 'path')]),
+		_a('revoke_share', 'Stop sharing', 'Records', 'POST', '/records/share/{grant_id}/revoke', [_f('id', 'Share reference', 'path')]),
+		_a('provider_view', 'A patient record shared with me', 'Records', 'GET', '/records/share/{grant_id}/view', [_f('id', 'Share reference', 'path'), _f('at_iso', 'As at')]),
+		_a('export_record', 'Export a health record', 'Records', 'GET', '/records/{member_ref}/export', [_f('ref', 'Family member', 'path'), _f('fmt', 'Format', 'select', ['pdf', 'json']), _f('at_iso', 'As at')]),
+		_a('backup_wallet', 'Back up the wallet', 'Records', 'POST', '/records/{member_ref}/backup', [_f('ref', 'Family member', 'path'), _f('at_iso', 'As at')]),
+		_a('growth_chart', 'My child growth chart', 'Records', 'GET', '/records/{member_ref}/growth-chart', [_f('ref', 'Family member', 'path'), _f('sex', 'Boy or girl?', 'select', ['boy', 'girl'])]),
+		_a('vaccination_certificate', 'Vaccination certificate', 'Records', 'GET', '/records/{member_ref}/vaccination-certificate', [_f('ref', 'Family member', 'path'), _f('purpose', 'What is it for?', 'select', ['travel', 'school', 'employment']), _f('at_iso', 'As at')]),
 		_a('register_donor', 'Register as a blood donor', 'Records', 'POST', '/blood/donors', [_f('donor_ref', 'Donor reference'), _f('blood_group', 'Blood group', 'select', BLOOD_GROUPS), _f('county', 'County'), _f('last_donation_iso', 'Last donation date', ph='optional')]),
 		_a('find_donors', 'Find blood donors', 'Records', 'POST', '/blood/match', [_f('request_id', 'Request number'), _f('blood_group', 'Group needed', 'select', BLOOD_GROUPS), _f('county', 'County'), _f('urgency', 'How urgent?', 'select', ['routine', 'urgent', 'critical'])]),
 		# Wellbeing
@@ -564,6 +595,18 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'emergency_card': ('My emergency card', 'Works with no signal on your lock screen'),
 	'family_wallet': ('Family health wallet', "Everyone's immunisations and records in one place"),
 	'growth_flag': ('Is my child growing well?', 'Compare growth with healthy ranges'),
+	'wallet_documents': ('Everything in the wallet', 'Every card, result and letter you have saved'),
+	'file_document': ('Add a document', 'Photograph a card or letter and keep it in the wallet'),
+	'health_timeline': ('My health history', 'Everything that has happened, newest first'),
+	'wallet_search': ('Find a document', 'Search everything saved in the wallet'),
+	'share_record': ('Share my record', 'Give a clinic or a person a link that expires'),
+	'record_shares': ('Who has seen my record?', 'Every share you have given, and when each ends'),
+	'revoke_share': ('Stop sharing', 'End a share before it expires'),
+	'provider_view': ('A patient record shared with me', 'Read a record a patient has shared with you'),
+	'export_record': ('Export a health record', 'A PDF or a file for school, travel or work'),
+	'backup_wallet': ('Back up the wallet', 'Keep an encrypted copy so nothing is lost'),
+	'growth_chart': ('My child growth chart', 'Weight and height against the healthy range'),
+	'vaccination_certificate': ('Vaccination certificate', 'Proof of doses for travel, school or work'),
 	'child_schedule': ('My child vaccine schedule', 'Every dose due, and the ones that were missed'),
 	'add_medication': ('Remind me to take my medicine', 'Never miss a dose or a refill'),
 	'register_donor': ('Donate blood', 'Join the donor list for your county'),

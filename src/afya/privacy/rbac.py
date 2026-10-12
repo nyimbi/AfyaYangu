@@ -4,14 +4,22 @@
 set map, and §17.5's Authorisation row names that map as the enforcement of "RBAC with least
 privilege". Nothing checked the table against the routes, so two failures were invisible:
 
-* **A scope no route requires.** `_SCOPE` declares nine scopes; the routes guard on six. The three
-  unguarded ones are `family`, `community_aggregate` and `consented_patient`, which are §17.4's
-  "Own and linked family data" (citizen identified), "community aggregates" (CHW) and "Patients who
-  have consented to share" (facility clinician). A scope with no route is a capability the table
-  claims and no caller can reach — the same shape as a §7.3 feature outside the tier map, and the
-  same shape as `rollout.ANTIPATTERNS`' declared-and-unperformed brand check. The family case is the
-  sharpest: §ALT-002's family board is a Tier 3 feature and its three routes are guarded on `self`,
-  so a `family`-scoped token reaches them through a *different* scope than the table gives it.
+* **A scope no route requires.** `_SCOPE` declares nine scopes; the routes guard on seven. The two
+  unguarded ones are `family` and `community_aggregate`, which are §17.4's "Own and linked family
+  data" (citizen identified) and "community aggregates" (CHW). A scope with no route is a capability
+  the table claims and no caller can reach — the same shape as a §7.3 feature outside the tier map,
+  and the same shape as `rollout.ANTIPATTERNS`' declared-and-unperformed brand check. The family case
+  is the sharpest: §ALT-002's family board is a Tier 3 feature and its three routes are guarded on
+  `self`, so a `family`-scoped token reaches them through a *different* scope than the table gives it.
+
+  `consented_patient` was the third and is no longer unguarded. §17.4's clinician row is "Patients
+  who have consented to share", and §10.1's "Provider-side view (for participating facilities)" is
+  the sentence that asks for a route serving it: `GET /records/share/{grant_id}/view`, where the
+  share the patient issued *is* the consent that makes the row reachable. That is the one case where
+  adding the route is the spec's instruction rather than this module inventing an endpoint — which is
+  why the other two stay reported. A `family`-scoped caller needs the identity upgrade §15.5 does not
+  specify, and a `community_aggregate` route would be a new aggregate surface rather than an existing
+  one.
 
 * **A role that can never hold a token.** `RBACRole.citizen_identified` exists, holds `self` and
   `family`, and is never issued: `require_token` resolves any anonymous token to `citizen_anonymous`,

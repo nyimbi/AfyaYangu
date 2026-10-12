@@ -451,8 +451,19 @@ def test_operator_scopes_match_the_routes() -> None:
 	"""
 	from afya.service import build_services
 	import inspect
+	from afya.privacy.rbac import declared_scopes
+	# Derived from §17.4's table rather than hand-listed. The set here used to be five scopes typed
+	# into the test, which made a scope the table declares invisible to this gate: adding
+	# `consented_patient` to a route left the matcher reading `None` and reporting the *catalogue*
+	# as wrong. `declared_scopes()` minus the citizen scopes is the operator set by construction, so
+	# a scope added to the table arrives here without anyone remembering to add it twice. The
+	# citizen pair is the same one `test_every_operator_action_is_marked_and_every_marked_action_is_guarded`
+	# uses, and it is asserted against the table rather than trusted.
+	citizen = {'self', 'family'}
+	assert citizen <= declared_scopes(), 'the citizen scopes are not in §17.4s table'
+	scopes = declared_scopes() - citizen
+	assert 'infrastructure' in scopes and 'self' not in scopes, 'the operator set is not the table minus citizens'
 	app = create_app(build_services())
-	scopes = {'infrastructure', 'audit_logs', 'county_aggregate', 'national_aggregate', 'assigned'}
 	by_route: dict[tuple[str, str], str] = {}
 
 	def walk(routes: object) -> None:

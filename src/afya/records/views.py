@@ -35,6 +35,15 @@ class GrowthRecord(BaseModel):
 	age_months: int = Field(ge=0, le=60)
 	weight_kg: float = Field(gt=0, le=60)
 	height_cm: float = Field(gt=20, le=140)
+	# The WHO standards are tabulated separately for boys and girls, and a chart drawn from the
+	# wrong column is wrong by more than the deficit it reports — so the sex is required rather than
+	# defaulted. `boy`/`girl` are WHO's own column names, not a statement about gender.
+	sex: str = Field(default='boy', pattern=r'^(boy|girl)$')
+	# The other two measurements §REC-003 names. Optional because a clinic visit may take only some
+	# of them, and required would refuse a weight-only visit — but head circumference is the one
+	# measurement a growth tracker takes in the first year, so its absence is visible.
+	head_circumference_cm: float | None = Field(default=None, gt=20, le=60)
+	muac_mm: float | None = Field(default=None, gt=50, le=300)
 
 
 class GrowthFlag(BaseModel):
@@ -104,3 +113,232 @@ class WalletContentsReport(BaseModel):
 	unbacked_items: list[str]
 	max_profiles: int
 	max_profiles_enforced: bool
+
+
+# --- §9.2 REC-001/§10.1 REC-002: the wallet as documents, and what can be done with them --------
+
+WALLET_DOC_KINDS: tuple[str, ...] = (
+	'immunisation', 'anc', 'lab', 'prescription', 'discharge', 'referral', 'insurance', 'appointment',
+)
+"""§9.2's eight "Contents" bullets, as the kinds a wallet document can be.
+
+The order is the section's, and the tuple is the closed set: `WalletDocument.kind` is checked
+against it, so a ninth kind cannot be invented by a caller and cannot appear in a timeline the
+export does not know how to render.
+"""
+
+
+class WalletDocument(BaseModel):
+	"""One item in the wallet, whichever of §9.2's eight kinds it is.
+
+	Before this there were five separate row types — `ImmunisationRecord`, `LabResult`,
+	`Prescription`, `InsuranceCard` and a `Booking` living in another module — and §10.1's "Timeline
+	view of all health events", "Search", "Export to PDF" and "Share" would each have had to be
+	written once per type. They are not eight features. They are four operations over one set, and
+	the set is what was missing.
+
+	`occurred_iso` is the clinical date and `kind` is what the document is; together they are the
+	timeline's sort key, which is why the timeline can be a sort rather than a second store.
+
+	`media_ref` is where a photograph lives, and there is no bytes field. A wallet that held image
+	blobs would put every family's documents in the row a query returns, and the repo already keeps
+	uploads behind a reference — `ContentItem.media_ref` is the same pattern for the same reason.
+	"""
+
+	model_config = MODEL_CONFIG
+	doc_id: str = Field(min_length=1)
+	member_ref: str = Field(min_length=1)
+	kind: str = Field(pattern=r'^(immunisation|anc|lab|prescription|discharge|referral|insurance|appointment)$')
+	title: str = Field(min_length=1)
+	occurred_iso: str = Field(min_length=1)
+	# Free text a search reads. It is what the document says, in the words of whoever recorded it,
+	# because the words a person remembers are rarely the field names.
+	detail: str = ''
+	facility_id: str | None = None
+	# The file, if this document has one — a photographed card, a scanned discharge summary.
+	media_ref: str | None = None
+	captured_iso: str | None = None
+	# The kind's own fields, as the typed model wrote them. This is what makes one envelope
+	# lossless: a lab result's `test`/`value`/`unit` live here rather than in eight nullable columns
+	# on this model, and `RecordsService.labs()` rebuilds the `LabResult` from them. Without it the
+	# envelope would be a second, lossier copy of the typed rows — which is the failure of having
+	# two stores, wearing the costume of having one.
+	payload: dict[str, object] = {}
+
+
+class TimelineEntry(BaseModel):
+	"""One point on §10.1's timeline: the document, and which member's record it is part of.
+
+	`who` is carried because a family timeline without it is a list of events belonging to nobody,
+	which is unreadable the moment a wallet holds more than one person.
+	"""
+
+	model_config = MODEL_CONFIG
+	occurred_iso: str
+	kind: str
+	title: str
+	who: str
+	doc_id: str
+	facility_id: str | None = None
+
+
+class GrowthAssessment(BaseModel):
+	"""§REC-003's verdict on one measurement, against the WHO standard rather than a band.
+
+	The z-scores travel with the flag because "underweight" alone cannot be acted on: a child at
+	-2.1 and a child at -4.0 are both "underweight" and need different things, and only the number
+	tells them apart.
+	"""
+
+	model_config = MODEL_CONFIG
+	member_ref: str
+	age_months: int = Field(ge=0, le=60)
+	sex: str = Field(pattern=r'^(boy|girl)$')
+	weight_z: float
+	height_z: float
+	weight_status: str = Field(pattern=r'^(normal|moderate|severe|above)$')
+	height_status: str = Field(pattern=r'^(normal|moderate|severe|above)$')
+	weight_median_kg: float
+	height_median_cm: float
+	standard: str
+
+
+class GrowthChart(BaseModel):
+	"""§REC-003's "percentile charts": the child's own series against the WHO reference lines.
+
+	The reference lines are computed from the same LMS parameters as the child's points, so the line
+	they are plotted against and the z-score reported for them cannot disagree.
+	"""
+
+	model_config = MODEL_CONFIG
+	member_ref: str
+	sex: str = Field(pattern=r'^(boy|girl)$')
+	weight_reference: list[dict[str, float]]
+	height_reference: list[dict[str, float]]
+	weight_points: list[dict[str, float]]
+	height_points: list[dict[str, float]]
+
+
+class ShareGrant(BaseModel):
+	"""§10.1's time-limited share: who may read what, until when, and what they were told.
+
+	One mechanism serves REC-001's "Share via secure link" and REC-002's "Share with a specific
+	provider for a limited time". They are the same grant; the second names a recipient and a
+	scope. Writing them as two features would have produced two expiry rules, and the one that
+	dropped the expiry would be the one nobody noticed.
+
+	`expires_iso` is required, not optional. A share with no end date is the failure §10.1's
+	"limited time" names, and a field that defaults to never is a field that will be left at its
+	default.
+	"""
+
+	model_config = MODEL_CONFIG
+	grant_id: str = Field(min_length=1)
+	member_ref: str = Field(min_length=1)
+	# Who holds the link. `recipient` is the named clinician or facility for REC-002's provider
+	# share, and None for a link handed to whoever the holder gives it to.
+	recipient: str | None = None
+	# Which kinds the grant covers. Empty means all of them, which is the REC-001 link case.
+	kinds: list[str] = []
+	issued_iso: str = Field(min_length=1)
+	expires_iso: str = Field(min_length=1)
+	# Who disclosed. Defaulted rather than required because the *route* is the authority for this
+	# field — it overwrites whatever arrives with the token's own subject, since a grant that said
+	# someone else issued it would attribute a disclosure to the wrong person. A required field the
+	# server discards is a value the caller types and nothing reads, so it defaults and the service
+	# refuses a grant that reaches it with no issuer.
+	issued_by: str = ''
+	revoked: bool = False
+	# The scopes the recipient reads through. `consented_patient` is §17.4's clinician row; a share
+	# is the consent that makes that row reachable, which is why it is named here rather than
+	# invented at the route.
+	scope: str = Field(default='consented_patient', pattern=r'^consented_patient$')
+
+
+class ShareView(BaseModel):
+	"""What a provider sees through a grant, and the two facts that bound it.
+
+	`expires_iso` and `grant_id` are in the payload because a clinician reading a record needs to
+	know it is a shared excerpt with an end date, not a record they hold — and because the reader
+	who cannot see the expiry is the one who keeps reading after it passes.
+	"""
+
+	model_config = MODEL_CONFIG
+	grant_id: str
+	member_ref: str
+	recipient: str | None
+	expires_iso: str
+	documents: list[WalletDocument]
+
+
+class VaccinationCertificate(BaseModel):
+	"""§10.1's "Vaccination certificates (for travel/school)", rendered from the dose log.
+
+	The certificate is a *view* of `ImmunisationRecord`, not a second store: a certificate that
+	kept its own copy of the doses would be able to disagree with the record it certifies.
+
+	`signature` is an HMAC over the certificate's own canonical fields, keyed on the deployment
+	secret. It is not a digital signature by a health authority — this deployment holds no such key
+	— and calling it one would be a claim the code cannot support. It is a tamper-evident seal: a
+	clinic presented with a printed certificate can confirm the deployment issued these fields, and
+	cannot confirm anything about the child beyond what the fields say. `issuer` states that in
+	words, so a reader of the JSON is not left to infer it.
+	"""
+
+	model_config = MODEL_CONFIG
+	certificate_id: str
+	member_ref: str
+	holder_name: str
+	dob_iso: str
+	purpose: str = Field(pattern=r'^(travel|school|employment)$')
+	doses: list[dict[str, str]]
+	issued_iso: str
+	signature: str
+	issuer: str
+	note: str
+
+
+class ExportDocument(BaseModel):
+	"""§REC-001/§10.1's export, rendered.
+
+	`content` is the rendered bytes as text and `media_type` says what they are. A PDF is produced
+	by `afya.records.pdf` here rather than by a library, because no PDF library is installed and a
+	route that returned a `.pdf` filename with JSON inside would be the claim-with-nothing-behind-it
+	this module keeps finding.
+	"""
+
+	model_config = MODEL_CONFIG
+	export_id: str
+	member_ref: str
+	format: str = Field(pattern=r'^(pdf|json)$')
+	media_type: str
+	filename: str
+	document_count: int
+	content: str
+
+
+class BackupEnvelope(BaseModel):
+	"""§REC-001's "Optional encrypted cloud backup" and §10.1's "Encrypted cloud backup", as a fact.
+
+	The wallet is small — a family's documents, not their photographs — so the envelope holds the
+	documents themselves and a digest, and the route refuses without the subject's `cloud_backup`
+	consent.
+
+	What this is not: an implementation of end-to-end encryption with a user-held key. §SEC-003 asks
+	for both and `retention.encryption_posture()` asserts them as posture booleans; a key the
+	deployment never holds cannot be exercised by a service that runs on the deployment. `cipher`
+	says `none` and `user_held_key` says False, so the envelope describes what it is instead of
+	inheriting a claim from a neighbouring module.
+	"""
+
+	model_config = MODEL_CONFIG
+	backup_id: str
+	subject_ref: str
+	created_iso: str
+	document_count: int
+	member_count: int
+	digest_sha256: str
+	cipher: str = Field(pattern=r'^(none|aes-256-gcm)$')
+	user_held_key: bool
+	consent_category: str
+	documents: list[WalletDocument]

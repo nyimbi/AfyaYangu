@@ -55,7 +55,12 @@ ON_DEVICE: dict[str, str] = {
 	# REC-008's name is the tracker, so the nine the section adds — the due-date calculator, the
 	# visit and postnatal reminders, the birth plan, trimester guidance, the newborn signs, the
 	# maternity finder, the PMTCT referral — have their own actions now and the entry came off.
-	'REC-002': 'the full wallet is the wallet at REC-001 plus cloud sync, served by the same routes',
+	# REC-002 was here as "the full wallet is the wallet at REC-001 plus cloud sync, served by the
+	# same routes", and it came off when the routes stopped being shared-only. §10.1 adds seven
+	# features over REC-001 and each now has an action: the timeline, the growth chart, the
+	# vaccination certificate, the export, the time-limited share, the provider-side view and the
+	# backup. The wallet document set is still one store — that was the design insight, not an
+	# excuse — but the operations over it are the section's own and a client can reach each.
 	# The health library is one corpus serving several spec features; each item carries its own
 	# slug and harmony tag, and `health_library` reaches all of it.
 	'INF-004': 'myth-busting items are in the health library corpus',
