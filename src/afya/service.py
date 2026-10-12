@@ -52,8 +52,10 @@ from afya.chronic.views import (
 from afya.integrations.adam import AdamClient
 from afya.integrations.feeds import FEED_CADENCE, FEED_GRANULARITY, MIN_CELL, build as build_feed
 from afya.integrations.service import InlineJaliPort, JaliClient, JaliPort, MoHFFacilityClient, PPBClient, PheocClient, SHAClient, TelcoGatewayClient
-from afya.medicine.service import MedicineService
-from afya.medicine.views import DoseRequest, StockReport, SuspiciousReport, VerifyRequest
+from afya.medicine.service import STOCK_REPORT_MAX_KM, MedicineService
+from afya.medicine.views import (
+	ESSENTIAL_MEDICINES, DoseRequest, StockReport, SuspiciousReport, VerifyRequest,
+)
 from afya.facilities.service import FacilityService
 from afya.facilities.views import (
 	Booking, Facility, FacilityLevel, FacilityReportRequest, NearestRequest, OfflineFacility,
@@ -916,9 +918,78 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return medicine.check_interactions(req.drugs)
 
 	@app.post('/medicine/stock')
-	async def medicine_stock(report: StockReport) -> dict[str, bool]:
-		await medicine.report_stock(report)
-		return {'ok': True}
+	async def medicine_stock(report: StockReport,
+		authorization: str | None = Header(default=None)) -> dict[str, object]:
+		"""§MED-004's one-tap availability report, with its Anti-gaming controls applied here.
+
+		The clause names three: "Require location proximity to report. Weight reports by reporter
+		reliability. Show report age clearly." Proximity is checked against the facility the report
+		names when the client could place itself, and the refusal is a 422 rather than a silent
+		drop — a report that vanished would look like a network fault to the person who filed it.
+		A report with no geohash is accepted and recorded unweighted rather than refused: §13.2's
+		`gps` fallback exists so a phone without a fix can still report, and refusing it would be
+		the accessibility failure §ACC-001 is about.
+
+		The reporter is taken from the token when the caller presents one, and the body's own
+		`reported_by` is used only when it does not. The route is ungated — an emergency-adjacent
+		write that must not fail for want of a token — so without this the identity behind
+		"Weight reports by reporter reliability" would be whatever the client typed, and a reporter
+		with a bad record could file the next report under a fresh name and start at the middle
+		again. The weight is only a weight if the history it reads belongs to one reporter.
+		"""
+		if authorization:
+			try:
+				report = report.model_copy(update={'reported_by': require_token(authorization)[0]})
+			except HTTPException:
+				# An unreadable token is not a reason to refuse a stock report; it is a reason not
+				# to believe the name attached to it.
+				pass
+		if not report.reported_by:
+			raise HTTPException(status_code=422, detail='a stock report needs a reporter: sign in, or name one')
+		if report.reporter_geohash:
+			facility = next((f for f in facilities.all_facilities() if f.facility_id == report.facility_id), None)
+			if facility is None:
+				raise HTTPException(status_code=404, detail='unknown facility')
+			if not medicine.within_proximity(report, facility, STOCK_REPORT_MAX_KM):
+				raise HTTPException(status_code=422, detail='report from too far away to be about this facility')
+		alert = await medicine.report_stock(report)
+		out: dict[str, object] = {'ok': True}
+		# §MED-004's "Alert when a previously out-of-stock medicine becomes available": the caller
+		# learns about the transition in the same response, because it is the one thing that makes
+		# a report worth filing.
+		if alert is not None:
+			out['restock_alert'] = alert.model_dump(mode='json')
+		return out
+
+	@app.get('/medicine/stock/search')
+	async def medicine_stock_search(q: str, limit: int = 20, _subject: str = Depends(require_scope('self'))) -> list[dict[str, object]]:
+		"""§MED-004's "Search for a medicine" — where a drug is, across facilities."""
+		rows = medicine.search_stock(q, limit=max(1, min(limit, 100)))
+		names = {f.facility_id: f.name for f in facilities.all_facilities()}
+		return [{**a.model_dump(mode='json'), 'facility_name': names.get(a.facility_id)} for a in rows]
+
+	@app.get('/medicine/stock/availability')
+	async def medicine_stock_availability(drug: str, facility_id: str, _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
+		"""§MED-004's own example, renderable: "available at [pharmacy], 2 hours ago"."""
+		row = medicine.availability_for(drug, facility_id)
+		if row is None:
+			raise HTTPException(status_code=404, detail='no reports for that medicine at that facility')
+		facility = next((f for f in facilities.all_facilities() if f.facility_id == facility_id), None)
+		return {**row.model_dump(mode='json'), 'facility_name': facility.name if facility else None}
+
+	@app.get('/medicine/stock/alerts')
+	async def medicine_stock_alerts(facility_id: str | None = None, _subject: str = Depends(require_scope('self'))) -> list[dict[str, object]]:
+		"""§MED-004's restock alerts — the transition, not the state."""
+		return [a.model_dump(mode='json') for a in medicine.restock_alerts(facility_id)]
+
+	@app.get('/medicine/essential')
+	async def medicine_essential() -> list[dict[str, object]]:
+		"""§MED-004's essential-medicines list, as the section names it.
+
+		Public and unguarded: it is a constant the section prints, and a client needs it before it
+		can render "prioritised" — the ordering is the feature.
+		"""
+		return [m.model_dump(mode='json') for m in ESSENTIAL_MEDICINES]
 
 	@app.post('/medicine/dose')
 	async def medicine_dose(req: DoseRequest) -> dict[str, object]:

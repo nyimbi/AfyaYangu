@@ -299,12 +299,15 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	('REC-001', 'Features', 'Optional encrypted cloud backup', 'carried', 'afya.records.service:RecordsService.backup', '`backup` refuses without the subject\'s `cloud_backup` consent and returns an envelope whose `cipher` and `user_held_key` state what it actually is: this deployment holds no key it does not also hold the data with, so it reports `none`/False rather than inheriting `retention.encryption_posture`\'s design claim'),
 	('REC-001', 'Features', 'Search', 'carried', 'afya.records.service:RecordsService.search', 'a case-insensitive match across title, detail and kind over every document the caller may read, across the whole wallet rather than one member at a time'),
 	# --- §9.3 MED-004: Drug Stock Crowdsourcing ----------------------------------------------
-	('MED-004', 'Features', 'Search for a medicine', 'missing', None, '`stock_for` is keyed on (drug, facility) and needs both; there is no search across drugs'),
-	('MED-004', 'Features', 'See recent reports ("available at [pharmacy], 2 hours ago")', 'missing', None, '`StockReport` carries no timestamp, so "2 hours ago" — the section\'s own example — cannot be rendered by any client'),
+	('MED-004', 'Features', 'Search for a medicine', 'carried', 'afya.medicine.service:MedicineService.search_stock', 'across drugs, which `stock_for` cannot do: it is keyed on (drug, facility) and needs both, so it answers "is this drug at this place" and not "where is this drug" — the question the section\'s example actually asks'),
+	('MED-004', 'Features', 'See recent reports ("available at [pharmacy], 2 hours ago")', 'carried', 'afya.medicine.views:StockAvailability', '`at_iso` on the report and `age_hours` on the availability, so the section\'s own sentence renders. Age is a duration rather than a timestamp because "clearly" means a client prints it without diffing against its own clock — wrong on a phone whose clock is wrong, impossible on one with none'),
 	('MED-004', 'Features', 'Report availability yourself (one tap)', 'carried', 'afya.medicine.service:MedicineService.report_stock', None),
 	('MED-004', 'Features', 'Flag stockouts', 'carried', 'afya.medicine.views:StockReport', 'in_stock=False is the flag'),
-	('MED-004', 'Features', 'Essential medicines list prioritised (insulin, ARVs, TB drugs, oxytocin, malaria ACTs, ORS, zinc, contraceptives)', 'missing', None, 'no essential-medicines constant anywhere in the repo'),
-	('MED-004', 'Features', 'Alert when a previously out-of-stock medicine becomes available', 'missing', None, 'nothing watches a transition from out-of-stock to in-stock'),
+	('MED-004', 'Features', 'Essential medicines list prioritised (insulin, ARVs, TB drugs, oxytocin, malaria ACTs, ORS, zinc, contraceptives)', 'carried', 'afya.medicine.views:ESSENTIAL_MEDICINES', 'the section\'s eight, each with the aliases a crowd-sourced report arrives under — a person typing "ARVs" and one typing "dolutegravir" mean the same medicine. `search_stock` sorts essential first, which is what "prioritised" asks for'),
+	('MED-004', 'Features', 'Alert when a previously out-of-stock medicine becomes available', 'carried', 'afya.medicine.service:MedicineService.restock_alerts', 'raised on the transition, not the state: a report that a medicine is in stock is not news unless the last thing anyone said was that it had run out'),
+	('MED-004', 'Anti-gaming', 'Require location proximity to report', 'carried', 'afya.medicine.service:MedicineService.within_proximity', 'checked against the facility the report names, in the cell the client sends — a geohash rather than a coordinate, so §LOC-003\'s rule holds. A report with no geohash is accepted and recorded unweighted rather than refused: §13.2\'s `gps` fallback exists so a phone without a fix can still report'),
+	('MED-004', 'Anti-gaming', 'Weight reports by reporter reliability', 'carried', 'afya.medicine.service:MedicineService.reporter_weight', 'derived from the reporter\'s history — a report a later one from someone else contradicts loses a point, one that stands gains one, the newest moves nothing — and never accepted from the client, because a client that sets its own weight has none. The reporter is bound to the token when the caller presents one, since the weight is only a weight if the history it reads belongs to one reporter and the route is ungated by design'),
+	('MED-004', 'Anti-gaming', 'Show report age clearly', 'carried', 'afya.medicine.views:StockAvailability', '`age_hours` on every availability and `reported_at_iso` beside it, so the number and the fact it came from are both present'),
 	# --- §9.4 FND-006: Appointment Booking and Queue Management ------------------------------
 	('FND-006', 'Features', 'View available slots at participating facilities', 'missing', None, "`book` takes a `slot_iso` the caller supplies; nothing lists a facility's open slots"),
 	('FND-006', 'Features', 'Book, reschedule, cancel', 'missing', None, '`book` exists; there is no reschedule and no cancel'),
@@ -663,7 +666,7 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 # them moved across, the audit covers all 69 `#### FID:` sections in the spec and has no
 # unlabelled section left to explain.
 _LABELS: tuple[str, ...] = (
-	'Access', 'Additional features over REC-001', 'Additional inputs', 'Alert content', 'Application',
+	'Access', 'Additional features over REC-001', 'Additional inputs', 'Alert content', 'Anti-gaming', 'Application',
 	'Behaviour', 'Conditions supported', 'Consent categories', 'Content', 'Contents',
 	'Data displayed per facility', 'Deployment points', 'Displays', 'Entry questions', 'Features',
 	'Format', 'How it works', 'Inputs', 'Options', 'Output', 'Outputs', 'Privacy properties',
@@ -675,7 +678,7 @@ _LABELS: tuple[str, ...] = (
 # the spec's whole label vocabulary is accounted for and a new label cannot be added to the spec
 # without someone deciding which side of this line it falls on.
 _CLAIM_LABELS: tuple[str, ...] = (
-	'Access control', 'Accessibility', 'Adherence design', 'Alerting', 'Anti-gaming', 'Battery',
+	'Access control', 'Accessibility', 'Adherence design', 'Alerting', 'Battery',
 	'Battery impact', 'Benefit', 'Clinical basis', 'Configuration', 'Consumers', 'Data flow',
 	'Data handling', 'Data source', 'Data sources', 'Delivery', 'Description', 'Design',
 	'Disclaimer', 'Escalation', 'Flow', 'Follow-up', 'Integration', 'Languages', 'Limitations',

@@ -1,11 +1,74 @@
 """Medicine service — PPB verification port + client, interactions, dosing, stock crowdsourcing."""
+from datetime import datetime, timezone
 from typing import Protocol
 
+from afya.facilities.service import haversine_km
 from afya.logmixin import LogMixin
 from afya.medicine.views import (
-	BatchRecall, DoseRequest, DoseResult, ProductDisplay, RegistrationStatus, StockReport,
-	VerifyRequest, VerifyResult,
+	BatchRecall, DoseRequest, DoseResult, ProductDisplay, RegistrationStatus, StockAlert,
+	StockAvailability, StockReport, VerifyRequest, VerifyResult, essential_slug,
 )
+
+
+def _now_iso() -> str:
+	return datetime.now(timezone.utc).isoformat(timespec='seconds')
+
+
+# §MED-004's Anti-gaming clause: "Require location proximity to report." Five kilometres is the
+# coarsest of §COM-102's three geofence radii, and it is the right one here — a person reporting
+# stock at a facility is standing in or near it, and a tighter ring would refuse the report of
+# someone who walked to the next shop and remembered. It is a module constant rather than a route
+# default so the number appears once and a deployment that wants it stricter changes one line.
+STOCK_REPORT_MAX_KM = 5.0
+
+
+def _age_hours(at_iso: str | None) -> float | None:
+	"""How long ago a report was made, as a number a screen prints.
+
+	§MED-004's Anti-gaming clause says "Show report age clearly", and "clearly" is a duration rather
+	than a timestamp: a client holding an ISO string has to diff it against its own clock, which is
+	wrong on a phone whose clock is wrong and impossible on one that has none. `None` for a report
+	with no timestamp — which is a report from an older client, and printing "0 hours ago" for it
+	would be a freshness claim nothing supports.
+	"""
+	if not at_iso:
+		return None
+	try:
+		made = datetime.fromisoformat(at_iso.replace('Z', '+00:00'))
+	except ValueError:
+		return None
+	if made.tzinfo is None:
+		made = made.replace(tzinfo=timezone.utc)
+	return round(max(0.0, (datetime.now(timezone.utc) - made).total_seconds() / 3600.0), 2)
+
+
+_GEOHASH_BASE32 = '0123456789bcdefghjkmnpqrstuvwxyz'
+
+
+def _geohash_centre(geohash: str) -> tuple[float, float]:
+	"""Decode a geohash to the centre of its cell.
+
+	§LOC-003's rule is that raw location never crosses this boundary, so the report carries a cell
+	and the proximity test decodes it here. The cell is coarse by construction (5+ characters), so
+	the decode yields an area, not a position — which is exactly the precision a proximity check
+	needs and the precision a leak would need to be useful.
+	"""
+	assert len(geohash) >= 5, 'geohash too precise to generalise'
+	lat_range = [-90.0, 90.0]
+	lon_range = [-180.0, 180.0]
+	even = True
+	for char in geohash.lower():
+		idx = _GEOHASH_BASE32.find(char)
+		assert idx >= 0, f'not a geohash character: {char!r}'
+		for bit in (16, 8, 4, 2, 1):
+			rng = lon_range if even else lat_range
+			mid = (rng[0] + rng[1]) / 2
+			if idx & bit:
+				rng[0] = mid
+			else:
+				rng[1] = mid
+			even = not even
+	return ((lat_range[0] + lat_range[1]) / 2, (lon_range[0] + lon_range[1]) / 2)
 
 
 class PPBRegistryPort(Protocol):
@@ -165,6 +228,7 @@ class MedicineService(LogMixin):
 		self._ppb = ppb
 		assert self._ppb is not None
 		self._stock: list[StockReport] = []
+		self._restock_alerts: list[StockAlert] = []
 
 	async def verify(self, req: VerifyRequest) -> VerifyResult:
 		assert req.batch_number and req.gtin, 'batch+gtin required'
@@ -192,9 +256,128 @@ class MedicineService(LogMixin):
 			warns.append('high mg/kg: verify source guideline')
 		return DoseResult(drug=req.drug, total_mg=total, warns=warns)
 
-	async def report_stock(self, report: StockReport) -> None:
+	async def report_stock(self, report: StockReport) -> StockAlert | None:
+		"""Record a stock report and raise §MED-004's restock alert on the transition.
+
+		The alert fires on out-of-stock -> in-stock, not on in-stock: a report that a medicine is
+		available is not news unless the last thing anyone said about it was that it had run out.
+		"""
+		previous = self._latest(report.drug, report.facility_id)
 		self._stock.append(report)
 		assert len(self._stock) < 10_000, 'unbounded stock store'
+		if previous is None or previous.in_stock or not report.in_stock:
+			return None
+		alert = StockAlert(
+			alert_id='RESTOCK-' + report.report_id.removeprefix('STOCK-'),
+			drug=report.drug, facility_id=report.facility_id,
+			became_available_at_iso=report.at_iso or _now_iso(),
+			out_of_stock_since_iso=previous.at_iso,
+		)
+		self._restock_alerts.append(alert)
+		self._log_info('restock', drug=report.drug, facility=report.facility_id)
+		return alert
+
+	def _latest(self, drug: str, facility_id: str) -> StockReport | None:
+		"""The newest report for one drug at one facility, by the time it was made.
+
+		Ordered by `at_iso` rather than by arrival, because a report queued offline and flushed
+		later is older than one filed after it — reading arrival order would make an offline report
+		look like the newest thing anyone knows.
+		"""
+		rows = [r for r in self._stock
+			if r.drug.lower() == drug.lower() and r.facility_id == facility_id]
+		if not rows:
+			return None
+		return max(rows, key=lambda r: r.at_iso or '')
 
 	def stock_for(self, drug: str, facility_id: str) -> list[StockReport]:
 		return [r for r in self._stock if r.drug == drug and r.facility_id == facility_id]
+
+	# --- §MED-004 crowdsourced stock: search, recency, weighting, restock alerts ---------------
+
+	def search_stock(self, query: str, *, limit: int = 20) -> list[StockAvailability]:
+		"""§MED-004's "Search for a medicine" — across drugs, which `stock_for` cannot do.
+
+		`stock_for` is keyed on (drug, facility) and needs both, so it answers "is this drug at this
+		place" and not "where is this drug". This is the other question, and it is the one the
+		section's example asks: a person with a prescription wants a list of places, not a verdict
+		on one.
+		"""
+		assert query.strip(), 'a search needs something to search for'
+		needle = query.strip().lower()
+		by_pair: dict[tuple[str, str], list[StockReport]] = {}
+		for row in self._stock:
+			if needle not in row.drug.lower():
+				continue
+			by_pair.setdefault((row.drug.lower(), row.facility_id), []).append(row)
+		out: list[StockAvailability] = []
+		for rows in by_pair.values():
+			out.append(self._availability(rows))
+		# Essential medicines first, then freshest: §MED-004 says the list is "prioritised", and a
+		# person searching for insulin should not have to scroll past a vitamin.
+		out.sort(key=lambda a: (not a.essential, a.age_hours if a.age_hours is not None else 1e9))
+		return out[:limit]
+
+	def availability_for(self, drug: str, facility_id: str) -> StockAvailability | None:
+		"""The one pair §MED-004's example names: "available at [pharmacy], 2 hours ago"."""
+		rows = [r for r in self._stock
+			if r.drug.lower() == drug.lower() and r.facility_id == facility_id]
+		return self._availability(rows) if rows else None
+
+	def _availability(self, rows: list[StockReport]) -> StockAvailability:
+		assert rows, 'an availability needs at least one report'
+		latest = max(rows, key=lambda r: r.at_iso or '')
+		age = _age_hours(latest.at_iso)
+		return StockAvailability(
+			drug=latest.drug, facility_id=latest.facility_id,
+			in_stock=latest.in_stock, reported_at_iso=latest.at_iso, age_hours=age,
+			reporter_weight=self.reporter_weight(latest.reported_by), reports=len(rows),
+			essential=essential_slug(latest.drug) is not None,
+		)
+
+	def reporter_weight(self, reporter_ref: str | None) -> int:
+		"""§MED-004's "Weight reports by reporter reliability" — 1 to 10, derived not supplied.
+
+		Starts at the middle and moves on evidence: a reporter whose reports a *later* report from
+		someone else contradicts loses a point, and one whose reports stand gains one. The window is
+		the reporter's whole history here, which is honest for a service that holds reports in
+		memory and would need a decay term the day it holds a year of them — so the cap and the
+		floor are asserted rather than the rate.
+
+		A report with no reporter has no weight to read: `None` would match every other anonymous
+		report and turn "unknown" into a history, so it answers the same 5 a first-time reporter
+		gets rather than pooling strangers into one person.
+		"""
+		if reporter_ref is None:
+			return 5
+		mine = [r for r in self._stock if r.reported_by == reporter_ref]
+		if not mine:
+			return 5
+		weight = 5
+		for row in mine:
+			later = [r for r in self._stock
+				if r.drug.lower() == row.drug.lower() and r.facility_id == row.facility_id
+				and r.reported_by != reporter_ref and (r.at_iso or '') > (row.at_iso or '')]
+			if not later:
+				continue
+			newest = max(later, key=lambda r: r.at_iso or '')
+			weight += -1 if newest.in_stock != row.in_stock else 1
+		return max(1, min(10, weight))
+
+	def within_proximity(self, report: StockReport, facility: object, max_km: float) -> bool:
+		"""§MED-004's "Require location proximity to report", as a predicate the caller applies.
+
+		A missing geohash answers `False`: as a predicate on "is this report from here", an
+		unplaceable report has not shown that it is, and a `True` would be the predicate asserting
+		something it did not check. The §13.2 `gps` fallback is therefore the *caller's* to apply —
+		the route skips the check when the client sent no cell, so a phone without a fix can still
+		report, which is the accessibility failure §ACC-001 exists to prevent. `False` here is not
+		a refusal; it is the absence of the evidence a refusal would rest on.
+		"""
+		if not report.reporter_geohash:
+			return False
+		lat, lon = _geohash_centre(report.reporter_geohash)
+		return haversine_km(lat, lon, getattr(facility, 'lat'), getattr(facility, 'lon')) <= max_km
+
+	def restock_alerts(self, facility_id: str | None = None) -> list[StockAlert]:
+		return [a for a in self._restock_alerts if facility_id is None or a.facility_id == facility_id]

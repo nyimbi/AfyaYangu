@@ -58,7 +58,25 @@ def _spec_bullets(feature_id: str, label: str) -> list[str]:
 		return numbered
 	prose = segment.strip().lstrip('- ').strip()
 	assert prose, f'{feature_id} has a {label} label with nothing after it'
-	return [item.strip() for item in prose.rstrip('.').split(',')]
+	items = [item.strip() for item in prose.rstrip('.').split(',')]
+	# The fourth shape: a sequence of directives. §MED-004's Anti-gaming clause is written "Require
+	# location proximity to report. Weight reports by reporter reliability. Show report age
+	# clearly." — three separate controls, and the comma split read them as one item, which is how a
+	# clause naming three things became a single auditable bullet.
+	#
+	# The discriminator is the *verb*, not the full stop, because a full stop alone is wrong: §EMG-003's
+	# Access is "Available from the lock screen without unlocking the phone (opt-in). Critical for
+	# unconscious patients" — one clause and a rationale for it, and splitting it would invent a
+	# second bullet the section does not print. Both are two sentences and neither carries a comma,
+	# so the only thing that separates them is that every sentence of the first is an instruction and
+	# the second sentence of the second is not. Hence an explicit verb list rather than a heuristic.
+	_DISJUNCTIVE_VERBS = ('Add', 'Allow', 'Avoid', 'Display', 'Ensure', 'Flag', 'Keep', 'Notify',
+		'Provide', 'Record', 'Require', 'Send', 'Show', 'Store', 'Support', 'Use', 'Verify', 'Weight')
+	if len(items) == 1 and '. ' in items[0]:
+		parts = [part.strip() for part in items[0].split('. ') if part.strip()]
+		if len(parts) > 1 and all(p.split(' ', 1)[0] in _DISJUNCTIVE_VERBS for p in parts):
+			items = parts
+	return items
 
 
 def _spec_feature_ids() -> list[str]:
@@ -292,7 +310,6 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§LOC-005': 3,
 		'§MED-002': 2,
 		'§MED-003': 4,
-		'§MED-004': 4,
 		'§MON-001': 4,
 		'§MON-004': 2,
 		'§MON-005': 3,
@@ -315,13 +332,22 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 	}, per_feature
 
 
-def test_med_004_cannot_render_its_own_example() -> None:
-	"""MED-004's Features list prints the string "available at [pharmacy], 2 hours ago" as the thing
-	a person sees. `StockReport` carries no timestamp, so no client can render the section's own
-	example — the same shape as §6.2.3's "Updated 2 hours ago", which also had nothing behind it."""
-	from afya.medicine.views import StockReport
-	assert not any('time' in f or 'at_iso' in f or 'when' in f for f in StockReport.model_fields), \
-		'the absence is the finding; a timestamp here means the gap is closed and this test must change'
+def test_med_004_can_render_its_own_example() -> None:
+	"""MED-004's Features list prints "available at [pharmacy], 2 hours ago" as the thing a person
+	sees, and this test used to assert the opposite: `StockReport` carried no timestamp, so no
+	client could render the section's own sentence. That was the finding and it is closed, so the
+	test now holds the closure rather than the gap — a report carries when it was made and an
+	availability carries how old it is, and "2 hours ago" is a subtraction the server does once
+	rather than every client doing with its own clock.
+
+	The `age_hours` half matters as much as `at_iso`: §MED-004's Anti-gaming clause says "Show report
+	age clearly", and a client handed an ISO string on a phone with a wrong clock prints the wrong
+	age — or none at all on a phone with no clock.
+	"""
+	from afya.medicine.views import StockAvailability, StockReport
+	assert 'at_iso' in StockReport.model_fields, 'the report must carry when it was made'
+	assert {'age_hours', 'reported_at_iso'} <= set(StockAvailability.model_fields), \
+		'the availability must carry the age as a number, not only the timestamp it derives from'
 
 
 def test_tri_003_names_four_exposures_the_input_cannot_distinguish() -> None:

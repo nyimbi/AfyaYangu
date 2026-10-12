@@ -583,7 +583,7 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/medicine/dose'),
 	('POST', '/medicine/interactions'),
 	('POST', '/medicine/verify'),
-	('POST', '/medicine/stock'),      # a crowd-sourced stock report; `reported_by` is the claim
+	('POST', '/medicine/stock'),      # a crowd-sourced stock report; the reporter is the token's subject when there is one, the body's name otherwise
 	('POST', '/environment/air'),
 	('POST', '/environment/flood'),
 	('POST', '/environment/water'),

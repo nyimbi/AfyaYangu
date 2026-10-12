@@ -1304,3 +1304,71 @@ and size-caps every other image in the app.
 **Counts: 4 rows left `missing` — 3 to `carried`, 1 to `deferred` — 99 → 95.** §MED-001 is 6/6
 accounted for: four `carried`, two `deferred` (the barcode read and the packaging photo, both
 device-side). 490 rows, `carried` 378, `missing` 95, `deferred` 17.
+
+## §MED-004 — the stock map answers two questions, and only one of them had an answer
+
+**`stock_for` is keyed on (drug, facility) and needs both.** That answers "is this drug at this
+place". The section's own example is *"available at [pharmacy], 2 hours ago"* — a person holding a
+prescription, wanting a list of places. Those are different questions, and the second one could not
+be asked at all. `search_stock` is it: one row per (drug, place) rather than one per report, because
+ten reports about the same pair are one answer with `reports=10` and a raw feed of ten identical
+rows tells a reader nothing the newest one did not. `StockAvailability` is what makes the section's
+sentence renderable — `age_hours` as a duration a screen prints without diffing against its own
+clock, `reported_at_iso` beside it so the number stays auditable. A report from a client that
+predates `at_iso` carries no age rather than an age measured from now; the second would make the
+oldest possible data read as the freshest.
+
+**"Prioritised" is an ordering, and an ordering nothing applies is a comment.** `ESSENTIAL_MEDICINES`
+is the section's eight, each with the aliases a crowd actually types — "ARVs", "dolutegravir" and
+"TLD" are one medicine. `search_stock` sorts essential first and freshness second, so the vitamin
+does not outrank the insulin by being newer. The match is on whole words, not substrings: "insulin"
+is inside "insulinoma" and "act" inside "contact", and a substring test would prioritise a tumour
+and an optician.
+
+**The restock alert fires on the transition, not the state.** A report that a medicine is in stock
+is not news unless the last thing anyone said was that it had run out. "Previous" is read by the
+time the report was *made*, not the order it arrived: a report queued offline and flushed later is
+older than one filed after it, and arrival order would make the slowest-travelling report the
+newest thing anyone knows — in the alert path and in the availability a person reads.
+
+**The Anti-gaming clause names three controls and each is a different failure mode.**
+
+- *"Require location proximity to report."* The report carries a geohash rather than a coordinate,
+  per §LOC-003, and the cell is decoded to a centre and measured against the facility the report
+  names. A cell too coarse to be a position — two characters is a county — is refused rather than
+  rounded. The refusal is a 422 on the served path, not a silent drop: a report that vanished looks
+  like a network fault to the person who filed it, and they file it again from the same place.
+- *"Weight reports by reporter reliability."* Derived server-side from the reporter's own history
+  and never accepted from the client, because a client that sets its own weight has none. Starts at
+  5: an unknown reporter is not a distrusted one, and starting at the floor would silence every new
+  person. A report a *later* report from someone else contradicts loses a point; one that stands
+  gains one; the newest report moves nothing, because silence is not agreement and counting it as
+  confirmation would reward whoever reported last regardless of what they said. Clamped to 1–10.
+
+  The field check is not the whole control. `reporter_weight` is absent from the request, but
+  `reported_by` is not — and the weight is computed *from* `reported_by`. On a route that is
+  deliberately ungated, that makes the identity behind the control whatever the client typed: a
+  reporter whose record has been contradicted files the next report under a fresh name and starts
+  at the middle again. The route now takes the token's subject when the caller presents one and
+  falls back to the body's name only when it does not, so a queued offline batch still lands under
+  the name it was filed with while a live report cannot choose who it is.
+- *"Show report age clearly."* `age_hours` and `reported_at_iso` on every availability.
+
+**A report with no location is accepted, and that is the control's own limit.** `within_proximity`
+answers `False` for a report it cannot place — as a predicate on "is this report from here", an
+unplaceable report has not shown that it is, and `True` would assert something it did not check.
+The route then *skips* the check rather than reading `False` as a refusal, because §13.2's `gps`
+fallback exists so a phone without a fix can still report and refusing it is the accessibility
+failure §ACC-001 is about. Both directions fail as working code, which is why both are pinned.
+
+**Six catalogue actions, and the sixth was already there.** `report_suspicious_medicine` sits under
+MED-004 in `FEATURE_OF` and is §MED-001's report path — the id has been in the catalogue since
+before this unit. The gate asserts each action's `(method, path)` against a recursive walk of
+`app.routes`, so an action pointing at a route nobody serves fails rather than shipping as a screen
+that 404s.
+
+**Counts: 4 rows left `missing` — 4 to `carried` — 95 → 91.** §MED-004 is 9/9 accounted for: six
+Features and three Anti-gaming controls, all `carried`. The three Anti-gaming rows are new rows
+rather than reclassified ones: the audit module's own rule is that a claim label whose body is a
+list is miscategorised, and `Anti-gaming` named three controls, so it was a content label wearing a
+claim label's name and moved to `_LABELS`. 493 rows, `carried` 385, `missing` 91, `deferred` 17.
