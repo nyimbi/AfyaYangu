@@ -77,6 +77,21 @@ WORKER_ROUTES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/tier4/activation/fire'),      # operator; `infrastructure` scope
 })
 
+# Routes that carry a family-member-shaped parameter name but are not family routes. `member_ref`
+# here is a *household member handle inside the caller's own 21-day contact diary* (§MON-009), not a
+# member of the caller's wallet: the service asserts it against `_households[subject_ref]`, and
+# `subject_ref` is the token's own because the guard binds it. So `require_self` is the right guard
+# and the ownership guard would be wrong — a guardian reaching into somebody else's contact diary is
+# exactly what `require_self_or_guardian` would permit.
+#
+# The exemption is from the *family-member* rule only, never from guarding: each route below is
+# asserted to carry `require_self`, so this set cannot become a synonym for "unguarded".
+HOUSEHOLD_MEMBER_ROUTES: frozenset[tuple[str, str]] = frozenset({
+	('POST', '/monitoring/contact/{subject_ref}/members'),
+	('DELETE', '/monitoring/contact/{subject_ref}/members/{member_ref}'),
+	('GET', '/monitoring/contact/{subject_ref}/members/{member_ref}/diary'),
+})
+
 # The one route that must carry no guard at all: it is what issues a token, so requiring a token
 # would be a deadlock. Kept apart from WORKER_ROUTES so "worker route" cannot quietly come to mean
 # "unguarded" — every worker route above is asserted to carry `require_scope`.
@@ -173,6 +188,8 @@ def _unguarded(app: Any, spec: dict[str, Any]) -> list[str]:
 		# A route naming a family member needs the ownership guard; the equality guard would
 		# refuse the guardian it exists to serve.
 		if _named_subjects(spec, method, path) & FAMILY_PARAM_NAMES and guard != 'require_self_or_guardian':
+			if (method, path) in HOUSEHOLD_MEMBER_ROUTES:
+				continue
 			bad.append(f'{method} {path} names a family member but carries {guard}')
 	return bad
 
@@ -220,6 +237,24 @@ def test_the_guarded_set_is_not_vacuous() -> None:
 	"""Pin the size, so a change that silently drops every route from the set cannot pass."""
 	carrying = [r for r in _subject_carrying_routes(create_app(build_services()).openapi()) if r not in WORKER_ROUTES]
 	assert len(carrying) >= 30, f'expected the citizen personal-data surface, found {carrying}'
+
+
+def test_the_household_member_exemption_is_still_guarded() -> None:
+	"""An exemption from the *family-member* rule is not an exemption from guarding.
+
+	§MON-009's household routes name `member_ref`, which the gate reads as a wallet member, so they
+	are exempted from the ownership-guard rule — but `require_self` binds `subject_ref` to the token,
+	and that is what keeps a household inside the diary of the person who owns it. Asserted rather
+	than assumed, because an exemption list that quietly drifts into an unguarded-route list is the
+	one way this gate can fail open.
+	"""
+	app = create_app(build_services())
+	spec = app.openapi()
+	assert HOUSEHOLD_MEMBER_ROUTES, 'the exemption list is empty — this test is vacuous'
+	for method, path in HOUSEHOLD_MEMBER_ROUTES:
+		assert (method, path) in _subject_carrying_routes(spec), f'{method} {path} is not in the gate\'s set'
+		assert _guard_of(app, method, path) == 'require_self', (
+			f'{method} {path} carries {_guard_of(app, method, path)}, not require_self')
 
 
 async def _token(c: httpx.AsyncClient, subject: str) -> str:

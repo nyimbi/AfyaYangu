@@ -6,10 +6,10 @@ and testable without a clock.
 """
 from afya.logmixin import LogMixin
 from afya.monitoring.views import (
-	CATCH_UP_GRACE_WEEKS, EPI_DUE_WEEKS, REMINDER_LEAD_DAYS, AdherenceEvent, AdherenceReport,
-	AdherenceAction, ConditionProfile, FoodSafetyAlert, HouseholdMonitor, ImmunisationCatchUp,
-	ImmunisationDue, MedSchedule, MonitoringDay, MonitoringVerdict, NutritionGuidance,
-	PeakFlowReading, VectorRisk, WeightReading,
+	CATCH_UP_GRACE_WEEKS, EPI_DUE_WEEKS, REMINDER_LEAD_DAYS, REMINDER_SLOTS, AdherenceEvent,
+	AdherenceReport, AdherenceAction, ConditionProfile, FoodSafetyAlert, HouseholdMonitor,
+	ImmunisationCatchUp, ImmunisationDue, MedSchedule, MonitoringDay, MonitoringReminder,
+	MonitoringVerdict, NutritionGuidance, PeakFlowReading, ReminderSlot, VectorRisk, WeightReading,
 )
 
 # Danger symptoms for a monitored contact (MON-009): any of these, or fever, escalates.
@@ -24,6 +24,36 @@ NUTRITION_BY_AGE: tuple[tuple[int, str, list[str]], ...] = (
 	(12, 'Family foods, three meals plus two snacks; keep breastfeeding to 2 years.', ['ugali', 'sukuma wiki', 'eggs', 'small fish']),
 	(24, 'Balanced plate at every meal; watch for worms and give deworming when due.', ['githeri', 'milk', 'fruit in season']),
 )
+
+
+def support_resources(escalate: bool) -> list[dict[str, str]]:
+	"""§MON-009's "psychological support resources", attached to the verdict.
+
+	The resources are §REC-005's, read from the one place they live rather than copied here: the
+	monitoring diary is a frightening place to be and the support belongs on the screen the person is
+	already looking at, but a second copy of the counselling numbers is a second set to keep current.
+	The escalation flag changes the framing and not the numbers — a flagged day says plainly why the
+	lines are on the screen, because a person who has just logged a fever should not have to work out
+	whether the helpline is for them.
+	"""
+	from afya.mental.views import COUNSELLING_LINES
+	resources = [
+		{'kind': 'outbreak_support', 'slug': 'isolation_distress',
+		 'title': 'Distress while isolating or in quarantine', 'route': '/mental/outbreak-support/isolation_distress'},
+		{'kind': 'coping', 'slug': 'coping_tips', 'title': 'What can I do to cope?', 'route': '/mental/coping'},
+	]
+	for line in COUNSELLING_LINES:
+		resources.append({'kind': 'crisis_line', 'slug': line['name'], 'title': line['name'],
+		                  'route': f'tel:{line["number"]}', 'number': line['number'],
+		                  'verified': line['verified']})
+	if escalate:
+		resources.insert(0, {
+			'kind': 'escalation_note', 'slug': 'why-this-is-here', 'route': '',
+			'title': 'Why these are on this screen',
+			'body': 'You logged a warning sign. Waiting for the result of a test or watching for a '
+			        'fever is frightening on its own, and that is a normal reaction, not a weakness. '
+			        'These lines are for you as well as for the person you are monitoring.'})
+	return resources
 
 
 def _days_from_weeks(weeks: int) -> int:
@@ -228,27 +258,54 @@ class MonitoringService(LogMixin):
 
 	# --- MON-009 21-day contact monitoring ------------------------------------------------
 
-	def enrol(self, subject_ref: str, officer: str | None = None) -> HouseholdMonitor:
-		"""Enrol a contact for 21 days; requires the outbreak event to be open (§11.1)."""
-		household = HouseholdMonitor(subject_ref=subject_ref, monitoring_officer=officer)
+	def enrol(self, subject_ref: str, officer: str | None = None, officer_number: str | None = None) -> HouseholdMonitor:
+		"""Enrol a contact for 21 days; requires the outbreak event to be open (§11.1).
+
+		A name without a number is accepted: the officer is assigned from a roster that may not have
+		synced, and refusing enrolment over that would withhold the diary — the one thing a contact
+		cannot wait for — to protect a contact detail. What a name without a number may not do is
+		*present itself as a dialable line*; `monitoring_officer_line` is where that is decided.
+		"""
+		household = HouseholdMonitor(subject_ref=subject_ref, monitoring_officer=officer,
+		                             monitoring_officer_number=officer_number)
 		self._households[subject_ref] = household
-		self._log_info('contact enrolled for monitoring', sub=subject_ref)
+		self._log_info('contact enrolled for monitoring', sub=subject_ref, officer=officer)
 		return household
 
 	async def log_day(self, entry: MonitoringDay) -> MonitoringVerdict:
 		assert entry.subject_ref in self._households, 'not enrolled for monitoring'
+		household = self._households[entry.subject_ref]
+		# §MON-009's "location logging (with consent) to support contact tracing". The consent is the
+		# household's recorded decision, not the entry's own `location_logged` boolean: a client that
+		# set that flag true would be asserting the person's consent on their behalf, which is the
+		# one thing a consent flag may never be. An entry claiming a location without consent is
+		# refused rather than silently stored without it.
+		if entry.location_logged:
+			assert household.location_consent, (
+				'location logging requires consent recorded against the household (§MON-009)')
+		# A member's day is filed against the member, and the contact's diary stays the contact's:
+		# the predecessor accepted `household_member` and read nothing, so a member's fever counted
+		# as the contact's and the member had no series of their own.
+		if entry.household_member is not None:
+			assert entry.household_member in household.members, (
+				f'{entry.household_member} is not a member of this household')
 		self._monitoring.append(entry)
 		flagged = sorted(set(entry.symptoms) & MONITORING_ALERT_SYMPTOMS)
 		fever = entry.temperature_c >= 38.0
 		escalate = fever or bool(flagged)
-		household = self._households[entry.subject_ref]
 		notify_chw = escalate and household.monitoring_officer is not None
 		remaining = max(0, MONITORING_DAYS - entry.day)
+		# Whose reading this is, named in the message. One household shares one diary, so "a fever was
+		# recorded" without saying for whom is a message the contact has to decode — and the decode is
+		# the moment they are least able to make it.
+		who = f'for {entry.household_member}' if entry.household_member else 'for you'
 		if escalate:
 			reason = 'fever' if fever else ', '.join(flagged)
-			message = f'Day {entry.day}: {reason} recorded. Call 719 now and await instructions — do not travel by public transport.'
+			message = (f'Day {entry.day}: {reason} recorded {who}. Call 719 now and await instructions '
+			           '— do not travel by public transport.')
 		else:
-			message = f'Day {entry.day} of {MONITORING_DAYS} logged, no warning signs. {remaining} days to go.'
+			message = (f'Day {entry.day} of {MONITORING_DAYS} logged {who}, no warning signs. '
+			           f'{remaining} days to go.')
 		if escalate:
 			self._log_warn('monitoring escalation', sub=entry.subject_ref, day=entry.day)
 		from afya.sensors.service import source_class
@@ -257,14 +314,155 @@ class MonitoringService(LogMixin):
 			subject_ref=entry.subject_ref, day=entry.day, days_remaining=remaining,
 			escalate=escalate, notify_chw=notify_chw, message=message,
 			clinical_grade=reading.clinical_grade, reading_source=entry.source,
+			support=support_resources(escalate),
 		)
 
 	def diary(self, subject_ref: str) -> list[MonitoringDay]:
-		return sorted([e for e in self._monitoring if e.subject_ref == subject_ref], key=lambda e: e.day)
+		"""The contact's own 21-day window — entries filed *for* a household member excluded.
+
+		A member's day is stored under the same `subject_ref` so the two live in one 21-day window,
+		which is what "the same interface" means; leaving them in this list would put a household
+		member's fever into the contact's own series, which is the predecessor's defect exactly — it
+		accepted `household_member` and read nothing.
+		"""
+		return sorted([e for e in self._monitoring
+		               if e.subject_ref == subject_ref and e.household_member is None],
+		              key=lambda e: e.day)
+
+	def member_diary(self, subject_ref: str, member_ref: str) -> list[MonitoringDay]:
+		"""One household member's readings, from the same diary the contact's own are filed in.
+
+		"The same interface" means one 21-day window with the member's days inside it — so the filter
+		is on the member and the household is checked first, because a member of somebody else's
+		household reading this would be served a diary they have no relationship to.
+		"""
+		household = self._households.get(subject_ref)
+		assert household is not None, 'not enrolled for monitoring'
+		assert member_ref in household.members, f'{member_ref} is not a member of this household'
+		return sorted([e for e in self._monitoring
+		               if e.subject_ref == subject_ref and e.household_member == member_ref],
+		              key=lambda e: e.day)
+
+	def remove_household_member(self, subject_ref: str, member_ref: str) -> HouseholdMonitor:
+		household = self._households.get(subject_ref)
+		assert household is not None, 'not enrolled for monitoring'
+		assert member_ref in household.members, f'{member_ref} is not a member of this household'
+		household.members.remove(member_ref)
+		self._log_info('household member removed', sub=subject_ref, members=len(household.members))
+		return household
+
+	def add_household_member(self, subject_ref: str, member_ref: str) -> HouseholdMonitor:
+		"""§MON-009's household monitoring. The member is monitored through the contact's diary.
+
+		`member_ref` is a handle, not a name: the section says household members are monitored in the
+		same interface, and the minimum that makes that true is an identifier the contact recognises.
+		A name would put a second person's identity into a record kept for the first.
+		"""
+		household = self._households.get(subject_ref)
+		assert household is not None, 'not enrolled for monitoring'
+		assert member_ref and member_ref != subject_ref, 'a household member is somebody else'
+		if member_ref not in household.members:
+			household.members.append(member_ref)
+		self._log_info('household member added', sub=subject_ref, members=len(household.members))
+		return household
+
+	def record_location_consent(self, subject_ref: str, granted: bool, at_iso: str) -> HouseholdMonitor:
+		"""Record the contact's decision about location logging, and when they made it.
+
+		Revocable in both directions, because consent that cannot be withdrawn is not consent. The
+		timestamp is kept so a later reader can see the decision was made rather than assumed, and so
+		a withdrawal is distinguishable from never having agreed.
+		"""
+		household = self._households.get(subject_ref)
+		assert household is not None, 'not enrolled for monitoring'
+		assert at_iso, 'a consent decision is dated'
+		household.location_consent = granted
+		household.location_consent_at_iso = at_iso
+		self._log_info('location consent recorded', sub=subject_ref, granted=granted, at=at_iso)
+		return household
+
+	def reminders(self, subject_ref: str, day: int) -> MonitoringReminder:
+		"""§MON-009's twice-daily reminders, derived from what was logged.
+
+		The slots are the two a day has and a day is complete when both are in — which is what makes
+		this checkable rather than a notification queue. §11.3's adherence design says reminders
+		"escalate in urgency if missed", so the escalation is computed from the *window* and not only
+		from today: a person who has missed four days needs a firmer message than one who has missed
+		this morning, and a surface that only knows about today cannot tell them apart.
+		"""
+		assert 1 <= day <= MONITORING_DAYS, f'day {day} outside the 21-day window'
+		done = self._slots_logged(subject_ref, day)
+		missing = [s.value for s in REMINDER_SLOTS if s not in done]
+		complete = not missing
+		# Days with a *half* check-in count as missed. A ladder that only counts days with no entry
+		# at all never fires for the person who logs every morning and forgets every evening, which
+		# is the commonest way a 21-day diary is lost.
+		missed_days = len([d for d in range(1, day + 1) if not self._day_complete(subject_ref, d)])
+		if complete:
+			escalation, message = 'none', f'Day {day} of {MONITORING_DAYS}: both check-ins logged.'
+		elif missed_days >= 4:
+			escalation = 'urgent'
+			message = (f'{missed_days} day(s) without a full check-in. Please log now, or call 719 — '
+			           'the diary only works if it is kept.')
+		elif missed_days >= 2:
+			escalation, message = 'firm', (f'{missed_days} day(s) missed. Log your temperature now and '
+			                              'set a reminder for this evening.')
+		else:
+			escalation, message = 'gentle', f'Still to log today: {", ".join(missing)}.'
+		return MonitoringReminder(subject_ref=subject_ref, day=day,
+		                          due=[s.value for s in REMINDER_SLOTS], logged=[s.value for s in done],
+		                          missing=missing, complete=complete, escalation=escalation, message=message)
+
+	def _slots_logged(self, subject_ref: str, day: int) -> list[ReminderSlot]:
+		"""Which of a day's two slots are in — the one place "complete" is decided.
+
+		A slot counts as logged when an entry names it. When no entry names one — a client that
+		predates the field, or a person logging without picking — the entries are assigned to the
+		slots in order, because counting is the best a service can do without being told. Only the
+		contact's own entries count: a member's morning does not discharge the contact's, and a
+		household of five could otherwise keep one person's diary complete for them.
+		"""
+		entries = [e for e in self._monitoring
+		           if e.subject_ref == subject_ref and e.day == day and e.household_member is None]
+		named = {e.slot for e in entries if e.slot is not None}
+		if named:
+			return sorted(named, key=REMINDER_SLOTS.index)
+		return list(REMINDER_SLOTS[:len(entries)])
+
+	def _day_complete(self, subject_ref: str, day: int) -> bool:
+		"""Whether both of a day's slots are in — the unit §MON-009's reminders escalate on."""
+		return set(REMINDER_SLOTS) <= set(self._slots_logged(subject_ref, day))
+
+	def monitoring_officer_line(self, subject_ref: str) -> dict[str, str]:
+		"""§MON-009's "direct line to the assigned monitoring officer".
+
+		When no officer is assigned this says so rather than serving an empty line: a person told to
+		call their officer and given no number will wait, and waiting is the one thing a contact under
+		monitoring cannot do. The fallback is 719, which is staffed.
+		"""
+		household = self._households.get(subject_ref)
+		assert household is not None, 'not enrolled for monitoring'
+		if household.monitoring_officer and household.monitoring_officer_number:
+			return {'assigned': 'True', 'officer': household.monitoring_officer,
+			        'line': f'tel:{household.monitoring_officer_number}',
+			        'message': f'Your monitoring officer is {household.monitoring_officer}. Call them first for anything about your monitoring.'}
+		if household.monitoring_officer:
+			# Named but not dialable: the honest answer names the officer *and* gives the line that
+			# will actually be answered, rather than a screen with a name and a dead button.
+			return {'assigned': 'True', 'officer': household.monitoring_officer, 'line': 'tel:719',
+			        'message': f'Your monitoring officer is {household.monitoring_officer}, but their direct number has not reached the app yet. Call 719 — it is staffed — and ask for them by name.'}
+		return {'assigned': 'False', 'officer': '', 'line': 'tel:719',
+		        'message': 'No monitoring officer is assigned to you yet. Call 719 — it is staffed — and say you are on a 21-day contact diary.'}
 
 	def adherence_reminder_days(self, subject_ref: str) -> list[int]:
-		"""Days in the 21-day window with no entry — the adherence surface (§11.3 escalation)."""
-		logged = {e.day for e in self._monitoring if e.subject_ref == subject_ref}
+		"""Days in the 21-day window with no entry — the adherence surface (§11.3 escalation).
+
+		The contact's own days only. A household member's reading filed under the same window is not
+		the contact's check-in, so counting it would report a diary as kept on the strength of
+		somebody else's temperature.
+		"""
+		logged = {e.day for e in self._monitoring
+		          if e.subject_ref == subject_ref and e.household_member is None}
 		missing = [d for d in range(1, MONITORING_DAYS + 1) if d not in logged]
 		assert len(missing) <= MONITORING_DAYS, 'window bounded'
 		return missing

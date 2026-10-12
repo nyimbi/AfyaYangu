@@ -141,6 +141,23 @@ class NutritionGuidance(BaseModel):
 
 # --- MON-009: 21-day contact monitoring diary --------------------------------------------
 
+class ReminderSlot(str, Enum):
+	"""§MON-009's "twice-daily reminders", as the two slots a day actually has.
+
+	A reminder is not a message the app sends into nothing: it is a time the person is asked to log,
+	and the check-in surface has to know whether the day's two are done. Morning and evening rather
+	than arbitrary times, because a temperature read at bedtime and one read at dawn are the two the
+	21-day window is built from, and a third would be a schedule nobody keeps.
+	"""
+	morning = 'morning'
+	evening = 'evening'
+
+
+# Both slots are required for a day to be complete, and the escalation ladder is §11.3's own
+# adherence design — "reminders escalate in urgency if missed".
+REMINDER_SLOTS: tuple[ReminderSlot, ...] = (ReminderSlot.morning, ReminderSlot.evening)
+
+
 class MonitoringDay(BaseModel):
 	model_config = MODEL_CONFIG
 	entry_id: str = Field(pattern=r'^MON-[A-Z0-9]{8,}$')
@@ -153,6 +170,11 @@ class MonitoringDay(BaseModel):
 	symptoms: list[str] = Field(default_factory=list)
 	household_member: str | None = None
 	location_logged: bool = False
+	# §MON-009's twice-daily cadence, carried on the entry rather than inferred from how many were
+	# filed. Optional because a client that does not send it must still be able to log — but when it
+	# is absent the service can only count entries, and two readings taken the same morning look
+	# exactly like one morning and one evening.
+	slot: ReminderSlot | None = None
 
 
 class MonitoringVerdict(BaseModel):
@@ -168,10 +190,67 @@ class MonitoringVerdict(BaseModel):
 	# difference is only visible if the verdict carries it.
 	clinical_grade: bool = False
 	reading_source: MeasurementSource = MeasurementSource.manual
+	# §MON-009's "psychological support resources". A 21-day diary is a frightening place to be —
+	# the person is watching themselves for a disease that kills — so the support is attached to the
+	# verdict rather than left in another section of the app for them to find. Carried on every
+	# verdict including the clear ones, because the day someone most needs it is not always a
+	# flagged day, and it escalates with the verdict when it is.
+	support: list[dict[str, str]] = Field(default_factory=list)
+
+
+class MonitoringReminder(BaseModel):
+	"""One day's reminder state, derived from what was logged rather than from what was sent.
+
+	`missing` is what makes this a control rather than a notification: a reminder surface that
+	cannot name the missed slots cannot escalate, and §MON-009 says the reminders escalate.
+	"""
+	model_config = MODEL_CONFIG
+	subject_ref: str
+	day: int = Field(ge=1, le=21)
+	due: list[str]
+	logged: list[str]
+	missing: list[str]
+	complete: bool
+	escalation: str = Field(pattern=r'^(none|gentle|firm|urgent)$')
+	message: str
 
 
 class HouseholdMonitor(BaseModel):
+	"""One contact's 21-day household. The members are monitored in the same interface, not beside it.
+
+	§MON-009 asks for "household member monitoring in the same interface", and the predecessor had
+	`members: list[str]` with nothing that read it — so a household was a list of names on a record
+	and no member had a diary. `MonitoringDay.household_member` existed too and was never read, which
+	is the same gap from the other side: a day could be filed *for* a member and counted *as* the
+	contact's.
+	"""
 	model_config = MODEL_CONFIG
 	subject_ref: str
 	monitoring_officer: str | None = None
+	# §MON-009 asks for a *direct line* to the officer. A name alone is not dialable — the predecessor
+	# had exactly that and the audit row said so — so the number travels with the name or neither is
+	# recorded, and the route serves `tel:` only when there is a number behind it.
+	monitoring_officer_number: str | None = None
 	members: list[str] = Field(default_factory=list)
+	# Consent for contact-tracing location, recorded as a decision with a time rather than as the
+	# `location_logged` boolean a client could simply set true. A monitored person is under
+	# surveillance by definition; making their location opt-in and revocable is the difference
+	# between contact tracing and tracking.
+	location_consent: bool = False
+	location_consent_at_iso: str | None = None
+
+
+class LocationConsentDecision(BaseModel):
+	"""§MON-009's consent, as a decision the contact makes rather than a field a client sets.
+
+	`granted` is two-valued on purpose: withdrawal has to be expressible, and a model that only
+	carries "consent given" cannot record the moment somebody changed their mind.
+	"""
+	model_config = MODEL_CONFIG
+	granted: bool
+	at_iso: str = Field(min_length=10)
+
+
+class HouseholdMemberRequest(BaseModel):
+	model_config = MODEL_CONFIG
+	member_ref: str = Field(min_length=1, max_length=64)

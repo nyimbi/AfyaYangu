@@ -1113,3 +1113,67 @@ may point at a person.
 
 **Counts: 5 rows flipped `missing` → `carried`, 114 → 109.** §REC-005 is now 6/6 carried. 490 rows,
 `carried` 365, `missing` 109, `deferred` 16. 1210 tests green, pyright clean.
+
+## §MON-009 — the 21-day diary: reminders, consent, household, support, and the officer
+
+The section's five missing bullets shared one shape: a field existed and nothing read it. `members`
+was a list nobody populated, `household_member` a name nobody looked at, `monitoring_officer` a
+free-text string, `location_logged` a boolean nothing set, and the reminders were a method that
+returned missing day numbers with nothing to escalate on. Filling them meant making each field
+load-bearing rather than adding a parallel surface beside it.
+
+**The reminders are state, not a queue.** `ReminderSlot` names the two slots a day has — morning and
+evening — and `MonitoringService.reminders` reports which are in, which are missing, and the §11.3
+escalation rung. The rung is computed from the *window*, not from today: a person who has missed four
+days needs a firmer message than one who has missed this morning, and a surface that only knows about
+today cannot tell them apart. `_day_complete` counts a **half-kept** day as missed, which is the
+canary this bullet turns on — a ladder that counts only days with *no* entry sees four logged
+mornings as a perfect record and never fires for the person who forgets every evening, and that is
+the commonest way a 21-day diary is lost. `_slots_logged` is the one place "complete" is decided;
+`reminders` and `_day_complete` both read it, so the two cannot drift.
+
+**Consent is a recorded decision, not a client boolean.** `MonitoringDay.location_logged` was a flag
+nothing set, and making it settable is not consent — it is a client asserting consent on the
+person's behalf. `HouseholdMonitor` now carries `location_consent` and `location_consent_at_iso`, and
+`record_location_consent` writes both directions: consent that cannot be withdrawn is not consent.
+`log_day` refuses an entry claiming a location without it, following the precedent in
+`location/service.py` where `assert history.consent_granted` gates every point.
+
+**A household member has their own series, inside the same window.** Members are added to the
+household and a day filed for one is read back through `member_diary`. The other half matters more:
+`diary`, `_slots_logged` and `adherence_reminder_days` all *exclude* member entries, because the
+predecessor's defect was the reverse — it accepted `household_member` and read nothing, so a member's
+fever sat in the contact's series and the contact's adherence counted it. A household of five could
+otherwise keep one person's diary complete for them. The escalation message now names whose reading
+it is ("for M1" / "for you"), because one household shares one diary and a fever recorded without
+attribution is a message the contact has to decode at the moment they are least able to.
+
+**Support is attached to the verdict, not filed elsewhere.** `support_resources` returns §REC-005's
+counselling lines read from the one place they live — a second copy of the numbers is a second set to
+keep current, and the copy that goes stale is the one nobody is looking at — plus the coping and
+outbreak-support routes. It travels on **every** verdict including the clear ones, because the day
+someone most needs it is not always a flagged day; a flagged verdict leads with a note saying why the
+lines are on the screen.
+
+**The officer line is dialable or it says it is not.** `monitoring_officer_number` travels with the
+name, and `monitoring_officer_line` serves a `tel:` target only when there is a number behind it. A
+name with no number is *named* and falls back to 719 rather than being served as a dead button —
+which is exactly the predecessor's defect in this bullet, a free-text name with nothing to dial. The
+name-without-number case is accepted at enrolment rather than refused: the officer roster may not
+have synced, and withholding the diary over a contact detail is the wrong trade.
+
+**Routes, all self-scoped:** `GET /monitoring/contact/{subject_ref}/reminders/{day}`, `POST
+.../location-consent`, `POST .../members`, `DELETE .../members/{member_ref}`, `GET
+.../members/{member_ref}/diary`, `GET .../officer`; `POST /monitoring/contact/enrol` gained
+`officer_number`.
+
+**One gate needed a scoped exemption.** `test_self_scope.py` reads `member_ref` as a wallet member
+and demanded the ownership guard on the three household routes — but a household member is a handle
+inside the caller's *own* contact diary, not a minor in their wallet, so `require_self` is the right
+guard and `require_self_or_guardian` would be wrong (it would let a guardian into somebody else's
+diary). The routes are exempted from the family-member rule by an explicit named set, and a new test
+asserts each one still carries `require_self` — an exemption list that drifts into an
+unguarded-route list is the one way that gate can fail open.
+
+**Counts: 5 rows flipped `missing` → `carried`, 109 → 104.** §MON-009 is now 9/9 carried. 490 rows,
+`carried` 370, `missing` 104, `deferred` 16.

@@ -117,8 +117,8 @@ from afya.location.views import (
 )
 from afya.monitoring.service import MonitoringService
 from afya.monitoring.views import (
-	AdherenceEvent, ConditionProfile, FoodSafetyAlert, MedSchedule, MonitoringDay, PeakFlowReading,
-	WeightReading,
+	AdherenceEvent, ConditionProfile, FoodSafetyAlert, HouseholdMemberRequest,
+	LocationConsentDecision, MedSchedule, MonitoringDay, PeakFlowReading, WeightReading,
 )
 from afya.realtime.service import RealtimeService
 from afya.realtime.views import KNOWN_CATEGORIES, SocketSubscription, now_iso
@@ -2666,7 +2666,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/monitoring/contact/enrol')
-	async def monitoring_enrol(subject_ref: str, officer: str | None = None, county: str | None = None, _subject: str = Depends(require_self())) -> dict[str, object]:
+	async def monitoring_enrol(subject_ref: str, officer: str | None = None, officer_number: str | None = None, county: str | None = None, _subject: str = Depends(require_self())) -> dict[str, object]:
 		"""§11.1 rows 3 and 5: a contact gets the diary, or a person asks for it.
 
 		This used to be `if not registry.tier4_active()`, one global gate, so the diary was
@@ -2682,7 +2682,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		state = activation.state(county=county, subject_ref=subject_ref)
 		if not activation.feature_available('MON-009', state):
 			raise HTTPException(status_code=403, detail=activation.reason('MON-009', state))
-		return monitoring.enrol(subject_ref, officer).model_dump(mode='json')
+		return monitoring.enrol(subject_ref, officer, officer_number).model_dump(mode='json')
 
 	@app.post('/monitoring/contact/day')
 	async def monitoring_day(entry: MonitoringDay, _subject: str = Depends(require_self())) -> dict[str, object]:
@@ -2697,6 +2697,54 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'entries': [e.model_dump(mode='json') for e in monitoring.diary(subject_ref)],
 			'missing_days': monitoring.adherence_reminder_days(subject_ref),
 		}
+
+	@app.get('/monitoring/contact/{subject_ref}/reminders/{day}')
+	async def monitoring_reminders(subject_ref: str, day: int, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§MON-009's twice-daily reminders, as state rather than as a notification queue."""
+		try:
+			return monitoring.reminders(subject_ref, day).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/monitoring/contact/{subject_ref}/location-consent')
+	async def monitoring_location_consent(subject_ref: str, decision: LocationConsentDecision, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""Record the contact's own decision about contact-tracing location, granted or withdrawn."""
+		try:
+			return monitoring.record_location_consent(
+				subject_ref, decision.granted, decision.at_iso).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/monitoring/contact/{subject_ref}/members')
+	async def monitoring_add_member(subject_ref: str, request: HouseholdMemberRequest, _subject: str = Depends(require_self())) -> dict[str, object]:
+		try:
+			return monitoring.add_household_member(subject_ref, request.member_ref).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.delete('/monitoring/contact/{subject_ref}/members/{member_ref}')
+	async def monitoring_remove_member(subject_ref: str, member_ref: str, _subject: str = Depends(require_self())) -> dict[str, object]:
+		try:
+			return monitoring.remove_household_member(subject_ref, member_ref).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/monitoring/contact/{subject_ref}/members/{member_ref}/diary')
+	async def monitoring_member_diary(subject_ref: str, member_ref: str, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""A household member's readings, out of the same 21-day window as the contact's own."""
+		try:
+			return {'member_ref': member_ref,
+			        'entries': [e.model_dump(mode='json') for e in monitoring.member_diary(subject_ref, member_ref)]}
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/monitoring/contact/{subject_ref}/officer')
+	async def monitoring_officer(subject_ref: str, _subject: str = Depends(require_self())) -> dict[str, str]:
+		"""§MON-009's direct line to the assigned monitoring officer."""
+		try:
+			return monitoring.monitoring_officer_line(subject_ref)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	# --- community (§10.4 COM-005, §11.4 COM-101..104) ---
 	@app.post('/community/issues')

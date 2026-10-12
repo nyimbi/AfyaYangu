@@ -134,6 +134,8 @@ FEATURE_OF: dict[str, str] = {
 	'trend_chart': 'MON-003', 'appointments': 'MON-003', 'lifestyle_guidance': 'MON-003',
 	'vector_risk': 'MON-007', 'breeding_site': 'MON-007', 'food_alert': 'MON-008', 'food_alerts': 'MON-008', 'nutrition': 'MON-008',
 	'enrol_monitoring': 'MON-009', 'monitoring_day': 'MON-009', 'monitoring_diary': 'MON-009',
+	'monitoring_reminders': 'MON-009', 'monitoring_consent': 'MON-009', 'monitoring_members': 'MON-009',
+	'monitoring_member_diary': 'MON-009', 'monitoring_officer': 'MON-009',
 	'issue_alert': 'INF-014', 'alerts_by_county': 'INF-014',
 	'water_advisory': 'INF-011', 'air_advisory': 'INF-012', 'flood_risk': 'INF-013',
 	'file_price': 'INF-016', 'price_quote': 'INF-016', 'sha_cover_check': 'INF-016',
@@ -227,7 +229,8 @@ DORMANT_SLUGS: frozenset[str] = frozenset({
 	# Ebola-specific triage (TRI-003) and the activation control itself
 	'evd_triage', 'activate_outbreak_mode',
 	# 21-day contact monitoring (MON-009)
-	'enrol_monitoring', 'monitoring_day', 'monitoring_diary',
+	'enrol_monitoring', 'monitoring_day', 'monitoring_diary', 'monitoring_reminders',
+	'monitoring_consent', 'monitoring_members', 'monitoring_member_diary', 'monitoring_officer',
 	# Community health worker reporting module (COM-101)
 	'submit_case', 'advance_case', 'ppe_reminder', 'job_aid', 'chw_cases', 'assign_chw_case',
 	'log_chw_activity', 'chw_activity', 'chw_case_load', 'chw_ppe_reminder',
@@ -449,9 +452,14 @@ def catalogue() -> list[MobileAction]:
 		_a('flag_misinformation', 'Report something I heard', 'Community', 'POST', '/community/misinformation', [_f('submission_id', 'Report number', ph='generated for you'), _f('claim', 'What did you hear?', 'textarea'), _f('county', 'County'), _f('medium', 'How did you get it?', 'select', MISINFO_MEDIA), _f('topic', 'Topic', ph='optional')]),
 		_a('misinformation_clusters', 'Rumours going around', 'Community', 'GET', '/community/misinformation/clusters', []),
 		# Outbreak mode
-		_a('enrol_monitoring', 'Start my 21-day check-in', 'Outbreak', 'POST', '/monitoring/contact/enrol', [_s(), _f('officer', 'Monitoring officer', ph='optional')]),
-		_a('monitoring_day', 'Log today (21-day check-in)', 'Outbreak', 'POST', '/monitoring/contact/day', [_f('entry_id', 'Entry number', ph='generated for you'), _s(), _f('day', 'Day (1-21)', 'int'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('symptoms', 'Symptoms', 'list'), _f('household_member', 'Family member', ph='optional')]),
+		_a('enrol_monitoring', 'Start my 21-day check-in', 'Outbreak', 'POST', '/monitoring/contact/enrol', [_s(), _f('officer', 'Monitoring officer', ph='optional'), _f('officer_number', 'Their phone number', ph='optional')]),
+		_a('monitoring_day', 'Log today (21-day check-in)', 'Outbreak', 'POST', '/monitoring/contact/day', [_f('entry_id', 'Entry number', ph='generated for you'), _s(), _f('day', 'Day (1-21)', 'int'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('symptoms', 'Symptoms', 'list'), _f('household_member', 'Family member', ph='optional'), _f('slot', 'Morning or evening', 'select', ['morning', 'evening']), _f('location_logged', 'Share where I am today', 'bool')]),
 		_a('monitoring_diary', 'My 21-day diary', 'Outbreak', 'GET', '/monitoring/contact/{subject_ref}/diary', [_s('path')]),
+		_a('monitoring_reminders', 'What is still to log today', 'Outbreak', 'GET', '/monitoring/contact/{subject_ref}/reminders/{day}', [_s('path'), _f('day', 'Day (1-21)', 'path')]),
+		_a('monitoring_consent', 'Share my location while I am monitored', 'Outbreak', 'POST', '/monitoring/contact/{subject_ref}/location-consent', [_s('path'), _f('granted', 'Yes, share it', 'bool'), _f('at_iso', 'When')]),
+		_a('monitoring_members', 'Add someone I live with', 'Outbreak', 'POST', '/monitoring/contact/{subject_ref}/members', [_s('path'), _f('member_ref', 'Who they are to you', ph='e.g. my son')]),
+		_a('monitoring_member_diary', 'Their readings', 'Outbreak', 'GET', '/monitoring/contact/{subject_ref}/members/{member_ref}/diary', [_s('path'), _f('member_ref', 'Family member', 'path')]),
+		_a('monitoring_officer', 'Call my monitoring officer', 'Outbreak', 'GET', '/monitoring/contact/{subject_ref}/officer', [_s('path')]),
 		_a('send_exposure_notice', 'Send an exposure notice', 'Outbreak', 'POST', '/alerting/exposure', [_f('subject_ref', 'Person to notify'), _f('case_ref', 'Case reference', ph='optional')]),
 		_a('ack_exposure', 'I have read the notice', 'Outbreak', 'POST', '/alerting/exposure/ack', [_f('notification_id', 'Notice number'), _s(), _f('acknowledged_iso', 'When'), _f('request_callback', 'Ask a health worker to call me', 'bool')]),
 		_a('check_exposure', 'Was I near a case?', 'Outbreak', 'POST', '/location/proximity/check', [_f('own_pets', 'My encounter codes', 'list'), _f('window_days', 'Days to look back', 'int')]),
@@ -687,4 +695,12 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'access_profile': ('Make the app easier to use', 'Bigger text, simple mode, read aloud'),
 	'channel_costs': ('Will this cost me airtime?', 'What each way of reaching us costs you, and whether it is free'),
 	'voice': ('Speak to the app', 'Ask in your own language'),
+	'enrol_monitoring': ('Start my 21-day check-in', 'A short daily temperature log while you are being watched over'),
+	'monitoring_day': ('Log today', 'Temperature and how you feel, morning and evening'),
+	'monitoring_diary': ('My 21-day diary', 'Every day you have logged, and the countdown to the end'),
+	'monitoring_reminders': ('What is still to log today', 'The check-ins you have done, and the ones you have not'),
+	'monitoring_consent': ('Share my location while I am monitored', 'Off unless you turn it on, and you can turn it off again'),
+	'monitoring_members': ('Add someone I live with', 'Their readings go in the same diary as yours'),
+	'monitoring_member_diary': ('Their readings', 'What the person you added has logged so far'),
+	'monitoring_officer': ('Call my monitoring officer', 'The health worker assigned to your check-in'),
 }
