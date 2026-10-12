@@ -11,7 +11,8 @@ from typing import Any, Protocol
 
 import httpx
 
-from afya.medicine.views import VerifyRequest, VerifyResult
+from afya.medicine.service import display_from, status_from_verify_answer
+from afya.medicine.views import RegistrationStatus, SuspiciousReport, VerifyRequest, VerifyResult
 
 BASE_CONFIG_KEYS = ['jali', 'pheoc', 'mohf', 'ppb', 'adam', 'sha']
 
@@ -150,12 +151,24 @@ class PPBClient:
 		return out
 
 	async def verify(self, req: VerifyRequest) -> VerifyResult:
+		"""One batch against the registry, with §MED-001's Display line filled in.
+
+		The endpoint's boolean says *whether* to trust the medicine and not *why*. The four-way
+		status and the five Display fields are read out of the same answer — the product row and any
+		recall rows it carries — so the section's named outcomes cost no second round trip. The
+		decision itself lives in `afya.medicine.service.status_from_verify_answer`, because it is a
+		judgement about the regulator's data rather than a fact about the wire, and the domain
+		service is where the rest of that judgement lives.
+		"""
 		resp = await self._http.get(f'{self._base}/verify', params={'gtin': req.gtin, 'batch': req.batch_number}, headers=self._headers())
 		if resp.status_code == 404:
-			return VerifyResult(genuine=False, source='PPB', notes='batch not registered')
+			return VerifyResult(status=RegistrationStatus.not_found, source='PPB', notes='batch not registered')
 		resp.raise_for_status()
 		data = resp.json()
-		return VerifyResult(genuine=bool(data.get('genuine', False)), source='PPB')
+		if not isinstance(data, dict):
+			raise AssertionError('the PPB verify answer must be a mapping')
+		status, row, recalls = status_from_verify_answer(dict(data), req.batch_number)
+		return VerifyResult(status=status, source='PPB', display=display_from(row, status, recalls))
 
 	async def registry(self, since_iso: str) -> list[dict[str, object]]:
 		"""PPB → App, daily: registered products and their current status."""
@@ -174,10 +187,17 @@ class PPBClient:
 		assert isinstance(rows, list), 'recall payload must be a list'
 		return [dict(r) for r in rows]
 
-	async def report_suspicious(self, report: dict[str, object]) -> str:
-		"""App → PPB, on report: a suspected falsified medicine, with photo evidence."""
-		assert report.get('gtin') or report.get('batch'), 'a suspicious-medicine report needs a gtin or batch'
-		resp = await self._http.post(f'{self._base}/suspicious', json=report, headers=self._headers())
+	async def report_suspicious(self, report: SuspiciousReport) -> str:
+		"""App → PPB, on report: a suspected falsified medicine, with photo evidence.
+
+		Typed rather than a free dict: this body is forwarded verbatim to the regulator, so a client
+		that misspelled a key used to send a report naming nothing and still receive a case
+		reference. The model asserts at least one of gtin/batch is present, and `extra='forbid'`
+		refuses the misspelling instead of dropping it.
+		"""
+		payload = report.model_dump(exclude_none=True, mode='json')
+		assert payload.get('gtin') or payload.get('batch_number'), 'a suspicious-medicine report needs a gtin or batch'
+		resp = await self._http.post(f'{self._base}/suspicious', json=payload, headers=self._headers())
 		resp.raise_for_status()
 		return str(resp.json().get('case_ref', ''))
 

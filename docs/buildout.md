@@ -1252,3 +1252,55 @@ coverage 59 → 63 of 79 available features.
 
 **Counts: 5 rows flipped `missing` → `carried`, 109 → 99.** §INF-004 is now 5/5 carried. 490 rows,
 `carried` 375, `missing` 99, `deferred` 16.
+
+## §MED-001 — the medicine verifier: four outcomes, not two
+
+**A boolean is a set with the members thrown away.** §MED-001 prints its result as four named
+outcomes — "Registered / Not found / Expired registration / Recalled" — and `VerifyResult` carried
+`genuine: bool` plus free text. A recalled medicine and a medicine that was never registered both
+read `False`, and the two call for opposite actions: take it back to where you bought it, versus
+this product does not exist and do not take it at all. `RegistrationStatus` is the section's four,
+and `genuine` survives as a `@computed_field` — it is the question the person actually asked, and
+collapsing *to* it is safe in a way collapsing *from* it never was, because exactly one member is a
+yes. This is the §13.1 lossy-enum defect one level up: a set the spec names, collapsed where a
+client can no longer tell the members apart.
+
+**The fifth member is the one that is not in the section and matters most.** `unverified` is not a
+fifth verdict, it is the absence of one. A registry that answered nothing has not said the medicine
+is bad — only that nobody checked — and rendering that as `not_found` tells a person to throw away
+medicine that was fine. That is this feature's own worst failure mode, pointing the other way from
+the one it exists to prevent, and it is the reason the offline stub answers `unverified` rather
+than `not_found`: it holds no registry, so "not in the registry" is a claim it cannot make.
+`genuine` is False either way, so the fail-closed behaviour is unchanged; what changed is that the
+client can now say *why*.
+
+**The Display line cost no new integration.** The five fields the section names come out of the
+same `/verify` answer — the product row and any recall rows it carries — assembled by
+`display_from`. Every field is optional because a product the registry does not hold has none of
+them, and a filled-in name for a `not_found` batch would be an invented medicine. Recall rows are
+filtered to the batch the person scanned: a registry that returns every recall it holds must not
+put another batch's withdrawal on this person's screen, which is the kind of false alarm that
+teaches people to ignore the real one. A recall outranks a registration, because a product can be
+registered, unexpired and still withdrawn.
+
+**One audit row was stale and three were real.** "Report a suspicious medicine" claimed no report
+route to PPB existed. It does — `POST /medicine/suspicious`, self-scoped, with
+`PPBClient.report_suspicious` behind it — and the row had been written by a non-recursive walk of
+`app.routes`, which returns `[]` because every `include_router` nests its paths on
+`original_router.routes`. A gate that concludes a route is absent from a walk that cannot see it is
+the same shape as the checks that went on reporting success after a nested move. What that route
+*did* have wrong is now fixed: it took a bare `dict` forwarded verbatim to the regulator's intake,
+so a client that sent `batch` instead of `batch_number` filed a report naming nothing and received
+a case reference for it. `SuspiciousReport` is the typed body, with `extra='forbid'` and at least
+one of gtin/batch asserted.
+
+**The packaging photo is deferred, and the reason is the section's own Privacy clause.** "Scans are
+not stored or transmitted unless the user reports a suspicious product" — and there is no OCR in
+this tree, so a server handed the image could only return a reading the client already had by the
+time it holds the batch number. The one case where a photo does travel is a report, and that path
+carries `photo_sha256` rather than the image, because the evidence pipeline is what hashes, dedupes
+and size-caps every other image in the app.
+
+**Counts: 4 rows left `missing` — 3 to `carried`, 1 to `deferred` — 99 → 95.** §MED-001 is 6/6
+accounted for: four `carried`, two `deferred` (the barcode read and the packaging photo, both
+device-side). 490 rows, `carried` 378, `missing` 95, `deferred` 17.

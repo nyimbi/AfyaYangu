@@ -351,7 +351,7 @@ def catalogue() -> list[MobileAction]:
 		_a('report_stock', 'Report whether a medicine is in stock', 'Medicine', 'POST', '/medicine/stock', [_f('report_id', 'Report number', ph='generated for you'), _f('facility_id', 'Facility'), _f('drug', 'Medicine'), _f('in_stock', 'In stock?', 'bool')]),
 		_a('medicine_registry', 'Which medicines are approved?', 'Medicine', 'GET', '/medicine/registry', [_f('since', 'Only changes since', ph='optional')]),
 		_a('medicine_recalls', 'Has a medicine been recalled?', 'Medicine', 'GET', '/medicine/recalls', [_f('since', 'Only changes since', ph='optional')]),
-		_a('report_suspicious_medicine', 'Report a fake medicine', 'Medicine', 'POST', '/medicine/suspicious', [_f('gtin', 'Barcode number'), _f('batch', 'Batch number'), _f('note', 'What is wrong?', 'textarea')]),
+		_a('report_suspicious_medicine', 'Report a fake medicine', 'Medicine', 'POST', '/medicine/suspicious', [_f('gtin', 'Barcode number', ph='optional if you have the batch'), _f('batch_number', 'Batch number', ph='optional if you have the barcode'), _f('note', 'What is wrong?', 'textarea'), _f('photo_sha256', 'Photo', 'file', ph='optional')]),
 		# Emergency
 		_a('sos', 'Get help now', 'Emergency', 'POST', '/emergency/sos', [_f('sos_id', 'Alert number', ph='generated for you'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('severity', 'How serious?', 'select', ['low', 'medium', 'high']), _f('symptoms', 'Symptoms', 'list')]),
 		_a('emergency_card', 'My emergency card', 'Emergency', 'POST', '/emergency/card/qr', [_f('name', 'Full name'), _f('blood_group', 'Blood group', 'select', BLOOD_GROUPS), _f('allergies', 'Allergies', 'list'), _f('conditions', 'Ongoing conditions', 'list'), _f('emergency_contact', 'Who to call')]),

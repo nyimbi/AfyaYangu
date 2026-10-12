@@ -4,6 +4,8 @@ import httpx
 import pytest
 from pytest_httpserver import HTTPServer
 
+from pydantic import ValidationError
+
 from afya.integrations.adam import PII_FIELDS, AdamClient
 from afya.integrations.feeds import FEED_CADENCE, FEED_GRANULARITY, MIN_CELL, build as build_feed
 from afya.integrations.gateways import AtSmsRestSend, WhatsAppBusinessClient
@@ -12,7 +14,7 @@ from afya.integrations.service import (
 )
 from afya.channels.views import SmsOut
 from afya.insurance.views import SHACheckRequest
-from afya.medicine.views import VerifyRequest
+from afya.medicine.views import SuspiciousReport, VerifyRequest
 
 
 @pytest.fixture
@@ -257,9 +259,9 @@ async def test_ppb_registry_recalls_and_report(client: httpx.AsyncClient, httpse
 	ppb = PPBClient(httpserver.url_for('/'), client)
 	assert (await ppb.registry('2026-01-01T00:00:00Z'))[0]['gtin'] == '0123456789012'
 	assert (await ppb.recalls('2026-01-01T00:00:00Z'))[0]['batch'] == 'B1'
-	assert await ppb.report_suspicious({'gtin': '0123456789012'}) == 'PPB-5'
-	with pytest.raises(AssertionError, match='gtin or batch'):
-		await ppb.report_suspicious({})
+	assert await ppb.report_suspicious(SuspiciousReport(gtin='0123456789012')) == 'PPB-5'
+	with pytest.raises(ValidationError, match='gtin or a batch'):
+		SuspiciousReport()
 
 
 async def test_telco_zero_rating_and_bounded_airtime(client: httpx.AsyncClient, httpserver: HTTPServer) -> None:

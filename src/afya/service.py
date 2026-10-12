@@ -53,7 +53,7 @@ from afya.integrations.adam import AdamClient
 from afya.integrations.feeds import FEED_CADENCE, FEED_GRANULARITY, MIN_CELL, build as build_feed
 from afya.integrations.service import InlineJaliPort, JaliClient, JaliPort, MoHFFacilityClient, PPBClient, PheocClient, SHAClient, TelcoGatewayClient
 from afya.medicine.service import MedicineService
-from afya.medicine.views import DoseRequest, StockReport, VerifyRequest
+from afya.medicine.views import DoseRequest, StockReport, SuspiciousReport, VerifyRequest
 from afya.facilities.service import FacilityService
 from afya.facilities.views import (
 	Booking, Facility, FacilityLevel, FacilityReportRequest, NearestRequest, OfflineFacility,
@@ -3918,11 +3918,11 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=502, detail='the PPB registry is unreachable') from exc
 
 	@app.post('/medicine/suspicious')
-	async def medicine_suspicious(report: dict[str, object], _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
+	async def medicine_suspicious(report: SuspiciousReport, _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
 		"""Report a suspected falsified medicine. Guarded so the PPB report is attributable and the
 		egress is not an open relay to the regulator's intake."""
 		try:
-			ref = await ppb.report_suspicious(dict(report))
+			ref = await ppb.report_suspicious(report)
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		except Exception as exc:

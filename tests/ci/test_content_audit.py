@@ -290,7 +290,6 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§LOC-002': 1,
 		'§LOC-004': 1,
 		'§LOC-005': 3,
-		'§MED-001': 4,
 		'§MED-002': 2,
 		'§MED-003': 4,
 		'§MED-004': 4,
@@ -337,15 +336,22 @@ def test_tri_003_names_four_exposures_the_input_cannot_distinguish() -> None:
 
 
 def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world() -> None:
-	"""Sixteen bullets are deferred and they are two kinds, neither a gap. Fourteen are device
+	"""Seventeen bullets are deferred and they are two kinds, neither a gap. Fifteen are device
 	actions — a maps app, a dialler, a barcode reader, a camera, a call-log and location permission,
 	the SOS button and its auto-dial, the accelerometer stream and its "Are you OK?" prompt, a QR or
-	NFC scan, the always-on microphone loop, the handset's own encrypted store and its OS keystore —
-	which the coverage gate's `ON_DEVICE` set already lists as client-side by design. The other two
-	are conditions on the world rather than on this tree: TRI-003's vaccination input, written "if a
-	vaccine is available and deployed", and ALT-002's check-in prompt, written "during a declared
-	emergency in the user's area". Kept out of `missing` because reporting them as gaps would put a
-	fact about vaccine deployment or about whether an outbreak has been declared in a defect list.
+	NFC scan, the always-on microphone loop, the handset's own encrypted store and its OS keystore,
+	and §MED-001's photo of the packaging — which the coverage gate's `ON_DEVICE` set already lists
+	as client-side by design. The other two are conditions on the world rather than on this tree:
+	TRI-003's vaccination input, written "if a vaccine is available and deployed", and ALT-002's
+	check-in prompt, written "during a declared emergency in the user's area". Kept out of `missing`
+	because reporting them as gaps would put a fact about vaccine deployment or about whether an
+	outbreak has been declared in a defect list.
+
+	The packaging photo is the one of the fifteen that was a `missing` row until §MED-001 was worked,
+	and the reason it moved is worth stating: §MED-001's own Privacy clause says a scan is not
+	transmitted unless the person reports one, and there is no OCR in this tree — so a server that
+	received the image could only hand back a reading the client already had. The one case where a
+	photo does travel is a report, and that path carries its hash.
 
 	The count is asserted rather than the two kinds being described, so a bullet that moves into
 	`deferred` to make a gap disappear fails here. The two world-conditioned ones are named
@@ -354,7 +360,7 @@ def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world()
 	"""
 	from afya.content_audit.service import FEATURE_CONTENT
 	deferred = [(f, b, n) for f, _, b, k, _, n in FEATURE_CONTENT if k == 'deferred']
-	assert len(deferred) == 16, deferred
+	assert len(deferred) == 17, deferred
 	world = {(f, b) for f, b, n in deferred if n is not None and 'fact about the world' in n}
 	assert world == {
 		('TRI-003', 'Vaccination status (if a vaccine is available and deployed)'),
