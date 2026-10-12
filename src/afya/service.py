@@ -678,6 +678,35 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def triage_diary_list(ref: str, _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> list[dict[str, object]]:
 		return [e.model_dump(mode='json') for e in triage.diary(ref)]
 
+	@app.get('/triage/{ref}/diary/trend')
+	async def triage_diary_trend(ref: str, _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> dict[str, object]:
+		"""§TRI-002's "trend view: is this getting better or worse?" — read from the entries, not asked."""
+		return triage.diary_trend(ref).model_dump(mode='json')
+
+	@app.get('/triage/{ref}/diary/escalation')
+	async def triage_diary_escalation(ref: str, _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> dict[str, object] | None:
+		"""§TRI-002's "automatic escalation if new red flags are logged".
+
+		A `null` body is the answer when nothing is new, and it is a deliberate one: the client
+		renders an escalation only when there is one, and returning a low-risk triage result here
+		would put a triage answer on the screen where the section asks for silence.
+		"""
+		result = triage.diary_escalation(ref)
+		return result.model_dump(mode='json') if result else None
+
+	@app.get('/triage/{ref}/diary/export')
+	async def triage_diary_export(ref: str, _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> dict[str, object]:
+		"""§TRI-002's "exportable summary for a clinician" — the text a person hands over."""
+		return triage.diary_export(ref).model_dump(mode='json')
+
+	@app.get('/triage/{ref}/diary/prompt')
+	async def triage_diary_prompt(ref: str, day: int, opted_in: bool = False,
+			_subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> dict[str, object] | None:
+		"""§TRI-002's daily prompt. `null` when the person did not opt in — the section writes the
+		opt-in into the Feature, so a declined prompt is not a prompt."""
+		prompt = triage.diary_prompt(ref, day, opted_in)
+		return prompt.model_dump(mode='json') if prompt else None
+
 	# --- sensors (derived metrics only; tier4 gated) ---
 	@app.post('/sensors/breath/estimate')
 	async def sensors_breath(req: BreathEstimateRequest, _subject: str = Depends(require_self())) -> dict[str, object]:

@@ -18,18 +18,26 @@ recommendation at a triage boundary is worse than an honest English one.
 # `USSD_MENU` is rendered from `USSD_TREE` further down, so the served menu and the walkable tree
 # are one fact rather than two strings kept in step by hand.
 
+# The keys are `RiskLevel`'s members, and they are six because §8.1 prints five classifications and
+# one of them — High — is two: Ebola suspicion and other cause. The tables carried four keys with a
+# single `high`, so the recommendation could not say which of the two the person was in, and the
+# section's own distinction between isolation-and-notify and seek-care-today had no string behind it.
 TRIAGE_RECS: dict[str, dict[str, str]] = {
 	'en': {
 		'low': 'Monitor; standard hygiene; hydrate; call 719 if worsening.',
 		'malaria_suspect': 'A fever in Kenya is most often malaria. Test and treat for malaria first; call 719 if there is no improvement in 48 hours.',
 		'medium': 'Contact hotline 719; self-monitor; isolate from household if symptoms progress.',
-		'high': 'Isolate immediately; call 719; go to nearest isolation treatment unit.',
+		'high_other': 'Seek care today at the nearest facility; call 719 if you cannot get there.',
+		'high_ebola_suspicion': 'Isolate yourself now, away from the household. Call 719 and say you may have had contact with Ebola. Do not travel by public transport.',
+		'emergency': 'Emergency. Call 719 now and stay where you are. Do not travel alone. If there is bleeding, press firmly on it and keep the person still.',
 	},
 	'sw': {
 		'low': 'Dumisha usafi wa kawaida; endelea kunywa maji; piga 719 kama unazidi kuwa mgonjwa.',
 		'malaria_suspect': 'Homa nchini Kenya mara nyingi ni malaria. Pimwa na kutibu malaria kwanza; piga 719 kama hakuna bora katika saa 48.',
 		'medium': 'Wasiliana na 719; jiekeze; jitenge na kaya kama dalili zinazidi.',
-		'high': 'Tenga wewe mwenyewe sasa hivi; piga 719; nenda kituo cha matibabu cha karibu.',
+		'high_other': 'Nenda kupata matibabu leo katika kituo cha karibu; piga 719 kama huwezi kufika.',
+		'high_ebola_suspicion': 'Jitenge sasa hivi, mbali na kaya. Piga 719 na useme huenda umegusana na Ebola. Usisafiri kwa usafiri wa umma.',
+		'emergency': 'Dharura. Piga 719 sasa hivi na ubaki mahali ulipo. Usisafiri peke yako. Kama kuna kutokwa na damu, kanda kwa nguvu na umtulize mgonjwa.',
 	},
 }
 

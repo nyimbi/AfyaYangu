@@ -38,7 +38,7 @@ async def test_triage_preliminary_malaria_trap(client: httpx.AsyncClient) -> Non
 	resp = (await client.post('/triage/preliminary', json={'symptoms': ['fever'], 'temperature_c': 38.8})).json()
 	assert resp['risk_level'] == 'malaria_suspect'
 	contact = (await client.post('/triage/preliminary', json={'symptoms': ['fever'], 'temperature_c': 38.2, 'ebola_contact': True})).json()
-	assert contact['risk_level'] == 'high' and contact['escalate_719']
+	assert contact['risk_level'] == 'high_ebola_suspicion' and contact['escalate_719'], 		'§8.1 prints High twice; a contact-history fever is the Ebola-suspicion half'
 
 
 async def test_triage_evd_forbidden_when_dormant(client: httpx.AsyncClient) -> None:
@@ -157,4 +157,4 @@ async def test_tier4_activation_gate() -> None:
 		assert granted['dpia_review_id'] == recorded['review_id'], 'the gate names the review it was held by'
 		assert granted['unlocked_features'], 'activation must name what it turned on'
 		assert (await client.get('/health')).json()['tier4'] is True
-		assert (await client.post('/triage/evd', json={'symptoms': ['fever'], 'temperature_c': 39.2, 'ebola_contact': True})).json()['risk_level'] == 'high'
+		assert (await client.post('/triage/evd', json={'symptoms': ['fever'], 'temperature_c': 39.2, 'ebola_contact': True})).json()['risk_level'] == 'high_ebola_suspicion'

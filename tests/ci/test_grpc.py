@@ -81,9 +81,11 @@ async def test_triage_febrile_case(stub: pb_grpc.AfyaInternalStub) -> None:
 	assert 'vomiting' in out.red_flags
 
 
-async def test_triage_bleeding_is_high(stub: pb_grpc.AfyaInternalStub) -> None:
+async def test_triage_bleeding_is_the_emergency_rung(stub: pb_grpc.AfyaInternalStub) -> None:
+	"""§8.1 prints Emergency as its own classification and lists bleeding first among its red flags.
+	The internal API serves , so the rung is what a downstream consumer sees."""
 	out = await stub.Triage(pb.TriageRequest(symptoms=['bleeding'], age_years=40, pregnant=False, duration_days=1))
-	assert out.urgency == 'high'
+	assert out.urgency == 'emergency'
 
 
 async def test_activation_status_reports_unmet_keys_when_dormant(stub: pb_grpc.AfyaInternalStub) -> None:

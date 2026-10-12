@@ -81,7 +81,9 @@ CHW_TASK_KINDS = ['followup', 'referral', 'sensitisation']
 
 # slug -> spec feature id. Internal traceability only; never serialised (see module docstring).
 FEATURE_OF: dict[str, str] = {
-	'febrile_triage': 'TRI-001', 'evd_triage': 'TRI-003', 'differential': 'TRI-001', 'symptom_diary': 'TRI-002',
+	'febrile_triage': 'TRI-001', 'evd_triage': 'TRI-003', 'differential': 'TRI-001',
+	'diary_trend': 'TRI-002', 'diary_export': 'TRI-002', 'diary_prompt': 'TRI-002',
+	'symptom_diary': 'TRI-002',
 	'what_should_i_do': 'INF-002', 'health_library': 'INF-003', 'publish_content': 'INF-003',
 	'advance_content': 'INF-003', 'content_governance': 'INF-003', 'report_content_error': 'INF-003',
 	'content_errors': 'INF-003', 'record_back_translation': 'INF-003', 'record_community_validation': 'INF-003',
@@ -237,13 +239,23 @@ def _a(id: str, title: str, group: str, method: str, path: str, fields: list[Mob
 
 
 def catalogue() -> list[MobileAction]:
-	triage_fields = [_f('symptoms', 'Symptoms', 'list', ph='fever, headache'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('ebola_contact', 'Contact with someone sick with Ebola?', 'bool')]
+	triage_fields = [_f('symptoms', 'Symptoms', 'list', ph='fever, headache'),
+		_f('temperature_c', 'Temperature °C', 'decimal'),
+		_f('ebola_contact', 'Contact with someone sick with Ebola?', 'bool'),
+		_f('affected_area_travel', 'Been to an area with an outbreak?', 'bool'),
+		_f('exposure_site', 'Attended a funeral or other known exposure site?', 'bool'),
+		_f('red_flags', 'Red flags', 'list', ph='convulsions, confusion, bleeding gums'),
+		_f('age_band', 'Age', 'select', ['under_5', '5_17', '18_49', '50_64', '65_plus']),
+		_f('pregnant', 'Pregnant?', 'bool')]
 	return [
 		# Triage
 		_a('febrile_triage', 'Check a fever', 'Triage', 'POST', '/triage/preliminary', triage_fields),
 		_a('evd_triage', 'Ebola check', 'Triage', 'POST', '/triage/evd', triage_fields),
 		_a('differential', 'What illness could this be?', 'Triage', 'POST', '/triage/diagnose', triage_fields),
-		_a('symptom_diary', 'Log how I feel today', 'Triage', 'POST', '/triage/diary', [_f('entry_id', 'Entry number', ph='generated for you'), _s(), _f('day', 'Day (1-21)', 'int'), _f('symptoms', 'Symptoms', 'list'), _f('temperature_c', 'Temperature °C', 'decimal')]),
+		_a('symptom_diary', 'Log how I feel today', 'Triage', 'POST', '/triage/diary', [_f('entry_id', 'Entry number', ph='generated for you'), _s(), _f('day', 'Day (1-21)', 'int'), _f('symptoms', 'Symptoms', 'list'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('red_flags', 'Red flags', 'list', ph='convulsions, confusion'), _f('logged_at_iso', 'When', 'text', ph='2026-10-12T08:30')]),
+		_a('diary_trend', 'Am I getting better or worse?', 'Triage', 'GET', '/triage/{ref}/diary/trend', [_f('ref', 'Your reference', 'path')]),
+		_a('diary_export', 'Share my diary with a clinician', 'Triage', 'GET', '/triage/{ref}/diary/export', [_f('ref', 'Your reference', 'path')]),
+		_a('diary_prompt', 'Today\'s check-in', 'Triage', 'GET', '/triage/{ref}/diary/prompt', [_f('ref', 'Your reference', 'path'), _f('day', 'Day (1-21)', 'int'), _f('opted_in', 'Send me a daily reminder', 'bool')]),
 		_a('what_should_i_do', 'What should I do?', 'Triage', 'GET', '/info/decision-tree', [_f('answers', 'Answers so far', ph='yes,no,leave blank to start')]),
 		# Information library (§6.2, INF-003/004/008/009/010/015)
 		_a('health_library', 'Health information', 'Information', 'GET', '/info/library', [_f('lang', 'Language', 'select', ['en', 'sw'])]),

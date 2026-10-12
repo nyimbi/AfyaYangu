@@ -150,8 +150,6 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 	for m in missing:
 		per_feature[m.split(':')[0]] = per_feature.get(m.split(':')[0], 0) + 1
 	assert per_feature == {
-		'§TRI-001': 4,
-		'§TRI-002': 4,
 		'§FND-001': 3,
 		'§FND-002': 4,
 		'§FND-004': 1,
@@ -193,9 +191,9 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§SEC-001': 2,
 		'§SEC-004': 1,
 		'§SEC-006': 2,
-		# §EMG-003, §FND-003 and §FND-005 are audited and carry nothing missing: every Content,
-		# Access clause and filter dimension resolves to code, so the sections have no row here —
-		# absence from this dict is the strongest verdict the audit has, and should be read as one.
+		# §EMG-003, §FND-003, §FND-005, §TRI-001 and §TRI-002 are audited and carry nothing missing:
+		# every Content, Access clause, filter dimension and Output resolves to code, so the sections
+		# have no row here — absence from this dict is the strongest verdict the audit has.
 	}, per_feature
 
 

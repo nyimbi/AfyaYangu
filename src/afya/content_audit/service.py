@@ -23,7 +23,7 @@ is out of this module's scope, which is §8–§12.
 
 `audited_features` and `UNAUDITED_FEATURES` are still served alongside the findings, because the
 useful claim is not "47" but "47 of the 47 that have something to audit, and here is the list that
-would name the 48th". A report that showed 137 gaps without saying how much of the spec it had read
+would name the 48th". A report that showed 129 gaps without saying how much of the spec it had read
 would invite the reader to take it as complete — the failure mode of every gate that scopes itself,
 and the reason `UNAUDITED_FEATURES` is kept as an empty tuple with an assertion behind it rather
 than deleted.
@@ -54,32 +54,53 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	# --- §8.1 TRI-001: Broad Febrile-Illness Triage -------------------------------------------
 	('TRI-001', 'Outputs',
 		'Risk classification: Emergency / High (Ebola suspicion) / High (other cause) / Moderate / Low',
-		'missing', None,
-		'`RiskLevel` has four members (low, medium, malaria_suspect, high) and none of them '
-		'distinguishes "High (Ebola suspicion)" from "High (other cause)" — the distinction the '
-		'section prints as two separate outputs'),
+		'carried', 'afya.triage.views:RiskLevel',
+		'six members now — low, medium, malaria_suspect, high_other, high_ebola_suspicion, emergency '
+		'— one per rung the section prints. The four-member enum collapsed the two `high`s, which '
+		'send a person to different places (isolate-and-notify vs seek-care-today), and had no '
+		'`emergency` at all, so a bleeding case carried the same value as an exposure risk'),
 	('TRI-001', 'Outputs', 'Recommended action with one-tap execution (call 719, find facility, request CHW visit)',
-		'missing', None,
-		'`TriageResult.recommendation` is prose and `escalate_719` is a boolean; neither carries an '
-		'action a client can execute in one tap'),
-	('TRI-001', 'Outputs', 'Watch-for list for the next 24–48 hours', 'missing', None,
-		'nothing carries a watch-for list'),
-	('TRI-001', 'Outputs', 'Forwardable summary card', 'missing', None,
-		'§3.3 principle 10 requires every output to be shareable as a WhatsApp card; no triage '
-		'result has one'),
+		'carried', 'afya.triage.views:TriageAction',
+		'all three the section names, as `kind`/`label`/`href` — `call` is `tel:719`, the other two '
+		'are the API paths the app already serves. The order is the classification\'s: an emergency '
+		'leads with the call, a moderate case with the facility search'),
+	('TRI-001', 'Outputs', 'Watch-for list for the next 24–48 hours', 'carried',
+		'afya.triage.views:WATCH_FOR',
+		'seven deterioration signs written as things a person can check at home — bleeding that will '
+		'not stop, vomiting everything, confusion, breathing, a fever past 48 hours, no urine, a rash '
+		'— each paired with what to do. Served on every rung including low, because the person most '
+		'needing to know what deterioration looks like is the one sent home'),
+	('TRI-001', 'Outputs', 'Forwardable summary card', 'carried',
+		'afya.triage.views:TriageResult.summary_card',
+		'rendered server-side from the classification, the recommendation and the next steps. It '
+		'carries no symptom list and no exposure history: the card is forwardable, so it leaves the '
+		'phone, and §8.1\'s own Privacy clause is about triage data leaving the device'),
 
 	# --- §8.1 TRI-002: Symptom Diary and Follow-Up --------------------------------------------
 	('TRI-002', 'Features', 'Log symptoms with timestamp', 'carried',
 		'afya.triage.service:TriageService.diary_append',
 		'`DiaryEntry` has `day` and no clock; the timestamp is the day number'),
-	('TRI-002', 'Features', 'Daily "how are you feeling?" prompt (opt-in)', 'missing', None,
-		'nothing prompts; the diary is written only when the person opens it'),
-	('TRI-002', 'Features', 'Automatic escalation if new red flags are logged', 'missing', None,
-		'`diary_append` stores the entry and returns it — it reads no red flag and escalates nothing'),
-	('TRI-002', 'Features', 'Trend view: is this getting better or worse?', 'missing', None,
-		'`diary` returns the entries in order and computes no trend'),
-	('TRI-002', 'Features', 'Exportable summary for a clinician', 'missing', None,
-		'no export of any kind'),
+	('TRI-002', 'Features', 'Daily "how are you feeling?" prompt (opt-in)', 'carried',
+		'afya.triage.views:DiaryPrompt',
+		'the opt-in is the gate: a person who did not ask to be prompted gets `None`, not a prompt '
+		'with a flag, because a client that renders what it is handed would otherwise show it to '
+		'someone who declined. `due` is derived from the diary rather than stored'),
+	('TRI-002', 'Features', 'Automatic escalation if new red flags are logged', 'carried',
+		'afya.triage.service:TriageService.diary_escalation',
+		'computed from the diary rather than stored on the entry, so it answers the question the '
+		'section asks — is there a flag *newly* logged — rather than "did any entry ever carry one". '
+		'A flag already escalated on day 2 does not fire again on day 4, or the person gets the same '
+		'ambulance message daily until they stop reading it'),
+	('TRI-002', 'Features', 'Trend view: is this getting better or worse?', 'carried',
+		'afya.triage.service:TriageService.diary_trend',
+		'read from the entries, not asked of the person: a self-report of "worse" and a rising '
+		'temperature are two different facts and the section wants the second. `changed` names what '
+		'moved, and `unknown` is a member because one entry has no trend'),
+	('TRI-002', 'Features', 'Exportable summary for a clinician', 'carried',
+		'afya.triage.service:TriageService.diary_export',
+		'rendered as the text a person hands over — day, temperature, symptoms, red flags — which is '
+		'what a clinician reading a fever history needs. It carries no location and no contact '
+		'history: the export leaves the phone, and the clinician can ask the two questions it omits'),
 
 	# --- §8.2 FND-001: Facility Finder --------------------------------------------------------
 	('FND-001', 'Features', 'GPS-based nearest search', 'carried',
