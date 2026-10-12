@@ -708,11 +708,15 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 		Two ways the tables can disagree, both silent without this: a sensor that can be absent with
 		no fallback excludes a user, and a sensor row citing an unbuilt feature describes hardware
-		acquired for a capability nobody shipped.
+		acquired for a capability nobody shipped. A third is reported rather than repaired:
+		`sensor_feature_disagreements` crosses §11.6's feature→sensor table against §13.1's and names
+		the places the two sections contradict each other, which is a spec question and not one the
+		code may answer by choosing.
 		"""
 		return {
 			'missing_fallbacks': sensors.missing_fallbacks(),
 			'unregistered_sensor_features': sensors.unregistered_sensor_features(),
+			'sensor_feature_disagreements': sensors.sensor_feature_disagreements(),
 			'raw_streams_retained': sensors.raw_streams_retained(),
 			'sensor_count': len(sensors.sensors()),
 			'external_device': sensors.external_device_gap().model_dump(mode='json'),

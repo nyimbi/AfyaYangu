@@ -526,3 +526,91 @@ def test_every_feature_id_the_section_prints_is_carried() -> None:
 		expected = sorted(set(printed) | set(SPEC_FEATURE_ADDITIONS.get(slug, ())))
 		assert carried == expected, f'{slug}: section prints {printed}, code carries {carried}'
 	assert set(SPEC_FEATURE_ADDITIONS) <= set(by_slug), 'an addition names a row that does not exist'
+
+
+# --- §11.6 against §13.1 ---------------------------------------------------------------------
+
+def _spec_11_6_rows() -> list[list[str]]:
+	"""§11.6's feature→sensor table, read out of the spec so a revision fails here rather than passing."""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split('### 11.6 Sensor-Based Monitoring', 1)[1].split('\n---', 1)[0]
+	rows: list[list[str]] = []
+	for line in section.splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip().replace('**', '') for c in line.strip('|').split('|')]
+		if len(cells) != 3 or cells[0] == 'ID':
+			continue
+		rows.append(cells)
+	return rows
+
+
+def test_the_feature_sensor_table_is_the_sections_rows() -> None:
+	"""§11.6 is eight rows mapping a feature to the sensors that carry it. It is §13.1 read the other
+	way round, and carrying it is what lets the two be crossed instead of a reader noticing by eye."""
+	from afya.sensors.service import SPEC_SENSOR_FEATURES
+	spec = _spec_11_6_rows()
+	assert len(spec) == 8, f'the section names {len(spec)} features'
+	assert [(f, n) for f, n, _ in SPEC_SENSOR_FEATURES] == [(r[0], r[1]) for r in spec]
+	assert [c for _, _, c in SPEC_SENSOR_FEATURES] == [r[2] for r in spec]
+
+
+def test_the_two_sections_disagree_in_five_named_places() -> None:
+	"""The finding: §11.6 and §13.1 describe one mapping and do not agree. The report names each
+	disagreement rather than reconciling it, because the code follows §13.1 — the section that
+	classifies the sensors — and the disagreement is a defect in one of the *sections*, which is a
+	question for whoever owns the spec, not something the code should paper over.
+
+	Five, each a distinct fact: §11.6's single "Camera" row cannot say which of §13.1's two cameras
+	it means (twice, on SENS-004 and SENS-005); §13.1 gives SENS-005 the optical heart-rate sensor
+	and §11.6 omits it; and §11.6 reaches SENS-006 and SENS-007 through platform surfaces
+	(HealthKit/Health Connect, wearables) that are not §13.1 sensor rows at all."""
+	svc = SensorService(FeatureRegistry())
+	findings = svc.sensor_feature_disagreements()
+	assert len(findings) == 5, f'{len(findings)} findings: {findings}'
+	joined = '\n'.join(findings)
+	assert 'SENS-004' in joined and 'SENS-005' in joined and 'SENS-006' in joined and 'SENS-007' in joined
+	assert sum('splits into' in f for f in findings) == 2, 'the camera ambiguity, once per row that has it'
+	assert any('heart_rate' in f for f in findings), 'SENS-005 loses the optical sensor in §11.6'
+
+
+def test_every_feature_section_11_6_names_is_one_the_registry_carries() -> None:
+	"""A §11.6 row for a feature the registry does not hold describes a sensor path for a capability
+	nobody built — the same finding as an unregistered §13.1 feature, from the other direction."""
+	from afya.sensors.service import SPEC_SENSOR_FEATURES
+	reg = FeatureRegistry()
+	missing = []
+	for feature_id, _, _ in SPEC_SENSOR_FEATURES:
+		try:
+			reg.get(feature_id)
+		except KeyError:
+			missing.append(feature_id)
+	assert missing == [], f'§11.6 names features the registry does not carry: {missing}'
+
+
+def test_a_sensor_name_the_alias_table_does_not_map_is_refused() -> None:
+	"""The canary's target. §11.6's cell is read through an explicit alias table, because the two
+	sections spell the same hardware differently ("gyroscope" vs "Gyroscope", "BLE" vs "Bluetooth
+	LE") and a fuzzy matcher would read "flash" as matching nothing and report a false omission."""
+	from afya.sensors.service import _sensor_slugs_in
+	covered, unmapped, ambiguous = _sensor_slugs_in('Accelerometer, gyroscope')
+	assert covered == {'accelerometer', 'gyroscope'} and not unmapped and not ambiguous
+	with pytest.raises(AssertionError, match='alias table does not map'):
+		_sensor_slugs_in('Accelerometer, magneto-optical trap')
+
+
+async def test_the_coverage_view_reports_the_cross_section_disagreements() -> None:
+	"""The disagreements ride on the auditor-scoped coverage view, not the public matrix: they name
+	spec ids and section numbers, which is evidence about the build rather than something a person
+	deciding whether the app suits their handset needs."""
+	import httpx
+	app, h = _auditor_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		coverage = (await c.get('/sensors/coverage', headers=h)).json()
+		disagreements = coverage['sensor_feature_disagreements']
+		assert len(disagreements) == 5, disagreements
+		# And the public matrix carries none of them.
+		matrix = (await c.get('/sensors/capabilities')).json()
+		assert 'sensor_feature_disagreements' not in matrix
+		assert not any('§11.6' in str(r) for r in matrix['sensors'])

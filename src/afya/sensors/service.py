@@ -131,6 +131,86 @@ for _s in SENSORS:
 	assert AVAILABILITY_SPELLINGS[_ios_cell] is _s.ios, (
 		f'{_s.slug}: §13.1 ios cell {_ios_cell!r} is not {_s.ios.value}')
 
+# §11.6's Sensor-Based Monitoring table, all eight rows. It is §13.1 read the other way round —
+# feature first, then the sensors that carry it — and the two sections disagree in three places, so
+# carrying it is what makes the disagreement visible instead of a reader having to notice it.
+#
+# `sensors` holds §11.6's own cell, verbatim, because the disagreements are *in the cell*: SENS-005
+# names three sensors where §13.1 gives it four, SENS-006 names "HealthKit / Health Connect" and
+# SENS-007 "wearables", neither of which is a §13.1 sensor row at all.
+SPEC_SENSOR_FEATURES: tuple[tuple[str, str, str], ...] = (
+	('SENS-001', 'LiDAR respiration monitoring', 'LiDAR'),
+	('SENS-002', 'Acoustic cough and respiratory monitoring', 'Microphone'),
+	('SENS-003', 'Fall detection and collapse alert', 'Accelerometer, gyroscope'),
+	('SENS-004', 'Camera-based symptom capture', 'Camera'),
+	('SENS-005', 'Screen/camera PPG health monitoring', 'Camera, flash, screen'),
+	('SENS-006', 'Wearable integration', 'BLE, HealthKit / Health Connect'),
+	('SENS-007', 'Sleep and activity monitoring', 'Accelerometer, wearables'),
+	('SENS-008', 'Ambient environmental sensing', 'Barometer, thermometer (where available)'),
+)
+
+# §11.6 sensor names that are not §13.1 rows, and what they mean. Both are platform surfaces rather
+# than handset sensors: HealthKit/Health Connect is the OS health store and a wearable is the §14.6
+# integration that reads it. Mapping them onto a §13.1 slug would invent a sensor row §13.1 does not
+# have, so they are named as unmapped and the cross-check reports them rather than dropping them.
+UNMAPPED_SENSOR_NAMES: dict[str, str] = {
+	'HealthKit / Health Connect': 'the OS health store; reached through Bluetooth LE (§14.6)',
+	'wearables': 'the §14.6 integration; the device pairs over Bluetooth LE',
+}
+
+# §11.6's sensor spellings, mapped onto §13.1 slugs. Declared rather than guessed, because the two
+# sections name the same hardware differently — §11.6 writes "gyroscope", "flash" and "BLE" where
+# §13.1 writes "Gyroscope", "Flash / LED" and "Bluetooth LE" — and a fuzzy matcher would silently
+# read "flash" as matching nothing and report a false omission.
+#
+# `Camera` maps to *both* §13.1 camera rows, which is the point: §11.6 does not distinguish rear
+# from front and §13.1 does, so the ambiguity surfaces as a real disagreement on SENS-004 and
+# SENS-005 rather than being resolved by a guess about which camera the section meant.
+SPEC_SENSOR_NAME_ALIASES: dict[str, tuple[str, ...]] = {
+	'LiDAR': ('lidar',),
+	'Microphone': ('microphone',),
+	'Accelerometer': ('accelerometer',),
+	'gyroscope': ('gyroscope',),
+	'Camera': ('camera_rear', 'camera_front'),
+	'flash': ('flash',),
+	'screen': ('screen',),
+	'BLE': ('bluetooth',),
+	'Barometer': ('barometer',),
+	'thermometer': ('thermometer',),
+	'HealthKit / Health Connect': (),
+	'wearables': (),
+}
+
+
+def _sensor_slugs_in(cell: str) -> tuple[set[str], set[str], dict[str, tuple[str, ...]]]:
+	"""What a §11.6 cell names: the slugs it covers, the names that are no §13.1 row, and the names
+	that are ambiguous.
+
+	Returns (covered, unmapped, ambiguous). `covered` is the union of every alias target, so a cell
+	reading "Camera" covers both §13.1 camera rows — the ambiguity is reported separately rather than
+	left to surface as a spurious omission on one row and a spurious extra on the other.
+	"""
+	assert SPEC_SENSOR_NAME_ALIASES, 'the alias table must not be empty'
+	covered: set[str] = set()
+	unmapped: set[str] = set()
+	ambiguous: dict[str, tuple[str, ...]] = {}
+	for part in cell.split(','):
+		# §14.8's "where available" is an enhancement note, not a different sensor, so the
+		# parenthetical comes off before the lookup.
+		name = part.split('(')[0].strip()
+		if not name:
+			continue
+		if name not in SPEC_SENSOR_NAME_ALIASES:
+			raise AssertionError(f'§11.6 names {name!r}, which the alias table does not map')
+		targets = SPEC_SENSOR_NAME_ALIASES[name]
+		if not targets:
+			unmapped.add(name)
+			continue
+		if len(targets) > 1:
+			ambiguous[name] = targets
+		covered.update(targets)
+	return covered, unmapped, ambiguous
+
 # What each class permits (§17.2 minimisation, SEC-002 on-device processing, §17.4 consent). Every
 # class carries `raw_may_be_retained=False`, which is the rule §13.1's "derived only" note states for
 # one sensor and §14's privacy sections state for the rest. Stating it per class is what makes it
@@ -382,6 +462,50 @@ class SensorService(LogMixin):
 				continue
 			missing.append(spec.slug)
 		return sorted(missing)
+
+	def sensor_feature_disagreements(self) -> list[str]:
+		"""§11.6's feature→sensor table crossed against §13.1's sensor→feature table.
+
+		The two sections describe one mapping from opposite ends, and they disagree. This reports the
+		differences rather than reconciling them, because each is a fact about the spec: §13.1 gives
+		SENS-005 four carrier sensors and §11.6 names three, §11.6 reaches SENS-006 and SENS-007
+		through "HealthKit / Health Connect" and "wearables" which are not §13.1 sensor rows, and a
+		feature §13.1 attributes to a sensor §11.6 never lists is a mapping that exists in one
+		section only.
+
+		A disagreement is not automatically a defect in the code — the code follows §13.1, which is
+		the section that classifies the sensors. It is a defect in *one of the sections*, and the
+		report says which pair disagrees so a reader can take it to whoever owns the spec.
+		"""
+		# §13.1 read backwards: feature -> the slugs that carry it.
+		from_thirteen: dict[str, set[str]] = {}
+		for spec in SENSORS:
+			for feature_id in spec.primary_features:
+				from_thirteen.setdefault(feature_id, set()).add(spec.slug)
+		findings: list[str] = []
+		for feature_id, _, cell in SPEC_SENSOR_FEATURES:
+			covered, unmapped, ambiguous = _sensor_slugs_in(cell)
+			for name in sorted(unmapped):
+				findings.append(
+					f'§11.6 {feature_id} names {name!r}, which is no §13.1 sensor row '
+					f'({UNMAPPED_SENSOR_NAMES[name]})')
+			# A slug reached through an ambiguous name is excluded from the set difference below:
+			# the ambiguity line already says the row cannot distinguish the two, and reporting it
+			# again as an omission on one row and an extra on the next would triple-count one fact.
+			from_ambiguous: set[str] = set()
+			for name, targets in sorted(ambiguous.items()):
+				findings.append(
+					f'§11.6 {feature_id} names {name!r}, which §13.1 splits into '
+					f'{", ".join(targets)} — the row cannot say which it means')
+				from_ambiguous.update(targets)
+			claimed = from_thirteen.get(feature_id, set())
+			for slug in sorted((claimed - covered) - from_ambiguous):
+				findings.append(
+					f'§13.1 gives {feature_id} the {slug} sensor; §11.6 lists {cell!r} and omits it')
+			for slug in sorted((covered - claimed) - from_ambiguous):
+				findings.append(
+					f'§11.6 gives {feature_id} the {slug} sensor; §13.1 does not carry it for that feature')
+		return findings
 
 	def unregistered_sensor_features(self) -> list[str]:
 		"""§13.1 feature ids the registry does not carry. A sensor row citing a feature that does not
