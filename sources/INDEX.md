@@ -8,6 +8,13 @@ that uses it, with its retrieval URL, date, and checksum.
 |---|---|---|
 | WHO Child Growth Standards, LMS tables | `afya.records.growth`, `afya.records.growth_standards` | `who-child-growth-standards/` |
 | CKD-EPI 2021, KDIGO CKD classification, ILAE status epilepticus, sickle cell and epilepsy guidance | `afya.chronic.conditions` | `clinical-thresholds/` |
+| PHQ-9 and GAD-7 instruments, with the Pfizer instruction manual | §REC-005's screenings — the readings the section names and `afya.mental` does not yet carry | `phq9-gad7/` |
+
+Every source is stored as the published artefact **and** as layout-preserving text (`pdftotext
+-layout`), with both checksums recorded. The text copy is what a tool reads: an agent given a PDF
+receives it as a base64 `document` block, which some model gateways reject outright, and which costs
+far more context than the text it carries. The PDF stays because it is the artefact the citation
+points at.
 
 ---
 
@@ -26,7 +33,9 @@ the 0–5 year z-score tables used here are the current published revision.
 ### Files
 
 Each file is the WHO z-score table as published, a 3-page PDF whose first page carries the header and
-the LMS columns.
+the LMS columns. The `.txt` beside each is the same table extracted with `pdftotext -layout`, which
+reproduces the `Year: Month / Month / L / M / S` columns in order; `growth_standards.py`'s 246 rows
+were checked against it and agree exactly.
 
 | File | Indicator | Sex | Ages | SHA-256 (first 16) |
 |---|---|---|---|---|
@@ -36,6 +45,9 @@ the LMS columns.
 | `lhfa_girls_0_2.pdf` | Length-for-age | Girls | 0–24 months | `a5895dcfacfc6de9` |
 | `hfa_boys_2_5.pdf` | Height-for-age | Boys | 24–60 months | `a8b1093776be24ea` |
 | `hfa_girls_2_5.pdf` | Height-for-age | Girls | 24–60 months | `c6ff83bc671ac6f0` |
+
+The text copies, in the same order: `c5aeb7719aae4cc9`, `25e9bf5bde08df59`, `49ee5a7d7a85fa11`,
+`afa057f52fcf39ce`, `34736c0885e3c139`, `4e634fb0cb3be7b9`.
 
 ### Retrieval URLs
 
@@ -171,3 +183,49 @@ wheezing, chest pain, fever, hypoxaemia; splenic sequestration: left-sided pain,
 sudden haemoglobin drop; stroke) and the drug names (carbamazepine or lamotrigine first-line for
 focal, valproate for generalised, benzodiazepine then levetiracetam for convulsive status) — and
 states no dose it cannot source. A dose invented to fill a table is worse than a table with a gap.
+
+---
+
+## PHQ-9 and GAD-7 — the instruments §REC-005 names
+
+§REC-005 asks for "PHQ-9 and GAD-7 screenings (validated, localised)". Neither exists in the code:
+`afya.mental` implements **WHO-5** only, and `content_audit` records the gap as a `missing` row
+against REC-005. These three files are the instruments themselves, archived so that the feature — when
+someone builds it — has the item text, the response scale and the scoring rule from the source rather
+than from a summary of it.
+
+This is a gap with its source present, not a feature. Nothing in `src/` reads these files.
+
+**Publisher:** Pfizer Inc. (the PHQ family was developed with an educational grant from Pfizer).
+**Retrieved:** 2026-10-12.
+**Licence:** the instrument states *"No permission required to reproduce, translate, display or
+distribute"*, which is what makes the localisation §REC-005 asks for a licensing non-issue.
+
+| File | What it is | SHA-256 (first 16) |
+|---|---|---|
+| `PHQ-9_English.pdf` | The PHQ-9: nine items, each scored 0–3, plus the tenth unnumbered functional-impairment question | `e3fb5b8853e3530c` |
+| `GAD-7_English.pdf` | The GAD-7: seven items, each scored 0–3, with the office-coding total line | `180538a8e3f2f3cb` |
+| `instructions.pdf` | The Pfizer instruction manual (9 pages): background, coding and scoring, versions, use as severity and outcome measures, translations | `6ed2f00f97e438c1` |
+
+Text copies: `56b395d530087098`, `b26a82ab638eb3a3`, `6e34c3a1ef25c994`.
+
+**Retrieval URLs:** `https://www.phqscreeners.com/` (the PHQ and GAD-7 screeners site). The specific
+document paths are not recorded here because the site serves them behind a session; the retrieved
+artefacts are the authority, and the checksums above pin them.
+
+### What the sources support, and what they do not
+
+- **Item text and scale are complete.** Both instruments extract with all items, the four-point
+  frequency scale (`0` Not at all … `3` Nearly every day), and PHQ-9's functional-impairment question.
+- **Severity bands are not in these files.** The item PDFs print the items and the total line; the
+  cut-points (PHQ-9 5/10/15/20, GAD-7 5/10/15) live in the instruction manual's *Coding and Scoring*
+  section, which is archived here — but the bands are **not** transcribed into `sources/INDEX.md` and
+  are not implemented, because a threshold copied out of a 9-page manual into a docstring is a
+  threshold nobody re-checks. Whoever implements §REC-005 should read them from
+  `instructions.txt` and cite the page.
+- **Localisation is a licence non-issue but not a translation.** The instruments may be translated
+  freely; no validated Kiswahili PHQ-9/GAD-7 is archived here, and §REC-005's "localised" is
+  therefore unmet in both senses — the instrument and its language.
+- **WHO-5 is not the same instrument.** It is five items on a six-point scale, scored `raw × 4` to a
+  0–100 index. Substituting it for PHQ-9 is not a narrower version of the same screen; it is a
+  different instrument with different cut-points, and `afya.mental` says which one it carries.
