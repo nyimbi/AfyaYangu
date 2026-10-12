@@ -67,10 +67,17 @@ def test_every_audited_bullet_is_the_sections_bullet_in_its_own_words() -> None:
 
 def test_the_audited_sections_are_the_ones_the_survey_found_uncited() -> None:
 	"""The selection rule, asserted rather than left in a docstring, and it is a rule about what a
-	person meets, not about what a survey happened to notice. Three tranches: the four sections the
+	person meets, not about what a survey happened to notice. Four tranches: the four sections the
 	section-number survey found named nowhere (a citations rule), the nine §8 Tier-1 sections (the
-	tier that earns the download), and the seven Tier-2 sections plus §9.2 REC-001 (the tier that
-	earns the return visit). The order the work was done in is not the order of importance."""
+	tier that earns the download), the seven Tier-2 sections plus §9.2 REC-001 (the tier that earns
+	the return visit), and the four §8 Tier-1 sections the first pass over that tier missed. The
+	order the work was done in is not the order of importance.
+
+	The last tranche is a correction rather than new ground: §8 has thirteen feature sections and
+	the first pass audited nine of them, so four Tier-1 sections — the tier the whole adoption
+	argument rests on — were named in neither list. That is the failure this assertion exists to
+	catch, and it was live here until the partition test below found it.
+	"""
 	from afya.content_audit.service import FEATURE_CONTENT
 	audited = set(f for f, _, _, _, _, _ in FEATURE_CONTENT)
 	assert {'MED-004', 'FND-006', 'INF-007', 'TRI-003'} <= audited, 'the uncited four'
@@ -78,7 +85,8 @@ def test_the_audited_sections_are_the_ones_the_survey_found_uncited() -> None:
 		'MED-001', 'MED-002', 'MED-003', 'EMG-001'} <= audited, 'the §8 Tier-1 nine'
 	assert {'INF-004', 'INF-005', 'MON-001', 'MON-002', 'MON-003', 'MON-004',
 		'REC-001'} <= audited, 'the Tier-2 seven'
-	assert len(audited) == 20, 'the three tranches name twenty distinct sections'
+	assert {'FND-003', 'FND-005', 'EMG-003', 'INF-006'} <= audited, 'the Tier-1 four the first pass missed'
+	assert len(audited) == 24, 'the four tranches name twenty-four distinct sections'
 	assert audited == {f for f in audited}, 'every audited id is a real feature'
 
 
@@ -117,7 +125,7 @@ def test_the_report_states_how_much_of_the_spec_it_read() -> None:
 	assert audited | set(report.unaudited_features) == labelled, \
 		'every labelled section is either audited or named as unaudited'
 	assert not audited & set(report.unaudited_features)
-	assert report.audited_features == len(audited) == 20
+	assert report.audited_features == len(audited) == 24
 	assert report.unaudited_features == list(UNAUDITED_FEATURES)
 
 
@@ -138,6 +146,7 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§MED-004': 4, '§FND-006': 3, '§INF-007': 4, '§TRI-003': 4,
 		'§INF-004': 4, '§INF-005': 1, '§MON-001': 4, '§MON-002': 9, '§MON-003': 3,
 		'§MON-004': 2, '§REC-001': 6,
+		'§FND-003': 3, '§FND-005': 4, '§EMG-003': 4, '§INF-006': 11,
 	}, per_feature
 
 
