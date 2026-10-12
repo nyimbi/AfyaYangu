@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from afya.ids import uuid7str
 from afya.privacy.views import DPIAInput
-from afya.registry.taxonomy import DIVERGENCES as TIER_DIVERGENCES, TIER_OF, domain_of, id_pattern
+from afya.registry.taxonomy import DIVERGENT_IDS, TIER_OF, domain_of, id_pattern
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -243,7 +243,7 @@ class FeatureRegistry(LogMixin):
 		"""
 		out: dict[str, str] = {}
 		for f in self.FEATURES:
-			if f.id in TIER_DIVERGENCES or f.id not in TIER_OF:
+			if f.id in DIVERGENT_IDS or f.id not in TIER_OF:
 				continue
 			listed = TIER_OF[f.id]
 			actual = TIER_NAMES[int(f.tier)]
@@ -267,5 +267,5 @@ class FeatureRegistry(LogMixin):
 		"""
 		return sorted(
 			f.id for f in self.FEATURES
-			if f.id not in TIER_DIVERGENCES and f.tier is not Tier.tier4 and TIER_OF.get(f.id) == 'Tier 4'
+			if f.id not in DIVERGENT_IDS and f.tier is not Tier.tier4 and TIER_OF.get(f.id) == 'Tier 4'
 		)

@@ -66,14 +66,19 @@ def test_every_audited_bullet_is_the_sections_bullet_in_its_own_words() -> None:
 
 
 def test_the_audited_sections_are_the_ones_the_survey_found_uncited() -> None:
-	"""The selection rule, asserted rather than left in a docstring: the first four are the feature
-	sections the section-number survey found named nowhere in the source, and the nine §8 sections
-	are Tier 1 — the tier that earns the download, and the one a person meets first."""
+	"""The selection rule, asserted rather than left in a docstring, and it is a rule about what a
+	person meets, not about what a survey happened to notice. Three tranches: the four sections the
+	section-number survey found named nowhere (a citations rule), the nine §8 Tier-1 sections (the
+	tier that earns the download), and the seven Tier-2 sections plus §9.2 REC-001 (the tier that
+	earns the return visit). The order the work was done in is not the order of importance."""
 	from afya.content_audit.service import FEATURE_CONTENT
 	audited = set(f for f, _, _, _, _, _ in FEATURE_CONTENT)
-	assert {'MED-004', 'FND-006', 'INF-007', 'TRI-003'} <= audited
+	assert {'MED-004', 'FND-006', 'INF-007', 'TRI-003'} <= audited, 'the uncited four'
 	assert {'TRI-001', 'TRI-002', 'FND-001', 'FND-002', 'FND-004',
-		'MED-001', 'MED-002', 'MED-003', 'EMG-001'} <= audited
+		'MED-001', 'MED-002', 'MED-003', 'EMG-001'} <= audited, 'the §8 Tier-1 nine'
+	assert {'INF-004', 'INF-005', 'MON-001', 'MON-002', 'MON-003', 'MON-004',
+		'REC-001'} <= audited, 'the Tier-2 seven'
+	assert len(audited) == 20, 'the three tranches name twenty distinct sections'
 	assert audited == {f for f in audited}, 'every audited id is a real feature'
 
 
@@ -112,7 +117,7 @@ def test_the_report_states_how_much_of_the_spec_it_read() -> None:
 	assert audited | set(report.unaudited_features) == labelled, \
 		'every labelled section is either audited or named as unaudited'
 	assert not audited & set(report.unaudited_features)
-	assert report.audited_features == len(audited) == 13
+	assert report.audited_features == len(audited) == 20
 	assert report.unaudited_features == list(UNAUDITED_FEATURES)
 
 
@@ -131,6 +136,8 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§TRI-001': 4, '§TRI-002': 4, '§FND-001': 3, '§FND-002': 4, '§FND-004': 1,
 		'§MED-001': 4, '§MED-002': 2, '§MED-003': 4, '§EMG-001': 4,
 		'§MED-004': 4, '§FND-006': 3, '§INF-007': 4, '§TRI-003': 4,
+		'§INF-004': 4, '§INF-005': 1, '§MON-001': 4, '§MON-002': 9, '§MON-003': 3,
+		'§MON-004': 2, '§REC-001': 6,
 	}, per_feature
 
 

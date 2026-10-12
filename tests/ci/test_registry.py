@@ -145,19 +145,43 @@ def test_the_tier_map_is_the_sections_five_rows() -> None:
 	assert [len(ids) for _, ids in TIER_MAP] == [_expand_spec_ids(row[1]) for row in spec]
 
 
-def test_the_four_sensor_ids_the_summary_flattens_are_recorded_not_reported() -> None:
-	"""§7.3 lists `SENS-001…008` under Tier 4; §14 gives each sensor its own tier, and the registry
-	follows §14. The four that differ are recorded as divergences, and both crossings must exclude
-	them — a gate that re-reported a resolved divergence on every run is one whose real findings get
-	ignored."""
+def test_the_sensor_ids_the_summary_flattens_are_recorded_not_reported() -> None:
+	"""§7.3 lists `SENS-001…008` under Tier 4; §14 gives each sensor its own tier. The ones that
+	differ are recorded as divergences, and both crossings must exclude them — a gate that
+	re-reported a resolved divergence on every run is one whose real findings get ignored.
+
+	The register is a *claim*, so it is checked against the two sections rather than trusted: each
+	row names its §14 section and the tier cell that section prints, and both must be what the spec
+	actually says. Two of the four prose notes this replaced were false — SENS-007's said "Followed
+	§14.7" beside a registry tier of 2 while §14.7 says 3, and SENS-008's §14.8-Tier-3 against a
+	registry Tier 4 was recorded nowhere — which is exactly what a checkable cell prevents."""
+	import re
+	from pathlib import Path
 	from afya.registry.taxonomy import DIVERGENCES
 	from afya.registry.service import FeatureRegistry
 	reg = FeatureRegistry()
-	assert sorted(DIVERGENCES) == ['SENS-003', 'SENS-005', 'SENS-006', 'SENS-007']
+	assert sorted(d.feature_id for d in DIVERGENCES) == [
+		'SENS-003', 'SENS-005', 'SENS-006', 'SENS-007', 'SENS-008']
 	assert reg.ebola_specific_mismatches() == [], 'the recorded divergences are not findings'
 	assert reg.spec_tier_mismatches() == {}
-	# The registry follows §14: these four are available before an outbreak.
-	assert all(reg.get(i).tier is not Tier.tier4 for i in DIVERGENCES)
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	appb = _spec_table('### Records')
+	for row in DIVERGENCES:
+		body = text.split(f'### {row.section} ', 1)
+		assert len(body) == 2, f'§{row.section} is not a section in the spec'
+		stated = re.search(r'\*\*Tier:\*\*\s*([^\n]+)', body[1])
+		assert stated and stated.group(1).strip() == row.section_tier_cell, \
+			f'{row.feature_id}: §{row.section} prints ' \
+			f'{stated.group(1).strip() if stated else None!r}, register says {row.section_tier_cell!r}'
+		assert reg.get(row.feature_id).tier.value == row.registry_tier, \
+			f'{row.feature_id}: registry has Tier {reg.get(row.feature_id).tier.value}, ' \
+			f'register records {row.registry_tier}'
+		# Appendix B's column is the third statement of the same fact, so it is checked too — a
+		# register that compared only two of the three tables would read as complete.
+		cell = [r[2] for r in appb if r[0] == row.feature_id]
+		assert cell and cell[0].strip() == row.appendix_b_tier, \
+			f'{row.feature_id}: Appendix B says {cell[0].strip() if cell else None!r}, ' \
+			f'register records {row.appendix_b_tier!r}'
 
 
 def test_the_crossings_report_a_real_mismatch_and_are_silent_on_a_clean_registry() -> None:

@@ -192,18 +192,50 @@ TIER_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
 	('Cross-cutting', _expand((('ACC', '001…005'), ('SEC', '001…006'), ('AI', '004…005')))),
 )
 
-# §7.3's summary against the per-feature sections it summarises. §14 is the detail and the code
-# follows it: a sensor with a basic tier is available before an outbreak, which is what §14.3's
-# "Tier 1 (basic)" means and what §7.3's single Tier-4 row cannot express.
-DIVERGENCES: dict[str, str] = {
-	'SENS-003': '§7.3 lists it in Tier 4; §14.3 gives it "Tier 1 (basic) / 4 (outbreak-enhanced)". '
-	            'Followed §14.3 — fall detection works before an outbreak.',
-	'SENS-005': '§7.3 lists it in Tier 4; §14.5 gives it "Tier 1 (basic) / 4 (monitoring)". '
-	            'Followed §14.5.',
-	'SENS-006': '§7.3 lists it in Tier 4; §14.6 gives it "Tier 2 (basic) / 4 (outbreak)". '
-	            'Followed §14.6.',
-	'SENS-007': '§7.3 lists it in Tier 4; §14.7 gives it "Tier 3". Followed §14.7.',
-}
+# §7.3's summary against the per-feature sections it summarises, and against Appendix B's own tier
+# column — which is a *third* statement of the same fact and disagrees with §14 on two ids. Each row
+# is a `TierDivergence` whose every field the tests check against the spec, so a row that misstates
+# the section it cites fails rather than being trusted. The first cut of this table was prose and
+# two of its four notes were false: SENS-007's said "Followed §14.7" beside a registry tier of 2
+# while §14.7 says 3, and §14.8's Tier 3 against a registry Tier 4 was recorded nowhere at all. A
+# note a reader cannot check is a note that drifts — the §13.1 lossy-enum defect wearing a comment's
+# clothes.
+class TierDivergence(BaseModel):
+	"""One sensor whose tier three tables state differently.
+
+	`section` and `section_tier_cell` are §14's own heading number and `**Tier:**` cell verbatim, so
+	the register quotes the section rather than paraphrasing it. `appendix_b_tier` is the third
+	statement — Appendix B's tier column, which agrees with §14 on three of the five and disagrees
+	on two — carried because a register that compared only two of the three tables would have read
+	as complete. `registry_tier` is what the code carries, and the disagreements among the four are
+	the finding, reported rather than reconciled: §7.3 is a summary, §14 is the detail, and neither
+	is overruled here.
+	"""
+
+	model_config = MODEL_CONFIG
+	feature_id: str
+	section: str = Field(min_length=1)
+	section_tier_cell: str = Field(min_length=1)
+	appendix_b_tier: str = Field(min_length=1)
+	registry_tier: int = Field(ge=1, le=4)
+
+
+# §7.3 lists every sensor in Tier 4; §14 gives each its own tier and Appendix B states a third
+# value. Rows are here only where at least two of the three disagree with what the registry carries.
+DIVERGENCES: tuple[TierDivergence, ...] = (
+	TierDivergence(feature_id='SENS-003', section='14.3',
+		section_tier_cell='1 (basic) / 4 (outbreak-enhanced)', appendix_b_tier='1', registry_tier=1),
+	TierDivergence(feature_id='SENS-005', section='14.5',
+		section_tier_cell='1 (basic) / 4 (monitoring)', appendix_b_tier='2', registry_tier=2),
+	TierDivergence(feature_id='SENS-006', section='14.6',
+		section_tier_cell='2 (basic) / 4 (outbreak)', appendix_b_tier='2', registry_tier=2),
+	TierDivergence(feature_id='SENS-007', section='14.7',
+		section_tier_cell='3', appendix_b_tier='2', registry_tier=2),
+	TierDivergence(feature_id='SENS-008', section='14.8',
+		section_tier_cell='3', appendix_b_tier='4', registry_tier=4),
+)
+
+DIVERGENT_IDS: frozenset[str] = frozenset(d.feature_id for d in DIVERGENCES)
 
 TIER_OF: dict[str, str] = {feature_id: tier for tier, ids in TIER_MAP for feature_id in ids}
 

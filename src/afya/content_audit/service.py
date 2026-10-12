@@ -10,14 +10,15 @@ contents of which one had no model at all. This module applies the same treatmen
 sections' labelled content lists: `**Features:**`, `**Contents:**`, `**Additional inputs:**`,
 `**Outputs:**` and `**Signals monitored:**`.
 
-**Coverage is partial and the report says so.** §8–§12 print 221 labelled content bullets across 35
-feature sections — the sections carrying a `**Features:**`-style list, with §9.5 INF-007's prose
-Contents cell counted as its six comma-separated items. Thirteen are audited here: the four the
-section-number survey found named nowhere in the source (§9.3 MED-004, §9.4 FND-006, §9.5 INF-007,
-§11.2 TRI-003) and the nine §8 Tier-1 sections, the tier that earns the download and the one a
-person meets first. `audited_features` and `UNAUDITED_FEATURES` are served alongside the findings,
-because a report that showed 45 gaps without saying how much of the spec it had read would invite
-the reader to take it as complete — which is the failure mode of every gate that scopes itself.
+**Coverage is partial and the report says so.** §8–§12 print 292 labelled content items across 47
+feature sections — the sections carrying a `**Features:**`-style list, counting each comma-separated
+item of a prose cell (the spec writes these lists two ways, and §9.5 INF-007's Contents is one
+sentence of six). Twenty are audited here: the four the section-number survey found named nowhere in
+the source (§9.3 MED-004, §9.4 FND-006, §9.5 INF-007, §11.2 TRI-003), the nine §8 Tier-1 sections,
+and the seven Tier-2 sections a person meets next (INF-004, INF-005, REC-001 and MON-001–004).
+`audited_features` and `UNAUDITED_FEATURES` are served alongside the findings, because a report that
+showed 74 gaps without saying how much of the spec it had read would invite the reader to take it as
+complete — which is the failure mode of every gate that scopes itself.
 
 **A bullet is carried when something in the repo does it.** `carried_by` is a `module:attr`
 reference and `missing` is the finding, reported rather than repaired — whether an absent bullet is
@@ -171,6 +172,45 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	('EMG-001', 'Features', 'Optional auto-dial of emergency services', 'deferred', None,
 		'the device dials; `actions` names call-719 for the client to perform'),
 
+	# --- §9.2 REC-001: Family Health Wallet (Basic) --------------------------------------------
+	# The Contents list is audited here as well as in `afya.records.service:WALLET_ITEMS`, which
+	# pairs the same eight bullets with their models. The two read the same section for different
+	# questions — that one asks whether the wallet assembles what it claims, this one whether the
+	# section's whole content list is carried — and the spec-comparison test keeps both honest.
+	('REC-001', 'Contents', 'Immunisation cards (photo or digital)', 'carried',
+		'afya.records.views:ImmunisationRecord',
+		'the EPI schedule and the doses given are modelled; the card itself is not stored as an image'),
+	('REC-001', 'Contents', 'ANC cards', 'carried', 'afya.maternal.views:ANCRecord',
+		'the eight ANC contacts are modelled against the visit schedule'),
+	('REC-001', 'Contents', 'Lab results', 'carried', 'afya.records.views:LabResult', None),
+	('REC-001', 'Contents', 'Prescriptions', 'carried', 'afya.records.views:Prescription', None),
+	('REC-001', 'Contents', 'Discharge summaries', 'missing', None,
+		'no model anywhere; a discharge summary is a facility document and nothing ingests one'),
+	('REC-001', 'Contents', 'Referral letters', 'carried', 'afya.intermediaries.views:Referral',
+		'the referral is modelled for code attribution, not as a document in the wallet'),
+	('REC-001', 'Contents', 'Insurance/SHA details', 'carried', 'afya.records.views:InsuranceCard',
+		'the SHA member number is stored as a hash, so the card cannot be reconstructed from it'),
+	('REC-001', 'Contents', 'Clinic appointment cards', 'carried', 'afya.facilities.views:Booking',
+		'the booking is modelled; the card the facility prints is not stored'),
+	('REC-001', 'Features', 'Multiple profiles (up to 10)', 'carried',
+		'afya.records.service:MAX_WALLET_PROFILES',
+		'enforced at enrolment: `add_member` refuses the eleventh profile for a guardian'),
+	('REC-001', 'Features', 'Photo capture and storage', 'missing', None,
+		'no document model carries an image or attachment field; `SyncService.image_budget` sizes an '
+		'upload and nothing stores one'),
+	('REC-001', 'Features', 'Offline access', 'missing', None,
+		'nothing caches the wallet payload; `SyncService.offline_state` reports the write queue, and '
+		'§15.2 records that the client caches the last good response in SharedPreferences — so the '
+		'capability is on the device and not in this tree, the same place FND-001\'s offline mode is'),
+	('REC-001', 'Features', 'Share via secure link or PDF export', 'missing', None,
+		'`RetentionService.export` is §SEC-005\'s export of everything held about a subject; there is '
+		'no wallet share link and no PDF renderer for a wallet document'),
+	('REC-001', 'Features', 'Optional encrypted cloud backup', 'missing', None,
+		'`cloud_backup` is a §SEC-001 consent category and `afya.retention.service` states '
+		'`cloud_backup_e2e=True` as a design property; no code performs a backup'),
+	('REC-001', 'Features', 'Search', 'missing', None,
+		'`wallet` returns members and their immunisation gaps; there is no query across the documents'),
+
 	# --- §9.3 MED-004: Drug Stock Crowdsourcing -----------------------------------------------
 	('MED-004', 'Features', 'Search for a medicine', 'missing', None,
 		'`stock_for` is keyed on (drug, facility) and needs both; there is no search across drugs'),
@@ -232,20 +272,161 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 		'`JOB_AIDS["isolation_basics"]` is CHW-facing reference material, not an output of triage'),
 	('TRI-003', 'Outputs', 'Contact list building (see COM-103)', 'carried',
 		'afya.community.service:CommunityService.add_contact', None),
+
+	# --- §10.1 INF-004: Myth-Busting Library ---------------------------------------------------
+	# The section's own format is "Rumour: [claim]. Fact: [correction]. Source: [authority]." — three
+	# parts, and the model carries a title and a body. That is why the library cannot be searched by
+	# claim and why a source is a free-text tag rather than a named authority.
+	('INF-004', 'Features', 'Search', 'missing', None,
+		'`InfoService.library` filters by language and stage and returns the whole corpus; there is '
+		'no query over title or body, and no index'),
+	('INF-004', 'Features', 'Browse by category', 'missing', None,
+		'`ContentItem.harmony_tag` is the only grouping key and it is not served as a facet — '
+		'`/info/library` returns a flat list, so a client cannot render a category list'),
+	('INF-004', 'Features', '"Ask about a rumour" — submit a claim for verification', 'missing', None,
+		'`CommunityService.flag_misinfo` takes a `MisinfoSubmission` with a claim, county and medium '
+		'and returns a cluster; nothing accepts a claim *for verification* and returns a correction '
+		'to the person who asked'),
+	('INF-004', 'Features', 'Shareable as a card', 'missing', None,
+		'§3.3 principle 10 requires every output to be shareable as a WhatsApp card; `/info/library` '
+		'serves `{slug,title,body,harmony_tag}` and nothing renders a card'),
+
+	# --- §10.1 INF-005: Travel Advisory --------------------------------------------------------
+	('INF-005', 'Features', 'Country and county advisories', 'missing', None,
+		'`LocationService.advisory(destination, origin_country)` returns one fixed paragraph for '
+		'any pair, so the country half is a constant rather than a table; the county half has no '
+		'carrier at all'),
+	('INF-005', 'Features', 'Border point status and wait times', 'carried',
+		'afya.location.views:BorderPost', 'queue_minutes and screening_required, read via border_status'),
+	('INF-005', 'Features', 'Screening requirements', 'carried',
+		'afya.location.views:BorderPost', 'screening_required'),
+	('INF-005', 'Features', 'What to do if you feel unwell after travel', 'carried',
+		'afya.location.service:LocationService.advisory',
+		'one fixed sentence — "call 719 and say where you travelled"; `self_declare` logs symptoms '
+		'declared on arrival, so the path exists and the guidance is a constant'),
+	('INF-005', 'Features', '21-day self-monitoring enrolment for travellers (links to MON-009)',
+		'carried', 'afya.location.service:LocationService.self_declare',
+		'the 21 days and the day 1/3/7/14/21 schedule are carried; the link is a message string, so '
+		'the enrolment does not reach `MonitoringService.enrol` and the diary stays empty'),
+
+	# --- §10.2 MON-001: Child Immunisation Tracker ---------------------------------------------
+	('MON-001', 'Features', 'Add children with date of birth', 'carried',
+		'afya.monitoring.service:MonitoringService.register_child', None),
+	('MON-001', 'Features',
+		'Automatic schedule generation (BCG, OPV, Pentavalent, PCV, Rotavirus, Measles-Rubella, Yellow Fever where relevant, HPV for girls)',
+		'carried', 'afya.monitoring.views:EPI_DUE_WEEKS',
+		'all nine named vaccines are rows; the section spells two of them differently ("Pentavalent" '
+		'is `DPT-HepB-Hib`, "Rotavirus" is `RV`)'),
+	('MON-001', 'Features', 'Reminders 3 days and 1 day before due date', 'carried',
+		'afya.monitoring.views:REMINDER_LEAD_DAYS', '`schedule` fills `remind_days_before` from it'),
+	('MON-001', 'Features', 'Record doses given (with photo of card)', 'missing', None,
+		'`record_dose` takes the vaccine, dose number and date; there is no image field on '
+		'`ImmunisationRecord` and nothing stores a photo'),
+	('MON-001', 'Features', 'Catch-up schedule for defaulters', 'carried',
+		'afya.monitoring.service:MonitoringService.catch_up', None),
+	('MON-001', 'Features', 'Missed-dose alerts', 'missing', None,
+		'`schedule` marks a dose `overdue` and `catch_up` names it; nothing raises an alert, and '
+		'`immunisation_reminders` is a §9.6 toggle no producer ever publishes under'),
+	('MON-001', 'Features', 'Facility finder integration for vaccination points', 'carried',
+		'afya.places.views:PlacesService.nearest',
+		'the kind exists and `/places/vaccination-points` serves it; the immunisation schedule does '
+		'not call it, so the client has to join the two itself'),
+	('MON-001', 'Features', 'Campaign notifications (polio, measles)', 'missing', None,
+		'no campaign notice is produced anywhere; the feed has no immunisation category and '
+		'`AlertKind` carries neither polio nor a campaign type'),
+	('MON-001', 'Features', 'Shareable immunisation record', 'missing', None,
+		'`immunisation_gaps` returns the doses outstanding and there is no shareable record of the '
+		'doses given'),
+
+	# --- §10.2 MON-002: Pregnancy and Antenatal Care Tracker -----------------------------------
+	('MON-002', 'Features', 'Estimated due date calculator', 'missing', None,
+		'`Pregnancy.edd_iso` is an input the caller computes; there is no calculator from an LMP '
+		'date, and `lmp_week` is a week count rather than a date to compute from'),
+	('MON-002', 'Features', 'WHO/Kenya ANC visit schedule (8 contacts)', 'carried',
+		'afya.maternal.views:ANC_CONTACTS_WEEKS', '8 contacts at 12/20/26/30/34/36/38/40 weeks'),
+	('MON-002', 'Features', 'Visit reminders', 'missing', None,
+		'`anc_due` returns the contact numbers outstanding; nothing schedules a reminder, and there '
+		'is no antenatal category in the alert preferences'),
+	('MON-002', 'Features', 'Danger sign education and one-tap escalation', 'missing', None,
+		'`assess_danger` classifies and writes a message; the escalation is the message text, and '
+		'there is no action a client can execute in one tap'),
+	('MON-002', 'Features', 'Birth plan builder (facility, transport, birth companion, blood donor, funds)',
+		'missing', None,
+		'`delivery_plan` returns the facility and the EDD; transport, birth companion, blood donor '
+		'and funds are five named fields of which one exists'),
+	('MON-002', 'Features', 'Trimester-specific guidance', 'missing', None,
+		'nothing in `afya.maternal` varies by trimester; `ANC_CONTACTS_WEEKS` places the visits and '
+		'the guidance is the same at week 12 and week 40'),
+	('MON-002', 'Features', 'Postnatal visit reminders', 'missing', None,
+		'`Pregnancy` ends at the EDD and `ANC_CONTACTS_WEEKS` stops at 40; there is no postnatal '
+		'contact, so there is nothing to remind about'),
+	('MON-002', 'Features', 'Newborn danger signs', 'missing', None,
+		'`DANGER_SIGNS` is nine maternal signs and none of them is a newborn sign; `GrowthRecord` '
+		'tracks weight and height and flags stunting, not danger'),
+	('MON-002', 'Features', 'Facility finder for maternity services', 'missing', None,
+		'`FacilityKind` has five members and no maternity or delivery kind, so no route can filter '
+		'for one; `PlaceKind` has eight and none of them either'),
+	('MON-002', 'Features', 'Referral to PMTCT where relevant', 'missing', None,
+		'no PMTCT reference exists anywhere in the tree'),
+
+	# --- §10.2 MON-003: Chronic Disease Log ----------------------------------------------------
+	('MON-003', 'Features', 'Log readings (BP, blood sugar, peak flow, weight)', 'carried',
+		'afya.chronic.service:ChronicService.bp', '`glucose`, `log_peak_flow` and `log_weight` too'),
+	('MON-003', 'Features', 'Trend charts', 'missing', None,
+		'`bp_trend` returns a one-line direction and there is no series for glucose, peak flow or '
+		'weight; no route serves a chart'),
+	('MON-003', 'Features', 'Medication reminders', 'carried',
+		'afya.monitoring.views:MedSchedule',
+		'`times_per_day` and `duration_days` are the schedule; the section lists this under MON-003 '
+		'and the model is MON-004\'s, so the two sections share one carrier'),
+	('MON-003', 'Features', 'Refill reminders', 'carried',
+		'afya.chronic.service:ChronicService.set_refill', '`refill_due` at seven days remaining'),
+	('MON-003', 'Features', 'Appointment tracking', 'missing', None,
+		'`Booking` is a facility slot with a queue position; it is not attached to a condition '
+		'profile and no route lists a subject\'s appointments'),
+	('MON-003', 'Features', 'Lifestyle guidance', 'missing', None,
+		'nothing in `afya.chronic` varies by condition; the condition list is carried and no '
+		'guidance keys on it'),
+	('MON-003', 'Features', 'Shareable reports for clinicians', 'carried',
+		'afya.monitoring.service:MonitoringService.shareable_report',
+		'the report withholds HIV unless separately consented'),
+	('MON-003', 'Features', 'Danger thresholds with escalation', 'carried',
+		'afya.chronic.views:BPReading.stage',
+		'`stage`, `level` and `ALERT_LIMITS` set the thresholds; escalation is a `_log_warn`, which '
+		'is a server log and not a message to anyone'),
+
+	# --- §10.2 MON-004: Medication Reminders ---------------------------------------------------
+	('MON-004', 'Features', 'Add medication, dose, frequency, duration', 'carried',
+		'afya.monitoring.views:MedSchedule', 'drug, dose, times_per_day and duration_days'),
+	('MON-004', 'Features', 'Multiple daily reminders', 'missing', None,
+		'`times_per_day` is a count, not a list of times; no reminder instant is carried anywhere'),
+	('MON-004', 'Features', 'Mark as taken / skipped / snooze', 'carried',
+		'afya.monitoring.views:AdherenceAction', 'taken, skipped, snoozed'),
+	('MON-004', 'Features', 'Adherence history', 'carried',
+		'afya.monitoring.service:MonitoringService.adherence',
+		'counts by action over the schedule; `record_adherence` keeps the events'),
+	('MON-004', 'Features', 'Refill alerts when supply is running low', 'carried',
+		'afya.monitoring.views:MedSchedule',
+		'`adherence` raises `refill_due` from it'),
+	('MON-004', 'Features', 'Support for multiple family members', 'carried',
+		'afya.monitoring.views:MedSchedule',
+		'keyed per member; the route binds the member to the caller\'s own wallet'),
+	('MON-004', 'Features', 'Works with no data connection', 'missing', None,
+		'`/monitoring/medication` and `/monitoring/medication/adherence` are HTTP routes; '
+		'`SyncService` has a `medication` conflict rule and nothing queues a dose through it'),
 )
 
 _LABELS: tuple[str, ...] = ('Features', 'Contents', 'Additional inputs', 'Outputs', 'Signals monitored')
 
 # §8–§12's feature sections that carry a labelled content list and are not audited above. Listed
-# rather than omitted so the report cannot be read as covering the spec: 221 such bullets across 35
+# rather than omitted so the report cannot be read as covering the spec: 292 such items across 47
 # sections, and a finding list presented without that context invites exactly the misreading this
 # module exists to prevent. Each is a section whose content nobody has crossed against the code yet
-# — a to-do with a count, not a claim of coverage. §9.2 REC-001 is here although its wallet contents
-# *are* audited in `afya.records.service:WALLET_ITEMS`; what is unaudited is the rest of its list.
+# — a to-do with a count, not a claim of coverage.
 UNAUDITED_FEATURES: tuple[str, ...] = (
-	'FND-003', 'FND-005', 'EMG-003', 'INF-004', 'INF-005', 'INF-006',
-	'MON-001', 'MON-002', 'MON-003', 'MON-004', 'MON-005', 'MON-006', 'MON-007', 'MON-008',
-	'REC-001', 'REC-003', 'REC-004', 'REC-005', 'REC-006',
+	'FND-003', 'FND-005', 'EMG-003', 'INF-006',
+	'MON-005', 'MON-006', 'MON-007', 'MON-008',
+	'REC-003', 'REC-004', 'REC-005', 'REC-006',
 	'ALT-001', 'ALT-002', 'MON-009',
 	'COM-101', 'COM-102', 'COM-103', 'COM-104',
 	'LOC-005', 'AI-001', 'AI-003',
