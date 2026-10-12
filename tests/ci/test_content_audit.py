@@ -19,28 +19,25 @@ def _spec_section(feature_id: str) -> str:
 
 
 def _spec_bullets(feature_id: str, label: str) -> list[str]:
-	"""The bullets under one labelled list in a section, in the section's order."""
-	body = _spec_section(feature_id)
-	marker = f'**{label}:**'
-	if marker not in body:
-		return []
-	segment = body.split(marker, 1)[1]
-	segment = re.split(r'\n\*\*|\n####|\n###', segment)[0]
-	return [line[2:].strip() for line in segment.splitlines() if line.startswith('- ')]
+	"""One labelled list in a section, in the section's order.
 
-
-def _spec_inline_list(feature_id: str, label: str) -> list[str]:
-	"""A label whose content is one prose sentence of comma-separated items, not bullets.
-
-	§9.5 INF-007's Contents cell is the only one of these: "School closures, border post status,
-	market closures, water interruptions, road closures affecting facility access, public transport
-	disruptions."
+	The spec writes these two ways and both are content: bullets under the label (§8.1 TRI-001's
+	Outputs), or a single prose sentence of comma-separated items (§9.5 INF-007's Contents, §8.2
+	FND-003's Features, §10.2 MON-005's). Dispatching on the *shape* rather than on the label name
+	matters: a list that moves from prose to bullets must not read as the section losing its
+	content, and the first cut keyed on `label == 'Contents'`, which would have silently returned
+	nothing for the twenty-odd sections that write it the other way.
 	"""
 	body = _spec_section(feature_id)
 	marker = f'**{label}:**'
 	assert marker in body, f'{feature_id} has no {label}'
-	segment = re.split(r'\n\*\*|\n####|\n###', body.split(marker, 1)[1])[0].strip()
-	return [item.strip() for item in segment.rstrip('.').split(',')]
+	segment = re.split(r'\n\*\*|\n####|\n###', body.split(marker, 1)[1])[0]
+	bullets = [line[2:].strip() for line in segment.splitlines() if line.startswith('- ')]
+	if bullets:
+		return bullets
+	prose = segment.strip().lstrip('- ').strip()
+	assert prose, f'{feature_id} has a {label} label with nothing after it'
+	return [item.strip() for item in prose.rstrip('.').split(',')]
 
 
 def _spec_feature_ids() -> list[str]:
@@ -63,8 +60,7 @@ def test_every_audited_bullet_is_the_sections_bullet_in_its_own_words() -> None:
 	from afya.content_audit.service import FEATURE_CONTENT
 	for feature_id in dict.fromkeys(f for f, _, _, _, _, _ in FEATURE_CONTENT):
 		for label in dict.fromkeys(l for f, l, _, _, _, _ in FEATURE_CONTENT if f == feature_id):
-			spec = (_spec_inline_list(feature_id, label) if label == 'Contents'
-				else _spec_bullets(feature_id, label))
+			spec = _spec_bullets(feature_id, label)
 			mine = [b for f, l, b, _, _, _ in FEATURE_CONTENT if f == feature_id and l == label]
 			assert mine == spec, f'{feature_id} {label}: {mine} != {spec}'
 
