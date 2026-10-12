@@ -45,7 +45,19 @@ class EmergencyService(LogMixin):
 
 	@staticmethod
 	def card_qr(card: EmergencyCard) -> str:
-		assert card.emergency_contact, 'emergency contact required'
+		"""§EMG-003's card as a QR payload — the offline half of "lock-screen-accessible".
+
+		A QR is read by whatever scanner the responding clinician has, so the payload carries all seven
+		Contents rather than the five the model used to hold. Two deliberate choices: the emergency
+		contacts are joined with `;` and each is `name:number`, because a bare number tells a clinician
+		nothing about who they are ringing; and `organ_donor` is rendered `yes`/`no`/`unknown`, because
+		the field is tri-state and collapsing "never said" into "no" is the one reading error on this
+		card with a clinical consequence.
+		"""
+		assert card.emergency_contacts, 'at least one emergency contact is required (§EMG-003)'
+		donor = {True: 'yes', False: 'no', None: 'unknown'}[card.organ_donor]
 		return 'AFYA|' + '|'.join([
-			card.name, card.blood_group, ','.join(card.allergies), ','.join(card.conditions), card.emergency_contact,
+			card.name, card.blood_group, ','.join(card.allergies), ','.join(card.conditions),
+			';'.join(f'{c.name}:{c.number}' for c in card.emergency_contacts),
+			','.join(card.medications), donor, card.sha_number or '',
 		])

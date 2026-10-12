@@ -8,17 +8,19 @@ reachable, tested, and missing half its own spec.
 That is not hypothetical. §9.2's REC-001 was "reachable" the whole time and named eight wallet
 contents of which one had no model at all. This module applies the same treatment to feature
 sections' labelled content lists: `**Features:**`, `**Contents:**`, `**Additional inputs:**`,
-`**Outputs:**` and `**Signals monitored:**`.
+`**Outputs:**`, `**Signals monitored:**` and `**Access:**`.
 
-**Coverage is partial and the report says so.** §8–§12 print 292 labelled content items across 47
+**Coverage is partial and the report says so.** §8–§12 print 293 labelled content items across 47
 feature sections — the sections carrying a `**Features:**`-style list, counting each comma-separated
 item of a prose cell (the spec writes these lists two ways, and §9.5 INF-007's Contents is one
-sentence of six). Twenty-four are audited here, in four tranches: the four the section-number survey
-found named nowhere in the source (§9.3 MED-004, §9.4 FND-006, §9.5 INF-007, §11.2 TRI-003); the
-nine §8 Tier-1 sections; the seven Tier-2 sections a person meets next plus §9.2 REC-001 (INF-004,
-INF-005, REC-001 and MON-001–004); and the four remaining Tier-1 sections (§8.2 FND-003 and FND-005,
-§8.4 EMG-003, §8.5 INF-006). `audited_features` and `UNAUDITED_FEATURES` are served alongside the
-findings, because a report that showed 96 gaps without saying how much of the spec it had read would
+sentence of six; §EMG-003's Access is two sentences the same parser reads as one item). Twenty-four
+sections are audited here, in four tranches: the four the section-number survey found named nowhere in the
+source (§9.3 MED-004, §9.4 FND-006, §9.5 INF-007, §11.2 TRI-003); the nine §8 Tier-1 sections; the
+seven Tier-2 sections a person meets next plus §9.2 REC-001 (INF-004, INF-005, REC-001 and
+MON-001–004); and the four remaining Tier-1 sections (§8.2 FND-003 and FND-005, §8.4 EMG-003, §8.5
+INF-006). §19.4 carries the spec's only other `**Access:**` label and is not audited. `audited_features`
+and `UNAUDITED_FEATURES` are served alongside the
+findings, because a report that showed 85 gaps without saying how much of the spec it had read would
 invite the reader to take it as complete — which is the failure mode of every gate that scopes
 itself.
 
@@ -456,17 +458,33 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	('EMG-003', 'Contents', 'allergies', 'carried', 'afya.emergency.views:EmergencyCard', None),
 	('EMG-003', 'Contents', 'chronic conditions', 'carried', 'afya.emergency.views:EmergencyCard',
 		'the `conditions` field'),
-	('EMG-003', 'Contents', 'current medications', 'missing', None,
-		'`EmergencyCard` carries `name`, `blood_group`, `allergies`, `conditions` and '
-		'`emergency_contact` — no medications field'),
-	('EMG-003', 'Contents', 'emergency contacts', 'missing', None,
-		'the `emergency_contact` field is one `str` validated as a single phone number, so the '
-		'plural list the section names collapses to one contact'),
-	('EMG-003', 'Contents', 'organ donor status', 'missing', None,
-		'`EmergencyCard` carries no organ-donor field'),
-	('EMG-003', 'Contents', 'SHA number', 'missing', None,
-		'`EmergencyCard` carries no SHA field; `InsuranceCard.sha_member_no_hash` is a hash, so it '
-		'cannot be rendered as the number the card would show'),
+	('EMG-003', 'Contents', 'current medications', 'carried', 'afya.emergency.views:EmergencyCard',
+		'the `medications` list, rendered into the QR payload by `card_qr`'),
+	('EMG-003', 'Contents', 'emergency contacts', 'carried', 'afya.emergency.views:EmergencyContact',
+		'a list of `EmergencyContact` rows carrying a name, a number and an optional relationship — '
+		'the plural the section writes, and each row says *who* to ring rather than only what to '
+		'dial, which is what a clinician reading an unconscious patient\'s card needs'),
+	('EMG-003', 'Contents', 'organ donor status', 'carried', 'afya.emergency.views:EmergencyCard',
+		'`organ_donor: bool | None` and rendered `yes`/`no`/`unknown` — tri-state because a defaulted '
+		'`False` answers "never asked" as "declined", the one reading error on this card with a '
+		'clinical consequence'),
+	('EMG-003', 'Contents', 'SHA number', 'carried', 'afya.emergency.views:EmergencyCard',
+		'`sha_number` on the payload, and no method here stores a card — the hash-only rule '
+		'(`insurance.views:sha_of_member_no`) is about persistence, and §EMG-003 asks for the number a '
+		'hospital can read off the card. The two are compatible because nothing writes one down'),
+	# §EMG-003's Access clause is not a Content but it is the section's other requirement, and it was
+	# absent: the card existed with no opt-in flag, so nothing could tell a client whether the person
+	# had agreed to have their medical data on a locked screen.
+	# §EMG-003 writes Access as two sentences where the five content labels write comma lists, so the
+	# parser reads it as one item — the same shape rule the rest of this table follows. Both clauses
+	# are covered and the note names both rather than letting the second hide behind the first.
+	('EMG-003', 'Access',
+		'Available from the lock screen without unlocking the phone (opt-in). Critical for unconscious patients',
+		'carried', 'afya.emergency.views:EmergencyCard',
+		'the first clause is `lock_screen_opt_in`, defaulted False, because the opt-in *is* the clause '
+		'and the default is the one that shows a stranger nothing; the second is '
+		'`EmergencyService.card_qr`, which renders all seven Contents into a QR payload — the form '
+		'that works for a patient who cannot unlock a phone to show it'),
 
 	# --- §8.5 INF-006: Hotline and Contact Directory ------------------------------------------
 	# The section asks for "a single screen with all relevant contacts" and prints eight Contents and
@@ -518,11 +536,18 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 		'requires every output be shareable as a WhatsApp card, and a card needs a link to carry'),
 )
 
-_LABELS: tuple[str, ...] = ('Features', 'Contents', 'Additional inputs', 'Outputs', 'Signals monitored')
+# The five content-list labels, plus `Access` — which the spec prints twice, once per §EMG-003
+# ("lock-screen-accessible ... without unlocking the phone (opt-in)") and once per §19.4 ("PHEOC,
+# county health teams, MoH. Role-based. Audit logged."). It is a different *kind* of list: the five
+# are what a feature holds, and Access is who may reach it. Both are content a section states, so
+# both are auditable; §19.4's own is unaudited, and is named below with the other unaudited rows.
+_LABELS: tuple[str, ...] = (
+	'Features', 'Contents', 'Additional inputs', 'Outputs', 'Signals monitored', 'Access',
+)
 
 # §8–§12's feature sections that carry a labelled content list and are not audited above. Listed
-# rather than omitted so the report cannot be read as covering the spec: the spec prints 292 such
-# items across 47 sections, 156 of them are audited above and these 136 across 23 sections are not.
+# rather than omitted so the report cannot be read as covering the spec: the spec prints 293 such
+# items across 47 sections, 160 of them are audited above and these 133 across 23 sections are not.
 # A finding list presented without that context invites exactly the misreading this module exists to
 # prevent. Each is a section whose content nobody has crossed against the code yet — a to-do with a
 # count, not a claim of coverage.
