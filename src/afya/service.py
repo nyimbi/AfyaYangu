@@ -82,7 +82,7 @@ from afya.sensors.views import SenseIngest
 from afya.sync.service import SyncService, apply_delta, delta_payload
 from afya.sync.views import ConnectionClass, SyncOp
 from afya.triage.service import TriageService
-from afya.triage.views import DiaryEntry, TriageInput, TriageResult
+from afya.triage.views import EBOLA_SYMPTOMS, DiaryEntry, TriageInput, TriageResult
 
 # spec-coverage domains (§9.1, §9.6, §10.2-10.4, §11.4-11.5, §12, §17, §19)
 from afya.access.service import AccessService
@@ -92,7 +92,7 @@ from afya.analytics.service import AnalyticsService
 from afya.analytics.views import DASHBOARDS, DashboardId
 from afya.metrics.service import MetricsService
 from afya.metrics.views import MetricFamily
-from afya.ai.views import AggregateCell, FairnessAudit, RedressRequest, RiskInputs, WarningSignal
+from afya.ai.views import AggregateCell, FairnessAudit, RedressRequest, RiskInputs, SignalEvent, WarningSignal
 from afya.alerting.service import AlertingService
 from afya.alerting.views import ExposureAck, FeedItem, FeedPage, FamilyStatus
 from afya.auth.service import AuthService
@@ -140,6 +140,36 @@ CURRENT_API_VERSION = 'v1'
 # chemist is open: a pharmacy two hundred metres away that closed an hour ago is not the nearest
 # answer to "where can I go now", so the ordering has to see past the first few by distance alone.
 _PHARMACY_SCAN_LIMIT = 50
+
+
+def _names_a_symptom(query: str | None) -> bool:
+	"""Whether a free-text search names a symptom, for §AI-003's third signal.
+
+	The bullet is "facility-finder searches for a *specific symptom*", and a finder search is mostly
+	not that: "nearest hospital" and "KNH" are the commonest queries and neither is a surveillance
+	signal. Matching against the triage symptom vocabulary is what separates the two, and it is the
+	same list the triage flow uses so the finder and the triage cannot disagree about what a symptom
+	is. Case-folded, because a person types "Fever" as often as "fever".
+	"""
+	if not query:
+		return False
+	text = query.lower()
+	return any(symptom.replace('_', ' ') in text or symptom in text for symptom in EBOLA_SYMPTOMS)
+
+
+async def _record_signal(ai: AIService, county: str | None, signal: str, event_ref: str = '') -> None:
+	"""Record one §AI-003 signal event, if the surface named a locality at all.
+
+	One door, because the six routes that emit are six chances to forget the locality check or to
+	stamp a different clock. A signal with no county is not recorded: the bullet is a rise *in a
+	locality*, and a national count against a county baseline is a number that cannot mean anything.
+	The clock is read here rather than at each call site so every event in the ledger is dated the
+	same way.
+	"""
+	if not county:
+		return
+	await ai.record_signal_event(SignalEvent(county=county, at_iso=now_iso(), signal=signal,
+	                                           event_ref=event_ref))
 
 
 class HealthResponse(BaseModel):
@@ -673,6 +703,11 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	# --- triage ---
 	@app.post('/triage/preliminary', response_model=TriageResult)
 	async def triage_preliminary(inp: TriageInput, lang: str = 'en') -> TriageResult:
+		# §AI-003's first bullet. The count is of fever triages, not of triages: a triage for a rash
+		# in a fever outbreak is a different observation, and mixing them would let a cough campaign
+		# raise a fever signal.
+		if 'fever' in inp.symptoms:
+			await _record_signal(ai, inp.county, 'fever_triage')
 		return triage.assess(inp, lang)
 
 	@app.post('/triage/evd', response_model=TriageResult)
@@ -814,6 +849,11 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		"cost unknown" instead of showing a shorter list that reads as an answer.
 		"""
 		found, unanswered = facilities.find(req)
+		# §AI-003's third bullet: a finder search that names a symptom. The bullet is about searches
+		# for a *symptom* — "nearest clinic" is not a signal and "nearest clinic for a fever" is — so
+		# the query is matched against the same vocabulary the triage symptom list uses.
+		if _names_a_symptom(req.query):
+			await _record_signal(ai, req.county, 'facility_search')
 		return {
 			'results': [{'facility': f.model_dump(mode='json'), 'km': round(km, 2)} for f, km in found],
 			'unanswered': unanswered,
@@ -877,6 +917,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/medicine/dose')
 	async def medicine_dose(req: DoseRequest) -> dict[str, object]:
+		# §AI-003's fourth bullet. A dose lookup names a drug by construction, so every one of these
+		# is a medicine search; the locality is what makes it a signal rather than a total.
+		await _record_signal(ai, req.county, 'medicine_search', req.drug)
 		return medicine.dose(req).model_dump(mode='json')
 
 	# --- emergency ---
@@ -1628,8 +1671,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return receipt.model_dump(mode='json')
 
 	@app.post('/ml/cough/analyze')
-	async def ml_cough_analyze(file: UploadFile = File(...)) -> dict[str, object]:
-		"""16 kHz mono WAV -> YAMNet AudioSet -> cough verdict (SENS-002, tier4 gated)."""
+	async def ml_cough_analyze(file: UploadFile = File(...), county: str = '') -> dict[str, object]:
+		"""16 kHz mono WAV -> YAMNet AudioSet -> cough verdict (SENS-002, tier4 gated).
+
+		`county` is the locality §AI-003's second bullet counts cough events in. It is a query
+		parameter and not part of the audio, because the recording is on-device and the file that
+		reaches here carries no geography — the caller knows where the recording was taken and the
+		waveform does not.
+		"""
 		if not cough_engine:
 			raise HTTPException(status_code=503, detail='onnx model assets not deployed (models/cough)')
 		import io
@@ -1648,9 +1697,15 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail='invalid WAV') from exc
 		engine: YamnetCoughEngine = cough_engine  # type: ignore[assignment]
 		try:
-			return engine.analyze(wave, tier4_active=registry.tier4_active()).model_dump(mode='json')
+			verdict = engine.analyze(wave, tier4_active=registry.tier4_active())
 		except PermissionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
+		# One ledger row per positive detection, not per recording: §AI-003's bullet is cough
+		# *detection events*, and a recording of five coughs is five events in the classifier's own
+		# count. A recording with none is not a signal.
+		for _ in range(verdict.cough_events):
+			await _record_signal(ai, county, 'cough_events')
+		return verdict.model_dump(mode='json')
 
 	# --- women / maternal / chronic / mental / blood / alerts / insurance ---
 	@app.post('/women/cycle')
@@ -1895,7 +1950,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/mental/who5')
 	async def mental_who5(w: WHO5, _subject: str = Depends(require_self())) -> dict[str, object]:
-		return mental.assess(w).model_dump(mode='json')
+		# §AI-003's fifth bullet, "increase in 'I feel unwell' check-ins". A low well-being score is
+		# the person saying they feel unwell; a good one is not a signal, so only the lower bands
+		# count. No subject reaches the ledger — the event carries the locality and nothing else.
+		verdict = mental.assess(w)
+		if verdict.band in ('very_low', 'low'):
+			await _record_signal(ai, w.county, 'unwell_checkin')
+		return verdict.model_dump(mode='json')
 
 	@app.get('/mental/lines')
 	async def mental_lines() -> list[dict[str, str]]:
@@ -2784,6 +2845,10 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		if not activation.feature_available('LOC-002', state):
 			raise HTTPException(status_code=403, detail=activation.reason('LOC-002', state))
 		await location.log_encounter(token)
+		# §AI-003's sixth bullet. The PET is carried as the opaque ref and never read by the detector;
+		# the county is what the density is measured in, and it is already on the token because the
+		# feature gate above needs it.
+		await _record_signal(ai, token.county, 'encounter_density', token.pet[:8])
 		return {'ok': True}
 
 	@app.post('/tier4/activation/request')
@@ -2987,6 +3052,43 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def ai_warning(county: str, disease: str, signals: list[WarningSignal], _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
 		try:
 			return ai.assess_warning(county, disease, signals).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/ai/signals')
+	async def ai_record_signal(event: SignalEvent, _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
+		"""Ingest one occurrence of one of §11.7's six signals.
+
+		Guarded on the county health team's scope, because this writes into a county's baseline and a
+		baseline is what a review is triggered from: an unguarded ingest is a way for anyone to inflate
+		a locality's count until an epidemiologist is paged about nothing. The app's own six surfaces
+		do not come through here — they call the collector in-process, from routes that already carry
+		their own guards — so this door is for a county system or a device reporting an event.
+
+		The event carries no subject: it is a count of something that happened in a place, and nothing
+		here identifies a person. The `ref` is the reporter's own opaque id for whatever it recorded,
+		kept so a count can be traced back to its events and never read by the detector.
+		"""
+		try:
+			return (await ai.record_signal_event(event)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/ai/early-warning/{county}/scan')
+	async def ai_warning_scan(county: str, disease: str = 'evd', week_isoyear: int = 0, week: int = 0,
+	                          baseline_weeks: int = 8,
+	                          _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
+		"""§AI-003 end to end for one county and one week: the six signals, scored, routed for review.
+
+		The period defaults to the week the deployment is running in, which is the week an
+		epidemiologist means when they ask "how are we doing" — and it is computed from the clock
+		rather than stored, so the scan cannot be pointed at a stale week by leaving a parameter out.
+		"""
+		if not week_isoyear or not week:
+			iso_year, iso_week, _ = datetime.now(timezone.utc).date().isocalendar()
+			week_isoyear, week = week_isoyear or iso_year, week or iso_week
+		try:
+			return ai.scan(county, disease, week_isoyear, week, baseline_weeks).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 

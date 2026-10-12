@@ -96,6 +96,112 @@ class WarningAssessment(BaseModel):
 	message: str
 
 
+# --- AI-003's six signals, as the app's own events --------------------------------------------------
+
+# The six bullets §11.7 lists, keyed to the signal names `WarningSignal.signal` accepts. The mapping
+# lives here because it is a fact about the spec's wording and the app's surfaces, and both ends of
+# it are in this module's import graph.
+SIGNAL_SOURCES: dict[str, str] = {
+	'fever_triage': 'a triage completed with fever among the reported symptoms',
+	'cough_events': 'a cough detection event — the on-device classifier returning a positive',
+	'facility_search': 'a facility-finder search that names a symptom',
+	'medicine_search': 'a medicine lookup that names a drug',
+	'unwell_checkin': 'an "I feel unwell" check-in',
+	'encounter_density': 'a proximity encounter between two devices',
+}
+"""§11.7's six bullets and the app event each one is counted from.
+
+`triage_volume` and `hotline_calls` are also accepted by `WarningSignal.signal` — they are §11.7's
+neighbours in the surveillance module — but they are not among the six bullets this section lists,
+so the collector does not produce them and says so rather than padding the set.
+"""
+
+SIGNAL_CARRYING_FIELDS: dict[str, tuple[str, str]] = {
+	# signal -> (model, field): the request field the event is read from, where the route records one
+	'fever_triage': ('TriageInput', 'symptoms'),
+	'cough_events': ('CoughVerdict', 'cough_events'),
+	'facility_search': ('NearestRequest', 'query'),
+	'medicine_search': ('DoseRequest', 'drug'),
+	'unwell_checkin': ('WHO5', 'scores'),
+	'encounter_density': ('EncounterToken', 'pet'),
+}
+"""Where each signal is read from, named so a test can assert the field still exists.
+
+A collector keyed on a field that was renamed stops collecting and keeps returning zero, which reads
+as "no outbreak" — the one failure mode a detection layer may not have. Naming the model and field
+here lets a test fail when the source moves rather than when someone notices the silence.
+"""
+
+
+class SignalEvent(BaseModel):
+	"""One occurrence, as the route that owns the surface recorded it.
+
+	This is the ingestion row and it is deliberately not the count. A count kept by incrementing an
+	integer at each route loses the period it happened in, and a baseline is a distribution over
+	periods — so the events are kept and the counting happens at read time, where the window is
+	explicit. `event_ref` is the opaque identifier of whatever the route has (a triage id, a PET,
+	a drug name); it is never read by the detector, and it is what makes a count auditable back to its
+	events. It is not called `ref`, because a route that names a *person* uses `ref` for the subject
+	(§17) and the gate that walks subject-carrying routes reads the name, not the intent.
+	"""
+
+	model_config = MODEL_CONFIG
+	county: str
+	at_iso: str
+	signal: str = Field(pattern=r'^(fever_triage|cough_events|facility_search|medicine_search|unwell_checkin|encounter_density)$')
+	event_ref: str = ''
+
+
+class SignalObservation(BaseModel):
+	"""One period's count of one signal in one locality — a row of the history a baseline is read from.
+
+	`week_isoyear` and `week` are the period, because a baseline is a distribution over periods: a
+	z-score against a mean whose window is unknown is a number that cannot be checked. The collector
+	groups by these and nothing else.
+	"""
+
+	model_config = MODEL_CONFIG
+	county: str
+	week_isoyear: int = Field(ge=2024, le=2100)
+	week: int = Field(ge=1, le=53)
+	signal: str = Field(pattern=r'^(fever_triage|cough_events|facility_search|medicine_search|unwell_checkin|encounter_density)$')
+	count: int = Field(ge=0)
+
+
+class SignalCollection(BaseModel):
+	"""What one collection pass produced, and what it refused to produce.
+
+	`withheld` is the finding and not a warning: a signal whose source produced fewer than
+	`MIN_CELL_SIZE` events in the period is not a small signal, it is a signal that cannot be told
+	from noise without re-identifying the people in it. The name is reported so an epidemiologist can
+	see the gap rather than the absence.
+	"""
+
+	model_config = MODEL_CONFIG
+	county: str
+	observations: list[SignalObservation]
+	withheld: list[str]
+	note: str
+
+
+class EarlyWarningScan(BaseModel):
+	"""§AI-003 end to end: the signals collected, the assessment they produced, and the refusal.
+
+	`public_alert` is False on every path and there is no field that can set it. §11.7: signals above
+	threshold "trigger a review by PHEOC epidemiologists. Never automatic public alerts." A model
+	whose only way to express that is a boolean the caller passes in is a promise, not a control.
+	"""
+
+	model_config = MODEL_CONFIG
+	county: str
+	disease: str
+	week_isoyear: int
+	week: int
+	collection: SignalCollection
+	assessment: WarningAssessment
+	message: str
+
+
 # --- AI-004 governance ------------------------------------------------------------------
 
 class ModelCard(BaseModel):

@@ -74,6 +74,11 @@ class TriageInput(BaseModel):
 	exposure_site: bool = False
 	age_band: str | None = Field(default=None, pattern=r'^(under_5|5_17|18_49|50_64|65_plus)$')
 	pregnant: bool | None = None
+	# §11.7 AI-003's first bullet is "sudden increase in fever triage *in a locality*", and a
+	# locality is a county. Without it the early-warning collector counts a national number against a
+	# county baseline, which is a signal that cannot mean anything. Optional because a triage is
+	# still a triage without it — it is the surveillance dimension, not a clinical input.
+	county: str | None = None
 
 	def model_post_init(self, _context: object) -> None:
 		assert all(f in RED_FLAGS for f in self.red_flags), \

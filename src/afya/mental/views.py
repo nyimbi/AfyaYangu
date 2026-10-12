@@ -8,6 +8,9 @@ class WHO5(BaseModel):
 	model_config = MODEL_CONFIG
 	subject_ref: str
 	scores: list[int] = Field(min_length=5, max_length=5)  # 0-5 each, past-2-weeks well-being
+	# The locality, for §AI-003's "increase in 'I feel unwell' check-ins" — the one bullet whose
+	# source is a person saying so rather than an event the app observes on its own.
+	county: str | None = None
 
 	@property
 	def raw(self) -> int:

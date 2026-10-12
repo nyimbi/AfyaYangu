@@ -124,6 +124,9 @@ class NearestRequest(BaseModel):
 	limit: int = Field(default=3, ge=1, le=20)
 	# §FND-001 "Search by area name or code".
 	query: str | None = None
+	# §AI-003's "facility-finder searches for a specific symptom", counted by locality. `query` is
+	# the symptom text the bullet names; this is the locality it is counted in.
+	county: str | None = None
 	# §FND-001 "Filter by service, level, cost, SHA acceptance".
 	service: ServiceOffered | None = None
 	level: FacilityLevel | None = None

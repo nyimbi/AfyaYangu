@@ -30,6 +30,9 @@ class DoseRequest(BaseModel):
 	drug: str
 	weight_kg: float = Field(gt=1, le=300)
 	mg_per_kg: float = Field(gt=0, le=100)
+	# §AI-003 counts medicine searches for a drug by locality; the locality is the caller's, since a
+	# dose lookup carries no geography of its own.
+	county: str | None = None
 
 
 class DoseResult(BaseModel):

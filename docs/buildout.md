@@ -976,3 +976,55 @@ something they depend on was missing.
   recorded in `sources/INDEX.md` rather than averaged.
 - **Counts: 6 rows flipped `missing` → `carried`, 126 → 120.** §MON-003 is now 16/16 carried. 490
   rows, `carried` 354, `missing` 120, `deferred` 16. 1115 tests green, pyright clean.
+
+## §AI-003 — outbreak early warning had a scorer and no collector
+
+`WarningSignal.signal` already listed §11.7's six signals and `assess_warning` already scored them,
+refusing a caller-supplied z-score. Nothing produced them: `SurveillanceService.weekly_signal` read a
+count the *caller* typed into `CountySignal`, and the app's six real surfaces — fever triage, cough
+detection, the facility finder, medicine lookup, the well-being check-in, proximity encounters — each
+recorded their event and none of them counted it into a locality. A detection layer nothing feeds is
+invisible in review, because the scorer's own 32 tests pass.
+
+**The ledger, not a tally.** `SignalEvent` rows are appended by the routes and counted at read time
+by ISO week. A count incremented at each route loses the period it happened in, and a baseline is a
+distribution over periods, so the window has to be explicit at the point it is read. `_iso_week`
+takes the year from `isocalendar()` and not from the date string: 2025-12-29 is week 1 of ISO year
+**2026**, and a collector that read the year off the timestamp would file those events under a period
+eleven months earlier, where they would never be counted again.
+
+**One door.** The six surfaces call `_record_signal`, which refuses an event with no county and reads
+the clock in one place. Six routes stamping their own timestamp is six chances to disagree about when
+"now" is, and a signal with no locality is a national count against a county baseline — a number that
+cannot mean anything.
+
+**The refusals are the finding.** A signal below §19.3's minimum cell size is withheld *by name and
+with its count*, because a signal dropped silently and a signal that did not occur are different
+facts. The same distinction runs through the baseline: an all-zero history means this county has
+never produced the signal, and a flat non-zero one means a rise cannot be told from its own noise.
+Both were reported as "no variation", which described a first-ever signal as four weeks of quiet
+observation. They now say different things.
+
+**Three gates caught three omissions in this unit, all of them real.**
+
+- `test_every_unguarded_write_is_named_and_justified` flagged `POST /ai/signals`. My docstring said
+  the route was deliberately unscoped because the event carries no subject — true, and beside the
+  point: an unguarded ingest lets anyone inflate a county's baseline until an epidemiologist is
+  paged about nothing. Guarded on `county_aggregate`; the app's own surfaces emit in-process from
+  routes that already carry their own guards, so nothing lost.
+- `test_a_carried_bullet_names_code_that_imports` refused `afya.service:triage_preliminary` and four
+  like it. The route handlers are closures inside `create_app`, so no reference to one can resolve —
+  and the correct answer was not to weaken the audit but to give the emission one module-level door,
+  which is the better shape anyway.
+- `test_every_subject_carrying_route_is_guarded` read `SignalEvent.ref` as a person. The field held a
+  drug name or a PET prefix, never a subject, so it is now `event_ref`: a gate that walks routes
+  reads names, not intent, and `ref` already means "the subject" everywhere else in this app.
+
+**The mobile catalogue gained two actions, and the second is the one that matters.** `signal_scan`
+is the county's week; `signal_report` is marked operator-only for the same reason the route is
+guarded. The six option values it offers (`fever_triage`, …) are the strings the API accepts — the
+same convention as the `under_5` age band and the `low` risk level already in that file — and no spec
+feature code appears in any title, label, placeholder or description.
+
+**Counts: 6 rows flipped `missing` → `carried`, 120 → 114.** §AI-003 is now 6/6 carried. 490 rows,
+`carried` 360, `missing` 114, `deferred` 16. 1152 tests green, pyright clean.

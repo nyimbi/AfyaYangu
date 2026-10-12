@@ -155,6 +155,7 @@ FEATURE_OF: dict[str, str] = {
 	'register_checkin_point': 'LOC-004', 'check_in': 'LOC-004', 'checkin_points': 'LOC-004', 'checkin_list': 'LOC-004',
 	'register_border': 'LOC-005', 'border_status': 'LOC-005', 'travel_advisory': 'INF-005', 'traveller_declare': 'LOC-005',
 	'hotspots': 'AI-001', 'risk_score': 'AI-002', 'early_warning': 'AI-003',
+	'signal_scan': 'AI-003', 'signal_report': 'AI-003',
 	'model_cards': 'AI-004', 'fairness_audit': 'AI-004', 'file_redress': 'AI-005',
 	'access_profile': 'ACC-001', 'ui_screens': 'ACC-001', 'languages': 'ACC-002', 'voice': 'ACC-002',
 	'battery_profile': 'ACC-004', 'compatibility': 'ACC-005', 'sensor_capabilities': 'ACC-005',
@@ -200,6 +201,12 @@ OPERATOR_SCOPES: dict[str, str] = {
 	'provider_view': 'consented_patient',
 	# County-level analysis and the provisioning of workers.
 	'early_warning': 'county_aggregate', 'hotspots': 'county_aggregate',
+	'signal_scan': 'county_aggregate',
+	# §11.7's six signals feed a county's baseline, and a baseline is what a PHEOC review is
+	# triggered from. An ingest a citizen could reach would be a way to page an epidemiologist about
+	# nothing, so reporting is the county health team's — the app's own surfaces emit in-process from
+	# routes that already carry their own guards.
+	'signal_report': 'county_aggregate',
 	'provision_chw': 'infrastructure', 'transparency_report': 'audit_logs',
 	# The authority's own records: the facility registry every locator reads, the risk zones every
 	# device inside them is told about, the county's fever and hotline counts, and the public
@@ -233,7 +240,7 @@ DORMANT_SLUGS: frozenset[str] = frozenset({
 	'register_checkin_point', 'check_in', 'checkin_points', 'checkin_list',
 	'register_border', 'border_status', 'traveller_declare',
 	# Outbreak AI (AI-001..003)
-	'hotspots', 'risk_score', 'early_warning',
+	'hotspots', 'risk_score', 'early_warning', 'signal_scan', 'signal_report',
 	# Outbreak-mode sensors: acoustic cough (SENS-002), camera symptom capture (SENS-004)
 	'analyse_cough', 'submit_evidence',
 })
@@ -454,6 +461,12 @@ def catalogue() -> list[MobileAction]:
 		_a('hotspots', 'Where might cases appear next?', 'Outbreak', 'POST', '/ai/hotspots', [_f('cells', 'Area data', 'list')]),
 		_a('risk_score', 'What is my personal risk?', 'Outbreak', 'POST', '/ai/risk-score', [_f('symptoms', 'Symptoms', 'list'), _f('exposure_contact', 'Contact with a case?', 'bool'), _f('travel_affected_area', 'Travelled to an affected area?', 'bool'), _f('geofence_entry', 'Entered a risk area?', 'bool'), _f('proximity_encounters', 'Nearby encounters', 'int'), _f('vaccinated', 'Vaccinated?', 'bool')]),
 		_a('early_warning', 'Is something unusual happening?', 'Outbreak', 'POST', '/ai/early-warning', [_f('county', 'County'), _f('disease', 'Disease'), _f('signals', 'Signals', 'list')]),
+		_a('signal_scan', 'How is my county this week?', 'Outbreak', 'GET', '/ai/early-warning/{county}/scan', [_f('county', 'County', 'path'), _f('disease', 'Disease'), _f('week_isoyear', 'Year', 'int'), _f('week', 'Week number', 'int'), _f('baseline_weeks', 'Weeks to compare against', 'int')]),
+		# The six option values are §11.7's own signal names — the strings the API accepts, like the
+		# `under_5` age band and the `low` risk level elsewhere in this file. They are not spec feature
+		# codes: `fever_triage` is a value the caller sends, and the label beside it is what a person
+		# reads.
+		_a('signal_report', 'Report a signal', 'Outbreak', 'POST', '/ai/signals', [_f('county', 'County'), _f('at_iso', 'When'), _f('signal', 'What happened', 'select', ['fever_triage', 'cough_events', 'facility_search', 'medicine_search', 'unwell_checkin', 'encounter_density']), _f('ref', 'Reference')]),
 		# §17.3: the privacy-review key is not a field the caller sends any more — it is held by a
 		# recorded review, so the form offers the processing to assess and nothing to assert.
 		_a('activate_outbreak_mode', 'Activate outbreak mode', 'Outbreak', 'POST', '/tier4/activate', [_f('authorized_by_pheoc', 'PHEOC authorised?', 'bool'), _f('flag_enabled', 'Switch on?', 'bool'), _f('raw_sensor_data_retained', 'Keeping raw sensor data?', 'bool'), _f('location_tracking', 'Tracking location?', 'bool'), _f('proximity_logging', 'Proximity logging?', 'bool'), _f('contact_tracing', 'Contact tracing?', 'bool'), _f('automated_decisions', 'Automatic decisions?', 'bool'), _f('data_sharing_with_authorities', 'Sharing with health authorities?', 'bool'), _f('children_data', "Children's data?", 'bool'), _f('cross_border_transfer', 'Data leaving the country?', 'bool')]),
@@ -568,6 +581,8 @@ def available(
 # slug -> (screen-visible title, one-line human description). No spec codes anywhere.
 FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'county_risk': ('How is my county doing?', 'Official risk status and guidance where you live'),
+	'signal_scan': ('How is my county this week?', 'The six outbreak signals, counted and compared with recent weeks'),
+	'signal_report': ('Report a signal', 'Log one occurrence of an outbreak signal for your county'),
 	'set_county_risk': ('Update a county status', 'Set the risk level and guidance people in a county see'),
 	'decision_tree': ('Should I see a doctor?', 'Plain-language help deciding your next step'),
 	'hotlines': ('Who can I call?', 'Hotline numbers that are free and answered'),

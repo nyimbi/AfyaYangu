@@ -7,11 +7,12 @@ The governance rules of §19.3 are enforced as preconditions rather than documen
   * every model has a named owner and published limitations, or it cannot be registered.
 """
 import statistics
+from datetime import date, timedelta
 
 from afya.ai.views import (
-	MIN_CELL_SIZE, AggregateCell, FairnessAudit, Hotspot, HotspotMap, ModelCard, ModelFootprint,
-	RaisedSignal, RedressOutcome, RedressRequest, RiskInputs, RiskScore, WarningAssessment,
-	WarningSignal,
+	MIN_CELL_SIZE, SIGNAL_SOURCES, AggregateCell, EarlyWarningScan, FairnessAudit, Hotspot,
+	HotspotMap, ModelCard, ModelFootprint, RaisedSignal, RedressOutcome, RedressRequest, RiskInputs,
+	RiskScore, SignalCollection, SignalEvent, SignalObservation, WarningAssessment, WarningSignal,
 )
 from afya.logmixin import LogMixin
 
@@ -98,11 +99,43 @@ FAIRNESS_AXES: tuple[str, ...] = ('gender', 'age_band', 'region', 'skin_tone')
 WARNING_Z = 2.5
 
 
+def _iso_week(at_iso: str) -> tuple[int, int]:
+	"""The ISO year and week a timestamp falls in — the period a baseline is a distribution over.
+
+	ISO weeks are used rather than a rolling seven-day window because the ledger is compared against
+	the county's own history and a boundary that moves with the query makes two runs of the same
+	question disagree. Week 1 can belong to the previous ISO year, which is why the year comes back
+	with the week rather than being taken from the date.
+	"""
+	iso_year, iso_week, _ = date(*(int(p) for p in at_iso[:10].split('-'))).isocalendar()
+	return iso_year, iso_week
+
+
+def _prior_periods(week_isoyear: int, week: int, count: int) -> list[tuple[int, int]]:
+	"""The `count` ISO periods before this one, oldest first, crossing the year boundary correctly.
+
+	Arithmetic on the week number alone is wrong at the year end — week 52 minus 3 is week 49 in the
+	same year, but week 2 minus 3 is week 51 of the *previous* ISO year, which has either 52 or 53
+	weeks. Anchoring on the Monday of the period and stepping back seven days at a time lets the
+	calendar answer instead of a modulus.
+	"""
+	monday = date.fromisocalendar(week_isoyear, week, 1)
+	periods: list[tuple[int, int]] = []
+	for step in range(count, 0, -1):
+		y, w, _ = (monday - timedelta(weeks=step)).isocalendar()
+		periods.append((y, w))
+	assert len(periods) == count and len(set(periods)) == count, 'the window is distinct periods'
+	return periods
+
+
 class AIService(LogMixin):
 	def __init__(self) -> None:
 		self._audits: dict[str, FairnessAudit] = {}
 		self._redress: dict[str, RedressOutcome] = {}
-		assert self._audits == {} and self._redress == {}
+		# §AI-003's signal ledger: one row per occurrence, because a count loses the period and a
+		# baseline is a distribution over periods.
+		self._signal_events: list[SignalEvent] = []
+		assert self._audits == {} and self._redress == {} and self._signal_events == []
 
 	# --- AI-001 hotspots ------------------------------------------------------------------
 
@@ -198,6 +231,155 @@ class AIService(LogMixin):
 	def z_score(observed: float, baseline: float, stdev: float) -> float:
 		assert stdev > 0, 'baseline stdev must be positive'
 		return round((observed - baseline) / stdev, 2)
+
+	# --- AI-003's six signals, collected from the app's own events ---------------------------------
+
+	async def record_signal_event(self, event: SignalEvent) -> SignalEvent:
+		"""Ingest one occurrence of one of §11.7's six signals.
+
+		This is the half of AI-003 that did not exist. `assess_warning` scores a `WarningSignal` and
+		refuses to take a z-score from the caller, but nothing produced the signals: the section lists
+		six observable patterns and the app recorded the events behind all six without ever counting
+		them together. A detection layer with no collector is a scorer nothing feeds, and it is
+		invisible in review because the scorer's own tests pass.
+
+		The event is kept, not tallied. A count incremented at each route loses the period it happened
+		in, and a baseline is a distribution over periods, so the window has to be explicit at read
+		time. The ledger is bounded like every other store here.
+		"""
+		assert event.signal in SIGNAL_SOURCES, f'{event.signal} is not one of §11.7\'s six bullets'
+		assert len(event.at_iso) >= 10, 'an event with no date cannot be placed in a period'
+		self._signal_events.append(event)
+		self._signal_events = self._signal_events[-500_000:]
+		assert len(self._signal_events) <= 500_000, 'signal ledger bounded'
+		return event
+
+	def collect_signals(self, county: str, week_isoyear: int, week: int) -> SignalCollection:
+		"""Count §11.7's six signals for one locality and one period, from the events ingested.
+
+		**The min-cell rule applies here too.** §19.3 sets it for published aggregates, and a signal
+		counted from four people is a signal that identifies them to whoever reads it. A source under
+		`MIN_CELL_SIZE` in the period is withheld by name, and withheld is *reported*: a signal absent
+		because it is small and a signal absent because nothing happened are different facts, and an
+		epidemiologist has to be able to tell them apart. A collector that dropped both would report a
+		quiet week and a suppressed one identically.
+
+		The min-cell rule is applied to the *period's count* and not to the baseline. The baseline is
+		what the count is compared against, and it is a mean over periods — withholding it would leave
+		the count with nothing to be measured against, which is the failure the rule exists to avoid.
+		"""
+		assert week_isoyear >= 2024, 'a period before this deployment has no baseline'
+		counts = self._count_events(county, week_isoyear, week)
+		observations: list[SignalObservation] = []
+		withheld: list[str] = []
+		for signal in SIGNAL_SOURCES:
+			count = counts[signal]
+			if count < MIN_CELL_SIZE:
+				withheld.append(f'{signal} ({count} event(s), below the minimum cell size of {MIN_CELL_SIZE})')
+				continue
+			observations.append(SignalObservation(county=county, week_isoyear=week_isoyear, week=week,
+			                                      signal=signal, count=count))
+		self._log_info('signals collected', county=county, week=week, collected=len(observations),
+		               withheld=len(withheld))
+		return SignalCollection(
+			county=county, observations=observations, withheld=withheld,
+			note=(f'{len(observations)} of {len(SIGNAL_SOURCES)} signals collected for {county} week '
+			      f'{week}. A withheld signal is one the source produced too few events for, not one '
+			      f'that did not occur — the name and the count are given so the two can be told apart.'),
+		)
+
+	def _count_events(self, county: str, week_isoyear: int, week: int) -> dict[str, int]:
+		"""The six counts for one period, each from the ledger.
+
+		Separate from `collect_signals` so the counting is one thing and the thresholding another: the
+		min-cell rule is a publication rule, and a source returning a count below it is still a source
+		that answered. Every signal in `SIGNAL_SOURCES` gets an entry even at zero, so a signal that
+		was never ingested is a zero here and a withholding there, never a missing key.
+		"""
+		counts = {signal: 0 for signal in SIGNAL_SOURCES}
+		for event in self._signal_events:
+			if event.county != county:
+				continue
+			year, week_no = _iso_week(event.at_iso)
+			if (year, week_no) != (week_isoyear, week):
+				continue
+			counts[event.signal] += 1
+		assert set(counts) == set(SIGNAL_SOURCES), 'every bullet of §11.7 is counted'
+		assert all(c >= 0 for c in counts.values()), 'a count is not negative'
+		return counts
+
+	def scan(self, county: str, disease: str, week_isoyear: int, week: int,
+	         baseline_weeks: int = 8) -> EarlyWarningScan:
+		"""§AI-003 end to end: collect the signals, score them, and route the result for review.
+
+		The baseline is the preceding `baseline_weeks` periods of the same signal in the same county,
+		which is the only window the ledger can justify — a mean taken over an unstated period is a
+		number nobody can check. A signal whose history is shorter than two periods is not scored at
+		all: a standard deviation needs two observations, and `assess_warning` refuses a non-positive
+		one rather than dividing by zero.
+
+		The result never carries a public alert. §11.7 says signals above threshold "trigger a review
+		by PHEOC epidemiologists. Never automatic public alerts", and `public_alert` is False on every
+		path with no field that can set it.
+		"""
+		collection = self.collect_signals(county, week_isoyear, week)
+		signals: list[WarningSignal] = []
+		unscored: list[str] = []
+		for obs in collection.observations:
+			history = self._history(county, obs.signal, week_isoyear, week, baseline_weeks)
+			# A history of all zeros and a history that is flat and non-zero are different facts and
+			# they get different refusals. The first means this county has never produced this signal
+			# — there is nothing to measure an increase against, and it is the one case an
+			# epidemiologist most wants named rather than silently dropped. The second means the
+			# signal runs at a constant rate, so a rise cannot be told from its own noise. Reporting
+			# both as "no variation" would describe a first-ever signal as four weeks of quiet.
+			if not any(history):
+				unscored.append(f'{obs.signal} (no events in any of the {len(history)} prior periods, so '
+				                f'there is no baseline to measure an increase against)')
+				continue
+			baseline = statistics.fmean(history)
+			stdev = statistics.pstdev(history)
+			if stdev <= 0:
+				unscored.append(f'{obs.signal} (no variation across {len(history)} prior periods)')
+				continue
+			signals.append(WarningSignal(county=county, disease=disease, signal=obs.signal,
+			                             observed=float(obs.count), baseline=baseline,
+			                             baseline_stdev=stdev))
+		assessment = self.assess_warning(county, disease, signals) if signals else WarningAssessment(
+			county=county, raised=[], review_required=False, routed_to='routine weekly review',
+			public_alert=False,
+			message=f'No signal in {county} week {week} had a baseline to be measured against.',
+		)
+		if unscored:
+			assessment = assessment.model_copy(update={
+				'message': assessment.message + ' Not scored: ' + '; '.join(unscored) + '.',
+			})
+		return EarlyWarningScan(
+			county=county, disease=disease, week_isoyear=week_isoyear, week=week,
+			collection=collection, assessment=assessment,
+			message=('Signals are counted from app events and scored against the county\'s own recent '
+			         'history. Anything above threshold is routed to an epidemiologist for review; this '
+			         'system never issues a public alert on its own.'),
+		)
+
+	def _history(self, county: str, signal: str, week_isoyear: int, week: int,
+	             baseline_weeks: int) -> list[float]:
+		"""The counts for the `baseline_weeks` periods before this one, oldest first.
+
+		Periods with no events are included as zero rather than skipped. A quiet week is an
+		observation, and dropping it would raise the mean and narrow the spread — which makes the
+		next genuine rise look smaller, exactly when it matters most.
+		"""
+		assert baseline_weeks >= 2, 'a baseline needs at least two periods'
+		periods = _prior_periods(week_isoyear, week, baseline_weeks)
+		by_period = {p: 0 for p in periods}
+		for event in self._signal_events:
+			if event.county != county or event.signal != signal:
+				continue
+			key = _iso_week(event.at_iso)
+			if key in by_period:
+				by_period[key] += 1
+		return [float(by_period[p]) for p in periods]
 
 	# --- AI-004 governance ----------------------------------------------------------------
 
