@@ -919,3 +919,60 @@ not thirteen features. They are four operations over one set, and the set was wh
   490 rows, `carried` 348, `missing` 126, `deferred` 16. §REC-003 keeps 2 missing (weight-for-length
   and BMI-for-age wasting, which the section's wording leaves unspecified) and §SEC-003 keeps 3 (the
   end-to-end key, now stated by the service rather than by a boolean). 1071 tests green, pyright clean.
+
+## §MON-003 — three conditions with nothing behind them, and three features with nowhere to sit
+
+Six rows were `missing` and they had six different reasons, which is why the repair is not one
+change. Three were conditions `ConditionProfile.conditions` would accept as free text and nothing
+would act on: epilepsy, sickle cell disease, chronic kidney disease. Three were features — trend
+charts, appointment tracking, lifestyle guidance — and two of those three were missing because
+something they depend on was missing.
+
+- **The storage had to exist before the chart could.** `log_peak_flow` and `log_weight` returned a
+  verdict and stored nothing, so two of the four readings §MON-003 names had no series at all. A
+  chart is a series, so the fix is `MonitoringService._peak_flow`/`_weight` and their accessors, and
+  the chart builder reads them where they are rather than copying them into a second store. The
+  reading's date arrives as an `at_iso` query parameter, not a model field: the models forbid extras
+  and the date is not part of the measurement, it is where the measurement goes on the chart. Omitted,
+  the reading is scored and not charted — a chart that used the server's clock would put two readings
+  taken a month apart on the same day.
+- **A three-point window is identically zero at three points.** `build_chart` shipped with fixed
+  `[:3]`/`[-3:]` windows, which is right for every series of six or more and wrong at exactly the
+  smallest series it accepts: with three readings the two windows *are* the same three points, so
+  `change` is always 0.0 and a peak flow falling 380 → 340 → 300 — a fifth of that person's best, a
+  red-zone move — came back `stable`. Found by the end-to-end route test, not by review. The window
+  is now the first third against the last third as a partition, and the canary for it is a
+  three-point falling series asserted not to be `stable`.
+- **CKD-EPI 2021, and the interval is part of the definition.** `egfr = 142 × min(Scr/κ,1)^α ×
+  max(Scr/κ,1)^-1.200 × 0.9938^age × 1.012 (female)`, κ 0.7/0.9, α −0.241/−0.302, staged by KDIGO
+  G1–G5 with G3 split at 45 and albuminuria A1–A3. KDIGO requires the abnormality "present for at
+  least three months", so `assess_kidney` reports the stage and *separately* whether the history
+  sustains it: one low eGFR is an acute finding and the person is told to repeat it, not told they
+  have kidney disease. An undated reading is never called sustained — the route used to stamp one
+  from the clock, which compared a prior reading of unknown age against today and reported the
+  result as a duration.
+- **ILAE's two time points, because one cannot serve.** t1 = 5 minutes is when treatment begins and
+  t2 = 30 is when long-term harm is likely, so a single threshold either calls a treatable seizure an
+  emergency or a harmful one a wait. Three durations produce three different instructions, and a
+  cluster escalates at any duration because the definition treats it as continuous.
+- **Where a source states no threshold, none is carried.** The archived sources give sickle cell
+  disease's danger signs but no severity score, so the escalation keys on the signs themselves rather
+  than on an invented score. They recommend daily penicillin and print no milligram dose, so
+  `PROPHYLAXIS` says a dose is not stated instead of stating one. `SICKLE_FEVER_C = 38.0` is the one
+  number here that is an assumption rather than a citation, and it is named as one in the source
+  index. A dose invented to fill a table is worse than a table with a gap: the gap is visible.
+- **`overdue` and `remind` are two answers.** An appointment that passed needs "you missed this" and
+  one coming up needs "this is in a week"; one boolean produces the wrong sentence for one of the
+  two. The due date is computed from the condition's interval — and for kidney disease from the
+  *stage's*, which is the thing that changes the answer — rather than stored, because a stored date
+  goes stale the moment the stage changes.
+- **Lifestyle is keyed on the condition, not the age.** `nutrition_guidance` bands by age, which is
+  right for a well-child visit and wrong here: what a person with hypertension eats and what a person
+  with sickle cell disease must avoid are different lists at the same age.
+- **A secondary copy disagreed with the primary and the primary won.** Wikipedia's CKD-EPI article
+  prints the SCr-above-κ exponent as −1.209 and the female multiplier as 143; the archived NKF page
+  states −1.200 and 142. The difference is under 1% of eGFR, below the assay's own variability, but a
+  constant copied from the wrong source is a constant nobody can check, so the disagreement is
+  recorded in `sources/INDEX.md` rather than averaged.
+- **Counts: 6 rows flipped `missing` → `carried`, 126 → 120.** §MON-003 is now 16/16 carried. 490
+  rows, `carried` 354, `missing` 120, `deferred` 16. 1115 tests green, pyright clean.

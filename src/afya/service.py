@@ -41,7 +41,10 @@ from afya.alerts.service import AlertsService
 from afya.alerts.views import AirQuality, CommunityAlert, FloodReport, WaterQuality
 from afya.blood.service import BloodRequest, BloodService, Donor
 from afya.chronic.service import ChronicService
-from afya.chronic.views import BPReading, GlucoseReading, RefillTracker
+from afya.chronic.views import (
+	BPReading, ChronicAppointment, GlucoseReading, KidneyFunction, RefillTracker, SeizureEvent,
+	SickleCrisis,
+)
 from afya.integrations.adam import AdamClient
 from afya.integrations.feeds import FEED_CADENCE, FEED_GRANULARITY, MIN_CELL, build as build_feed
 from afya.integrations.service import InlineJaliPort, JaliClient, JaliPort, MoHFFacilityClient, PPBClient, PheocClient, SHAClient, TelcoGatewayClient
@@ -1787,13 +1790,22 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/chronic/bp')
-	async def chronic_bp(r: BPReading, _subject: str = Depends(require_self())) -> dict[str, str]:
-		out = await chronic.bp(r)
+	async def chronic_bp(r: BPReading, at_iso: str = '',
+	                     _subject: str = Depends(require_self())) -> dict[str, str]:
+		"""Log a blood pressure. `at_iso` dates it for §MON-003's trend chart.
+
+		A query parameter rather than a model field: the reading model forbids extras and the date is
+		not part of the measurement, it is where the measurement goes on the chart. Omitted, the
+		reading is scored and not charted — which is the honest outcome, since a chart that used the
+		server's clock would put two readings taken a month apart on the same day.
+		"""
+		out = await chronic.bp(r, at_iso)
 		return {'stage': out.stage}
 
 	@app.post('/chronic/glucose')
-	async def chronic_glucose(r: GlucoseReading, _subject: str = Depends(require_self())) -> dict[str, str]:
-		out = await chronic.glucose(r)
+	async def chronic_glucose(r: GlucoseReading, at_iso: str = '',
+	                          _subject: str = Depends(require_self())) -> dict[str, str]:
+		out = await chronic.glucose(r, at_iso)
 		return {'level': out.level}
 
 	@app.get('/chronic/{ref}/bp-trend')
@@ -1806,6 +1818,80 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/chronic/refill')
 	async def chronic_refill(t: RefillTracker, _subject: str = Depends(require_self())) -> dict[str, bool]:
 		return {'due': await chronic.set_refill(t)}
+
+	# --- §MON-003: the three conditions with no reading, and the three missing features ----------
+
+	@app.post('/chronic/kidney')
+	async def chronic_kidney(reading: KidneyFunction, at_iso: str = '',
+	                         _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§MON-003's chronic kidney disease: CKD-EPI 2021, staged by KDIGO.
+
+		`at_iso` is the reading's date and is deliberately not filled from the clock. The KDIGO
+		definition needs the abnormality sustained for three months, so a reading with no date is
+		staged and never reported as chronic — stamping it "now" would compare a prior reading of
+		unknown age against today and call the result a duration.
+		"""
+		return (await chronic.kidney(reading, at_iso or None)).model_dump(mode='json')
+
+	@app.post('/chronic/seizure')
+	async def chronic_seizure(event: SeizureEvent, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§MON-003's epilepsy: ILAE's 5-minute and 30-minute time points."""
+		return (await chronic.seizure(event)).model_dump(mode='json')
+
+	@app.post('/chronic/sickle-crisis')
+	async def chronic_sickle(crisis: SickleCrisis, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§MON-003's sickle cell disease: a painful crisis and the signs that escalate it."""
+		return (await chronic.sickle_crisis(crisis)).model_dump(mode='json')
+
+	@app.get('/chronic/{ref}/chart')
+	async def chronic_chart(ref: str, metric: str,
+	                        _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> dict[str, object]:
+		"""§MON-003's "Trend charts" for the readings this service holds.
+
+		The peak-flow and weight series live in the monitoring service, where those readings are
+		logged, so they are read from there and charted here rather than copied into a second store.
+		"""
+		try:
+			if metric == 'peak_flow':
+				return chronic.chart_from_series(
+					ref, metric, [(at, float(v)) for at, v in monitoring.peak_flow_series(ref)]
+				).model_dump(mode='json')
+			if metric == 'weight':
+				return chronic.chart_from_series(
+					ref, metric, [(at, float(v)) for at, v in monitoring.weight_series(ref)]
+				).model_dump(mode='json')
+			return chronic.chart(ref, metric).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/chronic/appointments')
+	async def chronic_schedule_appointment(appt: ChronicAppointment,
+	                                       _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§MON-003's "Appointment tracking": record a review that is due."""
+		try:
+			return (await chronic.schedule_appointment(appt)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/chronic/{ref}/appointments')
+	async def chronic_appointments(ref: str, today_iso: str = '',
+	                               _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> list[dict[str, object]]:
+		"""Every appointment for a person, soonest first, with how long until each is due."""
+		stamp = today_iso or datetime.now(timezone.utc).date().isoformat()
+		return [s.model_dump(mode='json') for s in chronic.appointments_for(ref, stamp)]
+
+	@app.get('/chronic/lifestyle')
+	async def chronic_lifestyle(condition: str, subject_ref: str | None = None,
+	                            _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		"""§MON-003's "Lifestyle guidance", keyed on the condition rather than on the age.
+
+		Self-scoped and not member-scoped: the guidance is a property of the condition and names no
+		person, so the route serves it to any caller and takes a `subject_ref` only to echo it back.
+		"""
+		try:
+			return chronic.lifestyle(condition, subject_ref).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/mental/who5')
 	async def mental_who5(w: WHO5, _subject: str = Depends(require_self())) -> dict[str, object]:
@@ -2395,12 +2481,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/monitoring/chronic/peak-flow')
-	async def monitoring_peak_flow(r: PeakFlowReading, _subject: str = Depends(require_self())) -> dict[str, object]:
-		return await monitoring.log_peak_flow(r)
+	async def monitoring_peak_flow(r: PeakFlowReading, at_iso: str = '',
+	                               _subject: str = Depends(require_self())) -> dict[str, object]:
+		return await monitoring.log_peak_flow(r, at_iso)
 
 	@app.post('/monitoring/chronic/weight')
-	async def monitoring_weight(r: WeightReading, _subject: str = Depends(require_self())) -> dict[str, object]:
-		return await monitoring.log_weight(r)
+	async def monitoring_weight(r: WeightReading, at_iso: str = '',
+	                            _subject: str = Depends(require_self())) -> dict[str, object]:
+		return await monitoring.log_weight(r, at_iso)
 
 	@app.post('/monitoring/chronic/conditions')
 	async def monitoring_conditions(p: ConditionProfile, _subject: str = Depends(require_self())) -> dict[str, bool]:

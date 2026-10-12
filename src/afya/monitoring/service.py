@@ -56,6 +56,11 @@ class MonitoringService(LogMixin):
 		self._conditions: dict[str, ConditionProfile] = {}
 		self._breeding: list[dict[str, object]] = []
 		self._food_alerts: list[FoodSafetyAlert] = []
+		# §MON-003's trend charts need a series, and these two readings had none: `log_peak_flow` and
+		# `log_weight` returned a verdict and stored nothing, so two of the four readings the section
+		# names had no history to chart. Kept per subject, oldest first.
+		self._peak_flow: dict[str, list[tuple[str, int]]] = {}
+		self._weight: dict[str, list[tuple[str, float]]] = {}
 		assert self._dob == {} and self._monitoring == []
 
 	# --- MON-001 child immunisation ------------------------------------------------------
@@ -136,8 +141,14 @@ class MonitoringService(LogMixin):
 
 	# --- MON-003 chronic log -------------------------------------------------------------
 
-	async def log_peak_flow(self, r: PeakFlowReading) -> dict[str, object]:
-		"""Asthma zones per personal best: >=80% green, 50-79% yellow, <50% red (escalate)."""
+	async def log_peak_flow(self, r: PeakFlowReading, at_iso: str = '') -> dict[str, object]:
+		"""Asthma zones per personal best: >=80% green, 50-79% yellow, <50% red (escalate).
+
+		The reading is stored as well as scored, because §MON-003's trend chart is a series and this
+		returned a verdict with nothing behind it. `at_iso` is the chart's x-axis; a reading with no
+		date cannot be placed on one, and a chart that used the server's clock would put two readings
+		taken a month apart on the same day.
+		"""
 		best = r.personal_best or r.litres_per_min
 		pct = round(100.0 * r.litres_per_min / best, 1)
 		zone = 'green' if pct >= 80 else ('yellow' if pct >= 50 else 'red')
@@ -146,12 +157,24 @@ class MonitoringService(LogMixin):
 			'yellow': 'Asthma worsening: use reliever inhaler, follow your action plan, see a clinician today.',
 			'red': 'MEDICAL EMERGENCY: use reliever now and go to a facility immediately; call 719.',
 		}[zone]
+		if at_iso:
+			self._peak_flow.setdefault(r.subject_ref, []).append((at_iso, r.litres_per_min))
 		if zone == 'red':
 			self._log_warn('peak flow red zone', sub=r.subject_ref, pct=pct)
 		return {'zone': zone, 'pct_of_best': pct, 'advise': advise}
 
-	async def log_weight(self, r: WeightReading) -> dict[str, object]:
+	async def log_weight(self, r: WeightReading, at_iso: str = '') -> dict[str, object]:
+		"""Store the weight and return the note. §MON-003's chart reads the series this keeps."""
+		if at_iso:
+			self._weight.setdefault(r.subject_ref, []).append((at_iso, r.kg))
 		return {'kg': r.kg, 'note': 'Log weekly, same time of day, to read a real trend.'}
+
+	def peak_flow_series(self, subject_ref: str) -> list[tuple[str, int]]:
+		"""The stored peak-flow readings, oldest first — the chart's input, not the chart."""
+		return sorted(self._peak_flow.get(subject_ref, []), key=lambda p: p[0])
+
+	def weight_series(self, subject_ref: str) -> list[tuple[str, float]]:
+		return sorted(self._weight.get(subject_ref, []), key=lambda p: p[0])
 
 	async def set_conditions(self, profile: ConditionProfile) -> ConditionProfile:
 		if any(c.lower() == 'hiv' for c in profile.conditions):

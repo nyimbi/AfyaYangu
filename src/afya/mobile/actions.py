@@ -125,6 +125,11 @@ FEATURE_OF: dict[str, str] = {
 	'child_schedule': 'MON-001', 'catch_up_doses': 'MON-001', 'record_dose': 'MON-001', 'register_child': 'MON-001',
 	'add_medication': 'MON-004', 'log_adherence': 'MON-004',
 	'peak_flow': 'MON-003', 'log_weight': 'MON-003', 'condition_profile': 'MON-003', 'clinical_report': 'MON-003',
+	# §MON-003's three conditions with no reading behind them, and its three missing features. The
+	# actions carry no feature code in their titles — the ids above are internal, and a person reads
+	# "My kidney results", not "MON-003".
+	'kidney_result': 'MON-003', 'seizure_log': 'MON-003', 'sickle_crisis': 'MON-003',
+	'trend_chart': 'MON-003', 'appointments': 'MON-003', 'lifestyle_guidance': 'MON-003',
 	'vector_risk': 'MON-007', 'breeding_site': 'MON-007', 'food_alert': 'MON-008', 'food_alerts': 'MON-008', 'nutrition': 'MON-008',
 	'enrol_monitoring': 'MON-009', 'monitoring_day': 'MON-009', 'monitoring_diary': 'MON-009',
 	'issue_alert': 'INF-014', 'alerts_by_county': 'INF-014',
@@ -362,6 +367,12 @@ def catalogue() -> list[MobileAction]:
 		_a('log_weight', 'Log my weight', 'Daily care', 'POST', '/monitoring/chronic/weight', [_s(), _f('kg', 'Weight in kg', 'decimal')]),
 		_a('condition_profile', 'My ongoing conditions', 'Daily care', 'POST', '/monitoring/chronic/conditions', [_s(), _f('conditions', 'Conditions', 'list', ph='hypertension, diabetes'), _f('hiv_pin_set', 'Extra PIN set for private conditions?', 'bool')]),
 		_a('clinical_report', 'Report to show my clinician', 'Daily care', 'GET', '/monitoring/chronic/{subject_ref}/report', [_s('path')]),
+		_a('kidney_result', 'My kidney results', 'Daily care', 'POST', '/chronic/kidney', [_s(), _f('creatinine_mg_dl', 'Creatinine (mg/dL)', 'decimal'), _f('age_years', 'Age in years', 'int'), _f('sex', 'Sex', 'text', options=['male', 'female']), _f('acr_mg_g', 'Urine albumin ratio, if known', 'decimal')]),
+		_a('seizure_log', 'I had a seizure', 'Daily care', 'POST', '/chronic/seizure', [_s(), _f('duration_seconds', 'How many seconds did it last?', 'int'), _f('cluster', 'Another one before recovering?', 'bool'), _f('pregnant', 'Pregnant?', 'bool'), _f('at_iso', 'When was it?')]),
+		_a('sickle_crisis', 'I am in a sickle cell crisis', 'Daily care', 'POST', '/chronic/sickle-crisis', [_s(), _f('pain_score', 'Pain, 0 to 10', 'int'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('signs', 'Any of these?', 'list', ph='chest_pain, spleen_pain'), _f('at_iso', 'When did it start?')]),
+		_a('trend_chart', 'Show me my readings over time', 'Daily care', 'GET', '/chronic/{ref}/chart', [_f('ref', 'Who is this for?', 'path'), _f('metric', 'Which reading?', 'text', options=['bp_systolic', 'bp_diastolic', 'glucose', 'peak_flow', 'weight'])]),
+		_a('appointments', 'My upcoming reviews', 'Daily care', 'GET', '/chronic/{ref}/appointments', [_f('ref', 'Who is this for?', 'path'), _f('today_iso', 'Today')]),
+		_a('lifestyle_guidance', 'What should I eat and avoid?', 'Daily care', 'GET', '/chronic/lifestyle', [_f('condition', 'Which condition?', 'text', options=['hypertension', 'diabetes', 'asthma', 'epilepsy', 'sickle_cell', 'hiv', 'chronic_kidney'])]),
 		# Women & maternal
 		_a('log_cycle', 'Log my period', 'Women', 'POST', '/women/cycle', [_s(), _f('start_iso', 'First day of period'), _f('cycle_days', 'Cycle length in days', 'int'), _f('pain_level', 'Pain level (0-10)', 'int')]),
 		_a('cycle_prediction', 'When is my next period?', 'Women', 'GET', '/women/cycle/{ref}/predict', [_f('ref', 'Who is this for?', 'path')]),
@@ -617,6 +628,12 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'track_refill': ('Refill reminders', 'Know before your medicine runs out'),
 	'peak_flow': ('My peak flow', 'Asthma zones from your own best reading'),
 	'log_weight': ('My weight', 'A real trend, logged weekly'),
+	'kidney_result': ('My kidney results', 'What your creatinine and urine albumin mean'),
+	'seizure_log': ('Log a seizure', 'How long it lasted, and whether to call for help'),
+	'sickle_crisis': ('Sickle cell crisis', 'Pain and the signs that mean go to a facility now'),
+	'trend_chart': ('My readings over time', 'See whether a number is going the right way'),
+	'appointments': ('My reviews', 'What is due, and what you have missed'),
+	'lifestyle_guidance': ('Living with my condition', 'What helps, what to avoid, and why'),
 	'register_pregnancy': ('Pregnancy care', 'Visits and danger signs we take seriously'),
 	'danger_signs': ('Something feels wrong', 'One tap to escalate a pregnancy danger sign'),
 	'log_cycle': ('My cycle', 'Private period tracking and predictions'),
