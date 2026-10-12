@@ -197,11 +197,20 @@ async def test_dormant_capabilities_are_withheld_until_activation() -> None:
 
 
 async def test_served_mobile_payloads_are_code_free() -> None:
-	"""The gate that matters: what the client actually receives."""
+	"""The gate that matters: what the client actually receives.
+
+	`/info/library` is here because it is the one route that serves *reader-facing prose* rather than
+	a catalogue, and prose is where a spec code survives longest: a seed id like `INF-003-en` reaches
+	a title or a file path through a slug convention rather than through a label anyone reviews. The
+	route was outside this gate until the corpus grew a rendition layer, which added `media_ref` and
+	`format` to the payload — a served field with no scan over it is the blind spot this gate exists
+	to close, and it is the same shape as the internal-link checker that read one of the two ways a
+	link can be written.
+	"""
 	app = create_app()
 	transport = httpx.ASGITransport(app=app)
 	async with httpx.AsyncClient(transport=transport, base_url='http://t') as c:
-		for path in ('/mobile/actions', '/mobile/features'):
+		for path in ('/mobile/actions', '/mobile/features', '/info/library?lang=en'):
 			body = (await c.get(path)).text
 			assert _scan(path, body) == [], f'feature codes served at {path}'
 

@@ -174,6 +174,36 @@ WORKFLOW: tuple[ContentStage, ...] = (
 )
 
 
+class ContentFormat(str, Enum):
+	"""The delivery formats §8.5 and §10.5 print, closed.
+
+	§INF-003 asks for "Short articles (under 200 words), illustrations, audio versions, video
+	versions" and §INF-008 for "Short cards, 30-second videos, audio clips" — seven formats across
+	two sections, and nothing carried any of them. A corpus item is text, so a library with nine
+	articles and no audio satisfies "Ebola Information Library" while serving none of the audience
+	§3.3 principle 8 puts first, and no reader of the corpus could tell. The set is closed for the
+	same reason `TestType` is: an open string is a value nothing can report the absence of.
+	"""
+
+	article = 'article'
+	card = 'card'
+	illustration = 'illustration'
+	audio = 'audio'
+	video = 'video'
+
+	@property
+	def is_text(self) -> bool:
+		"""Whether the format is delivered as prose the item's own `body` carries.
+
+		An article and a short card are both text — the card is shorter, not a different medium — so
+		they are the two that need no `media_ref`. An illustration, an audio version and a video
+		version are renditions of the text, and each is a file somewhere that the item must point at,
+		because "we made an audio version" with nothing to play is the claim §6.2.3 exists to stop one
+		field over.
+		"""
+		return self in (ContentFormat.article, ContentFormat.card)
+
+
 class ContentItem(BaseModel):
 	"""One library item, carrying the governance §6.5 requires of everything published.
 
@@ -203,6 +233,31 @@ class ContentItem(BaseModel):
 	# rather than a boolean an author sets, because the person drafting under time pressure is the
 	# last one to mark their own copy as life-safety.
 	answers_rank: int | None = Field(default=None, ge=1, le=10)
+	# §8.5's and §10.5's Format cells. `article` is the default because every item in the corpus is
+	# text and an author writing one should not have to say so; the other four are what the sections
+	# ask for *beyond* text, and a format nothing carries is the finding.
+	format: ContentFormat = ContentFormat.article
+	# Where the non-text rendition lives. A format with no `media_ref` is a claim to have produced an
+	# audio version with nothing to play, which is the shape §6.2.3's "timestamp everything" exists to
+	# stop one field over.
+	media_ref: str | None = None
+	# The slug of the text item this is a rendition of. A rendition is not an article: it has no prose
+	# of its own, so serving it in the library would put a blank card in front of a reader, and
+	# without the link there is nothing to serve *instead* — the reader would get the audio version as
+	# a separate entry rather than the article with an audio version beside it. Named rather than
+	# derived from the slug, because `f'{parent}-{fmt.value}'` is a convention and a parent whose slug
+	# happens to end in a format word would silently point at the wrong item.
+	rendition_of: str | None = None
+
+	def model_post_init(self, _context: object) -> None:
+		assert self.format.is_text == (self.media_ref is None), (
+			f'{self.item_id}: a text item needs no media reference and a rendition without one is a '
+			'format that cannot be served'
+		)
+		assert self.format.is_text == (self.rendition_of is None), (
+			f'{self.item_id}: a rendition names the item it is a rendition of, and a text item is not '
+			'one — a non-text item with no parent is a blank entry in the library'
+		)
 	# §6.2.3 "Timestamp everything." When the item was last written or moved, as an instant. It has
 	# a default because the *service* stamps it — on write, on advance and at seed — and
 	# `upsert_content` overwrites whatever it is handed rather than keeping it. `UNDATED_MS` is the

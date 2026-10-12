@@ -15,7 +15,7 @@ from datetime import date
 from urllib.parse import quote
 
 from afya.auth.views import now_ms
-from afya.info.content_seed import seed_rows
+from afya.info.content_seed import rendition_rows, seed_rows
 from afya.info.escalation import ContentError, ContentEscalation, escalate
 from afya.info.localisation import (
 	SOURCE_LANG, BackTranslation, CommunityValidation, LocalisationState, localisation, next_stage,
@@ -124,10 +124,16 @@ class InfoService(LogMixin):
 		believe is worse than no line.
 		"""
 		n = 0
-		for item in seed_rows():
+		for item in seed_rows() + rendition_rows():
 			self._content[item.item_id] = item.model_copy(update={'updated_at_ms': midnight_ms(item.reviewed_on_iso)})
 			n += 1
 		assert n >= 8, 'seed corpus must load'
+		# §INF-003's and §INF-008's Format cells are delivered by renditions rather than by prose, and
+		# a corpus that dropped them would satisfy every topic while serving none of the audio and
+		# video the sections ask for. Asserted here rather than only in the audit view because the
+		# seed is where the corpus is loaded, and an empty rendition set is a silent regression.
+		assert any(i.media_ref for i in self._content.values()), \
+			'the corpus carries no rendition, so §INF-003 and §INF-008 print formats nothing delivers'
 		return n
 
 	async def upsert_content(self, item: ContentItem, at_ms: int | None = None) -> ContentItem:
@@ -187,14 +193,42 @@ class InfoService(LogMixin):
 		destroys trust" and a client handed one has nothing to render but the text. `undated()` names
 		it for the reviewer. Both withholdings are the same shape deliberately — a gap someone can
 		see beats a message that misleads.
+
+		A rendition is withheld too, and for a different reason: it is not an item a reader opens. Its
+		body is empty by construction — the content is the file at `media_ref` — so serving it here
+		would put a blank card in the list beside the article it illustrates. It travels *with* its
+		parent instead, which is what `renditions_of()` is for.
 		"""
 		out = [
 			c for c in self._content.values()
-			if c.lang == lang and c.stage is ContentStage.published
+			if c.lang == lang and c.stage is ContentStage.published and c.rendition_of is None
 			and c.updated_at_ms > UNDATED_MS and self.translated(c)
 		]
 		assert all(c.harmony_tag for c in out), 'unharmonised content must be tagged before serving'
 		return out
+
+	def renditions_of(self, slug: str) -> list[ContentItem]:
+		"""Every rendition of the item with this slug: its illustrations, audio versions, videos.
+
+		§INF-003 and §INF-008 print these as *formats of an item* rather than as items, which is what
+		makes this a lookup rather than a second list. A client renders the article and offers what is
+		beside it; a client that listed renditions separately would show the same subject twice, once
+		as text and once as a blank entry pointing at a file.
+
+		Published and stamped, the same gate `library()` applies — a draft audio version of a
+		published article is not servable, and the parent's own withholding (a missing translation, an
+		absent stamp) is not re-derived here because the caller only reaches this for an item it has
+		already been allowed to serve.
+		"""
+		assert slug, 'a rendition is looked up by its parent slug'
+		return sorted(
+			(
+				c for c in self._content.values()
+				if c.rendition_of == slug and c.stage is ContentStage.published
+				and c.updated_at_ms > UNDATED_MS
+			),
+			key=lambda c: (c.format.value, c.item_id),
+		)
 
 	def undated(self) -> list[str]:
 		"""§6.2.3's audit: published items held back for carrying no timestamp.

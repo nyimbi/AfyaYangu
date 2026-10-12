@@ -956,10 +956,21 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		because a relative age is unreadable the moment the page is cached offline (§16.4) and an
 		instant is unreadable at a glance. `now_ms` is the caller's clock, for the reason `/location/check`
 		takes one — a clock nobody can move is a clock nobody can test.
+
+		§INF-003's and §INF-008's Format cells travel as `renditions` on the item they are renditions
+		of: a list of `{format, media_ref, title}`. They are not separate list entries — a rendition
+		has no prose of its own, so an entry for one would be a blank card beside the article it
+		illustrates — and they are not a route of their own either, because a client that had to ask
+		twice would render the article before knowing it had an audio version. `media_ref` is the file;
+		the client fetches it, which is why no bytes are in this payload.
 		"""
 		return [
 			{'slug': c.slug, 'title': c.title, 'body': c.body, 'harmony_tag': c.harmony_tag or '',
-			 'lang': c.lang, 'answers_rank': c.answers_rank,
+			 'lang': c.lang, 'answers_rank': c.answers_rank, 'format': c.format.value,
+			 'renditions': [
+				 {'format': r.format.value, 'media_ref': r.media_ref, 'title': r.title}
+				 for r in info.renditions_of(c.slug)
+			 ],
 			 **info.item_freshness(c, now_ms, lang).model_dump(mode='json')}
 			for c in info.library(lang)
 		]
@@ -1151,21 +1162,27 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.get('/info/health-education')
 	async def info_health_education(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
-		"""§10.5's three features — the topics each names, and which the corpus has an item for.
+		"""§8.5's library and §10.5's three features — the topics and formats each names, and which the
+		corpus answers.
 
 		Auditor-scoped like the other evidence views: it reports what the corpus is missing, which is
-		a content owner's business rather than a client's. `gaps` is the finding — "first-aid items are
-		in the health library corpus" is true of the one item that exists and says nothing about the
-		other ten topics §INF-009 names.
+		a content owner's business rather than a client's. `gaps` and `missing_formats` are the
+		finding — "first-aid items are in the health library corpus" is true of the one item that
+		exists and says nothing about the other ten topics §INF-009 names, and a library of articles
+		delivers none of the audio and video versions §INF-003 asks for.
 		"""
 		items = info.all_items()
 		return {
 			'coverage': health_education.report(items),
+			'ebola_topics': list(health_education.EBOLA_TOPICS),
+			'ebola_formats': list(health_education.EBOLA_FORMATS),
 			'health_tip_topics': list(health_education.HEALTH_TIP_TOPICS),
 			'first_aid_topics': list(health_education.FIRST_AID_TOPICS),
 			'burial_content': list(health_education.BURIAL_CONTENT),
 			'sensitivity_reviewers': list(health_education.SENSITIVITY_REVIEWERS),
 			'first_aid_offline': health_education.first_aid_is_offline(),
+			'first_aid_illustrations': health_education.illustrated(items),
+			'over_length': health_education.over_length(items),
 		}
 
 	@app.get('/info/content/governance')

@@ -25,6 +25,53 @@ async def test_library_is_served_by_language_and_carries_no_spec_code() -> None:
 	assert 'item_id' not in en[0], 'the raw id (which embeds a code) is not served'
 
 
+async def test_a_rendition_travels_with_its_article_and_is_not_its_own_entry() -> None:
+	"""§INF-003's and §INF-008's Format cells — illustrations, audio versions, video versions, audio
+	clips — as served. A rendition is not an item a reader opens: its body is empty by construction,
+	so a list entry for one is a blank card beside the article it belongs to. It reaches the client as
+	`renditions` on the article instead, which is also what lets a client know an audio version exists
+	before it has rendered the text."""
+	from afya.info.views import ContentFormat
+
+	svc = InfoService()
+	lib = svc.library('en')
+	assert lib, 'the corpus must serve something'
+	# No served entry is a rendition, and none is blank — the two are the same defect from either end.
+	assert all(c.rendition_of is None for c in lib), 'a rendition must not be a library entry'
+	assert all(c.body.strip() for c in lib), 'a blank card is not content'
+	# Every rendition points at a parent that is actually served, and carries a file.
+	served = {c.slug for c in lib}
+	renditions = [c for c in svc._content.values() if c.rendition_of is not None]
+	assert renditions, 'the corpus must carry at least one rendition or the format cells are empty'
+	for r in renditions:
+		assert r.rendition_of in served, f'{r.slug} is a rendition of nothing served'
+		assert r.media_ref, f'{r.slug} names no file'
+		assert not r.format.is_text, f'{r.slug} is a text format and should be an article'
+	# And the lookup returns them by parent, so a client can render the article with its renditions.
+	parent = next(c for c in lib if svc.renditions_of(c.slug))
+	attached = svc.renditions_of(parent.slug)
+	assert attached and all(a.rendition_of == parent.slug for a in attached)
+	assert {a.format for a in attached} <= set(ContentFormat)
+
+
+async def test_the_library_route_serves_renditions_under_their_parent() -> None:
+	"""The route, not just the service: `renditions` is a key on each served article, with the format
+	and the file. A client that had to ask a second time would render the text before knowing it had
+	an audio version, which is the reason the two are one payload."""
+	app = create_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		rows = (await c.get('/info/library?lang=en')).json()
+	assert rows
+	assert all('renditions' in r for r in rows), 'every article carries the key, empty or not'
+	with_media = [r for r in rows if r['renditions']]
+	assert with_media, 'at least one article must carry a rendition or the format cells are unserved'
+	for row in with_media:
+		for rend in row['renditions']:
+			assert rend['format'] in {'illustration', 'audio', 'video'}, rend
+			assert rend['media_ref'] and rend['title'], rend
+			assert 'INF-' not in rend['media_ref'], 'a spec code must not reach a file path'
+
+
 def _governed(**overrides: object) -> dict[str, object]:
 	body: dict[str, object] = {
 		'item_id': 'x', 'title': 't', 'body': 'b', 'lang': 'en', 'harmony_tag': 'official', 'slug': 's',

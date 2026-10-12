@@ -31,6 +31,15 @@ from afya.info.views import ContentItem, ContentStage
 REPO = Path(__file__).resolve().parents[2]
 SPEC = REPO / 'docs' / 'spec.md'
 
+# The slugs the corpus marks life-safety, named once because two assertions read them: the pin above
+# and the disagreement check below. A life-safety rank is not a label an author picks — it drags
+# §6.2.4's bilingual-publication rule onto the item — so the set is reviewed rather than inferred,
+# and naming it once is what keeps the pin and the check from drifting apart.
+LIFE_SAFETY_SLUGS = frozenset({
+	'ebola-basics', 'prevention', 'myth-salt-water', 'safe-burial',
+	'protect-yourself-and-family', 'exposed-to-ebola', 'testing-and-treatment', 'isolation-facility',
+})
+
 
 def _item(**overrides: object) -> ContentItem:
 	"""A published, governed, *dated* item. The stamp is set because these tests write straight into
@@ -128,18 +137,23 @@ def test_an_unpublished_translation_does_not_count() -> None:
 
 
 def test_the_seed_is_fully_translated_where_it_is_life_safety() -> None:
-	"""The shipped corpus obeys its own rule, and the two unranked pairs prove the rule is not
-	vacuous — a corpus where nothing was life-safety would pass every test above while enforcing
-	nothing."""
+	"""The shipped corpus obeys its own rule, and the unranked pairs prove the rule is not vacuous —
+	a corpus where nothing was life-safety would pass every test above while enforcing nothing.
+
+	Scoped to the *life-safety* slugs rather than to every slug in the corpus. The earlier version
+	asserted `langs == set(REQUIRED_LANGS)` for every slug, which is a claim about the seed rather than
+	about §6.2.4: it fails on any unranked row that exists in one language, and the section's rule is
+	about life-safety messages only. A corpus-wide assertion also cannot distinguish "a translation is
+	missing" from "this item was never meant to have one" — which is the distinction the rule rests on.
+	"""
 	svc = InfoService()
 	assert svc.untranslated() == [], 'the seed must not ship an English-only life-safety message'
 	ranks = {c.answers_rank for c in svc.all_items()}
 	assert ranks & life_safety_ranks(), 'the seed must exercise the life-safety path'
 	assert None in ranks, 'and must contain at least one item answering no ranked question'
-	slugs = {c.slug for c in svc.all_items()}
-	for slug in slugs:
+	for slug in {c.slug for c in svc.all_items() if is_life_safety(c.answers_rank)}:
 		langs = {c.lang for c in svc.all_items() if c.slug == slug}
-		assert langs == set(REQUIRED_LANGS), f'{slug} exists in {langs} only'
+		assert langs == set(REQUIRED_LANGS), f'{slug} is life-safety and exists in {langs} only'
 
 
 def test_the_seed_assigns_the_ranks_six_one_gives_them() -> None:
@@ -148,21 +162,34 @@ def test_the_seed_assigns_the_ranks_six_one_gives_them() -> None:
 	stays bilingual, some other row still exercises the path — and the effect is that §6.2.4 stops
 	protecting that message. That is the mutation this test exists to catch: `prevention` answers
 	§6.1 rank 4, "How do I protect my family?", and the household checklist is exactly the guidance
-	§6.2.4 must not ship English-only."""
+	§6.2.4 must not ship English-only.
+
+	Pinned as the *set of life-safety slugs and their ranks*, not as the whole English inventory. An
+	exact-inventory assertion is a second copy of the seed that has to be edited whenever a tip or a
+	first-aid item is added, and the editing is mechanical — which is how a real rank regression gets
+	retyped along with the additions. What the rule needs is that every life-safety item is ranked and
+	that no item claims a life-safety rank it should not, and both are asserted below.
+	"""
 	svc = InfoService()
 	assigned = {c.slug: c.answers_rank for c in svc.all_items() if c.lang == 'en'}
-	assert assigned == {
-		'ebola-basics': 3,       # I have a fever right now — what do I do?
-		'prevention': 4,         # How do I protect my family?
-		'myth-salt-water': 5,    # What's true and what's rumour?
-		'safe-burial': 4,        # household risk; the burial row answers the protection question
-		'health-tips': None,     # a general tip, not one of §6.1's ten questions
-		'first-aid-choking': None,  # choking is not a question §6.1 ranks
-	}, assigned
+	assert {s for s, r in assigned.items() if is_life_safety(r)} == set(LIFE_SAFETY_SLUGS)
+	assert assigned['ebola-basics'] == 3, 'I have a fever right now — what do I do?'
+	assert assigned['prevention'] == 4, 'How do I protect my family?'
+	assert assigned['myth-salt-water'] == 5, "What's true and what's rumour?"
+	assert assigned['safe-burial'] == 4, 'household risk; the burial row answers the protection question'
+	assert assigned['protect-yourself-and-family'] == 4, 'the household checklist is rank 4'
+	assert assigned['exposed-to-ebola'] == 3, 'fever plus contact risk is the rank 3 triage'
+	assert assigned['testing-and-treatment'] == 7, 'is there a vaccine or treatment?'
+	assert assigned['isolation-facility'] == 6, 'where do I go if I am sick, and who do I call?'
+	# And the unranked half is asserted to stay unranked, because the mutation that matters in this
+	# direction is a tip acquiring a life-safety rank and dragging §6.2.4 onto content it was not
+	# written for. The tips and first-aid rows answer none of the ten ranked questions.
+	assert assigned['health-tips'] is None, 'a general tip, not one of the ten ranked questions'
+	assert assigned['first-aid-choking'] is None, 'choking is not a question the table ranks'
 	# And every slug the corpus marks life-safety must be gated, so the two cannot disagree.
 	for item in svc.all_items():
 		if is_life_safety(item.answers_rank):
-			assert item.slug in {'ebola-basics', 'prevention', 'myth-salt-water', 'safe-burial'}, item.slug
+			assert item.slug in LIFE_SAFETY_SLUGS, item.slug
 
 
 # --- the two publishing paths both refuse ---------------------------------------------------------
