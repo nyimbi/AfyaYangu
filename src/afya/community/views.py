@@ -3,6 +3,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from afya.ids import uuid7str
+
 from afya.registry.diseases import DISEASE_PATTERN
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -38,7 +40,7 @@ ISSUE_ROUTING: dict[IssueKind, str] = {
 
 class CommunityIssue(BaseModel):
 	model_config = MODEL_CONFIG
-	issue_id: str = Field(pattern=r'^CIS-[A-Z0-9]{8,}$')
+	issue_id: str = Field(default_factory=lambda: 'CIS-' + uuid7str().replace('-', '').upper()[:8])
 	kind: IssueKind
 	county: str
 	description: str = Field(min_length=5, max_length=300)
@@ -73,7 +75,7 @@ class CaseStatus(str, Enum):
 class CaseReport(BaseModel):
 	"""WHO IDSR / Kenya MoH structured report. Patient name optional — anonymous is a first-class path."""
 	model_config = MODEL_CONFIG
-	report_id: str = Field(pattern=r'^CR-[A-Z0-9]{8,}$')
+	report_id: str = Field(default_factory=lambda: 'CR-' + uuid7str().replace('-', '').upper()[:8])
 	chw_ref: str
 	county: str
 	community: str
@@ -165,7 +167,7 @@ class ContactTracingSummary(BaseModel):
 
 class MisinfoSubmission(BaseModel):
 	model_config = MODEL_CONFIG
-	submission_id: str = Field(pattern=r'^MIS-[A-Z0-9]{8,}$')
+	submission_id: str = Field(default_factory=lambda: 'MIS-' + uuid7str().replace('-', '').upper()[:8])
 	claim: str = Field(min_length=5, max_length=500)
 	county: str
 	medium: str = Field(pattern=r'^(text|voice|screenshot|whatsapp_forward)$')

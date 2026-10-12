@@ -250,7 +250,23 @@ class ModelFootprint(BaseModel):
 	note: str
 
 
+class FairnessAuditRequest(BaseModel):
+	"""What a caller submits to start an audit: the model and the axes they tested.
+
+	`passed` and `action` are not here. Both are `audit_fairness`'s own conclusion, and requiring
+	them of a caller asked the person running the audit to hand in its verdict — a control that
+	returns what it was given. They live on `FairnessAudit`, which is what the audit answers.
+	"""
+
+	model_config = MODEL_CONFIG
+	model_id: str
+	axes: list[str]
+	unmet_axes: list[str] = Field(default_factory=list)
+
+
 class FairnessAudit(BaseModel):
+	"""The audit's result: the axes, the ones left unmet, and whether the model may ship."""
+
 	model_config = MODEL_CONFIG
 	model_id: str
 	axes: list[str]

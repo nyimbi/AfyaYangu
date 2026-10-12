@@ -53,7 +53,9 @@ async def test_facility_nearest_and_status(client: httpx.AsyncClient) -> None:
 	assert out[0]['facility']['facility_id'] == 'F1'
 	st = (await client.get('/facilities/F1/ed-status')).json()
 	assert st['status'] == 'operational'
-	assert (await client.post('/facilities/F1/booking', json={'booking_id': 'BOOK-A1B2C3D4', 'facility_id': 'F1', 'slot_iso': '2026-10-09T10:00+03:00', 'queue_position': 1})).json()['queue_position'] == 1
+	# The place in the queue is the server's answer, not the caller's claim: the request no longer
+	# carries one, so a client cannot book itself to the front. First booking at this facility is 1.
+	assert (await client.post('/facilities/F1/booking', json={'slot_iso': '2026-10-09T10:00+03:00'})).json()['queue_position'] == 1
 
 
 async def test_medicine_endpoints(client: httpx.AsyncClient) -> None:

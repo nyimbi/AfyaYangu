@@ -169,6 +169,9 @@ struct MobileFieldDTO: Codable, Identifiable {
 	// The device's own subject: the client supplies it and does not draw it. Marked by the server
 	// because the route binds the subject to the token, so a drawn control could only be refused.
 	let client_supplied: Bool?
+	// A reference the server mints. Undrawn for the same reason and a different one: nobody knows
+	// the value until the request arrives, so a form could only ask a person to invent a key.
+	let server_assigned: Bool?
 }
 
 struct MobileActionDTO: Codable, Identifiable {
@@ -215,7 +218,10 @@ extension BackendClient {
 		// field; a worker action's subject is unmarked and names someone else deliberately.
 		let mine = try await subjectRef()
 		var values = values
-		if action.fields.contains(where: { $0.client_supplied == true }) { values["subject_ref"] = mine }
+		// Keyed on the field being a subject, not on any field carrying a flag: a server-assigned
+		// reference is not an identity, and injecting a subject for one would name a person into a
+		// request that has no subject field.
+		if action.fields.contains(where: { $0.name == "subject_ref" && $0.client_supplied == true }) { values["subject_ref"] = mine }
 		let tokens = Self.placeholders(in: action.path)
 		var taken: Set<String> = []
 		var path = action.path

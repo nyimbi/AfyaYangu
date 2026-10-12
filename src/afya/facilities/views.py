@@ -3,6 +3,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from afya.ids import uuid7str
+
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 
@@ -180,9 +182,28 @@ class FacilityReport(BaseModel):
 	reporter_ref: str | None = None
 
 
-class Booking(BaseModel):
+class BookingRequest(BaseModel):
+	"""What a caller asks for: which facility, and when.
+
+	`queue_position` is not here. It is the answer to the question "where am I in the queue", and it
+	was a required field on the request — so a client had to state its own place before being told
+	it. `booking_id` is minted by the model when the caller omits it, so a form that does not offer
+	one is complete.
+	"""
+
 	model_config = MODEL_CONFIG
-	booking_id: str = Field(pattern=r'^BOOK-[A-Z0-9]{6,}$')
+	booking_id: str = Field(default_factory=lambda: 'BOOK-' + uuid7str().replace('-', '').upper()[:6])
+	slot_iso: str
+	# The route takes the facility in its path, so a body copy would be a second spelling of one
+	# fact. Optional and echoed into the result, which is where a client reads it back.
+	facility_id: str | None = None
+
+
+class Booking(BaseModel):
+	"""The booking as it stands: the reference, the slot, and the place in the queue."""
+
+	model_config = MODEL_CONFIG
+	booking_id: str = Field(default_factory=lambda: 'BOOK-' + uuid7str().replace('-', '').upper()[:6])
 	facility_id: str
 	slot_iso: str
 	queue_position: int = Field(ge=1, le=500)

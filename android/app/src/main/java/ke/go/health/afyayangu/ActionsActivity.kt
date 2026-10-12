@@ -76,7 +76,8 @@ class ActionsActivity : Activity() {
 		// the catalogue marks it because the route binds it to the token, so a field asking "who is
 		// this for?" would offer a control the server refuses by construction. The only honest thing
 		// to show is nothing.
-		for (f in a.fields) if (!f.clientSupplied) box.addView(fieldView(f, inputs))
+		// Neither a subject the client holds nor a reference the server mints is a question.
+		for (f in a.fields) if (!f.clientSupplied && !f.serverAssigned) box.addView(fieldView(f, inputs))
 		box.addView(Button(this).apply {
 			text = if (a.method == "GET") "Run" else "Submit"
 			setOnClickListener { submit(a, inputs) }
@@ -125,8 +126,11 @@ class ActionsActivity : Activity() {
 		}
 		// A client-supplied subject is the device's, whatever the transport (query, path or body).
 		// `perform` overwrites it in all three; a worker action's subject is not marked, so the
-		// person the worker named — a contact being notified — is left alone.
-		if (a.fields.any { it.clientSupplied } && !params.has("subject_ref")) params.put("subject_ref", client.subjectRef())
+		// person the worker named — a contact being notified — is left alone. Keyed on the field
+		// being a subject, not on *any* field being client-supplied: a server-assigned reference
+		// carries its own flag, and injecting a subject for one would name a person into a request
+		// that has no subject.
+		if (a.fields.any { it.clientSupplied && it.name == "subject_ref" } && !params.has("subject_ref")) params.put("subject_ref", client.subjectRef())
 		executor.execute {
 			// §16.1: a write with no network is queued, not lost. `performOrQueue` keeps it and
 			// replays it on the next successful submit or resume.

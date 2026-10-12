@@ -10,7 +10,7 @@ import java.net.URL
 data class HealthDTO(val status: String, val version: String, val tier4: Boolean)
 data class FeatureDTO(val id: String, val name: String)
 data class TriageResultDTO(val riskLevel: String, val recommendation: String, val escalate719: Boolean)
-data class ActionField(val name: String, val label: String, val type: String, val options: List<String>?, val placeholder: String?, val required: Boolean, val clientSupplied: Boolean)
+data class ActionField(val name: String, val label: String, val type: String, val options: List<String>?, val placeholder: String?, val required: Boolean, val clientSupplied: Boolean, val serverAssigned: Boolean)
 data class CatalogueAction(val id: String, val title: String, val group: String, val method: String, val path: String, val fields: List<ActionField>)
 
 // Offline-first: last good response cached in SharedPreferences (spec 16.1).
@@ -377,6 +377,7 @@ class BackendClient(private val context: Context) {
 					ph,
 					f.optBoolean("required", false),
 					f.optBoolean("client_supplied", false),
+					f.optBoolean("server_assigned", false),
 				)
 			}
 			CatalogueAction(a.getString("id"), a.getString("title"), a.getString("group"), a.getString("method"), a.getString("path"), fields)

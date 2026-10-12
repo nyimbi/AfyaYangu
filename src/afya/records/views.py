@@ -1,6 +1,8 @@
 """Records domain models — family health wallet, immunisations, growth monitoring (REC-001..003)."""
 from pydantic import BaseModel, ConfigDict, Field
 
+from afya.ids import uuid7str
+
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 
@@ -146,7 +148,7 @@ class WalletDocument(BaseModel):
 	"""
 
 	model_config = MODEL_CONFIG
-	doc_id: str = Field(min_length=1)
+	doc_id: str = Field(default_factory=lambda: 'DOC-' + uuid7str().replace('-', '').upper()[:12])
 	member_ref: str = Field(min_length=1)
 	kind: str = Field(pattern=r'^(immunisation|anc|lab|prescription|discharge|referral|insurance|appointment)$')
 	title: str = Field(min_length=1)
@@ -233,7 +235,7 @@ class ShareGrant(BaseModel):
 	"""
 
 	model_config = MODEL_CONFIG
-	grant_id: str = Field(min_length=1)
+	grant_id: str = Field(default_factory=lambda: 'SHARE-' + uuid7str().replace('-', '').upper()[:12])
 	member_ref: str = Field(min_length=1)
 	# Who holds the link. `recipient` is the named clinician or facility for REC-002's provider
 	# share, and None for a link handed to whoever the holder gives it to.

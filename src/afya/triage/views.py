@@ -3,6 +3,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from afya.ids import uuid7str
+
 from afya.derived import DerivedFields
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -176,7 +178,7 @@ class TriageResult(BaseModel):
 
 class DiaryEntry(DerivedFields, BaseModel):
 	model_config = MODEL_CONFIG
-	entry_id: str = Field(pattern=r'^DIARY-[A-Z0-9]{10,}$')
+	entry_id: str = Field(default_factory=lambda: 'DIARY-' + uuid7str().replace('-', '').upper()[:10])
 	subject_ref: str
 	day: int = Field(ge=1, le=21)
 	symptoms: list[str]

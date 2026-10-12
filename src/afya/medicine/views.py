@@ -4,6 +4,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
+from afya.ids import uuid7str
+
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 
@@ -154,7 +156,7 @@ class StockReport(BaseModel):
 	"""
 
 	model_config = MODEL_CONFIG
-	report_id: str = Field(pattern=r'^STOCK-[A-Z0-9]{6,}$')
+	report_id: str = Field(default_factory=lambda: 'STOCK-' + uuid7str().replace('-', '').upper()[:6])
 	facility_id: str
 	drug: str = Field(min_length=2, max_length=120)
 	in_stock: bool

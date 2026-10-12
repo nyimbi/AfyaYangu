@@ -4,6 +4,8 @@ from enum import Enum
 from afya.sensors.views import MeasurementSource
 from pydantic import BaseModel, ConfigDict, Field
 
+from afya.ids import uuid7str
+
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 
@@ -48,7 +50,7 @@ class ImmunisationCatchUp(BaseModel):
 
 class MedSchedule(BaseModel):
 	model_config = MODEL_CONFIG
-	schedule_id: str = Field(pattern=r'^MED-[A-Z0-9]{6,}$')
+	schedule_id: str = Field(default_factory=lambda: 'MED-' + uuid7str().replace('-', '').upper()[:6])
 	member_ref: str
 	drug: str
 	dose: str
@@ -160,7 +162,7 @@ REMINDER_SLOTS: tuple[ReminderSlot, ...] = (ReminderSlot.morning, ReminderSlot.e
 
 class MonitoringDay(BaseModel):
 	model_config = MODEL_CONFIG
-	entry_id: str = Field(pattern=r'^MON-[A-Z0-9]{8,}$')
+	entry_id: str = Field(default_factory=lambda: 'MON-' + uuid7str().replace('-', '').upper()[:8])
 	subject_ref: str
 	day: int = Field(ge=1, le=21)
 	temperature_c: float = Field(ge=30, le=45)

@@ -1372,3 +1372,61 @@ Features and three Anti-gaming controls, all `carried`. The three Anti-gaming ro
 rather than reclassified ones: the audit module's own rule is that a claim label whose body is a
 list is miscategorised, and `Anti-gaming` named three controls, so it was a content label wearing a
 claim label's name and moved to `_LABELS`. 493 rows, `carried` 385, `missing` 91, `deferred` 17.
+
+## §MED-004, follow-up — the catalogue could point at a live route and still be unfillable
+
+**A form that cannot fill its own route.** `test_every_action_path_exists_in_app` asks whether the
+route exists. Nothing asked whether the catalogue's field list covers what that route's *body model*
+requires, so an action could name a live route and still be impossible to complete. Six were, and
+each failed differently:
+
+- `fairness_audit` and `book_appointment` carried the *verdict* as a required input — `passed`/`action`
+  on `FairnessAudit`, `queue_position` on `Booking`. Both are the answer the server computes, so the
+  model was asking the caller to hand in its own conclusion. Split into `FairnessAuditRequest`/
+  `FairnessAudit` and `BookingRequest`/`Booking`: the request is what a caller knows, the result is
+  what comes back. A client that could set its own `queue_position` could book itself to the front.
+- `wellbeing_check` offered `s1..s5` where `WHO5` holds `scores: list[int]` of exactly five; no
+  client could turn five scalars into the list, so every submission was refused however it was
+  filled. The catalogue already has the shape for a multi-value answer — `mood_screen`'s `answers`.
+- `log_location` offered one free-text `point` where `LocationPoint` wants `geohash` and `at_iso`, so
+  a client could say neither where nor when. §LOC-003 keeps raw coordinates off this boundary, which
+  is why the field is the geohash the phone already computed.
+- `emergency_card` offered the singular `emergency_contact` as one string where `EmergencyCard`
+  holds named contacts. A bare number tells a clinician looking at an unconscious patient neither
+  who to ring nor what they are to them, so the model is right and the form was wrong: a
+  `model_validator(mode='before')` now accepts `"Jane:0722000111"` and the plural list alike, and
+  leaves `relationship` absent rather than guessing a third fact from a two-part string.
+- `water_advisory` offered `ecoli` where the model requires `ecoli_detected` — a rename.
+
+**Three more classes were found while fixing those, each proved against the live ASGI app.**
+
+- **A path placeholder no field names is a route neither client can reach.** Android's
+  `BackendClient.perform` substitutes `{f.name}` strictly by field name; iOS's `Endpoints.buildRequest`
+  matches by name and falls back to position. Eighteen actions had a field called `id`/`ref` under a
+  `{facility_id}`/`{member_ref}` placeholder — `/facilities/{facility_id}/ed-status` returned **500**
+  with the literal braces, the records actions **403**. The gate now drives the same substitution the
+  clients use, so the defect is caught where it happens rather than read for.
+- **A required field whose placeholder read "generated for you" is a form nobody can complete.**
+  Twelve actions carried a reference the *server* mints — `entry_id`, `sos_id`, `doc_id`, `alert_id`
+  and eight more — and the client hides an undrawn field, so the submission went without it and the
+  server answered 422 naming a field the person had no control for. Each model now defaults it with
+  `default_factory`, the repo's established pattern for a server-minted reference.
+- **A free-text field carrying `options` is a picker that yields a refused value.** Four carried
+  options while typed `text`: a client drawing a picker sent `sex: 'Female'` or `metric: 'BP'` and
+  got a 422. Retyped `select`.
+
+**`server_assigned` is a separate flag from `client_supplied`, and the reason is in the clients.**
+Both gate their subject injection on "this action has a client-supplied field", so broadening that
+flag to cover a server-minted reference would have injected a bogus `subject_ref` into requests that
+have no subject. The two are undrawn for different reasons — one because the client already knows the
+value, one because nobody does until the request arrives — and only the first is an identity. Both
+shipped clients now key on the field name, and both skip drawing either flag.
+
+**The gate I wrote for this was wrong first, and the wrongness is the same shape as the defect.**
+It asserted `undrawn & required == {}`, which flagged 43 actions — every one of them `subject_ref`,
+which is *legitimately* hidden from the form and *required* by the model because the client injects
+it from its own token. That is what `client_supplied` means. The predicate was too wide by exactly
+the flag it conflated. Only `server_assigned` must not be required, and must not fill a path segment.
+Six canaries were run against the corrected gates — the substitution made a no-op, a field renamed
+away from its placeholder, a required field marked server-assigned, a server-assigned field asked to
+fill a path, a mark whose model default was removed, and the flag check blinded — and all six fired.

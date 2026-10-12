@@ -3,6 +3,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from afya.ids import uuid7str
+
 from afya.registry.diseases import DISEASES
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -44,7 +46,7 @@ assert tuple(k.value.removeprefix('outbreak_') for k in OUTBREAK_KINDS) == DISEA
 
 class CommunityAlert(BaseModel):
 	model_config = MODEL_CONFIG
-	alert_id: str = Field(pattern=r'^AL-[A-Z0-9]{8,}$')
+	alert_id: str = Field(default_factory=lambda: 'AL-' + uuid7str().replace('-', '').upper()[:8])
 	kind: AlertKind
 	county: str
 	headline: str = Field(max_length=80)

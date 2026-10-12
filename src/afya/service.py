@@ -58,7 +58,7 @@ from afya.medicine.views import (
 )
 from afya.facilities.service import FacilityService
 from afya.facilities.views import (
-	Booking, Facility, FacilityLevel, FacilityReportRequest, NearestRequest, OfflineFacility,
+	Booking, BookingRequest, Facility, FacilityLevel, FacilityReportRequest, NearestRequest, OfflineFacility,
 	ServiceOffered,
 )
 from afya.info.escalation import CORRECTION_FEED_CATEGORY, ContentError
@@ -99,7 +99,7 @@ from afya.analytics.service import AnalyticsService
 from afya.analytics.views import DASHBOARDS, DashboardId
 from afya.metrics.service import MetricsService
 from afya.metrics.views import MetricFamily
-from afya.ai.views import AggregateCell, FairnessAudit, RedressRequest, RiskInputs, SignalEvent, WarningSignal
+from afya.ai.views import AggregateCell, FairnessAuditRequest, RedressRequest, RiskInputs, SignalEvent, WarningSignal
 from afya.alerting.service import AlertingService
 from afya.alerting.views import ExposureAck, FeedItem, FeedPage, FamilyStatus
 from afya.auth.service import AuthService
@@ -903,7 +903,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 	@app.post('/facilities/{facility_id}/booking')
-	async def facility_book(facility_id: str, booking: Booking) -> Booking:
+	async def facility_book(facility_id: str, booking: BookingRequest) -> Booking:
 		if not any(f.facility_id == facility_id for f in facilities.all_facilities()):
 			raise HTTPException(status_code=404, detail='unknown facility')
 		return await facilities.book(facility_id, booking.slot_iso, booking.booking_id)
@@ -3383,7 +3383,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return ai.footprint().model_dump(mode='json')
 
 	@app.post('/ai/fairness-audit')
-	async def ai_audit(audit: FairnessAudit) -> dict[str, object]:
+	async def ai_audit(audit: FairnessAuditRequest) -> dict[str, object]:
 		try:
 			return ai.audit_fairness(audit.model_id, audit.axes, audit.unmet_axes).model_dump(mode='json')
 		except AssertionError as exc:
