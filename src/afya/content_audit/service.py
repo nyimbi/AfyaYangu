@@ -10,12 +10,14 @@ contents of which one had no model at all. This module applies the same treatmen
 sections' labelled content lists: `**Features:**`, `**Contents:**`, `**Additional inputs:**`,
 `**Outputs:**` and `**Signals monitored:**`.
 
-**Coverage is partial and the report says so.** §8–§12 carry 220 labelled content bullets across 35
-feature sections. Four are audited here, chosen because they are the sections the section-number
-survey found named nowhere in the source: §9.3 MED-004, §9.4 FND-006, §9.5 INF-007 and §11.2
-TRI-003. `audited_features` and `UNAUDITED_FEATURES` are served alongside the findings, because a
-report that showed sixteen gaps without saying how much of the spec it had read would invite the
-reader to take it as complete — which is the failure mode of every gate that scopes itself.
+**Coverage is partial and the report says so.** §8–§12 print 221 labelled content bullets across 35
+feature sections — the sections carrying a `**Features:**`-style list, with §9.5 INF-007's prose
+Contents cell counted as its six comma-separated items. Thirteen are audited here: the four the
+section-number survey found named nowhere in the source (§9.3 MED-004, §9.4 FND-006, §9.5 INF-007,
+§11.2 TRI-003) and the nine §8 Tier-1 sections, the tier that earns the download and the one a
+person meets first. `audited_features` and `UNAUDITED_FEATURES` are served alongside the findings,
+because a report that showed 45 gaps without saying how much of the spec it had read would invite
+the reader to take it as complete — which is the failure mode of every gate that scopes itself.
 
 **A bullet is carried when something in the repo does it.** `carried_by` is a `module:attr`
 reference and `missing` is the finding, reported rather than repaired — whether an absent bullet is
@@ -40,6 +42,135 @@ from afya.refs import resolves
 # Every bullet is transcribed verbatim from the section, so a revision that rewords one fails the
 # spec-comparison test rather than silently detaching the audit from the text.
 FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] = (
+	# --- §8.1 TRI-001: Broad Febrile-Illness Triage -------------------------------------------
+	('TRI-001', 'Outputs',
+		'Risk classification: Emergency / High (Ebola suspicion) / High (other cause) / Moderate / Low',
+		'missing', None,
+		'`RiskLevel` has four members (low, medium, malaria_suspect, high) and none of them '
+		'distinguishes "High (Ebola suspicion)" from "High (other cause)" — the distinction the '
+		'section prints as two separate outputs'),
+	('TRI-001', 'Outputs', 'Recommended action with one-tap execution (call 719, find facility, request CHW visit)',
+		'missing', None,
+		'`TriageResult.recommendation` is prose and `escalate_719` is a boolean; neither carries an '
+		'action a client can execute in one tap'),
+	('TRI-001', 'Outputs', 'Watch-for list for the next 24–48 hours', 'missing', None,
+		'nothing carries a watch-for list'),
+	('TRI-001', 'Outputs', 'Forwardable summary card', 'missing', None,
+		'§3.3 principle 10 requires every output to be shareable as a WhatsApp card; no triage '
+		'result has one'),
+
+	# --- §8.1 TRI-002: Symptom Diary and Follow-Up --------------------------------------------
+	('TRI-002', 'Features', 'Log symptoms with timestamp', 'carried',
+		'afya.triage.service:TriageService.diary_append',
+		'`DiaryEntry` has `day` and no clock; the timestamp is the day number'),
+	('TRI-002', 'Features', 'Daily "how are you feeling?" prompt (opt-in)', 'missing', None,
+		'nothing prompts; the diary is written only when the person opens it'),
+	('TRI-002', 'Features', 'Automatic escalation if new red flags are logged', 'missing', None,
+		'`diary_append` stores the entry and returns it — it reads no red flag and escalates nothing'),
+	('TRI-002', 'Features', 'Trend view: is this getting better or worse?', 'missing', None,
+		'`diary` returns the entries in order and computes no trend'),
+	('TRI-002', 'Features', 'Exportable summary for a clinician', 'missing', None,
+		'no export of any kind'),
+
+	# --- §8.2 FND-001: Facility Finder --------------------------------------------------------
+	('FND-001', 'Features', 'GPS-based nearest search', 'carried',
+		'afya.facilities.service:FacilityService.nearest', None),
+	('FND-001', 'Features', 'Search by area name or code', 'missing', None,
+		'`NearestRequest` takes lat/lon only; there is no lookup by area name or code'),
+	('FND-001', 'Features', 'Filter by service, level, cost, SHA acceptance', 'missing', None,
+		'`NearestRequest.kind` filters by facility kind alone — not by service, level, cost or SHA'),
+	('FND-001', 'Features', 'One-tap directions (opens maps app)', 'deferred', None,
+		'opening a maps app is a client action with no server call, like the other device-side '
+		'capabilities the coverage gate lists in ON_DEVICE'),
+	('FND-001', 'Features', 'One-tap call', 'deferred', None, 'the device dials; there is no route to call'),
+	('FND-001', 'Features',
+		"Offline mode: caches facilities within 50 km of the user's home area",
+		'missing', None,
+		'the county cache caches by county, not by a 50 km radius of a home area'),
+
+	# --- §8.2 FND-002: Emergency Department Status --------------------------------------------
+	('FND-002', 'Features', 'ICU bed availability', 'missing', None,
+		'`Facility` carries no bed counts of any kind'),
+	('FND-002', 'Features', 'Emergency department queue status', 'carried',
+		'afya.facilities.views:Facility', 'ed_status, crowdload and wait_minutes'),
+	('FND-002', 'Features', 'Ambulance availability', 'missing', None, 'no ambulance field or service'),
+	('FND-002', 'Features', 'Trauma capability', 'missing', None, 'no trauma-capability field'),
+	('FND-002', 'Features', 'Isolation bed availability (Tier 4)', 'missing', None,
+		'no isolation-bed field; §8.2 prints this as a Tier 4 row and nothing carries it at any tier'),
+
+	# --- §8.2 FND-004: Pharmacy and Chemist Finder --------------------------------------------
+	('FND-004', 'Features', 'Nearest registered pharmacies (PPB registry)', 'carried',
+		'afya.facilities.views:FacilityKind', 'kind=pharmacy'),
+	('FND-004', 'Features', 'Open now', 'carried', 'afya.facilities.views:Facility', 'open_now and hours24'),
+	('FND-004', 'Features', 'Whether they accept SHA', 'missing', None,
+		'`SHAClient` verifies cover for a member and nothing records which facilities accept it'),
+	('FND-004', 'Features', 'Crowdsourced stock reports (see MED-004)', 'carried',
+		'afya.medicine.service:MedicineService.stock_for', None),
+	('FND-004', 'Features', 'One-tap call', 'deferred', None, 'the device dials; there is no route to call'),
+
+	# --- §8.3 MED-001: Medicine Verifier ------------------------------------------------------
+	('MED-001', 'Features', 'Barcode scan using the camera', 'deferred', None,
+		'reading a barcode is a device capability; the number it yields is what `verify` takes'),
+	('MED-001', 'Features', 'Manual entry of the PPB registration number', 'carried',
+		'afya.medicine.service:MedicineService.verify', None),
+	('MED-001', 'Features', 'Photo of packaging for batch verification (where supported)', 'missing', None,
+		'`VerifyRequest` carries a `batch_number` and no photo; nothing ingests an image'),
+	('MED-001', 'Features', 'Result: Registered / Not found / Expired registration / Recalled', 'missing', None,
+		'`VerifyResult` is `genuine: bool` plus a free-text note, so the four named outcomes cannot '
+		'be distinguished by a client — a recalled medicine and a not-found one read the same'),
+	('MED-001', 'Features',
+		'Display: product name, manufacturer, registration status, expiry, batch recalls',
+		'missing', None,
+		'`VerifyResult` carries none of the five display fields'),
+	('MED-001', 'Features', '**Report a suspicious medicine** — one tap to flag to PPB', 'missing', None,
+		'no report route to PPB exists; `medicine_recalls` reads the registry and reports nothing'),
+
+	# --- §8.3 MED-002: Drug Interaction and Safety Checker ------------------------------------
+	('MED-002', 'Features', 'Select or scan two or more medicines', 'carried',
+		'afya.medicine.service:MedicineService.check_interactions', None),
+	('MED-002', 'Features', 'Check for known interactions', 'carried',
+		'afya.medicine.service:MedicineService.check_interactions', None),
+	('MED-002', 'Features', 'Flag contraindications for pregnancy, children, and common conditions',
+		'missing', None,
+		'`_INTERACTIONS` is drug-pair rows only; there is no contraindication axis for pregnancy, '
+		'age or a condition'),
+	('MED-002', 'Features', 'Guidance to consult a pharmacist', 'missing', None,
+		'the check returns severity strings and no guidance line'),
+
+	# --- §8.3 MED-003: Dosage Calculator ------------------------------------------------------
+	('MED-003', 'Features', 'Enter weight and age', 'missing', None,
+		'`DoseRequest` carries `weight_kg` and no age'),
+	('MED-003', 'Features', 'Select medicine', 'carried', 'afya.medicine.views:DoseRequest', 'drug'),
+	('MED-003', 'Features', 'Get dose range', 'missing', None,
+		'`dose` returns one `total_mg` computed from a caller-supplied mg/kg; there is no range and '
+		'the caller supplies the very constant a calculator exists to look up'),
+	('MED-003', 'Features',
+		'Common paediatric formulations (paracetamol, amoxicillin, ORS, zinc, artemether-lumefantrine)',
+		'missing', None, 'no formulation table'),
+	('MED-003', 'Features', 'Warning for maximum doses', 'missing', None,
+		'`warns` fires on weight < 5 kg and mg/kg > 60 — neither is a maximum-dose check'),
+
+	# --- §8.4 EMG-001: Emergency SOS ----------------------------------------------------------
+	('EMG-001', 'Features', 'Large, hard-to-mistap SOS button', 'deferred', None,
+		'a button is the client surface; the call it makes is `/emergency/sos`'),
+	('EMG-001', 'Features', 'Sends location and a preset message to up to three emergency contacts',
+		'missing', None,
+		'`SOSEvent` carries no contacts and `sos` notifies the hotline; the "three emergency '
+		'contacts" the section names are not on the event'),
+	('EMG-001', 'Features', 'Sends to the nearest ambulance dispatch where integrated', 'missing', None,
+		'no ambulance dispatch integration'),
+	('EMG-001', 'Features', '**Works over SMS when data is unavailable**', 'missing', None,
+		'the SOS route is HTTP only; the `sms-contacts` action string is a label in `actions` and '
+		'nothing sends one'),
+	('EMG-001', 'Features', 'Countdown with cancel option (prevents accidental activation)', 'missing', None,
+		'a countdown is client state; nothing on the server models the cancel window'),
+	('EMG-001', 'Features',
+		'Optional medical profile attachment (blood group, allergies, conditions, medications)',
+		'carried', 'afya.emergency.views:EmergencyCard',
+		'blood group, allergies and conditions are carried; medications is not a field'),
+	('EMG-001', 'Features', 'Optional auto-dial of emergency services', 'deferred', None,
+		'the device dials; `actions` names call-719 for the client to perform'),
+
 	# --- §9.3 MED-004: Drug Stock Crowdsourcing -----------------------------------------------
 	('MED-004', 'Features', 'Search for a medicine', 'missing', None,
 		'`stock_for` is keyed on (drug, facility) and needs both; there is no search across drugs'),
@@ -106,15 +237,19 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 _LABELS: tuple[str, ...] = ('Features', 'Contents', 'Additional inputs', 'Outputs', 'Signals monitored')
 
 # §8–§12's feature sections that carry a labelled content list and are not audited above. Listed
-# rather than omitted so the report cannot be read as covering the spec: §8–§12 carry 220 such
-# bullets across 35 sections, and a finding list of sixteen gaps presented without that context
-# invites exactly the misreading this module exists to prevent. Each is a section whose content
-# nobody has crossed against the code yet — a to-do with a count, not a claim of coverage.
+# rather than omitted so the report cannot be read as covering the spec: 221 such bullets across 35
+# sections, and a finding list presented without that context invites exactly the misreading this
+# module exists to prevent. Each is a section whose content nobody has crossed against the code yet
+# — a to-do with a count, not a claim of coverage. §9.2 REC-001 is here although its wallet contents
+# *are* audited in `afya.records.service:WALLET_ITEMS`; what is unaudited is the rest of its list.
 UNAUDITED_FEATURES: tuple[str, ...] = (
-	'TRI-001', 'TRI-002', 'FND-001', 'FND-002', 'FND-004', 'MED-001', 'MED-002', 'MED-003',
-	'EMG-001', 'INF-004', 'INF-005', 'MON-001', 'MON-002', 'MON-003', 'MON-004', 'REC-001',
-	'REC-005', 'REC-006', 'ALT-002', 'MON-009', 'COM-101', 'COM-102', 'COM-103', 'COM-104',
-	'LOC-003', 'LOC-005', 'AI-003', 'ACC-001', 'ACC-002', 'SEC-001', 'SEC-004', 'SEC-006',
+	'FND-003', 'FND-005', 'EMG-003', 'INF-004', 'INF-005', 'INF-006',
+	'MON-001', 'MON-002', 'MON-003', 'MON-004', 'MON-005', 'MON-006', 'MON-007', 'MON-008',
+	'REC-001', 'REC-003', 'REC-004', 'REC-005', 'REC-006',
+	'ALT-001', 'ALT-002', 'MON-009',
+	'COM-101', 'COM-102', 'COM-103', 'COM-104',
+	'LOC-005', 'AI-001', 'AI-003',
+	'ACC-001', 'ACC-002', 'SEC-001', 'SEC-004', 'SEC-006',
 )
 
 assert not (set(UNAUDITED_FEATURES) & {f for f, _, _, _, _, _ in FEATURE_CONTENT}), \

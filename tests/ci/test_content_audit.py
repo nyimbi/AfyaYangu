@@ -43,6 +43,18 @@ def _spec_inline_list(feature_id: str, label: str) -> list[str]:
 	return [item.strip() for item in segment.rstrip('.').split(',')]
 
 
+def _spec_feature_ids() -> list[str]:
+	"""Every `#### FID: name` section in the spec, in document order."""
+	return re.findall(r'^#### ([A-Z]{2,4}-\d{3}):', SPEC, re.M)
+
+
+def _carries_a_label(feature_id: str) -> bool:
+	"""Whether the section prints any of the five labelled content lists — the set the audit's two
+	coverage lists must partition."""
+	body = _spec_section(feature_id)
+	return any(f'**{label}:**' in body for label in LABELS)
+
+
 # --- the audit reads the section it says it read ------------------------------------------------
 
 def test_every_audited_bullet_is_the_sections_bullet_in_its_own_words() -> None:
@@ -57,11 +69,16 @@ def test_every_audited_bullet_is_the_sections_bullet_in_its_own_words() -> None:
 			assert mine == spec, f'{feature_id} {label}: {mine} != {spec}'
 
 
-def test_the_four_audited_sections_are_the_ones_the_survey_found_uncited() -> None:
-	"""The selection rule, asserted rather than left in a docstring: these are the feature sections
-	the section-number survey found named nowhere in the source."""
+def test_the_audited_sections_are_the_ones_the_survey_found_uncited() -> None:
+	"""The selection rule, asserted rather than left in a docstring: the first four are the feature
+	sections the section-number survey found named nowhere in the source, and the nine §8 sections
+	are Tier 1 — the tier that earns the download, and the one a person meets first."""
 	from afya.content_audit.service import FEATURE_CONTENT
-	assert set(f for f, _, _, _, _, _ in FEATURE_CONTENT) == {'MED-004', 'FND-006', 'INF-007', 'TRI-003'}
+	audited = set(f for f, _, _, _, _, _ in FEATURE_CONTENT)
+	assert {'MED-004', 'FND-006', 'INF-007', 'TRI-003'} <= audited
+	assert {'TRI-001', 'TRI-002', 'FND-001', 'FND-002', 'FND-004',
+		'MED-001', 'MED-002', 'MED-003', 'EMG-001'} <= audited
+	assert audited == {f for f in audited}, 'every audited id is a real feature'
 
 
 # --- the three verdicts, kept apart -------------------------------------------------------------
@@ -88,29 +105,37 @@ def test_a_carried_bullet_names_code_that_imports() -> None:
 
 
 def test_the_report_states_how_much_of_the_spec_it_read() -> None:
-	"""§8–§12 carry 220 labelled bullets across 35 feature sections and four are audited. A finding
-	list served without that context invites the reader to take it as complete — the failure mode of
-	every gate that scopes itself, which is why the unaudited sections are data rather than prose."""
+	"""A finding list served without its coverage invites the reader to take it as complete — the
+	failure mode of every gate that scopes itself, which is why the unread sections are data. The
+	two lists must *partition* the sections that carry a labelled list: a section in neither is one
+	nobody can find out is unaudited, which is worse than either verdict."""
 	from afya.content_audit.service import UNAUDITED_FEATURES, content_report
 	report = content_report()
-	assert report.audited_features == 4
-	assert len(report.unaudited_features) == 32, 'thirty-two feature sections carry content nobody has crossed'
+	labelled = {fid for fid in _spec_feature_ids() if _carries_a_label(fid)}
+	audited = {f.feature_id for f in report.features}
+	assert audited | set(report.unaudited_features) == labelled, \
+		'every labelled section is either audited or named as unaudited'
+	assert not audited & set(report.unaudited_features)
+	assert report.audited_features == len(audited) == 13
 	assert report.unaudited_features == list(UNAUDITED_FEATURES)
-	assert not set(report.unaudited_features) & {f.feature_id for f in report.features}
 
 
 # --- the findings -------------------------------------------------------------------------------
 
-def test_the_missing_bullets_are_the_fifteen_this_audit_found() -> None:
-	"""The finding, pinned by name so a repair shows up as a change here rather than as a smaller
-	number nobody reads. Each is a bullet the section prints and nothing in the repo does."""
+def test_the_missing_bullets_are_pinned_by_feature() -> None:
+	"""The finding, counted per feature rather than as one total, so a repair shows up as a changed
+	number here rather than as a smaller figure nobody reads. Each count is a bullet the section
+	prints and nothing in the repo does."""
 	from afya.content_audit.service import content_report
 	missing = content_report().missing
-	assert len(missing) == 15, missing
-	assert sum(1 for m in missing if m.startswith('§MED-004')) == 4
-	assert sum(1 for m in missing if m.startswith('§FND-006')) == 3
-	assert sum(1 for m in missing if m.startswith('§INF-007')) == 4
-	assert sum(1 for m in missing if m.startswith('§TRI-003')) == 4
+	per_feature: dict[str, int] = {}
+	for m in missing:
+		per_feature[m.split(':')[0]] = per_feature.get(m.split(':')[0], 0) + 1
+	assert per_feature == {
+		'§TRI-001': 4, '§TRI-002': 4, '§FND-001': 3, '§FND-002': 4, '§FND-004': 1,
+		'§MED-001': 4, '§MED-002': 2, '§MED-003': 4, '§EMG-001': 4,
+		'§MED-004': 4, '§FND-006': 3, '§INF-007': 4, '§TRI-003': 4,
+	}, per_feature
 
 
 def test_med_004_cannot_render_its_own_example() -> None:
@@ -133,33 +158,40 @@ def test_tri_003_names_four_exposures_the_input_cannot_distinguish() -> None:
 			f'{named} is carried now, so §11.2\'s exposure list is no longer a gap'
 
 
-def test_the_deferred_bullet_is_the_one_the_section_conditions_on_the_world() -> None:
-	"""TRI-003's vaccination input is written "if a vaccine is available and deployed" — a condition
-	on the world, not on this tree, so nothing here can carry it and it is not a gap. Kept separate
-	from `missing` because reporting it as one would put a fact about vaccine deployment in a defect
-	list."""
+def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world() -> None:
+	"""Seven bullets are deferred and they are two kinds, neither a gap. Six are device actions — a
+	maps app, a dialler, a barcode reader — which the coverage gate's `ON_DEVICE` set already lists
+	as client-side by design. The seventh is TRI-003's vaccination input, written "if a vaccine is
+	available and deployed": a condition on the world, not on this tree. Kept out of `missing`
+	because reporting them as gaps would put a fact about vaccine deployment in a defect list."""
 	from afya.content_audit.service import FEATURE_CONTENT
 	deferred = [(f, b, n) for f, _, b, k, _, n in FEATURE_CONTENT if k == 'deferred']
-	assert len(deferred) == 1, deferred
-	feature_id, bullet, note = deferred[0]
+	assert len(deferred) == 7, deferred
+	world = [(f, b, n) for f, b, n in deferred if n is not None and 'fact about the world' in n]
+	assert len(world) == 1, world
+	feature_id, bullet, _ = world[0]
 	assert feature_id == 'TRI-003' and bullet.startswith('Vaccination status')
-	assert note is not None and 'fact about the world' in note
+	for _, _, note in deferred:
+		assert note is not None
+		assert 'fact about the world' in note or 'device' in note or 'client' in note, note
 
 
 async def test_the_content_audit_view_is_auditor_scoped() -> None:
-	"""The report names module references and fifteen gaps, which is evidence about the build."""
+	"""The report names module references and the gap list, which is evidence about the build."""
 	import httpx
 	from typing import Any
 	from afya.privacy.views import RBACRole
 	from afya.service import build_services, create_app
+	from afya.content_audit.service import content_report
 	svc = build_services()
 	auth: Any = svc['auth']
 	tok = auth.provision_staff('ca-aud', RBACRole.auditor, registrar='MoH ops').access_token
 	app = create_app(svc)
+	report = content_report()
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		assert (await c.get('/features/content')).status_code in (401, 403)
 		body = (await c.get('/features/content',
 			headers={'authorization': f'Bearer {tok}'})).json()
-		assert len(body['missing']) == 15
-		assert body['audited_features'] == 4
-		assert len(body['unaudited_features']) == 32
+		assert body['missing'] == report.missing
+		assert body['audited_features'] == report.audited_features
+		assert body['unaudited_features'] == report.unaudited_features
