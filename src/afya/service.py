@@ -12,6 +12,7 @@ import os
 from typing import cast
 
 from afya.brand.service import BRAND, NON_GOALS, PRINCIPLES, VISION, brand_is_clean, brand_violations
+from afya.problem.service import gap_report, lesson_report
 from afya.config import ServiceConfig
 from afya.persistence.service import SqliteStore
 from afya.channels.cost import ZeroRatingRule, parse_rules, zero_rating_gaps
@@ -627,6 +628,21 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 				'violations': brand_violations(BRAND.public_name),
 				'clean': brand_is_clean(BRAND.public_name),
 			},
+		}
+
+	@app.get('/problem')
+	async def problem_statement(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§2: the seven citizen-layer gaps the product claims to close, and the five conditioned
+		lessons it takes from comparable systems.
+
+		Auditor-scoped, like the other build-evidence surfaces, because the answer is a statement about
+		this repo — which gaps resolve, and which lesson's condition nothing honours. §2.3 lesson 3 is
+		the finding: §SEC-001 carries `proximity_logging` with a scope and a revocation consequence,
+		and no proximity path reads it, so the opt-in the lesson requires is not enforced anywhere.
+		"""
+		return {
+			'gaps': gap_report().model_dump(mode='json'),
+			'lessons': lesson_report().model_dump(mode='json'),
 		}
 
 	# --- triage ---
