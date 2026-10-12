@@ -67,16 +67,20 @@ def test_every_audited_bullet_is_the_sections_bullet_in_its_own_words() -> None:
 
 def test_the_audited_sections_are_the_ones_the_survey_found_uncited() -> None:
 	"""The selection rule, asserted rather than left in a docstring, and it is a rule about what a
-	person meets, not about what a survey happened to notice. Four tranches: the four sections the
-	section-number survey found named nowhere (a citations rule), the nine §8 Tier-1 sections (the
-	tier that earns the download), the seven Tier-2 sections plus §9.2 REC-001 (the tier that earns
-	the return visit), and the four §8 Tier-1 sections the first pass over that tier missed. The
-	order the work was done in is not the order of importance.
+	person meets, not about what a survey happened to notice.
 
-	The last tranche is a correction rather than new ground: §8 has thirteen feature sections and
-	the first pass audited nine of them, so four Tier-1 sections — the tier the whole adoption
-	argument rests on — were named in neither list. That is the failure this assertion exists to
-	catch, and it was live here until the partition test below found it.
+	It began as four tranches — the four sections the section-number survey found named nowhere (a
+	citations rule), the nine §8 Tier-1 sections (the tier that earns the download), the seven Tier-2
+	sections plus §9.2 REC-001 (the tier that earns the return visit), and the four §8 Tier-1
+	sections the first pass over that tier missed. Each was a real gap when it was opened: the last
+	one was a correction, because §8 has thirteen feature sections and the first pass audited nine,
+	so four Tier-1 sections — the tier the whole adoption argument rests on — were named in neither
+	list.
+
+	The tranches are kept as assertions after the coverage went to 47/47 because a rule that is only
+	true at the moment of the merge is a rule that rots on the next edit. Each block names sections
+	whose *reason for being audited* is different, so a future removal of any one of them fails here
+	with the reason attached rather than as a smaller number.
 	"""
 	from afya.content_audit.service import FEATURE_CONTENT
 	audited = set(f for f, _, _, _, _, _ in FEATURE_CONTENT)
@@ -86,8 +90,12 @@ def test_the_audited_sections_are_the_ones_the_survey_found_uncited() -> None:
 	assert {'INF-004', 'INF-005', 'MON-001', 'MON-002', 'MON-003', 'MON-004',
 		'REC-001'} <= audited, 'the Tier-2 seven'
 	assert {'FND-003', 'FND-005', 'EMG-003', 'INF-006'} <= audited, 'the Tier-1 four the first pass missed'
-	assert len(audited) == 24, 'the four tranches name twenty-four distinct sections'
-	assert audited == {f for f in audited}, 'every audited id is a real feature'
+	assert {'REC-003', 'REC-004', 'REC-005', 'REC-006', 'ALT-001', 'ALT-002',
+		'MON-005', 'MON-006', 'MON-007', 'MON-008', 'MON-009'} <= audited, 'the §10 sections'
+	assert {'COM-101', 'COM-102', 'COM-103', 'COM-104', 'LOC-005'} <= audited, 'the §12 sections'
+	assert {'AI-001', 'AI-003', 'ACC-001', 'ACC-002', 'SEC-001', 'SEC-004',
+		'SEC-006'} <= audited, 'the §12.4–§12.7 sections'
+	assert len(audited) == 47, 'every labelled section in the spec is audited exactly once'
 
 
 # --- the three verdicts, kept apart -------------------------------------------------------------
@@ -125,8 +133,9 @@ def test_the_report_states_how_much_of_the_spec_it_read() -> None:
 	assert audited | set(report.unaudited_features) == labelled, \
 		'every labelled section is either audited or named as unaudited'
 	assert not audited & set(report.unaudited_features)
-	assert report.audited_features == len(audited) == 24
-	assert report.unaudited_features == list(UNAUDITED_FEATURES)
+	assert report.audited_features == len(audited) == 47
+	assert report.unaudited_features == list(UNAUDITED_FEATURES) == []
+	assert len(labelled) == 47, 'the spec prints 47 sections with a labelled content list' 
 
 
 # --- the findings -------------------------------------------------------------------------------
@@ -141,12 +150,49 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 	for m in missing:
 		per_feature[m.split(':')[0]] = per_feature.get(m.split(':')[0], 0) + 1
 	assert per_feature == {
-		'§TRI-001': 4, '§TRI-002': 4, '§FND-001': 3, '§FND-002': 4, '§FND-004': 1,
-		'§MED-001': 4, '§MED-002': 2, '§MED-003': 4, '§EMG-001': 4,
-		'§MED-004': 4, '§FND-006': 3, '§INF-007': 4, '§TRI-003': 4,
-		'§INF-004': 4, '§INF-005': 1, '§MON-001': 4, '§MON-002': 9, '§MON-003': 3,
-		'§MON-004': 2, '§REC-001': 6,
+		'§TRI-001': 4,
+		'§TRI-002': 4,
+		'§FND-001': 3,
+		'§FND-002': 4,
+		'§FND-004': 1,
+		'§MED-001': 4,
+		'§MED-002': 2,
+		'§MED-003': 4,
+		'§EMG-001': 4,
+		'§REC-001': 6,
+		'§MED-004': 4,
+		'§FND-006': 3,
+		'§INF-007': 4,
+		'§TRI-003': 4,
+		'§INF-004': 4,
+		'§INF-005': 1,
+		'§MON-001': 4,
+		'§MON-002': 9,
+		'§MON-003': 3,
+		'§MON-004': 2,
 		'§INF-006': 4,
+		'§REC-003': 2,
+		'§REC-004': 4,
+		'§MON-005': 3,
+		'§MON-006': 3,
+		'§MON-007': 2,
+		'§MON-008': 2,
+		'§REC-005': 5,
+		'§REC-006': 2,
+		'§ALT-002': 1,
+		'§MON-009': 5,
+		'§COM-101': 2,
+		'§COM-102': 4,
+		'§COM-103': 1,
+		'§COM-104': 2,
+		'§LOC-005': 3,
+		'§AI-001': 2,
+		'§AI-003': 6,
+		'§ACC-001': 2,
+		'§ACC-002': 3,
+		'§SEC-001': 2,
+		'§SEC-004': 1,
+		'§SEC-006': 2,
 		# §EMG-003, §FND-003 and §FND-005 are audited and carry nothing missing: every Content,
 		# Access clause and filter dimension resolves to code, so the sections have no row here —
 		# absence from this dict is the strongest verdict the audit has, and should be read as one.
@@ -174,18 +220,27 @@ def test_tri_003_names_four_exposures_the_input_cannot_distinguish() -> None:
 
 
 def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world() -> None:
-	"""Seven bullets are deferred and they are two kinds, neither a gap. Six are device actions — a
-	maps app, a dialler, a barcode reader — which the coverage gate's `ON_DEVICE` set already lists
-	as client-side by design. The seventh is TRI-003's vaccination input, written "if a vaccine is
-	available and deployed": a condition on the world, not on this tree. Kept out of `missing`
-	because reporting them as gaps would put a fact about vaccine deployment in a defect list."""
+	"""Ten bullets are deferred and they are two kinds, neither a gap. Eight are device actions — a
+	maps app, a dialler, a barcode reader, a camera, and a call-log and location permission — which
+	the coverage gate's `ON_DEVICE` set already lists as client-side by design. The other two are
+	conditions on the world rather than on this tree: TRI-003's vaccination input, written "if a
+	vaccine is available and deployed", and ALT-002's check-in prompt, written "during a declared
+	emergency in the user's area". Kept out of `missing` because reporting them as gaps would put a
+	fact about vaccine deployment or about whether an outbreak has been declared in a defect list.
+
+	The count is asserted rather than the two kinds being described, so a bullet that moves into
+	`deferred` to make a gap disappear fails here. The two world-conditioned ones are named
+	individually because a deferral on a *world state* is the kind most easily abused: it is the one
+	that can be claimed for a bullet that is simply unbuilt.
+	"""
 	from afya.content_audit.service import FEATURE_CONTENT
 	deferred = [(f, b, n) for f, _, b, k, _, n in FEATURE_CONTENT if k == 'deferred']
-	assert len(deferred) == 7, deferred
-	world = [(f, b, n) for f, b, n in deferred if n is not None and 'fact about the world' in n]
-	assert len(world) == 1, world
-	feature_id, bullet, _ = world[0]
-	assert feature_id == 'TRI-003' and bullet.startswith('Vaccination status')
+	assert len(deferred) == 10, deferred
+	world = {(f, b) for f, b, n in deferred if n is not None and 'fact about the world' in n}
+	assert world == {
+		('TRI-003', 'Vaccination status (if a vaccine is available and deployed)'),
+		('ALT-002', "Automatic check-in prompts during a declared emergency in the user's area"),
+	}, world
 	for _, _, note in deferred:
 		assert note is not None
 		assert 'fact about the world' in note or 'device' in note or 'client' in note, note
