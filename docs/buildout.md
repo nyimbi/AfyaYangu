@@ -734,3 +734,57 @@ corpus is a section whose contents were never read.
 - **The audit moves: 37 rows flipped `missing` → `carried`, 192 → 155.** §INF-003 (13), §INF-008 (11), §INF-009 (10) and §INF-010 (3) leave `test_the_missing_bullets_are_pinned_by_feature`. One of those 37 was a gap the brief did not name: §INF-010's "Who to contact (burial team)" had no carrier under the sibling rule either. Its old `carried` note credited a `safe-burial` item that never said "contact", which is what a carrier note written from the item's name rather than its text looks like.
 - **Not fixed, and named rather than left:** §ACC-003's "Pre-cached offline bundles: facility list for home county, first aid guide, information library, drug interaction database" is marked `carried` by `afya.rollout.service:MODULES`, a size plan with megabyte figures rather than a bundle payload. The facility bundle, the library and the drug interactions exist as three separate endpoints and no single pre-cached bundle does. That is §ACC-003's unit.
 - **Three model guards canaried and reverted, `library()`'s withholding canaried and reverted, the widened `/info/library` code-free gate canaried and reverted.** 490 rows, `carried` 319, `missing` 155, `deferred` 16. 1022 tests green, pyright clean.
+
+## §MON-002: the antenatal tracker was two features wearing one name
+
+§MON-002 and §REC-008 were accounted for by the same sentence — "same antenatal tracker as REC-008,
+which the catalogue reaches" — and the coverage gate took it. §MON-002 prints ten features; REC-008's
+name is the tracker. So nine of the ten had no carrier at all, and the shared sentence is what made
+that invisible: the section was reachable, which is not the same as the section being read.
+
+- **A section accounted for by a sibling is a section nobody read.** The two ids do name one module —
+  the schedule and a danger-sign classifier — but §MON-002's Features list is where the other nine
+  live, and none of them existed. The `ON_DEVICE` entry came off; a comment in its place records why,
+  because the entry was the reason the gap survived three audits.
+- **Naegele's rule, not an input.** `estimated_due_date(lmp_iso)` adds `GESTATION_DAYS` = 280 to the
+  first day of the last period, and `/maternal/due-date` serves it ungated — a date in, a date out,
+  no subject and no record, the same shape `/places/find` has. `Pregnancy` gained `lmp_iso`, so
+  `gestation_week` reads the same number back off either the LMP or a clinic-card EDD and the two
+  registration routes agree at the same week.
+- **A reminder is a date, not a contact number.** §MON-002 asks for visit reminders; the section's
+  own eight-contact table is weeks, so `visits()` returns each contact with the date it falls on and
+  the 3-day and 1-day leads. A contact already recorded carries no lead — a reminder for a visit that
+  happened is a wrong date, which is worse than a missing one.
+- **Danger-sign education and the one-tap are one payload, and the order is the classifier's.**
+  `DANGER_SIGNS` has nine members and `DANGER_SIGN_EDUCATION` is asserted equal to it at import, so a
+  sign added to the classifier cannot reach a screen as a bare word. `assess_danger` now returns the
+  education for the signs reported and a `CareAction`: `tel:719` when the classification is immediate,
+  the maternity finder otherwise. Rendered by the server for the same reason §8.1's is — the phone
+  number is a fact about the deployment, not about the client.
+- **The birth plan is five optional fields with `gaps()` in the section's order.** Facility,
+  transport, birth companion, blood donor, funds. Every field optional because a birth plan is built
+  over several conversations; `gaps()` exists because a screen that cannot see what is unanswered
+  renders an incomplete plan as a finished one. Served together at `/maternal/birth-plan`.
+- **Postnatal contacts count from a recorded birth, and before it the list is empty.** Four WHO
+  contacts — day 1, day 3, day 7–14, week 6 — from a `record_birth` date. Four dates derived from a
+  delivery that has not happened are four wrong dates, so the empty list is the honest answer.
+- **The newborn signs are the section's own eight, not the mother's.** Not feeding, convulsions, fast
+  breathing, hot, cold, jaundice, cord infection, floppy. The one sign the two lists share is a
+  convulsion, which is a convulsion in either.
+- **Trimester guidance is keyed by trimester and asserted to cover all three**, so a pregnancy cannot
+  reach a trimester with nothing behind it — the same shape as `_LEVEL_RANK` in §FND-001.
+- **The maternity finder is §FND-001's finder with the service pinned.** `FacilityKind` still has no
+  maternity member and does not need one: the section filters on the *service*, so `ServiceOffered.
+  maternal` is pinned the way `/places/pharmacies` pins its kind, with `level` and `accepts_sha` open
+  and `unanswered` travelling as it does on the general finder.
+- **The PMTCT referral takes the boolean, never the result.** The caller derives relevance at the
+  point of care; the HIV status does not reach this module, which has no PIN on it. Same rule §MON-003
+  keeps for the same fact.
+- **Ten catalogue actions, and the reverse gate was canaried.** Every one of the ten maps to MON-002
+  in `FEATURE_OF`. The self-scope gate was pointed at `/maternal/{ref}/visits` with its
+  `require_self(...)` removed and watched to fail — `personal-data routes without a subject-binding
+  guard: ['GET /maternal/{ref}/visits (None)']` — then reverted from a file backup. The audit rows
+  are claims about code and were rewritten as such: the nine `missing` rows flipped to `carried` with
+  the carrier named, and `test_the_missing_bullets_are_pinned_by_feature` lost `'§MON-002': 9`.
+- **Counts: 9 rows flipped `missing` → `carried`, 155 → 146.** 490 rows, `carried` 328, `missing`
+  146, `deferred` 16. 1033 tests green, pyright clean.

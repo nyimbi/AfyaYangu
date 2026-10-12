@@ -32,7 +32,7 @@ from afya.places.views import TestType
 from afya.evidence.views import EvidenceSubmission, EvidenceKind
 from afya.insurance.service import InlineSHAPort, InsuranceService, SHACheckRequest, PriceItem
 from afya.maternal.service import MaternalService
-from afya.maternal.views import ANCRecord, Pregnancy
+from afya.maternal.views import ANCRecord, BirthPlan, Pregnancy
 from afya.mental.service import MentalHealthService, WHO5
 from afya.women.service import WomenService
 from afya.women.views import CycleLog
@@ -48,7 +48,8 @@ from afya.medicine.service import MedicineService
 from afya.medicine.views import DoseRequest, StockReport, VerifyRequest
 from afya.facilities.service import FacilityService
 from afya.facilities.views import (
-	Booking, Facility, FacilityReportRequest, NearestRequest, OfflineFacility,
+	Booking, Facility, FacilityLevel, FacilityReportRequest, NearestRequest, OfflineFacility,
+	ServiceOffered,
 )
 from afya.info.escalation import CORRECTION_FEED_CATEGORY, ContentError
 from afya.info import health_education
@@ -1483,6 +1484,107 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def maternal_register(p: Pregnancy, _subject: str = Depends(require_self())) -> dict[str, bool]:
 		await maternal.register(p)
 		return {'ok': True}
+
+	@app.get('/maternal/due-date')
+	async def maternal_due_date(lmp_iso: str) -> dict[str, str]:
+		"""§MON-002's "Estimated due date calculator". No subject and nothing stored — a date in, a
+		date out — so a person who has not registered can still get the answer, and a caller who has
+		not decided to register is not made to."""
+		try:
+			return {'lmp_iso': lmp_iso, 'edd_iso': maternal.estimated_due_date(lmp_iso)}
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/maternal/birth')
+	async def maternal_birth(subject_ref: str, birth_iso: str, _subject: str = Depends(require_self())) -> dict[str, str]:
+		"""The birth date the postnatal contacts count from. Without it there are no postnatal visits."""
+		try:
+			return {'subject_ref': subject_ref, 'birth_iso': await maternal.record_birth(subject_ref, birth_iso)}
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/maternal/{ref}/visits')
+	async def maternal_visits(ref: str, today_iso: str = '2026-10-08', _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> list[dict[str, object]]:
+		"""§MON-002's eight ANC contacts with their dates and reminder leads, which is what makes
+		"Visit reminders" a reminder rather than a count of what is outstanding."""
+		try:
+			return [v.model_dump(mode='json') for v in maternal.visits(ref, today_iso)]
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.get('/maternal/{ref}/postnatal')
+	async def maternal_postnatal(ref: str, _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> list[dict[str, object]]:
+		try:
+			return [v.model_dump(mode='json') for v in maternal.postnatal_visits(ref)]
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.get('/maternal/guidance')
+	async def maternal_guidance(gest_week: int) -> dict[str, object]:
+		"""§MON-002's "Trimester-specific guidance". Keyed on the week, so the same call answers at
+		week 12 and week 40 with the two different things the section asks for."""
+		try:
+			return maternal.trimester_guidance(gest_week)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/maternal/newborn-signs')
+	async def maternal_newborn_signs() -> list[dict[str, str]]:
+		"""§MON-002's "Newborn danger signs" — the baby's list, which is not the mother's."""
+		return [s.model_dump(mode='json') for s in maternal.newborn_danger_signs()]
+
+	@app.post('/maternal/birth-plan')
+	async def maternal_birth_plan(plan: BirthPlan, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§MON-002's birth plan, with the fields still unanswered served alongside it.
+
+		`gaps` is the answer to "is this plan finished" and is computed rather than left to the
+		client: a screen that counted the filled fields itself would be a second implementation of
+		the section's five, and the two would disagree the first time one changed.
+		"""
+		try:
+			saved = await maternal.save_birth_plan(plan)
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+		return {'plan': saved.model_dump(mode='json'), 'gaps': saved.gaps()}
+
+	@app.get('/maternal/{ref}/birth-plan')
+	async def maternal_birth_plan_get(ref: str, _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> dict[str, object]:
+		try:
+			plan = maternal.birth_plan(ref)
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+		return {'plan': plan.model_dump(mode='json'), 'gaps': plan.gaps()}
+
+	@app.get('/maternal/facilities')
+	async def maternal_facilities(
+		lat: float, lon: float, limit: int = 5, level: FacilityLevel | None = None,
+		accepts_sha: bool | None = None,
+	) -> dict[str, object]:
+		"""§MON-002's "Facility finder for maternity services", fixed to the maternal service.
+
+		The same finder `/facilities/find` serves, with the service pinned — the reason `/places/pharmacies`
+		pins its kind: a client that asked the general finder and rendered the answer as places that
+		deliver babies would be showing a person a clinic that does not. `level` and `accepts_sha` are
+		§FND-001's own filters and stay open, because "a health centre that takes SHA" is a maternity
+		question too.
+
+		`unanswered` travels for the reason it does on the general finder: a pool where no facility
+		published a level must say so rather than return a shorter list that reads as the answer.
+		"""
+		found, unanswered = facilities.find(NearestRequest(
+			lat=lat, lon=lon, limit=limit, service=ServiceOffered.maternal,
+			level=level, accepts_sha=accepts_sha,
+		))
+		return {
+			'results': [{'facility': f.model_dump(mode='json'), 'km': round(km, 2)} for f, km in found],
+			'unanswered': unanswered,
+		}
+
+	@app.post('/maternal/pmtct-referral')
+	async def maternal_pmtct(subject_ref: str, hiv_positive: bool, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§MON-002's "Referral to PMTCT where relevant". The HIV result is a boolean the caller
+		derived at the point of care and is not stored — this module has no PIN on it."""
+		return maternal.pmtct_referral(subject_ref, hiv_positive).model_dump(mode='json')
 
 	@app.get('/maternal/{ref}/anc-due')
 	async def maternal_anc(ref: str, today_iso: str = '2026-10-08', gest_week: int = 12, _subject: str = Depends(require_self(lambda r: r.path_params['ref']))) -> list[int]:

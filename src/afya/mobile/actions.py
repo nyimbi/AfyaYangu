@@ -102,6 +102,13 @@ FEATURE_OF: dict[str, str] = {
 	'log_bp': 'REC-006', 'log_glucose': 'REC-006', 'bp_trend': 'REC-006', 'track_refill': 'REC-006',
 	'log_cycle': 'REC-009', 'cycle_prediction': 'REC-009',
 	'register_pregnancy': 'REC-008', 'anc_due': 'REC-008', 'record_anc': 'REC-008', 'danger_signs': 'REC-008',
+	# §MON-002's other nine. The registry carries the section twice — REC-008 and MON-002 are one
+	# capability under two ids, and the alias table records the divergence — so the feature id here
+	# is the one the registry resolves for a maternal feature and the section is MON-002's.
+	'due_date': 'MON-002', 'anc_visits': 'MON-002', 'postnatal_visits': 'MON-002',
+	'record_birth': 'MON-002', 'trimester_guidance': 'MON-002', 'newborn_signs': 'MON-002',
+	'birth_plan': 'MON-002', 'save_birth_plan': 'MON-002', 'pmtct_referral': 'MON-002',
+	'maternity_facilities': 'MON-002',
 	'child_schedule': 'MON-001', 'catch_up_doses': 'MON-001', 'record_dose': 'MON-001', 'register_child': 'MON-001',
 	'add_medication': 'MON-004', 'log_adherence': 'MON-004',
 	'peak_flow': 'MON-003', 'log_weight': 'MON-003', 'condition_profile': 'MON-003', 'clinical_report': 'MON-003',
@@ -328,6 +335,16 @@ def catalogue() -> list[MobileAction]:
 		_a('anc_due', 'Which clinic visits are due?', 'Maternity', 'GET', '/maternal/{ref}/anc-due', [_f('ref', 'Who is this for?', 'path'), _f('gest_week', 'Weeks pregnant', 'int')]),
 		_a('record_anc', 'Record a clinic visit', 'Maternity', 'POST', '/maternal/anc', [_s(), _f('contact_no', 'Visit number (1-8)', 'int'), _f('done_iso', 'Date of visit')]),
 		_a('danger_signs', 'Check for danger signs', 'Maternity', 'POST', '/maternal/danger', [_f('signs', 'Danger signs', 'list', ph='bleeding, severe_headache')]),
+		_a('due_date', 'When is my baby due?', 'Maternity', 'GET', '/maternal/due-date', [_f('lmp_iso', 'First day of my last period')]),
+		_a('anc_visits', 'My clinic visit dates', 'Maternity', 'GET', '/maternal/{ref}/visits', [_f('ref', 'Who is this for?', 'path'), _f('today_iso', "Today's date", ph='2026-10-08')]),
+		_a('postnatal_visits', 'My baby clinic visits', 'Maternity', 'GET', '/maternal/{ref}/postnatal', [_f('ref', 'Who is this for?', 'path')]),
+		_a('record_birth', 'My baby was born', 'Maternity', 'POST', '/maternal/birth', [_s(), _f('birth_iso', 'Date of birth')]),
+		_a('trimester_guidance', 'What to expect this month', 'Maternity', 'GET', '/maternal/guidance', [_f('gest_week', 'Weeks pregnant', 'int')]),
+		_a('newborn_signs', 'Warning signs in a newborn', 'Maternity', 'GET', '/maternal/newborn-signs', []),
+		_a('birth_plan', 'My birth plan', 'Maternity', 'GET', '/maternal/{ref}/birth-plan', [_f('ref', 'Who is this for?', 'path')]),
+		_a('save_birth_plan', 'Plan where I will deliver', 'Maternity', 'POST', '/maternal/birth-plan', [_s(), _f('facility_id', 'Which facility', ph='optional'), _f('transport', 'How I will get there', ph='optional'), _f('birth_companion', 'Who comes with me', ph='optional'), _f('blood_donor', 'Who can donate blood', ph='optional'), _f('funds_kes', 'Money set aside (KES)', 'int', ph='optional')]),
+		_a('pmtct_referral', 'Do I need a PMTCT referral?', 'Maternity', 'POST', '/maternal/pmtct-referral', [_s(), _f('hiv_positive', 'Did the HIV test come back positive?', 'bool')]),
+		_a('maternity_facilities', 'Where can I deliver?', 'Maternity', 'GET', '/maternal/facilities', [_f('lat', 'My latitude', 'decimal'), _f('lon', 'My longitude', 'decimal'), _f('limit', 'How many to show', 'int'), _f('accepts_sha', 'Only places that take SHA', 'bool', ph='optional')]),
 		# Child immunisation
 		_a('register_child', "Add my child's date of birth", 'Children', 'POST', '/monitoring/child', [_f('member_ref', 'Child'), _f('dob_iso', 'Date of birth')]),
 		_a('child_schedule', 'My child vaccine schedule', 'Children', 'GET', '/monitoring/child/{member_ref}/schedule', [_f('member_ref', 'Child', 'path')]),

@@ -50,7 +50,11 @@ ON_DEVICE: dict[str, str] = {
 	# the divergence, and these are the pairs where two ids name one thing.
 	'MON-005': 'same water-quality service as INF-011, which the catalogue reaches',
 	'MON-006': 'same air-quality service as INF-012, which the catalogue reaches',
-	'MON-002': 'same antenatal tracker as REC-008, which the catalogue reaches',
+	# MON-002 was here as "the same antenatal tracker as REC-008", which was true while the two ids
+	# named one module: the schedule and a danger-sign classifier. §MON-002 prints ten features and
+	# REC-008's name is the tracker, so the nine the section adds — the due-date calculator, the
+	# visit and postnatal reminders, the birth plan, trimester guidance, the newborn signs, the
+	# maternity finder, the PMTCT referral — have their own actions now and the entry came off.
 	'REC-002': 'the full wallet is the wallet at REC-001 plus cloud sync, served by the same routes',
 	# The health library is one corpus serving several spec features; each item carries its own
 	# slug and harmony tag, and `health_library` reaches all of it.
