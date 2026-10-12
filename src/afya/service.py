@@ -1195,6 +1195,19 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+	# §9.2 REC-001's contents, as evidence rather than as a claim. Auditor-scoped: the report names
+	# `module:attr` references and the one item nothing models, which is a fact about the build.
+	@app.get('/records/wallet/contents')
+	async def records_wallet_contents(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""Whether §9.2's eight wallet contents are carried, and whether the ten-profile cap is kept.
+
+		The section lists eight documents a family wallet holds. Seven have a model and one —
+		discharge summaries — does not, which is reported rather than padded: a wallet payload that
+		says "wallet" while holding seven of the section's eight items is the shape this surface
+		exists to make visible.
+		"""
+		return records.wallet_contents().model_dump(mode='json')
+
 	# --- channels ---
 	@app.get('/channels/cost')
 	async def channels_cost() -> dict[str, object]:

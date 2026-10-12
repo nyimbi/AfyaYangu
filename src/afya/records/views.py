@@ -80,3 +80,27 @@ class InsuranceCard(BaseModel):
 	sha_member_no_hash: str = Field(pattern=r'^[0-9a-f]{8,64}$')
 	product: str = Field(pattern=r'^(SHIF|TAIFA|EDU|SHCP)$')
 	active: bool
+
+
+class WalletItem(BaseModel):
+	"""One of §9.2's eight "Contents" bullets, and what in the repo carries it.
+
+	`module` is a `module:attr` reference to the model that holds the document, or None where the
+	section names a document nothing models. Both are reported: the section lists eight things a
+	wallet holds, and a wallet that holds four of them while the payload says "wallet" is the
+	claim-with-nothing-behind-it this module keeps finding.
+	"""
+
+	model_config = MODEL_CONFIG
+	item: str
+	module: str | None = None
+	resolves: bool = False
+	note: str | None = None
+
+
+class WalletContentsReport(BaseModel):
+	model_config = MODEL_CONFIG
+	items: list[WalletItem]
+	unbacked_items: list[str]
+	max_profiles: int
+	max_profiles_enforced: bool

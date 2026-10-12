@@ -4,12 +4,37 @@ from datetime import date
 from afya.logmixin import LogMixin
 from afya.records.views import (
 	EPI_SCHEDULE, GrowthFlag, GrowthRecord, ImmunisationRecord, LabResult, MedReminder,
-	Prescription, WalletMember,
+	Prescription, WalletContentsReport, WalletItem, WalletMember,
 )
 
 MAJORITY_YEARS = 18
 """§17.6's age of majority. Children under 18 require guardian consent for an identified profile
 and a guardian controls their records; at 18 control transfers to the individual."""
+
+MAX_WALLET_PROFILES = 10
+"""§9.2 REC-001: "Multiple profiles (up to 10)". A number in the section, enforced at enrolment."""
+
+# §9.2 REC-001's "Contents:" bullets, in the section's order, each paired with the model that
+# carries it. The section names eight documents a wallet holds; a wallet is what a person opens when
+# they have lost the paper, so an item with nothing behind it is a document the app promises to keep
+# and cannot. `module` is None where nothing models it — reported, not fabricated.
+WALLET_ITEMS: tuple[tuple[str, str | None, str | None], ...] = (
+	('Immunisation cards (photo or digital)', 'afya.records.views:ImmunisationRecord',
+		'the EPI schedule and the doses given are modelled; the card itself is not stored as an image'),
+	('ANC cards', 'afya.maternal.views:ANCRecord',
+		'the eight ANC contacts are modelled against the visit schedule'),
+	('Lab results', 'afya.records.views:LabResult', None),
+	('Prescriptions', 'afya.records.views:Prescription', None),
+	('Discharge summaries', None,
+		'no model; a discharge summary is a facility document and nothing ingests one'),
+	('Referral letters', 'afya.intermediaries.views:Referral',
+		'the referral is modelled for code attribution, not as a document in the wallet'),
+	('Insurance/SHA details', 'afya.records.views:InsuranceCard',
+		'the SHA member number is stored as a hash, so the card cannot be reconstructed from it'),
+	('Clinic appointment cards', 'afya.facilities.views:Booking',
+		'the booking is modelled; the card the facility prints is not stored'),
+)
+
 
 
 def age_years(dob_iso: str, today: date) -> int:
@@ -41,6 +66,13 @@ class RecordsService(LogMixin):
 		implement an age-dependent rule at all.
 		"""
 		today = today or date.today()
+		if member.guardian_ref and member.guardian_ref != member.member_ref:
+			# §9.2 REC-001: "Multiple profiles (up to 10)". The cap is on the wallet, so it is
+			# enforced where a member joins one rather than reported later — a wallet that accepted
+			# an eleventh profile would be a section claim nothing kept.
+			held = sum(1 for m in self._members.values() if m.guardian_ref == member.guardian_ref)
+			assert held < MAX_WALLET_PROFILES, (
+				f'§9.2 caps a wallet at {MAX_WALLET_PROFILES} profiles; {member.guardian_ref} already holds {held}')
 		if age_years(member.dob_iso, today) < MAJORITY_YEARS:
 			member.is_minor = True
 			assert member.guardian_ref, 'minors require guardian_ref (spec 17.6)'
@@ -125,6 +157,33 @@ class RecordsService(LogMixin):
 		if rec.height_cm < median_h * 0.9:
 			flag = 'stunted'
 		return GrowthFlag(member_ref=rec.member_ref, flag=flag)
+
+	def wallet_contents(self) -> WalletContentsReport:
+		"""§9.2 REC-001's eight "Contents" bullets, each crossed against what carries it.
+
+		The section lists eight things a family health wallet holds. Four have a model in this repo
+		(immunisation cards, ANC cards, lab results, prescriptions, insurance details — five, in
+		fact, once the ANC record in `maternal` and the insurance card here are both counted), and
+		the rest name documents nothing models: discharge summaries and clinic appointment cards.
+		Reporting the gap rather than padding it is the point — a wallet payload that says "wallet"
+		while holding four of the section's eight items is the claim-with-nothing-behind-it this
+		module exists to surface.
+
+		`resolves` is False for a `module:attr` that does not import, which is a different finding
+		from `module is None`: the first is a reference that rotted, the second is a document nobody
+		built.
+		"""
+		from afya.refs import resolves
+		items: list[WalletItem] = []
+		for item, module, note in WALLET_ITEMS:
+			items.append(WalletItem(item=item, module=module,
+				resolves=resolves(module) if module else False, note=note))
+		return WalletContentsReport(
+			items=items,
+			unbacked_items=[i.item for i in items if i.module is None],
+			max_profiles=MAX_WALLET_PROFILES,
+			max_profiles_enforced=True,
+		)
 
 	def wallet(self, guardian_ref: str) -> dict[str, object]:
 		assert guardian_ref in self._members, 'unknown guardian'

@@ -1,4 +1,5 @@
 import pytest
+from typing import Any
 
 from afya.records.service import RecordsService
 from afya.records.views import GrowthRecord, ImmunisationRecord, MedReminder, WalletMember
@@ -121,3 +122,71 @@ def test_the_canary_watches_the_minor_check_fire() -> None:
 	# And a member with no guardian at all is still nobody else's to read.
 	svc._members['ORPHAN'] = WalletMember(member_ref='ORPHAN', dob_iso='2020-01-01')  # noqa: SLF001
 	assert svc.owns('GUARD1', 'ORPHAN', date(2026, 10, 12)) is False
+
+
+# --- §9.2 REC-001's contents and the ten-profile cap ------------------------------------------
+
+def _spec_wallet_contents() -> list[str]:
+	"""§9.2 REC-001's "Contents:" bullets, read out of the spec so a revision fails here."""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split('#### REC-001: Family Health Wallet (Basic)', 1)[1].split('**Features:**', 1)[0]
+	return [line[2:].strip() for line in section.splitlines() if line.startswith('- ')]
+
+
+def test_the_wallet_contents_are_the_sections_bullets() -> None:
+	"""§9.2 lists eight things a wallet holds. Each is carried in the section's order, so a bullet
+	added to the spec and not to the table fails here rather than being silently absent."""
+	from afya.records.service import WALLET_ITEMS
+	spec = _spec_wallet_contents()
+	assert len(spec) == 8, f'the section names {len(spec)} contents'
+	assert [item for item, _, _ in WALLET_ITEMS] == spec
+
+
+def test_the_contents_report_names_what_is_unbacked() -> None:
+	"""The finding: seven of the section's eight contents have a model and discharge summaries does
+	not. Reported rather than padded — the wallet is what a person opens when they have lost the
+	paper, so an item with nothing behind it is a document the app promises to keep and cannot."""
+	from afya.records.service import RecordsService
+	report = RecordsService().wallet_contents()
+	assert len(report.items) == 8
+	assert report.unbacked_items == ['Discharge summaries'], report.unbacked_items
+	assert all(i.resolves for i in report.items if i.module is not None), \
+		'a module:attr reference that does not import is a rotted reference, not a missing document'
+	# A module-less item must say why, so the gap is explained rather than merely listed.
+	assert all(i.note for i in report.items if i.module is None)
+
+
+async def test_the_ten_profile_cap_is_enforced_at_enrolment() -> None:
+	"""§9.2 REC-001: "Multiple profiles (up to 10)". The cap is on the wallet, so it is enforced
+	where a member joins one — a wallet that accepted an eleventh profile would be a section claim
+	nothing kept."""
+	from afya.records.service import MAX_WALLET_PROFILES, RecordsService
+	from afya.records.views import WalletMember
+	svc = RecordsService()
+	assert MAX_WALLET_PROFILES == 10, '§9.2 names ten'
+	for n in range(MAX_WALLET_PROFILES):
+		await svc.add_member(WalletMember(member_ref=f'K{n}', dob_iso='2015-01-01', guardian_ref='G1'))
+	# The eleventh is refused, and the message names the section and the cap.
+	with pytest.raises(AssertionError, match='§9.2 caps a wallet at 10'):
+		await svc.add_member(WalletMember(member_ref='K10', dob_iso='2015-01-01', guardian_ref='G1'))
+	# And a *different* wallet is unaffected, so the cap is per guardian and not global.
+	await svc.add_member(WalletMember(member_ref='OTHER', dob_iso='2015-01-01', guardian_ref='G2'))
+	assert len([m for m in svc._members.values() if m.guardian_ref == 'G1']) == MAX_WALLET_PROFILES
+
+
+async def test_the_contents_view_is_auditor_scoped() -> None:
+	"""The report names module references and the unbacked item, which is evidence about the build."""
+	import httpx
+	from afya.privacy.views import RBACRole
+	from afya.service import build_services, create_app
+	svc = build_services()
+	auth: Any = svc['auth']
+	tok = auth.provision_staff('rec-aud', RBACRole.auditor, registrar='MoH ops').access_token
+	app = create_app(svc)
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		assert (await c.get('/records/wallet/contents')).status_code in (401, 403)
+		body = (await c.get('/records/wallet/contents',
+			headers={'authorization': f'Bearer {tok}'})).json()
+		assert body['unbacked_items'] == ['Discharge summaries']
+		assert body['max_profiles'] == 10 and body['max_profiles_enforced'] is True
