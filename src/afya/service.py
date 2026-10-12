@@ -21,10 +21,10 @@ from afya.channels.cost import ZeroRatingRule, parse_rules, zero_rating_gaps
 from afya.channels.attention import attention_report
 from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import ChwTask, SmsOut, UssdRequest, WhatsAppIn
-from afya.emergency.service import EmergencyService, Inline719Port
+from afya.emergency.service import EmergencyService, FacilityAmbulancePort, Inline719Port
 from afya.identity.service import IdentityService
 from afya.identity.views import IdentityLink, PhoneConsent
-from afya.emergency.views import EmergencyCard, IMUSample, SOSEvent
+from afya.emergency.views import EmergencyCard, IMUSample, SOSAlert, SOSEvent
 from afya.evidence.service import EvidenceService, FileSystemEvidenceStore
 from afya.integrations.gateways import AtSmsRestSend, AtUssdCallback
 from afya.integrations.overpass import OverpassClient
@@ -235,6 +235,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	# rather than inside the return dict. Two constructions would be two engines and the claim would
 	# be false the moment they diverged.
 	triage_svc = TriageService(registry)
+	facilities_svc = FacilityService()
 
 	async def telco_rules() -> list[ZeroRatingRule] | None:
 		"""The carrier's zero-rating rules, as rules. Failure is the channel service's to report.
@@ -244,6 +245,14 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		logs. Swallowing it here as well would be a second place that decides what a failure means.
 		"""
 		return parse_rules(await telco.zero_rating_rules())
+
+	# §EMG-001's fan-out needs three legs and only one of them is the app. The contacts go out
+	# through §5.3's channel service so the zero-rating claim is resolved where every other message's
+	# is; the ambulance leg is §FND-001's own registry rather than a second list of bases; and the
+	# countdown is a parameter the section does not state, so it is passed rather than inlined.
+	channels_svc = ChannelService(sms_port, telco_rules, triage_svc, identity_svc, privacy_svc)
+	emergency_svc = EmergencyService(
+		Inline719Port(), channels_svc, FacilityAmbulancePort(facilities_svc))
 
 	return {
 		'registry': registry,
@@ -259,12 +268,12 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'surveillance': SurveillanceService(registry, privacy_svc),
 		'sensors': SensorService(registry),
 		'medicine': MedicineService(PPBClient(cfg.ppb_url, client, '')),
-		'facilities': FacilityService(),
+		'facilities': facilities_svc,
 		# §5.3 CHAN-1's zero-rating is an agreement with the carrier, so the channel service is
 		# handed the telco client's rules rather than a boolean. A deployment with no telco
 		# configured passes nothing and reports every free claim as unverified.
-		'channels': ChannelService(sms_port, telco_rules, triage_svc, identity_svc, privacy_svc),
-		'emergency': EmergencyService(Inline719Port()),
+		'channels': channels_svc,
+		'emergency': emergency_svc,
 		'info': InfoService(),
 		'records': RecordsService(),
 		'women': WomenService(),
@@ -1003,6 +1012,29 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def emergency_sos(event: SOSEvent) -> dict[str, object]:
 		return (await emergency.sos(event)).model_dump(mode='json')
 
+	@app.post('/emergency/sos/arm')
+	async def emergency_sos_arm(event: SOSEvent) -> dict[str, object]:
+		"""§EMG-001's countdown, started. Ungated with `/emergency/sos` and for the same reason: an
+		emergency must not wait for a token, and the arming call is the one a person makes while
+		they can still cancel."""
+		return emergency.arm(event).model_dump(mode='json')
+
+	@app.post('/emergency/sos/{sos_id}/cancel')
+	async def emergency_sos_cancel(sos_id: str) -> dict[str, object]:
+		try:
+			return emergency.cancel(sos_id).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+	@app.post('/emergency/sos/{sos_id}/fire')
+	async def emergency_sos_fire(sos_id: str) -> dict[str, object]:
+		"""The countdown ran out. 409 when it was cancelled or never armed, so a client that fires a
+		stale timer is told the alert did not go out rather than handed a receipt for one."""
+		try:
+			return (await emergency.fire(sos_id)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=409, detail=str(exc)) from exc
+
 	@app.post('/emergency/fall')
 	async def emergency_fall(samples: list[IMUSample]) -> dict[str, object]:
 		return EmergencyService.fall(samples).model_dump(mode='json')
@@ -1010,6 +1042,24 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/emergency/card/qr')
 	async def emergency_card(card: EmergencyCard) -> dict[str, str]:
 		return {'qr': EmergencyService.card_qr(card)}
+
+	# --- §EMG-001 emergency, continued -----------------------------------------------------------
+	@app.get('/emergency/alert/{sos_id}')
+	async def emergency_sos_state(sos_id: str) -> dict[str, object]:
+		"""What became of one alert: armed, cancelled, or sent — and who it reached.
+
+		Public and unguarded, like the rest of the emergency path. The identifier is a random one the
+		server minted and only the caller's own device holds it, and a person who has just cancelled
+		an alert must be able to see that they did. Serving it behind a token would put a login in
+		front of the one screen where a person is checking whether help is coming.
+		"""
+		alert = emergency.armed(sos_id)
+		if alert is None:
+			raise HTTPException(status_code=404, detail='no such alert')
+		body = alert.model_dump(mode='json')
+		fired = emergency.fired(sos_id)
+		body['dispatch'] = fired.model_dump(mode='json') if fired else None
+		return body
 
 	# --- info & records ---
 	@app.get('/info/hotlines')

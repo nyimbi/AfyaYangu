@@ -112,7 +112,9 @@ FEATURE_OF: dict[str, str] = {
 	'verify_medicine': 'MED-001', 'drug_interactions': 'MED-002', 'dosage': 'MED-003', 'report_stock': 'MED-004',
 	'find_stock': 'MED-004', 'stock_availability': 'MED-004', 'essential_medicines': 'MED-004',
 	'restock_alerts': 'MED-004',
-	'sos': 'EMG-001', 'emergency_card': 'EMG-003',
+	'sos': 'EMG-001', 'sos_countdown': 'EMG-001', 'sos_cancel': 'EMG-001', 'sos_fire': 'EMG-001',
+	'sos_state': 'EMG-001',
+	'emergency_card': 'EMG-003',
 	'immunisation_gaps': 'REC-001', 'family_wallet': 'REC-001', 'growth_flag': 'REC-003',
 	# §9.2 REC-001's features, and §10.1 REC-002's seven additions over it. Both sections describe
 	# operations over one set of wallet documents, so the actions below serve both: `wallet_search`
@@ -384,7 +386,20 @@ def catalogue() -> list[MobileAction]:
 		_a('medicine_recalls', 'Has a medicine been recalled?', 'Medicine', 'GET', '/medicine/recalls', [_f('since', 'Only changes since', ph='optional')]),
 		_a('report_suspicious_medicine', 'Report a fake medicine', 'Medicine', 'POST', '/medicine/suspicious', [_f('gtin', 'Barcode number', ph='optional if you have the batch'), _f('batch_number', 'Batch number', ph='optional if you have the barcode'), _f('note', 'What is wrong?', 'textarea'), _f('photo_sha256', 'Photo', 'file', ph='optional')]),
 		# Emergency
-		_a('sos', 'Get help now', 'Emergency', 'POST', '/emergency/sos', [_auto('sos_id', 'Alert number'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('severity', 'How serious?', 'select', ['low', 'medium', 'high']), _f('symptoms', 'Symptoms', 'list')]),
+		# §EMG-001's fan-out: where the person is, how serious, who to tell and what to attach.
+		# `contacts` is the section's "up to three emergency contacts" and the model caps it at
+		# three, so a fourth is refused rather than silently dropped — a dropped contact is a person
+		# who was never told. `channel` is the client's own answer to whether it has data, which is
+		# the half of the section's SMS claim only the client can know.
+		_a('sos', 'Get help now', 'Emergency', 'POST', '/emergency/sos', [_auto('sos_id', 'Alert number'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('severity', 'How serious?', 'select', ['low', 'medium', 'high']), _f('symptoms', 'Symptoms', 'list'), _f('contacts', 'Who to alert', 'list', ph='name:number, name:number (up to three)'), _f('channel', 'How you are sending this', 'select', ['native', 'sms']), _f('blood_group', 'Blood group', 'select', BLOOD_GROUPS, ph='optional'), _f('allergies', 'Allergies', 'list', ph='optional'), _f('conditions', 'Ongoing conditions', 'list', ph='optional'), _f('medications', 'Medicines', 'list', ph='optional')]),
+		# The countdown and its two exits. The client owns the timer — §ACC-004 wants no background
+		# polling and §EMG-001's Offline note wants the alert to work with no data — so what travels
+		# is the window: arming returns the deadline the client counts to, and the two exits are the
+		# calls it makes when the timer expires or the person stops it.
+		_a('sos_countdown', 'Start the emergency countdown', 'Emergency', 'POST', '/emergency/sos/arm', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('severity', 'How serious?', 'select', ['low', 'medium', 'high']), _f('symptoms', 'Symptoms', 'list'), _f('contacts', 'Who to alert', 'list', ph='name:number, name:number (up to three)'), _f('channel', 'How you are sending this', 'select', ['native', 'sms'])]),
+		_a('sos_cancel', 'Stop the alert', 'Emergency', 'POST', '/emergency/sos/{sos_id}/cancel', [_f('sos_id', 'Alert number', 'path')]),
+		_a('sos_fire', 'Send the alert now', 'Emergency', 'POST', '/emergency/sos/{sos_id}/fire', [_f('sos_id', 'Alert number', 'path')]),
+		_a('sos_state', 'What happened to my alert?', 'Emergency', 'GET', '/emergency/alert/{sos_id}', [_f('sos_id', 'Alert number', 'path')]),
 		_a('emergency_card', 'My emergency card', 'Emergency', 'POST', '/emergency/card/qr', [_f('name', 'Full name'), _f('blood_group', 'Blood group', 'select', BLOOD_GROUPS), _f('allergies', 'Allergies', 'list'), _f('conditions', 'Ongoing conditions', 'list'), _f('emergency_contacts', 'Who to call', 'list', ph='name:number, name:number')]),
 		# Records & wallet
 		_a('immunisation_gaps', 'Which vaccines are missing?', 'Records', 'GET', '/records/{member_ref}/immunisation-gaps', [_f('member_ref', 'Family member', 'path')]),
@@ -699,6 +714,10 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'drug_interactions': ('Can I take these together?', 'Check risky medicine combinations'),
 	'dosage': ('How much do I give?', 'Correct dose by weight'),
 	'sos': ('Get help now', 'One tap: alerts the hotline and your people'),
+	'sos_countdown': ('Hold on — sending in a moment', 'A few seconds to stop an accidental alert'),
+	'sos_cancel': ('Stop the alert', 'Call off an alert before it goes out'),
+	'sos_fire': ('Send the alert now', 'Send an alert you already started the countdown for'),
+	'sos_state': ('What happened to my alert?', 'Whether your alert was sent, stopped or is waiting'),
 	'emergency_card': ('My emergency card', 'Works with no signal on your lock screen'),
 	'family_wallet': ('Family health wallet', "Everyone's immunisations and records in one place"),
 	'growth_flag': ('Is my child growing well?', 'Compare growth with healthy ranges'),

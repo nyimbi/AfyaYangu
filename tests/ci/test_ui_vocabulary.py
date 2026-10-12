@@ -594,6 +594,12 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/community/misinformation'),
 	('POST', '/info/myths/ask'),      # a rumour in, a correction out; nothing stored, like `/triage/diagnose`
 	('POST', '/emergency/sos'),       # an emergency must not wait for a token
+	('POST', '/emergency/sos/arm'),   # the countdown starts before the alert: a login here is a
+	                                  # login standing between a person and a cancel window
+	('POST', '/emergency/sos/{sos_id}/cancel'),  # calling off your own alert; the id is a random
+	                                             # one only the arming device holds, and refusing a
+	                                             # cancel for want of a token sends the alert instead
+	('POST', '/emergency/sos/{sos_id}/fire'),    # the countdown expiring, on the same reasoning
 	('POST', '/emergency/fall'),
 	('POST', '/emergency/card/qr'),
 	('POST', '/blood/donors'),        # a donor enrols themselves

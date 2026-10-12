@@ -1486,3 +1486,71 @@ drug match becoming a substring test, and a weight band drifting — and all sev
 
 **Counts: 4 rows left `missing` — 4 to `carried` — 91 → 87.** §MED-003 is 5/5 accounted for.
 493 rows, `carried` 389, `missing` 87, `deferred` 17.
+
+## §EMG-001 — the SOS button that named three things it did not do
+
+**Five Features, one and a half carried.** The section prints a large SOS button, a fan-out to up
+to three emergency contacts, an ambulance dispatch where integrated, a preset message over SMS with
+no data, a countdown with cancel, an optional medical profile, and an optional auto-dial. `SOSEvent`
+held a position and a severity. `sos` notified the 719 hotline and returned
+`['call-719', 'geofence-perimeter', 'sms-contacts']` — three strings naming three things nothing in
+the tree did. The contacts were not on the event, the preset message nobody composed *was* the
+string `sms-contacts`, the ambulance leg did not exist, and the countdown was called "client state"
+and left there.
+
+**The device owns the timer; the server owns the window.** A server-held countdown would contradict
+§ACC-004's no-background-polling rule and §EMG-001's own `Offline: Yes, via SMS` note — a client
+with no data cannot be told that a second has passed. So `arm` returns the deadline and nothing
+else, `cancel` is refused past it, and `fire` is idempotent: a queued alert replayed over a link
+that dropped mid-request returns the first dispatch instead of texting the same three people twice.
+The duration is a deployment parameter (`DEFAULT_COUNTDOWN_S = 10`) that travels on the alert,
+because the section prints no figure and a constant invented here would read as one the spec states.
+
+**Three legs, because they fail separately.** `SOSDispatch` splits the section's "up to three
+emergency contacts" into `contacts_notified` and `contacts_unreachable`. A receipt that says "3
+contacts" for two deliveries is the failure the split exists to prevent: a person who pressed SOS
+needs to know their sister's number was a landline. One dead leg does not silence the others — an
+`Exploding` gateway still lets the hotline leg run.
+
+**Reused rather than duplicated.** The SMS leg goes through §5.3's `ChannelService`, so zero-rating
+is resolved at the moment of sending, by the same code every other message's cost runs through; a
+second SMS port would be a second place that decides what an emergency message costs, and the wrong
+one would be the quiet one. The ambulance leg is `FacilityAmbulancePort` wrapped around §FND-001's
+finder, because the facilities that have an ambulance *are* the facility registry — `Facility.ambulances`
+is §FND-002's own field, and a second list of bases would be a second answer to "where is the
+nearest one". The "where integrated" half of the bullet is that class existing at all: no registry,
+no port, and the dispatch reports the leg absent rather than inventing one.
+
+**GSM7 is load-bearing, so the message is GSM7.** §5.3's zero-rating and `segment_sms` both turn on
+it, and this is the one message in the product that must not fail to send. The preset message
+carries where, a maps link, the first four symptoms and "Call 719." — and names nobody, because
+`SOSEvent` holds the *recipients'* contacts and nothing about the sender, so "Peter needs help"
+would be a guess that tells his family the wrong person was hurt.
+
+**Two defects the gates found in the code, and one in the gates.**
+
+- **A landline counted as delivered.** `_sms_dialable('0202712345')` returned `'+254202712345'`,
+  because `^0(\d{9})$` matched Nairobi landlines — so a contact with a landline was reported
+  *reached* by a message no gateway could deliver. Kenya's mobile ranges are `07xx` and `01xx`; the
+  regex is now a prefix test, `^\+254[17]\d{8}$` / `^0([17]\d{8})$`.
+- **`sos_id` collided within a millisecond.** `uuid7str().replace('-','')[:6]` slices UUID7's
+  *timestamp* prefix, so two alerts minted in the same millisecond got the identical id and the
+  second overwrote the first in the armed map; the end-to-end state route returned the wrong alert.
+  `[-6:]` takes the random tail. Sixteen other models in the tree use the same `[:N]` shape with
+  wider slices that do reach the random bits, so the collision risk is lower there but the pattern
+  is the same one.
+- **Two gates that could not fail, found by canarying them.** `test_firing_twice_sends_once`
+  asserted `first == second` — but `SOSDispatch` is a value, so a second fan-out produces an *equal*
+  one and the assertion holds whether or not anyone was texted again; it now counts messages at the
+  port. And the E.164 landline had no gate watching it: the fan-out test used the local spelling, so
+  loosening `_KE_MOBILE` changed nothing observable. The two spellings are now watched separately.
+
+Thirteen canaries were run against `tests/ci/canary_emg001.py` — the contacts leg dropped, the
+three-contact cap raised, each of the two reachability regexes loosened, a non-GSM7 em dash in the
+preset message, the ambulance leg inventing a dispatch, the cancel deadline not travelling, a cancel
+no longer stopping the alert, a late cancel accepted, the replay guard removed, an empty profile
+attached, the state route hiding the dispatch, and a cancelled alert handed a receipt instead of a
+409. All thirteen fire.
+
+**Counts: 5 rows left `missing` — 5 to `carried` (4 §EMG-001, 1 §EMG-002) — 87 → 82.** 493 rows,
+`carried` 394, `missing` 82, `deferred` 17.
