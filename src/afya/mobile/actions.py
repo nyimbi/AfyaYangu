@@ -84,7 +84,7 @@ FEATURE_OF: dict[str, str] = {
 	'febrile_triage': 'TRI-001', 'evd_triage': 'TRI-003', 'differential': 'TRI-001',
 	'diary_trend': 'TRI-002', 'diary_export': 'TRI-002', 'diary_prompt': 'TRI-002',
 	'symptom_diary': 'TRI-002',
-	'what_should_i_do': 'INF-002', 'health_library': 'INF-003', 'publish_content': 'INF-003',
+	'what_should_i_do': 'INF-002', 'entry_answers': 'INF-002', 'health_library': 'INF-003', 'publish_content': 'INF-003',
 	'advance_content': 'INF-003', 'content_governance': 'INF-003', 'report_content_error': 'INF-003',
 	'content_errors': 'INF-003', 'record_back_translation': 'INF-003', 'record_community_validation': 'INF-003',
 	'content_localisation': 'INF-003',
@@ -263,7 +263,10 @@ def catalogue() -> list[MobileAction]:
 		_a('diary_trend', 'Am I getting better or worse?', 'Triage', 'GET', '/triage/{ref}/diary/trend', [_f('ref', 'Your reference', 'path')]),
 		_a('diary_export', 'Share my diary with a clinician', 'Triage', 'GET', '/triage/{ref}/diary/export', [_f('ref', 'Your reference', 'path')]),
 		_a('diary_prompt', 'Today\'s check-in', 'Triage', 'GET', '/triage/{ref}/diary/prompt', [_f('ref', 'Your reference', 'path'), _f('day', 'Day (1-21)', 'int'), _f('opted_in', 'Send me a daily reminder', 'bool')]),
-		_a('what_should_i_do', 'What should I do?', 'Triage', 'GET', '/info/decision-tree', [_f('answers', 'Answers so far', ph='yes,no,leave blank to start')]),
+		_a('what_should_i_do', 'What should I do?', 'Triage', 'GET', '/info/decision-tree', [
+			_f('answers', 'Answers so far', ph='yes,no,leave blank to start'),
+			_f('entry', 'Where you started', 'select', ['root', 'household'])]),
+		_a('entry_answers', 'What do you need help with?', 'Triage', 'GET', '/info/entry-answers', []),
 		# Information library (§6.2, INF-003/004/008/009/010/015)
 		_a('health_library', 'Health information', 'Information', 'GET', '/info/library', [_f('lang', 'Language', 'select', ['en', 'sw'])]),
 		_a('hotline_directory', 'Useful phone numbers', 'Information', 'GET', '/info/hotlines', []),
@@ -528,6 +531,7 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'hotlines': ('Who can I call?', 'Hotline numbers that are free and answered'),
 	'febrile_triage': ('Check my fever', 'Quick check: treat malaria first unless there is Ebola contact risk'),
 	'what_should_i_do': ('What should I do?', 'A few yes/no questions that lead to advice'),
+	'entry_answers': ('What do you need help with?', 'Six common worries, each opening the right guidance'),
 	'health_library': ('Health information', 'Ebola, prevention, first aid, safe burial — official guidance'),
 	'publish_content': ('Draft health information', 'Write or correct a guidance item for review'),
 	'advance_content': ('Move a draft forward', 'Send an item to the next review stage, or retire it'),

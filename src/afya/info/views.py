@@ -274,3 +274,71 @@ class DecisionNode(BaseModel):
 	yes_next: str | None
 	no_next: str | None
 	leaf_recommendation: str | None = None
+
+
+class EntryAnswer(BaseModel):
+	"""One thing a person can open with, and the screen it opens.
+
+	§INF-002 prints six entry questions — "I have a fever", "Someone in my house is sick", "I'm
+	worried about travel", "I want to protect my family", "I heard something — is it true?", "I need
+	to go to hospital" — and the tree's root asked "Do you have fever (38.0 °C)?". Those are not the
+	same question. The section's first entry is a statement of fact by someone who has already
+	decided they are unwell; the root asks them to measure a temperature first, which is a step the
+	person who came to the screen does not have and should not need. A tree whose only door is a
+	numeric reading is a tree most of its audience cannot enter.
+
+	`kind` says what the client does with `href`, so nothing parses the label: `tree` is a path into
+	the walk, `screen` is another API path the app already has, and `call` is a device scheme. The
+	six entries are deliberately *not* six tree roots — three of them are questions this tree cannot
+	ask ("is it true?" is §6.4's myth library, not a symptom walk) and pretending otherwise would be
+	a branch that lies about what it classifies. What the section asks for is that the six open
+	something specific, which is what `href` is.
+
+	`asks_for` names the inputs the destination needs before it can answer — a travel advisory wants
+	where you are going, a facility search wants where you are. It is a list rather than a claim that
+	the screen needs nothing, because the alternative is a client that opens the entry and gets a
+	422, which is a door that does not open.
+	"""
+
+	model_config = MODEL_CONFIG
+	question: str = Field(min_length=1)
+	kind: str = Field(pattern=r'^(tree|screen|call)$')
+	href: str = Field(min_length=1)
+	# The one-line answer the entry leads to, so a client can render the six as a menu with their
+	# outcomes visible rather than as six identical buttons.
+	leads_to: str = Field(min_length=1)
+	asks_for: list[str] = []
+
+
+class InfoLink(BaseModel):
+	"""One destination §INF-002's Output attaches to a leaf, as something a client can dispatch.
+
+	The section's Output is "Specific, actionable guidance with facility and hotline links". The
+	first half is a property of the sentence and §6.2 judges it; the second half is not, because a
+	sentence cannot be tapped. `kind` says what the device does with `href` so no client parses the
+	label — the same contract `TriageAction` and `CareAction` keep.
+
+	The facility link is a *search*, not a facility id: a leaf does not know where the reader is, so
+	a recommendation naming a fixed clinic is wrong for everyone not standing beside it.
+	"""
+
+	model_config = MODEL_CONFIG
+	kind: str = Field(pattern=r'^(call|find_facility)$')
+	label: str = Field(min_length=1)
+	href: str = Field(min_length=1)
+
+
+class DecisionStep(BaseModel):
+	"""One step of the walk, as a validated shape rather than keys a client guesses.
+
+	`question` is the next thing to ask and is None at a leaf; `done` says which of the two a client
+	is looking at, so it does not have to infer it from a null. `links` is empty until the leaf,
+	because a question with a facility button under it offers the reader a way to leave before they
+	have answered.
+	"""
+
+	model_config = MODEL_CONFIG
+	question: str | None
+	done: bool
+	recommendation: str | None
+	links: list[InfoLink] = []

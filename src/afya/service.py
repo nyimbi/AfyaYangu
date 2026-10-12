@@ -940,11 +940,16 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		        'updated_line': info.dashboard_freshness(county, at_ms, 'en')}
 
 	@app.get('/info/library')
-	async def info_library(lang: str = 'en', now_ms: int | None = None) -> list[dict[str, object]]:
+	async def info_library(lang: str = 'en', now_ms: int | None = None, tag: str | None = None) -> list[dict[str, object]]:
 		"""§6.2 content library (INF-003/004/008/009/010/015), served by language.
 
 		Served as {slug,title,body,harmony_tag} — never `item_id`, whose seed values embed spec codes
 		(`INF-003-en`) that must not reach a screen. The slug is what a client keys on.
+
+		`tag` narrows to one harmony tag, which is what §INF-002's fourth and fifth Entry questions
+		open: "I want to protect my family" is the Ebola library and "I heard something — is it true?"
+		is the myth-busting corpus. Without the filter those entries would open the whole library and
+		leave the reader to find the section themselves, which is not what an entry question is for.
 
 		§6.2.4 withholds a life-safety item whose other required language is missing, in *both*
 		languages — publishing it English-only is the act the section forbids, and `library()` is
@@ -965,6 +970,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		twice would render the article before knowing it had an audio version. `media_ref` is the file;
 		the client fetches it, which is why no bytes are in this payload.
 		"""
+		items = info.library(lang)
+		if tag is not None:
+			items = [c for c in items if c.harmony_tag == tag]
 		return [
 			{'slug': c.slug, 'title': c.title, 'body': c.body, 'harmony_tag': c.harmony_tag or '',
 			 'lang': c.lang, 'answers_rank': c.answers_rank, 'format': c.format.value,
@@ -973,7 +981,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 				 for r in info.renditions_of(c.slug)
 			 ],
 			 **info.item_freshness(c, now_ms, lang).model_dump(mode='json')}
-			for c in info.library(lang)
+			for c in items
 		]
 
 	@app.get('/info/questions')
@@ -1234,31 +1242,41 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			],
 		}
 
+	@app.get('/info/entry-answers')
+	async def info_entry_answers() -> list[dict[str, object]]:
+		"""§INF-002's six Entry questions, as the menu the app opens on.
+
+		Served rather than left to each client, for the same reason §INF-006's directory actions are:
+		six screens that each decide for themselves what "I have a fever" opens is six places for the
+		six to drift from the section. Ungated — the entries are a menu, and the walk behind three of
+		them names no subject.
+		"""
+		return [e.model_dump(mode='json') for e in info.entry_answers()]
+
 	@app.get('/info/decision-tree')
-	async def info_decision_tree(answers: str = '') -> dict[str, object]:
+	async def info_decision_tree(answers: str = '', entry: str = 'root') -> dict[str, object]:
 		"""§INF-002 "What Should I Do" decision tree.
 
-		Without `answers` it returns the root question; each subsequent call passes the answers so
-		far, comma-separated as `y`/`n`, and returns either the next question or the leaf
-		recommendation. The answers are the caller's own symptoms, so no subject is named or needed.
+		Without `answers` it returns the first question of the chosen entry; each subsequent call
+		passes the answers so far, comma-separated as `y`/`n`, and returns either the next question or
+		the leaf recommendation with the facility and hotline links the section's Output names. The
+		answers are the caller's own symptoms, so no subject is named or needed.
+
+		`entry` selects which of the section's Entry questions the walk started from. It defaults to
+		the fever root, which is the walk that existed before the six entries were modelled; the
+		household entry is a second root because it asks about a different person and a caller
+		answering it against the fever tree would be told no action was needed.
 		"""
 		parsed: list[bool] = []
 		for token in [t.strip().lower() for t in answers.split(',') if t.strip()]:
 			if token not in ('y', 'n', 'yes', 'no', 'true', 'false'):
 				raise HTTPException(status_code=422, detail=f'answer must be yes or no, not {token!r}')
 			parsed.append(token in ('y', 'yes', 'true'))
-		if not parsed:
-			return {'question': info.TREE['root'].question, 'done': False, 'recommendation': None}
 		try:
-			recommendation = info.decide('', parsed)
+			step = info.step(parsed, entry)
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
-		# Re-walk to find the node the answers reached, so a client can ask the next question.
-		node = info.TREE['root']
-		for ans in parsed:
-			node = info.TREE[node.yes_next if ans else node.no_next]  # type: ignore[index]
-		next_question = None if node.leaf_recommendation else node.question
-		return {'question': next_question, 'done': node.leaf_recommendation is not None, 'recommendation': recommendation}
+		return step.model_dump(mode='json')
 
 	@app.post('/records/member')
 	async def records_member(member: WalletMember, _subject: str = Depends(require_self_or_guardian(_body_member, may_create=True))) -> dict[str, bool]:

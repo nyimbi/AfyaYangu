@@ -788,3 +788,52 @@ that invisible: the section was reachable, which is not the same as the section 
   the carrier named, and `test_the_missing_bullets_are_pinned_by_feature` lost `'§MON-002': 9`.
 - **Counts: 9 rows flipped `missing` → `carried`, 155 → 146.** 490 rows, `carried` 328, `missing`
   146, `deferred` 16. 1033 tests green, pyright clean.
+
+## §INF-002: the tree had one door and the section prints six
+
+The section prints six Entry questions and an Output of "specific, actionable guidance with facility
+and hotline links". What existed was one root — "Do you have fever (≥38.0 °C)?" — and one sentence
+per leaf. Those are two different products, and the gap between them is the audience §6.2.10 exists
+for: a reader who opens the app saying "I have a fever" has already established the fact the root
+asks them to measure, and a sentence naming 719 is a number they must retype from text §ACC-001 is
+reading aloud.
+
+- **The six entries are served, and the test reads them off the spec.** `ENTRY_ANSWERS` is the
+  section's own six in its own order, at `/info/entry-answers`; `tests/ci/test_decision_tree.py`
+  parses `docs/spec.md` and asserts the served list equals the printed one, so a spec revision fails
+  here instead of leaving the menu serving the old six. This is the same contract `RANKED_QUESTIONS`
+  keeps with §6.1.
+- **Three entries open the walk and three open a screen, and `kind` says which.** A rumour check is
+  §INF-004's corpus and a travel worry is §LOC-001's advisory; neither is a branch of a fever
+  classifier, and forcing them into the tree would produce leaves whose answer has nothing to do
+  with the question. What the section asks is that each entry lead somewhere specific, which `href`
+  makes a fact rather than a label.
+- **An entry that opens a screen names the inputs that screen needs.** `asks_for` is the travel
+  advisory's destination and origin and the facility search's position; the test reads each route's
+  own signature and asserts the two agree in both directions — every required parameter declared, or
+  the client opens a door that returns 422, and every declared input real, or the client prompts for
+  something the route ignores. This is the `MATERNITY_FINDER_HREF` discipline from §MON-002 applied
+  to a menu.
+- **"Someone in my house is sick" is a second root, not a branch.** Routing it through the fever
+  tree makes the caller answer "no" to a question about their own temperature and be told no action
+  is needed, while the person in their house is the one who is unwell. `TREE['household']` asks about
+  the sick person and reaches two leaves disjoint from the fever walk's four — asserted, because two
+  roots sharing a leaf is one root answering the other's question.
+- **The Output is a shape, not a sentence.** `DecisionStep` carries `done` so a client cannot render
+  a question as a recommendation, and `links` — empty while the walk is still asking, because a
+  facility button under an unanswered question is a reader leaving before the tree has said
+  anything. `leaf_ok` is deliberately empty: "No action needed" is the answer, and a button under it
+  sends someone who needs nothing to a clinic. The household home-care leaf carries the facility
+  search without the call, for the same reason — the clinic two days from now, not an ambulance
+  today.
+- **`LEAF_LINKS` is asserted against the tree at import, in both directions**, so a leaf with
+  nowhere to go and a row for a node that is not a leaf both fail at import rather than on a screen.
+  Canaried: adding a `leaf_nonexistent` row raised the assertion by name.
+- **`/info/library` gained the `tag` filter** the fourth and fifth entries open. Without it an entry
+  question opens the whole corpus and leaves the reader to find their own section, which is not what
+  an entry question is for. The entry reachability gate was canaried against the real table —
+  pointing the travel entry at `/location/nope` failed with the dead path named — and the canary runs
+  the gate's own comparison rather than a copy of it.
+- **Counts: 8 rows flipped `missing` → `carried`, 146 → 139.** §INF-002 leaves
+  `test_the_missing_bullets_are_pinned_by_feature`. 490 rows, `carried` 335, `missing` 139,
+  `deferred` 16. 1042 tests green, pyright clean.

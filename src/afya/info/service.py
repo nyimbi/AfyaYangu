@@ -27,8 +27,8 @@ from afya.info.questions import (
 )
 from afya.info.recency import UNDATED_MS, ServedFreshness, freshness, freshness_line, midnight_ms
 from afya.info.views import (
-	ContactDirectory, ContactKind, ContentItem, ContentStage, CountyRisk, DecisionNode, HotlineActions,
-	HotlineInfo,
+	ContactDirectory, ContactKind, ContentItem, ContentStage, CountyRisk, DecisionNode, DecisionStep,
+	EntryAnswer, HotlineActions, HotlineInfo, InfoLink,
 )
 from afya.logmixin import LogMixin
 from afya.places.views import PlaceKind, PlacesService
@@ -102,6 +102,61 @@ def _directory_rows() -> tuple[HotlineInfo, ...]:
 		))
 	return tuple(out)
 
+
+# §INF-002's six Entry questions, transcribed in the section's own order.
+#
+# The section prints them as the way *in*, and the tree's root was "Do you have fever (≥38.0 °C)?" —
+# a different question, asked of a different person. Someone who opens the app saying "I have a
+# fever" has already established the fact the root asks them to measure; making them confirm a
+# thermometer reading before they can be helped is the low-literacy failure §6.2.10 names, in a tree
+# §ACC-001 reads aloud.
+#
+# Three of the six open this walk (`tree`), because they are symptom questions the tree classifies.
+# The other three open a screen the app already has (`screen`) — a rumour check is §6.4's myth
+# library and a travel worry is §LOC-001's advisory, and neither is a branch of a fever classifier.
+# Pretending they were would put three questions in the tree whose leaves had nothing to do with the
+# answer, which is worse than a door that opens a different room. The section asks that the six lead
+# somewhere specific; `href` is what makes that a fact rather than a label.
+ENTRY_ANSWERS: tuple[EntryAnswer, ...] = (
+	EntryAnswer(question='I have a fever', kind='tree', href='/info/decision-tree',
+	            leads_to='A few questions about how long and where you have been, then what to do next.'),
+	EntryAnswer(question='Someone in my house is sick', kind='tree',
+	            href='/info/decision-tree?entry=household',
+	            leads_to='How to care for them without catching it, and when to call for help.'),
+	EntryAnswer(question="I'm worried about travel", kind='screen', href='/location/travel-advisory',
+	            asks_for=['destination', 'origin_country'],
+	            leads_to='Current guidance for where you are going and where you have been.'),
+	EntryAnswer(question='I want to protect my family', kind='screen', href='/info/library',
+	            asks_for=['tag'],
+	            leads_to='Handwashing, safe burial and what to do if someone becomes unwell at home.'),
+	EntryAnswer(question='I heard something — is it true?', kind='screen',
+	            href='/info/library?tag=mythbusting', asks_for=['tag'],
+	            leads_to='Common rumours with the official correction beside each one.'),
+	EntryAnswer(question='I need to go to hospital', kind='screen', href='/places/nearest',
+	            asks_for=['lat', 'lon'],
+	            leads_to='Nearest facilities, whether they take your cover, and how to get there.'),
+)
+
+# §INF-002's Output: "Specific, actionable guidance with facility and hotline links." The leaves
+# named 719 in prose, which is a number a reader has to retype from a sentence §ACC-001 is reading
+# aloud. Each leaf now carries the two destinations the section names, as rows the client dispatches.
+#
+# `leaf_ok` is the exception and is deliberately empty: "No action needed" is the answer, and a
+# facility search under it would send someone who needs nothing to a clinic. An empty list there is
+# the section's own reasoning, not an omission.
+HOTLINE_LINK = InfoLink(kind='call', label='Call 719', href='tel:719')
+FACILITY_LINK = InfoLink(kind='find_facility', label='Find the nearest facility', href='/facilities/find')
+LEAF_LINKS: dict[str, tuple[InfoLink, ...]] = {
+	'leaf_hotline': (HOTLINE_LINK, FACILITY_LINK),
+	'leaf_malaria': (FACILITY_LINK, HOTLINE_LINK),
+	'leaf_monitor': (FACILITY_LINK, HOTLINE_LINK),
+	'leaf_ok': (),
+	# The household leaves carry the facility search but not the call, except the one where the
+	# section's own answer *is* the call. A household caring for a feverish person at home needs the
+	# clinic two days from now, not an ambulance today.
+	'leaf_household_hotline': (HOTLINE_LINK, FACILITY_LINK),
+	'leaf_household_care': (FACILITY_LINK,),
+}
 
 
 class InfoService(LogMixin):
@@ -551,15 +606,23 @@ class InfoService(LogMixin):
 		'root': DecisionNode(question='Do you have fever (≥38.0 °C)?', yes_next='fever', no_next='no_fever', leaf_recommendation=None),
 		'fever': DecisionNode(question='In the last 21 days, have you been near someone who is sick with Ebola, or travelled to an area where a case was reported?', yes_next='leaf_hotline', no_next='leaf_malaria', leaf_recommendation=None),
 		'no_fever': DecisionNode(question='Any other symptoms?', yes_next='leaf_monitor', no_next='leaf_ok', leaf_recommendation=None),
+		# §INF-002's second Entry, "Someone in my house is sick". It is a second root rather than a
+		# branch under the first, because the two ask about different people: the `root` walk asks
+		# about the caller's own temperature, and a caller whose child is feverish would answer "no"
+		# to that and be told no action was needed. That is the wrong answer to the question they
+		# asked, and it is what routing a household worry through a personal-fever tree produces.
+		'household': DecisionNode(question='Has the sick person been near someone with Ebola, or travelled to an area where a case was reported?', yes_next='leaf_household_hotline', no_next='leaf_household_care', leaf_recommendation=None),
 		'leaf_hotline': DecisionNode(question='(leaf)', yes_next=None, no_next=None, leaf_recommendation='Isolate and call 719 immediately.'),
 		'leaf_malaria': DecisionNode(question='(leaf)', yes_next=None, no_next=None, leaf_recommendation='Test and treat for malaria first; call 719 if no improvement in 48h.'),
 		'leaf_monitor': DecisionNode(question='(leaf)', yes_next=None, no_next=None, leaf_recommendation='Monitor; standard hygiene; call 719 if worsening.'),
 		'leaf_ok': DecisionNode(question='(leaf)', yes_next=None, no_next=None, leaf_recommendation='No action needed.'),
+		'leaf_household_hotline': DecisionNode(question='(leaf)', yes_next=None, no_next=None, leaf_recommendation='Keep the sick person in one room away from others. Do not touch their body fluids or their bedding. Call 719 and say someone at home has fever and contact risk.'),
+		'leaf_household_care': DecisionNode(question='(leaf)', yes_next=None, no_next=None, leaf_recommendation='Care for them at home, in a room away from others. Wash your hands with soap after any contact. Call 719 if the fever lasts more than 2 days or they get worse.'),
 	}
 
-	def decide(self, county: str, answers: list[bool]) -> str:
-		assert len(answers) <= 3, 'tree depth bounded'
-		node = self.TREE['root']
+	def decide(self, county: str, answers: list[bool], entry: str = 'root') -> str:
+		assert entry in self.TREE, f'unknown entry node {entry!r}'
+		node = self.TREE[entry]
 		for ans in answers:
 			assert node.leaf_recommendation is None, 'walked past leaf'
 			nxt = node.yes_next if ans else node.no_next
@@ -567,6 +630,59 @@ class InfoService(LogMixin):
 			node = self.TREE[nxt]
 		assert node.leaf_recommendation, 'must terminate at leaf'
 		return node.leaf_recommendation
+
+	def entry_answers(self) -> list[EntryAnswer]:
+		"""§INF-002's six Entry questions, as the menu the section prints rather than as prose.
+
+		Served so the app can open on the six rather than on the tree's root — the section's first
+		entry is a statement by someone who has decided they are unwell, and asking them for a
+		temperature first is a step they came to the screen to avoid.
+		"""
+		return list(ENTRY_ANSWERS)
+
+	def _node_at(self, answers: list[bool], entry: str = 'root') -> DecisionNode:
+		"""Walk the answers and return the node they reach, or the entry node for no answers.
+
+		`decide` walks to a leaf and returns its sentence; this walks to wherever the answers end.
+		They were one function until the Output needed the links, and the links belong to the node
+		the answers reached rather than to the recommendation string — a caller that got only the
+		string would have to look the leaf back up by matching its text.
+		"""
+		assert entry in self.TREE, f'unknown entry node {entry!r}'
+		node = self.TREE[entry]
+		for ans in answers:
+			assert node.leaf_recommendation is None, 'walked past leaf'
+			nxt = node.yes_next if ans else node.no_next
+			assert nxt, 'interior node must reference next'
+			node = self.TREE[nxt]
+		return node
+
+	def step(self, answers: list[bool], entry: str = 'root') -> DecisionStep:
+		"""One step of §INF-002, whether that is the next question or the answer with its links.
+
+		`links` is empty while the walk is still asking: a facility button under an unanswered
+		question offers the reader a way out of the walk before it has said anything, which is the
+		opposite of what the section's Output is for.
+		"""
+		node = self._node_at(answers, entry)
+		if node.leaf_recommendation is None:
+			return DecisionStep(question=node.question, done=False, recommendation=None, links=[])
+		return DecisionStep(
+			question=None, done=True, recommendation=node.leaf_recommendation,
+			links=list(LEAF_LINKS[self._leaf_id(node)]),
+		)
+
+	def _leaf_id(self, node: DecisionNode) -> str:
+		"""The node id a leaf object is filed under.
+
+		Looked up rather than carried, because `DecisionNode` is the shape a *node* has and adding
+		an id field would make every interior node carry one too — and the id is the dict key, which
+		is where it belongs. The assert is what keeps the reverse lookup from silently answering with
+		the wrong leaf if two leaves ever share a recommendation string.
+		"""
+		matches = [k for k, v in self.TREE.items() if v is node]
+		assert len(matches) == 1, f'a leaf object belongs to exactly one node id, found {matches}'
+		return matches[0]
 
 	def ranked_questions(self) -> list[RankedQuestion]:
 		"""§6.1's ten questions in the section's own order.
@@ -662,3 +778,15 @@ class InfoService(LogMixin):
 			updated_line=f'{km:.1f} km away',
 		)
 		return [row.model_copy(update={'actions': self.hotline_actions(row, lang)})] if place.phone else [row]
+
+# §INF-002's Output, tied to the tree at import rather than checked by a test. A leaf with no link
+# row is a recommendation with nowhere to go, and a row for a node that is not a leaf is a facility
+# button rendered under a question — the reader gets a way out of the walk before it has said
+# anything. Both directions are asserted so the table cannot drift from the tree it describes.
+assert set(LEAF_LINKS) == {k for k, v in InfoService.TREE.items() if v.leaf_recommendation}, (
+	'LEAF_LINKS must name exactly the tree leaves: '
+	f'leaves={sorted(k for k, v in InfoService.TREE.items() if v.leaf_recommendation)}, '
+	f'rows={sorted(LEAF_LINKS)}'
+)
+assert len(ENTRY_ANSWERS) == 6, '§INF-002 prints six Entry questions'
+assert len({e.question for e in ENTRY_ANSWERS}) == 6, 'two entries asking the same thing is one entry'
