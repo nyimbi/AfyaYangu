@@ -111,7 +111,9 @@ FEATURE_OF: dict[str, str] = {
 	# The chart is §REC-003's "percentile charts", which is the growth section rather than the wallet.
 	'growth_chart': 'REC-003',
 	'add_lab': 'REC-007', 'view_labs': 'REC-007', 'register_donor': 'REC-004', 'find_donors': 'REC-004',
-	'wellbeing_check': 'REC-005', 'counselling_lines': 'REC-005',
+	'wellbeing_check': 'REC-005', 'counselling_lines': 'REC-005', 'mood_screen': 'REC-005',
+	'mood_log': 'REC-005', 'mood_trend': 'REC-005', 'coping_tips': 'REC-005',
+	'outbreak_support': 'REC-005', 'ask_referral': 'REC-005',
 	'log_bp': 'REC-006', 'log_glucose': 'REC-006', 'bp_trend': 'REC-006', 'track_refill': 'REC-006',
 	'log_cycle': 'REC-009', 'cycle_prediction': 'REC-009',
 	'register_pregnancy': 'REC-008', 'anc_due': 'REC-008', 'record_anc': 'REC-008', 'danger_signs': 'REC-008',
@@ -365,6 +367,16 @@ def catalogue() -> list[MobileAction]:
 		# Wellbeing
 		_a('wellbeing_check', 'How have I been feeling?', 'Wellbeing', 'POST', '/mental/who5', [_s(), _f('s1', 'Question 1 (0-5)', 'int'), _f('s2', 'Question 2 (0-5)', 'int'), _f('s3', 'Question 3 (0-5)', 'int'), _f('s4', 'Question 4 (0-5)', 'int'), _f('s5', 'Question 5 (0-5)', 'int')]),
 		_a('counselling_lines', 'Talk to someone', 'Wellbeing', 'GET', '/mental/lines', []),
+		# The nine and seven items are served by `GET /mental/instruments` and drawn by the client;
+		# the action carries the answers, not the item text, so the wording lives in one place. The
+		# `lang` options are the two language codes, like `under_5` and `boy` elsewhere in this file —
+		# values the caller sends, not labels a person reads.
+		_a('mood_screen', 'How am I really doing?', 'Wellbeing', 'POST', '/mental/screen', [_s(), _f('instrument', 'Which check?', 'select', ['phq9', 'gad7']), _f('answers', 'Your answers', 'list', ph='0,1,2,3'), _f('lang', 'Language', 'select', ['en', 'sw']), _f('administered_at_iso', 'When')]),
+		_a('mood_log', 'How is my mood today?', 'Wellbeing', 'POST', '/mental/mood', [_s(), _f('score', 'Out of 10', 'int'), _f('logged_at_iso', 'When'), _f('note', 'Anything you want to remember', 'textarea')]),
+		_a('mood_trend', 'How has my mood been?', 'Wellbeing', 'GET', '/mental/mood/trend', [_f('subject_ref', 'Me', 'path', client_supplied=True), _f('window_days', 'Days to look back over', 'int')]),
+		_a('coping_tips', 'What can I do to cope?', 'Wellbeing', 'GET', '/mental/coping', [_f('lang', 'Language', 'select', ['en', 'sw'])]),
+		_a('outbreak_support', 'Support during the outbreak', 'Wellbeing', 'GET', '/mental/outbreak-support/{condition}', [_f('condition', 'What is happening?', 'select', ['isolation_distress', 'grief', 'worker_burnout']), _f('lang', 'Language', 'select', ['en', 'sw'])]),
+		_a('ask_referral', 'Ask to be referred', 'Wellbeing', 'POST', '/mental/referral', [_s(), _f('reason', 'What is this about?', 'textarea'), _f('urgency', 'How soon?', 'select', ['routine', 'soon', 'urgent'])]),
 		# Chronic & daily
 		_a('log_bp', 'Log my blood pressure', 'Daily care', 'POST', '/chronic/bp', [_s(), _f('systolic', 'Systolic', 'int'), _f('diastolic', 'Diastolic', 'int'), _f('pulse', 'Pulse', 'int')]),
 		_a('log_glucose', 'Log my blood sugar', 'Daily care', 'POST', '/chronic/glucose', [_s(), _f('mmol_l', 'mmol/L', 'decimal'), _f('fasting', 'Before eating?', 'bool')]),
@@ -638,6 +650,12 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'register_donor': ('Donate blood', 'Join the donor list for your county'),
 	'find_donors': ('Find blood', 'Matching for nearby eligible donors'),
 	'wellbeing_check': ('How am I feeling?', 'Gentle check-in plus free counselling lines'),
+	'mood_screen': ('How am I really doing?', 'A short, well-known check for low mood or worry'),
+	'mood_log': ('How is my mood today?', 'One tap a day, and you can see the shape of your weeks'),
+	'mood_trend': ('How has my mood been?', 'Your own scores, and which way they are moving'),
+	'coping_tips': ('What can I do to cope?', 'Practical steps for hard days, from WHO guidance'),
+	'outbreak_support': ('Support during the outbreak', 'Isolation, grief, and looking after yourself on shift'),
+	'ask_referral': ('Ask to be referred', 'We point you to a service and tell you if a number is unchecked'),
 	'log_bp': ('My blood pressure', 'Daily readings and trends'),
 	'log_glucose': ('My blood sugar', 'Daily readings and trends'),
 	'track_refill': ('Refill reminders', 'Know before your medicine runs out'),

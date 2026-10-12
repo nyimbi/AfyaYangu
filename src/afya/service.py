@@ -34,7 +34,11 @@ from afya.evidence.views import EvidenceSubmission, EvidenceKind
 from afya.insurance.service import InlineSHAPort, InsuranceService, SHACheckRequest, PriceItem
 from afya.maternal.service import MaternalService
 from afya.maternal.views import ANCRecord, BirthPlan, Pregnancy
-from afya.mental.service import MentalHealthService, WHO5
+from afya.mental.instruments import (
+	AVAILABLE_LANGS, GAD7_FURTHER_EVALUATION_AT, ITEM_BANKS, RESPONSE_OPTIONS, TIMEFRAME, max_total,
+)
+from afya.mental.service import MentalHealthService, MoodEntry, Screening, WHO5
+from afya.mental.support import ReferralRequest
 from afya.women.service import WomenService
 from afya.women.views import CycleLog
 from afya.alerts.service import AlertsService
@@ -1961,6 +1965,80 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/mental/lines')
 	async def mental_lines() -> list[dict[str, str]]:
 		return mental.lines()
+
+	@app.post('/mental/screen')
+	async def mental_screen(req: Screening, _subject: str = Depends(require_self())) -> dict[str, object]:
+		# §REC-005's first bullet. Self-scoped: a screen is a person's own answers about themselves,
+		# and the guard binds `subject_ref` to the token so a caller cannot file one against somebody
+		# else. A positive self-harm item is *not* turned into a §AI-003 signal — that ledger is
+		# counts by county and nothing in it may point at a person.
+		try:
+			return mental.screen(req).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/mental/instruments')
+	async def mental_instruments() -> dict[str, object]:
+		# The item banks and cut-points a client renders. Served rather than duplicated in each
+		# client, so a client cannot score an instrument the server scores differently. Not
+		# self-scoped: it is a published instrument's text, with no subject in it.
+		return {
+			'phq9': {'items': list(ITEM_BANKS['phq9']['en']), 'sw_items': list(ITEM_BANKS['phq9']['sw']),
+			         'options': list(RESPONSE_OPTIONS['en']), 'sw_options': list(RESPONSE_OPTIONS['sw']),
+			         'langs': list(AVAILABLE_LANGS['phq9']), 'max_total': max_total('phq9'),
+			         'cutpoints': mental.cutpoints('phq9'),
+			         'impairment_question': mental.impairment_question('en'),
+			         'sw_impairment_question': mental.impairment_question('sw'),
+			         'timeframe': TIMEFRAME['en'], 'sw_timeframe': TIMEFRAME['sw']},
+			'gad7': {'items': list(ITEM_BANKS['gad7']['en']), 'options': list(RESPONSE_OPTIONS['en']),
+			         'langs': list(AVAILABLE_LANGS['gad7']), 'max_total': max_total('gad7'),
+			         'cutpoints': mental.cutpoints('gad7'),
+			         'further_evaluation_at': GAD7_FURTHER_EVALUATION_AT, 'timeframe': TIMEFRAME['en']},
+			'who5': {'items': 5, 'scale': '0-5 each', 'raw': 'sum x 4, 0-100'},
+		}
+
+	@app.post('/mental/mood')
+	async def mental_mood(entry: MoodEntry, _subject: str = Depends(require_self())) -> dict[str, object]:
+		# §REC-005's "mood tracking". A person's own daily reading, kept apart from the instruments:
+		# the mood log is a self-rating and PHQ-9 is a measurement with cut-points behind it.
+		try:
+			return mental.log_mood(entry).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/mental/mood/trend')
+	async def mental_mood_trend(subject_ref: str, window_days: int = 14, _subject: str = Depends(require_self())) -> dict[str, object]:
+		# `subject_ref` is a path/query param so `require_self` reads it and binds it to the token —
+		# a person's own mood series is theirs, and a trend of somebody else's is an IDOR.
+		return mental.mood_trend(subject_ref, window_days).model_dump(mode='json')
+
+	@app.get('/mental/coping')
+	async def mental_coping(lang: str = 'en') -> list[dict[str, object]]:
+		# Psychoeducation from WHO's Psychological first aid guide, in the source's own two editions.
+		# Not self-scoped: it is content, identical for everyone.
+		try:
+			return [c.model_dump(mode='json') for c in mental.coping(lang)]
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/mental/outbreak-support/{condition}')
+	async def mental_outbreak_support(condition: str, lang: str = 'en') -> dict[str, object]:
+		# §REC-005's sixth bullet: isolation distress, grief support and healthcare worker burnout,
+		# each a named condition with a route rather than a band on a total.
+		try:
+			return mental.outbreak_support(condition, lang).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/mental/referral')
+	async def mental_referral(req: ReferralRequest, _subject: str = Depends(require_self())) -> dict[str, object]:
+		# §REC-005's "referral to services". Before this, referral existed only as a prose sentence
+		# in `assess`; this records one, names the services, and names the ones whose numbers are
+		# unverified rather than presenting every line as reachable.
+		try:
+			return mental.refer(req.subject_ref, req.reason, req.urgency).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/blood/donors')
 	async def blood_register(d: Donor) -> dict[str, bool]:

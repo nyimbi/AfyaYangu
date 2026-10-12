@@ -1,0 +1,2245 @@
+Psychological first aid: Guide for field workers
+WHO Library Cataloguing-in-Publication Data
+
+Psychological first aid: Guide for field workers
+
+1. Crisis intervention - methods. 2. Disasters. 3. Emergency medical services.
+4. Adaptation, psychological. 5. First aid - psychology, psychosocial.
+6. Stress disorders, traumatic - psychology. 7. Manuals.
+
+I. World Health Organization. II. War Trauma Foundation. III. World Vision International.
+
+ISBN 978 92 4 154820 5			                          (NLM classification: WM 401)
+
+
+
+© World Health Organization 2011
+
+All rights reserved. Publications of the World Health Organization are available on the WHO
+web site (www.who.int) or can be purchased from WHO Press, World Health Organization, 20
+Avenue Appia, 1211 Geneva 27, Switzerland (tel.: +41 22 791 3264; fax: +41 22 791 4857; email:
+bookorders@who.int). Requests for permission to reproduce or translate WHO publications
+– whether for sale or for non-commercial distribution – should be addressed to WHO Press
+through the WHO website (http://www.who.int/about/licensing/copyright_form/en/index.html).
+
+The designations employed and the presentation of the material in this publication do not
+imply the expression of any opinion whatsoever on the part of the World Health Organization
+concerning the legal status of any country or territory or of its authorities, or concerning
+the delimitation of its frontiers or boundaries. The mention of specific companies, products
+or references does not imply that they are endorsed or recommended by the World Health
+Organization in preference to others of a similar nature that are not mentioned.
+
+All reasonable precautions have been taken by the World Health Organization to verify
+the information contained in this publication. However, the published material is being
+distributed without warranty of any kind, either expressed or implied. The responsibility for the
+interpretation and use of the material lies with the reader. In no event shall the World Health
+Organization be liable for damages arising from its use.
+
+Suggested citation: World Health Organization, War Trauma Foundation and World Vision
+International (2011). Psychological first aid: Guide for field workers. WHO: Geneva.
+
+For feedback or questions on technical aspects of this publication, please contact:
+
+• Dr Mark van Ommeren, Department of Mental Health and Substance Abuse, World Health
+  Organization, 20 Avenue Appia, 1211 Geneva 27, Switzerland (email: vanommerenm@who.int,
+  tel: + 41-22-791-2111);
+
+• Dr Leslie Snider, Senior Programme Advisor, War Trauma Foundation, Nienoord 5, 1112 XE
+  Diemen, the Netherlands (email: l.snider@wartrauma.nl, tel: +31-20-6438538).
+
+• Alison Schafer, Senior Program Advisor, Mental Health and Psychosocial Support,
+  Humanitarian and Emergency Affairs Team, World Vision Australia. 1 Vision Drive, Burwood
+  East, Victoria, 3151, Australia (email: alison.schafer@worldvision.com.au, tel: +61-3-9287-2233)
+
+This document provides technical guidance to implement the WHO Mental Health Global
+Action Programme (mhGAP).
+                                                   pfa guide
+
+
+
+
+Psychological first aid: Guide for field workers
+foreword
+When terrible things happen in our communities, countries and the world, we want to
+reach out a helping hand to those who are affected. This guide covers psychological
+first aid which involves humane, supportive and practical help to fellow human beings
+suffering serious crisis events. It is written for people in a position to help others who have
+experienced an extremely distressing event. It gives a framework for supporting people in
+ways that respect their dignity, culture and abilities. Despite its name, psychological first
+aid covers both social and psychological support.
+
+Perhaps you are called upon as a staff member or volunteer to help in a major disaster, or you
+find yourself at the scene of an accident where people are hurt. Perhaps you are a teacher or
+health worker talking with someone from your community who has just witnessed the violent
+death of a loved one. This guide will help you to know the most supportive things to say and
+do for people who are very distressed. It will also give you information on how to approach a
+new situation safely for yourself and others, and not to cause harm by your actions.
+
+Psychological first aid has been recommended by many international and national
+expert groups, including the Inter-Agency Standing Committee (IASC) and the Sphere
+Project. Psychological first aid is an alternative to psychological debriefing. In 2009, the
+World Health Organization’s (WHO) mhGAP Guidelines Development Group evaluated
+the evidence for psychological first aid and psychological debriefing. They concluded
+that psychological first aid, rather than psychological debriefing, should be offered to
+people in severe distress after being recently exposed to a traumatic event.
+
+This guide was developed in order to have widely agreed upon psychological first aid
+materials for use in low and middle income countries. The information we have given
+here is a model only. You will need to adapt it appropriately to the local context and the
+culture of the people you will help.
+
+This guide – endorsed by many international agencies – reflects the emerging science
+and international consensus on how to support people in the immediate aftermath of
+extremely stressful events.
+
+
+
+
+     Shekhar Saxena                   Stefan Germann               Marieke Schouten
+     Director                         Director                     Director
+     Department of Mental Health      Learning and Partnerships,
+     and Substance Abuse              Global Health Team
+     World Health Organization        World Vision International   War Trauma Foundation
+
+
+
+
+ii      Psychological first aid: Guide for field workers
+                                                                                                                                                  foreword & Acknowledgements
+acknowledgements
+Writing and Editorial Team
+Leslie Snider (War Trauma Foundation, WTF), Mark van Ommeren (World Health Organization, WHO) and
+Alison Schafer (World Vision International, WVI).
+
+Steering Group (alphabetical)
+Stefan Germann (WVI), Erin Jones (WVI), Relinde Reiffers (WTF), Marieke Schouten (WTF), Shekhar Saxena
+(WHO), Alison Schafer (WVI), Leslie Snider (WTF), Mark van Ommeren (WHO).
+
+Artwork Team
+Illustrations by Julie Smith (PD Consulting). Artwork and design by Adrian Soriano (WVI).
+Artwork coordination by Andrew Wadey (WVI).
+
+Funding
+World Vision International
+
+Endorsement
+This document has been endorsed by 23 international agencies (see names with logos on front and back cover) as
+well as Médecins Sans Frontières (MSF).
+
+Contributors and Reviewers
+Numan Ali (Baghdad Teaching Hospital, Iraq), Amanda Allan (Mandala Foundation, Australia), Abdalla Mansour Amer (United Nations
+Department of Safety and Security), Mary Jo Baca (International Medical Corps, Jordan), Nancy Baron (Global Psycho-Social Initiatives,
+Egypt), Pierre Bastin (Médecins Sans Frontières, Switzerland), Nancy Beaudoin (Consultant, France), Endry van den Berg (War Child
+Holland, the Netherlands), Elsa Berglund (Church of Sweden, Sweden), Sandra Bernhardt (Action Contre le Faim, France), Cecile
+Bizouerne (Action Contre le Faim, France), Margriet Blaauw (War Child Holland, the Netherlands), Martha Bragin (CARE, USA), Maria
+Bray (Terre des Hommes, Switzerland), Chris Brewin (University College London, United Kingdom), Melissa Brymer (National Center
+for Child Traumatic Stress, USA), Susie Burke (Australian Psychological Society, Australia), Sonia Chehil (Dalhousie University, Canada),
+Eliza Cheung (Chinese University of Hong Kong, People’s Republic of China), Tatyana Chshieva (Dostizhenia Achievements Foundation,
+Russian Federation), Laetitia Clouin (Consultant, France), Penelope Curling (UNICEF), Jeanette Diaz-Laplante (University of West
+Georgia, USA), Annie Sophie Dybdal (Save the Children, Denmark), Tonka Eibs (CARE, Austria), Carina Ferreira-Borges (WHO, Republic
+of the Congo), Amber Gray (Restorative Resources, USA), Lina Hamdan (World Vision, Jordan), Sarah Harrison (Church of Sweden,
+Sweden), Michael Hayes (Save the Children, USA), Takashi Isutzu (United Nations Department of Management), Kaz de Jong (Médecins
+Sans Frontières, the Netherlands), Mark Jordans (HealthNet TPO, Nepal), Siobhan Kimmerle (WVI, Jordan), Patricia Kormoss (WHO,
+Switzerland), Unni Krishnan (Plan International, United Kingdom), Ronald Law (Department of Health, Philippines), Christine McCormick
+(Save the Children, United Kingdom), Amanda Melville (UNICEF), Fritha Melville (Mandala Foundation, Australia), Kate Minto (Mandala
+Foundation, Australia), Jonathan Morgan (Regional Psychosocial Support Initiative - REPSSI, South Africa), Kelly O’Donnell (NGO Forum
+for Health, Switzerland), Patrick Onyango (Transcultural Psychosocial Organization, Uganda), Pau Perez-Sales (Médicos del Mundo,
+Spain), Bhava Nath Poudyal (International Committee of the Red Cross, Nepal), Joe Prewitt-Diaz (American Red Cross, Puerto Rico),
+Megan Price (WVI, Australia), Robert Pynoos (National Center for Child Traumatic Stress, USA), Nino Makhashvili (Global Initiative
+on Psychiatry, Georgia), Miryam Rivera Holguin (Consultant, Peru), Sabine Rakotomalala (Terre des Hommes, Switzerland), Gilbert
+Reyes (National Center for Child Traumatic Stress, USA), Daryn Reichterer (Stanford University, USA), Chen Reis (WHO, Switzerland),
+Khalid Saeed (WHO, Egypt), Louise Searle (WVI, Australia), Marian Schilperoord (United Nations High Commissioner for Refugees,
+Switzerland), Guglielmo Schinina (International Organization for Migration, Switzerland), Merritt Schreiber (University of California
+Los Angeles, USA), Renato Souza (International Committee of the Red Cross, Switzerland), Alan Steinberg (National Center for Child
+Traumatic Stress, USA), Susannah Tipping (Mandala Foundation, Australia), Wietse Tol (HealthNet TPO, Nepal), Iris Trapman (Mandala
+Foundation, Australia), Patricia Watson (National Center for Child Traumatic Stress, USA), Inka Weissbecker (International Medical Corps,
+Gaza), Mike Wessells (Columbia University, USA), Nana Wiedemann (International Federation of the Red Cross, Denmark), Richard
+Williams (Glamorgan University, United Kingdom), M Taghi Yasamy (WHO, Switzerland), Rob Yin (American Red Cross, USA), William
+Yule (Children and War Foundation, United Kingdom), Doug Zatzick (University of Washington, USA).
+In addition, we acknowledge the 27 anonymous respondents who participated in a survey on the need to develop this document.
+
+
+
+
+                                                                 Psychological first aid: Guide for field workers                           iii
+iv   Psychological first aid: Guide for field workers
+                                                                                                       contents
+Foreword                                                                                     ii
+
+Acknowledgements	                                                                            iii
+
+Chapter 1 Understanding PFA	                                                                 1
+ 1.1		   How do crisis events affect people?                                                 2
+ 1.2		   What is PFA?                                                                        3
+ 1.3		   PFA: Who, when and where?                                                           4
+
+Chapter 2 How to help responsibly                                                            7
+ 2.1		   Respect safety, dignity and rights                                                  8
+ 2.2		   Adapt what you do to take account of the person’s culture                           9
+ 2.3		   Be aware of other emergency response measures                                       11
+ 2.4		   Look after yourself                                                                 12
+
+Chapter 3 Providing PFA	                                                                    13
+ 3.1     Good communication                                                                  14
+ 3.2     Prepare – learn about the situation                                                 16
+ 3.3     Action principles of PFA – look, listen and link                                    18
+ 3.4     Ending your help                                                                    29
+ 3.5     People who likely need special attention                                            30
+
+Chapter 4 Caring for yourself & your colleagues	                                            37
+ 4.1     Getting ready to help                                                               38
+ 4.2     Managing stress: Healthy work and life habits                                       39
+ 4.3     Rest and reflection                                                                 40
+
+Chapter 5 Practise what you have learned                                                    41
+ 5.1		   Case scenario 1: Natural disaster                                                   42
+ 5.2		   Case scenario 2: Violence and displacement                                          46
+ 5.3		   Case scenario 3: Accident                                                           49
+
+Psychological First Aid: Pocket Guide                                                       53
+
+References & resources	                                                                     55
+
+
+                                               Psychological first aid: Guide for field workers    v
+Chapter 1
+Understanding PFA
+
+
+
+
+1   Psychological first aid: Guide for field workers
+In this chapter we discuss:
+
+
+
+
+                                                                                                    Chapter 1
+  1.1	How do crisis events affect people?
+  1.2	What is PFA?
+  1.3	PFA: who, when and where?
+
+
+
+ 1.1 How do crisis events affect people?
+
+
+
+
+Different kinds of distressing events happen in the world, such as war, natural disasters,
+accidents, fires and interpersonal violence (for example, sexual violence). Individuals,
+families or entire communities may be affected. People may lose their homes or loved ones,
+be separated from family and community, or may witness violence, destruction or death.
+
+Although everyone is affected in some way by these events, there are a wide range of
+reactions and feelings each person can have. Many people may feel overwhelmed,
+confused or very uncertain about what is happening. They can feel very fearful or anxious,
+or numb and detached. Some people may have mild reactions, whereas others may have
+more severe reactions. How someone reacts depends on many factors, including:
+
+  »»   the nature and severity of the event(s) they experience;
+  »»   their experience with previous distressing events;
+  »»   the support they have in their life from others;
+  »»   their physical health;
+  »»   their personal and family history of mental health problems;
+  »»   their cultural background and traditions;
+  »»   their age (for example, children of different age groups react differently).
+
+
+                                             Psychological first aid: Guide for field workers   2
+Every person has strengths and abilities to help them cope with life challenges. However,
+some people are particularly vulnerable in a crisis situation and may need extra help.
+This includes people who may be at risk or need additional support because of their age
+(children, elderly), because they have a mental or physical disability, or because they
+belong to groups who may be marginalized or targeted for violence. Section 3.5 provides
+guidance for helping vulnerable people.
+
+
+
+
+    1.2 What is PFA?
+According to Sphere (2011) and IASC (2007), psychological first aid (PFA) describes a
+humane, supportive response to a fellow human being who is suffering and who may
+need support. PFA involves the following themes:
+
+     »»    providing practical care and support, which does not intrude;
+     »»    assessing needs and concerns;
+     »»    helping people to address basic needs (for example, food and water, information);
+     »»    listening to people, but not pressuring them to talk;
+     »»    comforting people and helping them to feel calm;
+     »»    helping people connect to information, services and social supports;
+     »»    protecting people from further harm.
+
+
+
+
+It is also important to understand what PFA is not:
+     »»    It is not something that only professionals can do.
+     »»    It is not professional counselling.
+     »»    It is not “psychological debriefing”1 in that PFA does not necessarily involve a
+           detailed discussion of the event that caused the distress.
+     »»    It is not asking someone to analyse what happened to them or to put time and
+           events in order.
+     »»    Although PFA involves being available to listen to people’s stories, it is not about
+           pressuring people to tell you their feelings and reactions to an event.
+
+
+
+1
+    WHO (2010) and Sphere (2011) describe psychological debriefing as promoting ventilation by asking a person to
+    briefly but systematically recount their perceptions, thoughts and emotional reactions during a recent stressful event.
+    This intervention is not recommended. This is distinct from routine operational debriefing of aid workers used by some
+    organizations at the end of a mission or work task.
+
+
+
+3          Psychological first aid: Guide for field workers
+PFA is an alternative to “psychological debriefing” which has been found to be
+ineffective. In contrast, PFA involves factors that seem to be most helpful to people’s
+
+
+
+
+                                                                                                                     Chapter 1
+long-term recovery (according to various studies and the consensus of many crisis
+helpers2). These include:
+
+     »»    feeling safe, connected to others, calm and hopeful;
+     »»    having access to social, physical and emotional support; and
+     »»    feeling able to help themselves, as individuals and communities.
+
+
+
+
+    1.3 PFA: Who, when and where?
+
+
+
+
+Who is PFA for?
+PFA is for distressed people who have been recently exposed to a serious crisis
+event. You can provide help to both children and adults. However, not everyone who
+experiences a crisis event will need or want PFA. Do not force help on people who do
+not want it, but make yourself easily available to those who may want support.
+
+
+
+2
+    See Hobfoll, et al. (2007) and Bisson & Lewis (2009) in References and Resources
+
+
+
+                                                              Psychological first aid: Guide for field workers   4
+There may be situations when someone needs much more advanced support than
+PFA alone. Know your limits and get help from others, such as medical personnel
+(if available), your colleagues or other people in the area, local authorities, or
+community and religious leaders. In the following box we have listed people who
+need more immediate advanced support. People in these situations need medical or
+other help as a priority to save life.
+
+
+
+    People who need more immediate advanced support:
+     »»     people with serious, life-threatening injuries who need emergency medical care
+     »»     people who are so upset that they cannot care for themselves or their children
+     »»     people who may hurt themselves
+     »»     people who may hurt others
+
+
+
+
+When is PFA provided?
+Although people may need access to help and support for a long time after an event, PFA
+is aimed at helping people who have been very recently affected by a crisis event. You
+can provide PFA when you first have contact with very distressed people. This is usually
+during or immediately after an event. However, it may sometimes be days or weeks after,
+depending on how long the event lasted and how severe it was.
+
+
+
+
+5         Psychological first aid: Guide for field workers
+Where is PFA provided?
+
+
+
+
+                                                                                                 Chapter 1
+You can offer PFA wherever it is safe enough for you to do so. This is often
+in community settings, such as at the scene of an accident, or places where
+distressed people are served, such as health centres, shelters or camps,
+schools and distribution sites for food or other types of help. Ideally, try to
+provide PFA where you can have some privacy to talk with the person when
+appropriate. For people who have been exposed to certain types of crisis
+events, such as sexual violence, privacy is essential for confidentiality and to
+respect the person’s dignity.
+
+
+
+
+                                          Psychological first aid: Guide for field workers   6
+chapter 2
+How to help responsibly
+
+
+
+
+7   Psychological first aid: Guide for field workers
+Helping responsibly involves four main points:
+    2.1	Respect safety, dignity and rights.
+    2.2	Adapt what you do to take account of the person’s culture.
+    2.3	Be aware of other emergency response measures.
+    2.4	Look after yourself.
+
+
+
+    2.1 Respect safety, dignity and rights
+
+
+                                                                                                                       Chapter 2
+When you take on the responsibility to help in situations where people have been affected
+by a distressing event, it is important to act in ways that respect the safety, dignity and rights
+of the people you are helping3. The following principles apply to any person or agency
+involved in humanitarian response, including those who provide PFA:
+
+
+
+     Respect people’s…
+       Safety           »»    Avoid putting people at further risk of harm as a result of
+                              your actions.
+                        »»    Make sure, to the best of your ability, that the adults and children you
+                              help are safe and protect them from physical or psychological harm.
+
+       Dignity          »»    Treat people with respect and according to their cultural and
+                              social norms.
+
+       Rights           »»    Make sure people can access help fairly and without discrimination.
+                        »»    Help people to claim their rights and access available support.
+                        »»    Act only in the best interest of any person you encounter.
+
+
+
+Keep these principles in mind in all of your actions and with all people you encounter,
+whatever their age, gender or ethnic background. Consider what these principles mean
+in terms of your cultural context. Know and follow your agency codes of conduct at all
+times if you work or volunteer for an agency that has these codes.
+
+We offer the following Ethical Do’s and Don’ts as guidance to avoid causing further harm
+to the person, to provide the best care possible, and to act only in their best interest.
+
+3
+    For more information, see the Sphere Protection Chapter, Sphere Project (2011).
+
+
+
+                                                                Psychological first aid: Guide for field workers   8
+     »»    Be honest and trustworthy.                        »»   Don’t exploit your relationship
+     »»    Respect people’s right to make                         as a helper.
+           their own decisions.                              »»   Don’t ask the person for any
+                                                                  money or favour for helping them.
+     »»    Be aware of and set aside your
+           own biases and prejudices.                        »»   Don’t make false promises or
+                                                                  give false information.
+     »»    Make it clear to people that
+           even if they refuse help now,                     »»   Don’t exaggerate your skills.
+           they can still access help in                     »»   Don’t force help on people, and
+           the future.                                            don’t be intrusive or pushy.
+     »»    Respect privacy and keep the                      »»   Don’t pressure people to tell you
+           person’s story confidential, if                        their story.
+           this is appropriate.                              »»   Don’t share the person’s story
+     »»    Behave appropriately by                                with others.
+           considering the person’s                          »»   Don’t judge the person for their
+           culture, age and gender.                               actions or feelings.
+
+
+
+
+    2.2 Adapt what you do to take account
+        of the person’s culture
+Whenever there is a crisis event, there are often people of various cultural backgrounds
+among the affected population, including minorities or others who may be marginalized.
+Culture determines how we relate to people, and what is all right and not all right to say
+and do. For example, in some cultures it is not customary for a person to share feelings
+with someone outside their family. Or it may only be appropriate for women to speak with
+other women, or perhaps certain ways of dressing or covering oneself are very important.
+
+You may find yourself working with people of backgrounds different from your own.
+As a helper, it is important to be aware of your own cultural background and beliefs
+so you can set aside your own biases. Offer help in ways that are most appropriate and
+comfortable to the people you are supporting.
+
+Each crisis situation is unique. Adapt this guide to the context, considering local social
+and cultural norms. See the following box for questions you can consider in providing
+PFA in different cultures.
+
+
+9         Psychological first aid: Guide for field workers
+                                                                                              Chapter 2
+Consider the following questions as you prepare
+to offer PFA in different cultures:
+Dress         »»   Do I need to dress a certain way to be respectful?
+              »»   Will impacted people be in need of certain clothing items to
+                   keep their dignity and customs?
+
+Language      »»   What is the customary way of greeting people in this culture?
+              »»   What language do they speak?
+
+Gender,       »»   Should affected women only be approached by women helpers?
+Age and       »»   Who may I approach? (In other words, the head of the family
+Power              or community?)
+
+Touching      »»   What are the usual customs around touching people?
+and           »»   Is it all right to hold someone’s hand or touch their shoulder?
+Behaviour
+              »»   Are there special things to consider in terms of behaviour around
+                   the elderly, children, women or others?
+
+Beliefs and   »»   Who are the different ethnic and religious groups among the
+Religion           affected people?
+              »»   What beliefs or practices are important to the people affected?
+              »»   How might they understand or explain what has happened?
+
+
+
+
+                                      Psychological first aid: Guide for field workers   10
+ 2.3 Be aware of other emergency
+     response measures
+
+
+
+
+PFA is part of a broader response to large humanitarian emergencies (IASC, 2007).
+When hundreds or thousands of people are affected, different types of emergency
+response measures take place, such as search-and-rescue operations, emergency
+health care, shelter, food distribution, and family tracing and child protection activities.
+Often it is challenging for aid workers and volunteers to know exactly what services are
+available where. This is true during mass disasters and in places which do not already
+have a functioning infrastructure for health and other services.
+
+Try to be aware of what services and supports may be available so you can share
+information with people you are helping and tell them how to access practical help.
+
+
+
+
+11     Psychological first aid: Guide for field workers
+     Whenever possible in responding to a
+     crisis situation:
+         »»    follow the direction of relevant authorities managing the crisis;
+         »»    learn what emergency responses are being organized and what
+               resources are available to help people, if any;
+         »»    don’t get in the way of search-and-rescue or emergency medical
+               personnel; and
+         »»    know your role and the limits of your role.
+
+
+
+
+It is not necessary to have a “psychosocial” background in order to offer PFA. However, if
+you want to help in crisis settings, we recommend that you work through an organization                               Chapter 2
+or community group. If you act on your own, you may put yourself at risk, it may have a
+negative effect on coordination efforts, and you are unlikely to be able to link affected
+people with the resources and support they need.
+
+
+
+
+    2.4 Look after yourself
+Helping responsibly also means taking
+care of your own health and wellbeing. As
+a helper, you may be affected by what you
+experience in a crisis situation, or you or
+your family may be directly affected by the
+event. It is important to pay extra attention
+to your own wellbeing and be sure that you
+are physically and emotionally able to help
+others. Take care of yourself so that you can
+best care for others. If working in a team,
+be aware of the wellbeing of your fellow
+helpers as well. (See Chapter 4 for more on
+caring for caregivers.)
+
+
+
+
+3
+    For more information, see the Sphere Protection Chapter, Sphere Project (2011).
+
+
+
+                                                              Psychological first aid: Guide for field workers   12
+Chapter 3
+Providing PFA
+
+
+
+
+13   Psychological first aid: Guide for field workers
+In this chapter, we will discuss:
+  3.1	Good communication with people in distress.
+  3.2	Preparing to help.
+  3.3	The PFA action principles of look, listen and link.
+  3.4	Ending your help.
+  3.5	People who are likely to need special attention in a crisis situation.
+
+
+
+
+ 3.1 Good communication                                                                               Chapter 3
+The way you communicate with someone in distress is very important. People who have
+been through a crisis event may be very upset, anxious or confused. Some people may
+blame themselves for things that happened during the crisis. Being calm and showing
+understanding can help people in distress feel more safe and secure, understood,
+respected and cared for appropriately.
+
+Someone who has been through a distressing event may want to tell you their story. Listening
+to someone’s story can be a great support. However, it is important not to pressure anyone
+to tell you what they have been through. Some people may not want to speak about what has
+happened or their circumstances. However, they may value it if you stay with them quietly, let
+them know you are there if they want to talk, or offer practical support like a meal or a glass
+of water. Don’t talk too much; allow for silence. Keeping silent for a while may give the person
+space and encourage them to share with you if they wish.
+
+To communicate well, be aware of both your words and body language, such as facial
+expressions, eye contact, gestures, and the way you sit or stand in relation to the other
+person. Each culture has its own particular ways of behaving that are appropriate and
+respectful. Speak and behave in ways that take into account the person’s culture, age,
+gender, customs and religion.
+
+                                              Psychological first aid: Guide for field workers   14
+Below are suggestions for things to say and do, and what not to say and do. Most
+importantly, be yourself, be genuine and be sincere in offering your help and care.
+
+
+
+
+     »»   Try to find a quiet place to talk, and             »»   Don’t pressure someone to tell
+          minimize outside distractions.                          their story.
+     »»   Respect privacy and keep the                       »»   Don’t interrupt or rush someone’s
+          person’s story confidential, if this                    story (for example, don’t look at
+          is appropriate.                                         your watch or speak too rapidly).
+     »»   Stay near the person but keep an                   »»   Don’t touch the person if you’re not
+          appropriate distance depending on                       sure it is appropriate to do so.
+          their age, gender and culture.                     »»   Don’t judge what they have or
+     »»   Let them know you are listening;                        haven’t done, or how they are
+          for example, nod your head or say                       feeling. Don’t say: “You shouldn’t
+          “hmmmm….”                                               feel that way,” or “You should feel
+     »»   Be patient and calm.                                    lucky you survived.”
+     »»   Provide factual information, if                    »»   Don’t make up things you
+          you have it. Be honest about what                       don’t know.
+          you know and don’t know. “I don’t                  »»   Don’t use terms that are too
+          know, but I will try to find out                        technical.
+          about that for you.”
+                                                             »»   Don’t tell them someone else’s story.
+     »»   Give information in a way the
+                                                             »»   Don’t talk about your own troubles.
+          person can understand – keep
+          it simple.                                         »»   Don’t give false promises or
+     »»   Acknowledge how they are feeling                        false reassurances.
+          and any losses or important events                 »»   Don’t think and act as if you
+          they tell you about, such as loss of                    must solve all the person’s
+          their home or death of a loved one.                     problems for them.
+          “I’m so sorry. I can imagine this is               »»   Don’t take away the person’s
+          very sad for you.”                                      strength and sense of being able
+     »»   Acknowledge the person’s                                to care for themselves.
+          strengths and how they have                        »»   Don’t talk about people in negative
+          helped themselves.                                      terms (for example, don’t call them
+     »»   Allow for silence.                                      “crazy” or “mad”).
+
+
+
+Keep good communication in mind as you look, listen and link – the action principles
+of PFA covered in the following pages.
+
+
+15        Psychological first aid: Guide for field workers
+ 3.2 Prepare – learn about the situation
+
+
+                    »»   Learn about the crisis event.
+    Prepare         »»   Learn about available services and supports.
+                    »»   Learn about safety and security concerns.
+
+
+
+
+                                                                                                   Chapter 3
+
+
+
+
+Crisis situations can be chaotic and often need urgent action. However, wherever possible
+before entering a crisis site, try to get accurate information about the situation. Consider
+the following questions:
+
+
+                                           Psychological first aid: Guide for field workers   16
+     Before entering a crisis site, learn about
+     the following:
+
+                            Important questions
+     The crisis        »»   What happened?
+     event             »»   When and where did it take place?
+                       »»   How many people are likely to be affected and who are they?
+
+     Available         »»   Who is providing for basic needs like emergency medical
+     services               care, food, water, shelter or tracing family members?
+     and               »»   Where and how can people access those services?
+     supports
+                       »»   Who else is helping? Are community members involved
+                            in responding?
+
+     Safety and        »»   Is the crisis event over or continuing, such as an aftershock
+     security               from an earthquake or continuing conflict?
+     concerns          »»   What dangers may be in the environment, such as rebels,
+                            landmines or damaged infrastructure?
+                       »»   Are there areas to avoid entering because they are not secure
+                            (for example, obvious physical dangers) or because you are
+                            not allowed to be there?
+
+
+
+These important preparation questions can help you to understand the situation you are
+entering, to offer PFA more effectively and to be
+more aware of your safety.
+
+
+
+
+17      Psychological first aid: Guide for field workers
+ 3.3 Action principles of PFA – look,
+     listen and link
+The three basic action principles of PFA are look, listen and link. These action principles will help
+guide how you view and safely enter a crisis situation, approach affected people and understand
+their needs, and link them with practical support and information (see the table below).
+
+
+
+
+                  »»   Check for safety.
+    Look          »»   Check for people with obvious urgent basic needs.
+                  »»   Check for people with serious distress reactions.
+
+
+
+
+                                                                                                        Chapter 3
+                  »»   Approach people who may need support.
+    Listen        »»   Ask about people’s needs and concerns.
+                  »»   Listen to people, and help them to feel calm.
+
+
+
+                  »»   Help people address basic needs and access services.
+                  »»   Help people cope with problems.
+    Link          »»   Give information.
+                  »»   Connect people with loved ones and social support.
+
+
+
+
+                  »»   Check for safety.
+    Look          »»   Check for people with obvious urgent basic needs.
+                  »»   Check for people with serious distress reactions.
+
+
+
+
+Crisis situations can change rapidly. What you find at the scene may be different from what
+you learned before entering the crisis situation. Therefore, it is important to take time – even
+
+
+                                                Psychological first aid: Guide for field workers   18
+a few moments – to “look” around you before offering help. If you suddenly find yourself in
+a crisis situation without time to prepare, this may be just a quick scan. These moments will
+give you a chance to be calm, be safe and think before you act. See the following table
+for questions to consider and important messages as you “look” around you.
+
+
+
+
+     Look                  Questions                           Important
+                                                               message
+     Safety           »»   What dangers can you see in         If you are not certain
+                           the environment, such as active     about the safety of
+                           conflict, damaged roads, unstable   the crisis site, then do
+                           buildings, fire or flooding?        not go. Try to get help
+                      »»   Can you be there without likely     for people in need. If
+                           harm to yourself or others?         possible, communicate
+                                                               with people in distress
+                                                               from a safe distance.
+
+     People           »»   Does anyone appear to be            Know your role and try
+     with                  critically injured and in need of   to get help for people
+     obvious               emergency medical help?             who need special
+     urgent           »»   Does anyone seem to need            assistance or who have
+     basic                 rescuing, such as people trapped    obvious urgent basic
+     needs                 or in immediate danger?             needs. Refer critically
+                                                               injured people to
+                      »»   Does anyone have obvious urgent
+                                                               medical personnel
+                           basic needs, such as protection
+                                                               or others trained in
+                           from the weather, torn clothing?
+                                                               physical first aid.
+                      »»   Which people may need help in
+                           terms of accessing basic services
+                           and special attention to be
+                           protected from discrimination
+                           and violence?
+                      »»   Who else is available around me
+                           to help?
+
+     People           »»   Are there people who appear         Consider who may
+     with                  extremely upset, not able to move   benefit from PFA and
+     serious               on their own, not responding to     how you can best help.
+     distress              others, or in shock?
+     reactions        »»   Where and who are the most
+                           distressed people?
+
+
+
+19      Psychological first aid: Guide for field workers
+People may react in various ways to a crisis. Some
+examples of distress responses to crisis are listed below:
+
+
+  »»   physical symptoms (for example, shaking,
+       headaches, feeling very tired, loss of
+       appetite, aches and pains)
+  »»   crying, sadness, depressed mood, grief
+  »»   anxiety, fear
+  »»   being “on guard” or “jumpy”
+  »»   worry that something really bad is going
+       to happen
+  »»   insomnia, nightmares
+  »»   irritability, anger
+  »»   guilt, shame (for example, for having
+       survived, or for not helping or saving others)
+  »»   confused, emotionally numb, or feeling
+       unreal or in a daze
+
+
+
+
+                                                                                                      Chapter 3
+  »»   appearing withdrawn or very still
+       (not moving)
+  »»   not responding to others, not speaking at all
+  »»   disorientation (for example, not knowing
+       their own name, where they are from, or
+       what happened)
+  »»   not being able to care for themselves or
+       their children (for example, not eating or
+       drinking, not able to make simple decisions)
+
+
+Some people may only be mildly distressed or not
+distressed at all.
+
+Most people will recover well over time, especially if they can restore their basic needs
+and receive support such as help from those around them and/or PFA. However, people
+with either severe or long-lasting distress reactions may need more support than PFA
+alone, particularly if they cannot function in their daily life or if they are a danger to
+themselves or others. Make sure that severely distressed people are not left alone and
+try to keep them safe until the reaction passes or until you can find help from health
+personnel, local leaders or other community members in the area.
+
+Also, look for people among the affected population who are likely to need special
+attention for their care and safety:
+
+
+                                              Psychological first aid: Guide for field workers   20
+     People who are likely to need special attention in a
+     crisis (see Section 3.5):
+          »»    Children – including adolescents – especially those separated from their
+                caregivers, may need protection from abuse and exploitation. They will also
+                likely need care from those around them and help to meet their basic needs.
+          »»    People with health conditions or physical and mental disabilities may need
+                special help to get to a safe place, to be protected from abuse and to access
+                medical care and other services. This may include frail elderly people,
+                pregnant women, people with severe mental disorders, or people with visual
+                or hearing difficulties.
+          »»    People at risk of discrimination or violence, such as women or people
+                of certain ethnic groups, may need special
+                protection to be safe in the crisis setting and
+                support to access available help.
+
+
+
+
+                         »»   Approach people who may need support.
+      Listen             »»   Ask about people’s needs and concerns.
+                         »»   Listen to people, and help them to feel calm.
+
+
+
+
+Listening properly to people you are helping is essential to understand their situation and needs,
+to help them to feel calm, and to be able to offer appropriate help. Learn to listen with your:
+
+     »»    Eyes ›› giving the person your undivided attention
+     »»    Ears  ›› truly hearing their concerns
+     »»    Heart ›› with caring and showing respect
+
+
+21             Psychological first aid: Guide for field workers
+1. Approach people who may need support:
+ »»   Approach people respectfully and according to their culture.
+ »»   Introduce yourself by name and organization.
+ »»   Ask if you can provide help.
+ »»   If possible, find a safe and quiet place to talk.
+ »»   Help the person feel comfortable; for
+      example, offer water if you can.
+ »»   Try to keep the person safe.
+      »» Remove the person from immediate
+           danger, if it is safe to do so.
+      »» Try to protect the person from
+           exposure to the media for their
+           privacy and dignity.
+      »» If the person is very distressed, try
+           to make sure they are not alone.
+
+
+
+
+                                                                                                    Chapter 3
+2. Ask about people’s needs and concerns:
+ »»   Although some needs may be
+      obvious, such as a blanket or
+      covering for someone whose
+      clothing is torn, always ask what
+      people need and what their
+      concerns are.
+ »»   Find out what is most important to
+      them at this moment, and help them
+      work out what their priorities are.
+
+
+
+3. Listen to people and help them to feel calm:
+ »»   Stay close to the person.
+ »»   Do not pressure the person to talk.
+ »»   Listen in case they want to talk
+      about what happened.
+ »»   If they are very distressed, help
+      them to feel calm and try to make
+      sure they are not alone.
+
+
+
+
+                                            Psychological first aid: Guide for field workers   22
+     Help people to feel calm
+     Some people who experience a crisis situation may be very anxious or upset.
+     They may feel confused or overwhelmed, and may have some physical reactions
+     such as shaking or trembling, difficulty breathing or feeling their heart pounding.
+     The following are some techniques to help very distressed people to feel calm in
+     their mind and body:
+
+       »»    Keep your tone of voice calm and soft.
+       »»    If culturally appropriate, try to maintain some eye contact with the person as
+             you talk with them.
+       »»    Remind the person that you are there to help them. Remind them that they
+             are safe, if it is true.
+       »»    If someone feels unreal or disconnected from their surroundings, it may help
+             them to make contact with their current environment and themselves. You
+             can do this by asking them to:
+
+             »»   Place and feel their feet on the floor.
+             »»   Tap their fingers or hands on their lap.
+             »»   Notice some non-distressing things in their environment,
+                  such as things they can see, hear or feel. Have them tell you
+                  what they see and hear.
+             »»   Encourage the person to focus on their breathing, and to
+                  breathe slowly.
+
+
+
+
+23          Psychological first aid: Guide for field workers
+                 »»   Help people address basic needs and access services.
+                 »»   Help people cope with problems.
+    Link         »»   Give information.
+                 »»   Connect people with loved ones and social support.
+
+
+
+Although each crisis situation is unique, people who are affected often need the things
+listed in the following box.
+
+
+
+  Frequent needs:
+     »»   Basic needs, such as shelter, food, and water and sanitation.
+     »»   Health services for injuries or help with chronic (long-term) medical conditions.
+     »»   Understandable and correct information about the event, loved ones and
+
+
+
+
+                                                                                                      Chapter 3
+          available services.
+     »»   Being able to contact loved ones, friends and other social supports.
+     »»   Access to specific support related to one’s culture or religion.
+     »»   Being consulted and involved in important decisions.
+
+
+
+People may feel vulnerable, isolated or powerless after a distressing event. In some situations,
+their daily life is disrupted. They may be unable to access their usual supports, or they may
+find themselves suddenly living in stressful conditions. Linking people with practical support
+is a major part of PFA. Remember that PFA is often a one-time intervention and you may only
+be there to help for a short time. Affected people will need to use their own coping skills to
+recover in the long term.
+Help people to help
+themselves and to regain
+control of their situation.
+
+
+
+
+                                              Psychological first aid: Guide for field workers   24
+1. Help people address basic needs and access services
+In helping people to address basic needs, consider the following:
+
+     »»   Immediately after a crisis event, try to help the person in distress to meet the basic
+          needs they request, such as food, water, shelter and sanitation.
+     »»   Learn what specific needs people have – such as health care, clothing or items for
+          feeding small children (cups and bottles) – and try to link them to the help available.
+     »»   Make sure vulnerable or marginalized people are not overlooked (see Section 3.5).
+     »»   Follow up with people if you promise to do so.
+
+
+
+
+2. Help people cope with problems
+
+
+
+
+A person in distress can feel overwhelmed with worries and fears. Help them to consider
+their most urgent needs, and how to prioritize and address them. For example, you can
+ask them to think about what they need to address now, and what can wait for later.
+Being able to manage a few issues will give the person a greater sense of control in the
+situation and strengthen their own ability to cope. Remember to:
+
+     »»   help people identify supports in their life, such as friends or family, who can help
+          them in the current situation;
+     »»   give practical suggestions for people to meet their own needs (for example,
+          explain how the person can register to receive food aid or material assistance);
+     »»   ask the person to consider how they coped with difficult situations in the past, and
+          affirm their ability to cope with the current situation;
+     »»   ask the person what helps them to feel better. Encourage them to use positive
+          coping strategies and avoid negative coping strategies (see the following table).
+
+
+
+25         Psychological first aid: Guide for field workers
+Coping
+Everyone has natural ways of coping. Encourage people to use their own positive
+coping strategies, while avoiding negative strategies. This will help them feel stronger
+and regain a sense of control. You will need to adapt the following suggestions to take
+account of the person’s culture and what is possible in the particular crisis situation.
+
+ Encourage               »»   Get enough rest.
+ positive coping         »»   Eat as regularly as possible and drink water.
+ strategies
+                         »»   Talk and spend time with family and friends.
+                         »»   Discuss problems with someone you trust.
+                         »»   Do activities that help you relax (walk, sing, pray,
+                              play with children).
+                         »»   Do physical exercise.
+                         »»   Find safe ways to help others in the crisis and get
+                              involved in community activities.
+
+
+
+
+                                                                                                  Chapter 3
+ Discourage              »»   Don’t take drugs, smoke or drink alcohol.
+ negative coping         »»   Don’t sleep all day.
+ strategies
+                         »»   Don’t work all the time without any rest or relaxation.
+                         »»   Don’t isolate yourself from friends and loved ones.
+                         »»   Don’t neglect basic personal hygiene.
+                         »»   Don’t be violent.
+
+
+
+
+                                          Psychological first aid: Guide for field workers   26
+3. Give information
+People affected by a crisis event will want accurate information about:
+
+     »»   the event
+     »»   loved ones or others who are impacted
+     »»   their safety
+     »»   their rights
+     »»   how to access the services and things they need
+
+
+
+
+Getting accurate information after a crisis event may be difficult. The situation may
+change as information about the crisis event becomes known and relief measures are
+put in place. Rumours may be common. You may not have all the answers in any given
+moment, but wherever possible:
+
+     »»   find out where to get correct information, and when and where to get updates;
+     »»   try to get as much information as you can before you approach people to
+          offer support;
+     »»   try to keep updated about the state of the crisis, safety issues, available services,
+          and the whereabouts and condition of missing or injured people;
+     »»   make sure people are told what is happening and about any plans;
+     »»   if services are available (health services, family tracing, shelter, food distribution),
+          make sure people know about them and can access them;
+     »»   provide people contact details for services, or refer them directly;
+     »»   make sure vulnerable people also know about existing services (see Section 3.5).
+
+
+27         Psychological first aid: Guide for field workers
+In giving information to affected people:
+
+  »»   explain the source of the information you are providing and how reliable it is;
+  »»   only say what you know – do not make up information or give false reassurances;
+  »»   keep messages simple and accurate, and repeat the message to be sure people
+       hear and understand the information;
+  »»   it may be useful to give information to groups of affected people, so that everyone
+       hears the same message;
+  »»   let people know if you will keep them updated on new developments, including
+       where and when.
+
+When giving information, be aware that the helper can become a target of the frustration
+and anger people may feel when their expectations of help have not been met by you or
+others. In these situations, try to remain calm and be understanding.
+
+
+4. Connect with loved ones and social support
+It has been shown that people who feel they had good social support after a crisis cope
+
+
+
+
+                                                                                                     Chapter 3
+better than those who feel they were not well supported. Because of this, linking people
+with loved ones and social support is an important part of PFA.
+
+  »»   Help keep families together, and keep children with their parents and loved ones.
+  »»   Help people to contact friends and relatives so they can get support;
+       for example, provide a way for them to call loved ones.
+  »»   If a person lets you know that prayer, religious practice or support from religious
+       leaders might be helpful for them, try to connect them with their spiritual community.
+       See the following box for suggestions about crisis situations and spirituality.
+  »»   Help bring affected people together to help each other. For example, ask people to help
+       care for the elderly, or link individuals without family to other community members.
+
+
+
+
+                                             Psychological first aid: Guide for field workers   28
+     Crisis and spirituality
+     In crisis situations, a person’s spiritual or religious beliefs may be very important in
+     helping them through pain and suffering, providing meaning, and giving a sense
+     of hope. Being able to pray and practise rituals can be a great comfort. However,
+     the experience of crisis – particularly in the face of terrible losses – can also cause
+     people to question their beliefs. People’s faith may be challenged, made stronger or
+     changed by this experience. Here are some suggestions about the spiritual aspects
+     of providing care and comfort after a distressing event:
+
+       »»    Be aware of and respect the person’s religious background.
+       »»    Ask the person what generally helps them to feel better. Encourage them to do
+             things that help them to cope, including spiritual routines if they mention these.
+       »»    Listen respectfully, and without judgment, to spiritual beliefs or questions
+             the person may have.
+       »»    Don’t impose your beliefs, or spiritual or religious interpretations of the crisis,
+             on the person.
+       »»    Don’t agree with or reject a spiritual belief or interpretation of the crisis, even
+             if the person asks you to do so.
+
+
+
+
+ 3.4 Ending your help
+What happens next?
+When and how you
+stop providing help will
+depend on the context of
+the crisis, your role and
+situation, and the needs
+of the people you are
+helping. Use your best
+judgment of the situation,
+the person’s needs and
+your own needs.
+If appropriate, explain to the
+person that you are leaving, and if
+someone else will be helping them from that point on, try and introduce them to that
+person. If you have linked the person with other services, let them know what to expect
+and be sure they have the details to follow up. No matter what your experience has been
+with the person, you can say goodbye in a positive way by wishing them well.
+
+29          Psychological first aid: Guide for field workers
+ 3.5 People who likely need
+     special attention
+
+
+
+
+People who may be vulnerable and need special
+help in a crisis include:
+
+
+
+                                                                                                    Chapter 3
+  1. Children, including adolescents.
+  2. People with health conditions or disabilities.
+  3. People at risk of discrimination or violence.
+
+
+Remember that all people have resources to cope, including those who are
+vulnerable. Help vulnerable people to use their own coping resources and strategies.
+
+
+1. Children, including adolescents
+Many children – including adolescents – are particularly vulnerable in a crisis situation.
+Crisis events often disrupt their familiar world, including the people, places and routines
+that make them feel secure. Children who are affected by a crisis may be at risk of sexual
+violence, abuse and exploitation, which tends to be more common in the chaos of large
+crisis situations. Young children are often particularly vulnerable since they cannot meet
+their basic needs or protect themselves, and their caregivers may be overwhelmed. Older
+children may be trafficked, sexually exploited or recruited into armed forces. Girls and boys
+often face somewhat different risks. Usually girls face the greatest risk of sexual violence
+and exploitation, and those who have been abused may be stigmatized and isolated.
+
+How children react to the hardships of a crisis (for example, witnessing destruction,
+injury or death, being exposed to the elements, lack of food and water) depends on their
+
+
+                                            Psychological first aid: Guide for field workers   30
+age and developmental stage. It also depends on the ways their caregivers and other
+adults interact with them. For example, young children may not fully understand what
+is happening around them, and are especially in need of support from caregivers.
+In general, children cope better when they have a stable, calm adult around them.
+
+
+
+
+Children and young people may experience similar distress reactions as adults do
+(see Section 3.3). They may also have some of the following specific distress reactions 4:
+
+     »»    Young children may return to earlier behaviours (for example, bedwetting or
+           thumb-sucking), they may cling to caregivers, and reduce their play or use
+           repetitive play related to the distressing event.
+     »»    School-age children may believe they caused bad things to happen, develop new
+           fears, may be less affectionate, feel alone and be preoccupied with protecting or
+           rescuing people in the crisis.
+     »»    Adolescents may feel “nothing”, feel different
+           from or isolated from their friends, or they
+           may display risk-taking behaviour
+           and negative attitudes.
+
+
+
+
+4
+    See Pynoos, et al. (2009) in References and resources.
+
+
+
+31           Psychological first aid: Guide for field workers
+Family and other caregivers are important sources of protection and emotional support
+for children. Those separated from caregivers may find themselves in unfamiliar places
+and around unfamiliar people during a crisis event. They may be very fearful and may
+not be able to properly judge the risks and danger around them. An important first step is
+to reunite separated children – including adolescents – with their families or caregivers.
+Do not try to do this on your own. If you make mistakes, it will make the child’s situation
+worse. Instead, try to link immediately with a trustworthy child protection agency that
+can begin the process of registering the child and ensuring they are cared for.
+
+When children are with their caregivers, try to support the caregivers in taking care
+of their own children. The following box gives suggestions for how they can support
+children of different ages and developmental stages.
+
+
+
+  Things caregivers can do to help children
+
+    Infants      »»   Keep them warm and safe.
+                 »»   Keep them away from loud noises
+
+
+
+
+                                                                                                    Chapter 3
+                      and chaos.
+                 »»   Give cuddles and hugs.
+                 »»   Keep a regular feeding and sleeping
+                      schedule, if possible.
+                 »»   Speak in a calm and soft voice.
+
+    Young        »»   Give them extra time and attention.
+    children     »»   Remind them often that they are safe.
+                 »»   Explain to them that they are not to
+                      blame for bad things that happened.
+                 »»   Avoid separating young children
+                      from caregivers, brothers and
+                      sisters, and loved ones.
+                 »»   Keep to regular routines and
+                      schedules as much as possible.
+                 »»   Give simple answers about what
+                      happened without scary details.
+                 »»   Allow them to stay close to you if they are fearful or clingy.
+                 »»   Be patient with children who start demonstrating behaviours
+                      they did when they were younger, such as sucking their thumb
+                      or wetting the bed.
+                 »»   Provide a chance to play and relax, if possible.
+
+
+
+                                            Psychological first aid: Guide for field workers   32
+     Things caregivers can do to help children (continued)
+
+     Older                »»   Give them your time and attention.
+     children and         »»   Help them to keep regular routines.
+     adolescents
+                          »»   Provide facts about what happened and explain what is
+                               going on now.
+                          »»   Allow them to be sad. Don’t expect them to be tough.
+                          »»   Listen to their thoughts and fears without being judgmental.
+                          »»   Set clear rules and expectations.
+                          »»   Ask them about the dangers they face, support them and
+                               discuss how they can best avoid being harmed.
+                          »»   Encourage and allow opportunities
+                               for them to be helpful.
+
+
+
+
+If the caregiver is injured, extremely upset or otherwise cannot care for their children, you
+can arrange to get help for the caregiver and care for the children. Involve a trustworthy
+child protection agency or network, whenever possible. Keep children and their caregivers
+together, and try not to let them get separated. For example, if the caregiver is being
+transported somewhere for medical care, try to keep the children with them or take down
+the details of where the caregiver is being taken so they can be reunited.
+
+Also keep in mind that children may gather around a crisis setting and may witness horrific
+events, even if they or their caregivers are not directly affected by the event. In the chaos
+of a crisis, adults are often busy and may not be watching closely what children in the area
+are doing or what they see or hear. Try to shield them from upsetting scenes or stories.
+
+
+
+33      Psychological first aid: Guide for field workers
+  Things to say and do for children
+
+   Keep           »»   Keep them together with their caregivers and family
+   together            whenever possible. Try not to let them get separated.
+   with loved     »»   When unaccompanied, link them with a trustworthy
+   ones                child protection network or agency. Don’t leave the
+                       child unattended.
+                  »»   If no child protection agency is available, take steps
+                       yourself to find their caregivers or to contact other family
+                       who can care for them.
+
+   Keep safe      »»   Protect them from being exposed to any gruesome scenes,
+                       like injured people or terrible destruction.
+                  »»   Protect them from hearing upsetting stories about the event.
+                  »»   Protect them from the media or from people who want to
+                       interview them who are not part of the emergency response.
+
+
+
+
+                                                                                                 Chapter 3
+   Listen, talk   »»   Be calm, talk softly and be kind.
+   and play       »»   Listen to children’s views on their situation.
+                  »»   Try to talk with them on their eye level, and use words and
+                       explanations they can understand.
+                  »»   Introduce yourself by name and let them know you are
+                       there to help.
+                  »»   Find out their name, where they are from, and any
+                       information you can in order to help find their caregivers
+                       and other family members.
+                  »»   When they are with their caregivers, support the caregivers
+                       in taking care of their own children.
+                  »»   If passing time with children, try to involve them in play
+                       activities or simple conversation about their interests,
+                       according to their age.
+
+
+
+
+Remember that children also have their own resources for coping. Learn
+what these are and support positive coping strategies, while helping them to avoid
+negative coping strategies. Older children and adolescents can often help in crisis
+situations. Finding safe ways for them to contribute in the situation may help them
+to feel more in control.
+
+
+
+                                         Psychological first aid: Guide for field workers   34
+2. People with health conditions or physical or
+   mental disabilities
+
+
+
+
+People with chronic (long-term) health conditions, with physical or mental disabilities
+(including severe mental disorder), or who are elderly may need special help. This may
+include help to get to a safe place, to connect with basic support and health care, or to
+take care of themselves. The experience of a crisis event can make different types of
+health conditions worse, such as high blood pressure, heart conditions, asthma, anxiety
+and other health and mental disorders. Pregnant and nursing women may experience
+severe stress from the crisis that can affect their pregnancy, or their own and their infant’s
+health. People who cannot move on their own, or who have problems seeing or hearing,
+may have difficulty finding loved ones or accessing the services available.
+
+Here are some things you can do to help people with health conditions or disabilities:
+
+     »»   Help them to get to a safe place.
+     »»   Help them to meet their basic needs, such as being able to eat, drink, get clean
+          water, care for themselves, or to build shelter from materials handed out by agencies.
+     »»   Ask people if they have any health conditions, or if they regularly take medication
+          for a health problem. Try to help people get their medication or access medical
+          services, when available.
+     »»   Stay with the person or try to make sure they have someone to help them if you
+          need to leave. Consider linking the person with a protection agency or other
+          relevant support, to help them in the longer term.
+     »»   Give them information on how to access any services available.
+
+
+
+35         Psychological first aid: Guide for field workers
+3. People at risk of discrimination or violence
+
+People at risk of discrimination or violence may include women, people from certain
+ethnic or religious groups, and people with mental disabilities. They are vulnerable
+because they may be:
+
+  »»   left out when basic services are being provided;
+  »»   left out of decisions about aid, services or where to go; and
+  »»   targeted for violence, including sexual violence.
+
+People at risk of discrimination or violence may need special protection to be safe in
+a crisis situation, and may need extra help to address their basic needs and access
+available services. Be aware of these people and assist them by:
+
+  »»   helping them to find safe places to stay;
+  »»   helping them to connect with their loved ones and other trusted people; and
+  »»   providing them with information on available services and helping them to link
+       directly with those services when necessary.
+
+
+
+
+                                                                                                    Chapter 3
+
+
+
+
+                                            Psychological first aid: Guide for field workers   36
+Chapter 4
+Caring for yourself & your
+colleagues
+
+
+
+
+37   Psychological first aid: Guide for field workers
+In this chapter, we will discuss:
+  4.1	Getting ready to help.
+  4.2 Managing stress: Healthy work and life habits.
+  4.3	Rest and reflection.
+
+
+You or your family may be directly affected by the crisis situation. Even if you are not
+directly involved, you may be affected by what you see or hear while helping. As a helper,
+it is important to pay extra attention to your own wellbeing. Take care of yourself, so you
+can best take care of others!
+
+
+
+
+ 4.1 Getting ready to help
+Consider how you can best get ready to be a helper in crisis settings.
+Whenever possible:
+
+  »»   Learn about crisis situations, and
+       roles and responsibilities of different
+       kinds of helpers.
+  »»   Consider your own health, and
+       personal or family issues that may
+       cause severe stress as you take on a
+       helping role for others.
+  »»   Make an honest decision about
+
+
+
+
+                                                                                                     Chapter 4
+       whether you are ready to help in
+       this particular crisis situation and at
+       this particular time.
+
+
+
+
+                                             Psychological first aid: Guide for field workers   38
+ 4.2 M anaging stress:
+      Healthy work
+      and life habits
+
+
+
+
+A main source of stress for helpers is day-to-day job stress, particularly during a crisis.
+Long working hours, overwhelming responsibilities, lack of a clear job description,
+poor communication or management, and working in areas which are not secure are
+examples of job-related stress that can affect helpers.
+
+As a helper, you may feel responsible for people’s safety and care. You may witness or
+even directly experience terrible things, such as destruction, injury, death or violence.
+You may also hear stories of other people’s pain and suffering. All of these experiences
+can affect you and your fellow helpers.
+
+Consider how you can best manage your own stress, to support and be supported by your
+fellow helpers. The following suggestions may be helpful in managing your stress.
+
+     »»   Think about what has helped you cope in the past and what you can do to
+          stay strong.
+     »»   Try to take time to eat, rest and relax, even for short periods.
+     »»   Try to keep reasonable working hours so you do not become too exhausted.
+          Consider, for example, dividing the workload among helpers, working in shifts
+          during the acute phase of the crisis and taking regular rest periods.
+     »»   People may have many problems after a crisis event. You may feel
+          inadequate or frustrated when you cannot help people with all of their
+          problems. Remember that you are not responsible for solving all of
+          people’s problems. Do what you can to help people help themselves.
+     »»   Minimize your intake of alcohol, caffeine or nicotine and avoid non-
+          prescription drugs.
+     »»   Check in with fellow helpers to see how they are doing, and have them check
+          in with you. Find ways to support each other.
+     »»   Talk with friends, loved ones or other people you trust for support.
+
+
+
+
+39         Psychological first aid: Guide for field workers
+ 4.3 Rest and reflection
+Taking time for rest and reflection is an important part of ending your helping role. The
+crisis situation and needs of people you have met may have been very challenging, and
+it can be difficult to bear their pain and suffering. After helping in a crisis situation, take
+time to reflect on the experience for yourself and to rest. The following suggestions may
+be helpful to your own recovery.
+
+  »»   Talk about your experience of helping in the crisis situation with a supervisor,
+       colleague or someone else you trust.
+  »»   Acknowledge what you were able to do to help others, even in small ways.
+  »»   Learn to reflect on and accept what you did well, what did not go very well, and
+       the limits of what you could do in the circumstances.
+  »»   Take some time, if possible, to rest and relax before beginning your work and life
+       duties again.
+
+If you find yourself with upsetting thoughts or memories about the event, feel very
+nervous or extremely sad, have trouble sleeping, or drink a lot of alcohol or take
+drugs, it is important to get support from someone you trust. Speak to a health care
+professional or, if available, a mental health specialist if these difficulties continue for
+more than one month.
+
+
+
+
+                                                                                                       Chapter 4
+
+
+
+
+                                              Psychological first aid: Guide for field workers    40
+Chapter 5
+Practise what you have
+learned
+41   Psychological first aid: Guide for field workers
+The following case scenarios are examples of crisis
+events you may deal with in your role as a helper.
+As you read these scenarios, imagine:
+  1.   What would you need most urgently if something like this happened to you?
+  2.   What would you find most helpful?
+
+Keep in mind the PFA action principles of look, listen and link as you imagine how you
+would respond to people in each scenario. We have included some important questions
+to help you think through what to consider and ways to respond.
+
+
+
+
+ 5.1 Case scenario 1: Natural disaster
+
+
+
+
+                                                                                                  Chapter 5
+You hear that a large earthquake has suddenly hit the centre of the city in the middle of
+the working day. Many people have been affected and buildings have fallen. You and
+your colleagues felt the shaking, but are okay. The extent of the damage is unclear. The
+agency you work for has asked you and your colleagues to help survivors, and to support
+any severely affected people you encounter.
+
+
+                                          Psychological first aid: Guide for field workers   42
+As you prepare to help, ask yourself the following questions:
+
+     »»    Am I ready to help? What personal concerns might be important?
+     »»    What information do I have about the crisis situation?
+     »»    Will I travel alone or together with colleagues? Why or why not?
+
+
+
+     Things to consider:
+          »»    When going to help in a crisis situation – particularly immediately after a
+                mass disaster – consider the advantages of working in a team or in pairs.
+                Working in teams will help you to have support and back-up in difficult
+                situations and is important for your safety. You can also be more effective in
+                a team. For example, one person can stay with someone who is distressed
+                while the other person can focus on finding special help such as medical
+                care, if needed. If possible, try to have a “buddy system” where you and a
+                fellow helper can check in with each other for support and help.
+          »»    Some agencies may be able to give you support, such as supplies,
+                transportation, communication equipment, updated information about
+                the situation or security issues, and coordination with other team
+                members or services.
+
+
+
+
+As you move about the city, what should you look for?
+
+     »»    Is it safe enough to be at the crisis site?
+     »»    What services and supports are available?
+     »»    Are there people with obvious urgent basic needs?
+     »»    Are there people with obvious serious emotional reactions?
+     »»    Who may likely be in need of special help?
+     »»    Where can I provide PFA?
+
+
+As you approach people, how can you best listen to their concerns and give comfort?
+
+     »»    What basic needs may affected people have?
+     »»    How will I identify and introduce myself to offer support?
+     »»    What does it mean in this situation to help keep affected people safe from harm?
+     »»    How will I ask people about their needs and concerns?
+     »»    How can I best support and comfort affected people?
+
+
+43             Psychological first aid: Guide for field workers
+Sample conversation with a distressed adult
+In this conversation, you have come to a woman standing outside the rubble of
+a fallen building. She is crying and shaking, although she does not appear to be
+physically injured.
+
+You: Hello, my name is __. I’m working with the agency __. May I talk with you?
+
+Woman: It’s terrible! I was going into the building when it started shaking! I don’t
+understand what’s happening!
+
+You: Yes, it was an earthquake and I can imagine it was terrible for you. What is
+your name?
+
+Woman: I’m Jasmina - Jasmina Salem. I’m very scared! [shaking, crying] I wonder if
+I should go in there and try to find my colleagues? I don’t know if they’re all right!
+
+You: Ms. Salem, it’s not safe at all to go in the building now, you may get hurt. If you
+like, we can talk just over there where the area is safer and I can sit with you for a
+while. Would you like that?
+
+Woman: Yes, please. [You move to a quieter place a short distance away from the
+scene of the fallen building where rescue and medical people are working.]
+
+You: Can I get you some water? [If available, offer practical comfort like water or a blanket.]
+
+Woman: I just want to sit here a moment.
+
+[You sit quietly near the woman in silence for two to three minutes, until she begins to
+speak again.]
+
+Woman: I feel terrible! I should have stayed in the building to help people!
+
+You: I can understand that.
+
+Woman: I ran outside. But I feel so badly for the other people!
+
+You: It’s difficult to know what to do in a situation like this. But it sounds as though you
+
+
+
+
+                                                                                                       Chapter 5
+acted on good instincts when you ran from the building, or you might have been injured.
+
+Woman: I saw them take a body out of the rubble. I think it was my friend! [crying]
+
+You: I’m so sorry. There is a rescue team working, and we will find out later how
+the people are who were in the building.
+
+
+
+                                             Psychological first aid: Guide for field workers     44
+     [The conversation continues for another 10 minutes with you listening to the woman’s
+     story and asking for her needs and concerns. The conversation wraps up as follows:]
+
+     Woman: I need to find out if my family is all right, but I lost my phone when the
+     shaking started, and I don’t know how to get home.
+
+     You: I can help you call your family, and then we can figure out together how you
+     can get to them.
+
+     Woman: Thank you. That would help a lot.
+
+
+
+
+In this sample conversation, notice that you:
+
+     »»   introduced yourself by name and told the person the agency you work for;
+     »»   asked the person if they would like to talk;
+     »»   addressed the person by their name, respectfully using the last name;
+     »»   protected the distressed person from further harm by moving to a safer place;
+     »»   offered the distressed person some comfort (for example, some water);
+     »»   listened and stayed near the person, without forcing them to talk;
+     »»   reflected back to the person ways they had acted appropriately;
+     »»   took the time to listen;
+     »»   identified the person’s needs and concerns;
+     »»   acknowledged the person’s worry over the possible loss of colleagues;
+     »»   offered to help connect the person with their family members.
+
+
+What can you do to link people with information and practical support?
+
+     »»   What challenges might there be in this situation to finding out about available
+          resources (food, shelter, water) or services for affected people?
+     »»   What worries and concerns may be on people’s minds? What practical suggestions
+          could I give to help them address their problems?
+     »»   What information will affected people want? Where will I find updated and reliable
+          information about the crisis event?
+     »»   What can I do to connect people with their loved ones or services? What
+          challenges might there be?
+     »»   What may children and adolescents or people with health conditions need? How
+          can I help link vulnerable people with loved ones and services?
+
+
+45         Psychological first aid: Guide for field workers
+ 5.2 Case scenario 2: Violence and
+     displacement
+
+
+
+
+Refugees are being brought to a new location in trucks and told that they will be living in
+this new place. They were moved because of the war in their previous area. As they get
+off the trucks, some of them are crying, some appear very fearful, some seem disoriented,
+while others are sighing with relief. Most are afraid and doubtful of this new place, and have
+no idea where they will sleep, eat or receive health care. Some seem scared when they hear
+any loud noise, thinking they are hearing gunfire again. You are a volunteer with an agency
+that distributes food items and have been asked to help out at distribution sites.
+
+
+As you prepare to help, consider what you would like to know about this situation:
+
+  »»   Who are the people I will be helping? What is their cultural background?
+  »»   Are there any rules of conduct or customs I need to follow? For example, is it more
+
+
+
+
+                                                                                                    Chapter 5
+       appropriate for women helpers to speak with women refugees?
+  »»   How far have they travelled? What do I know about the conflict they have experienced?
+  »»   What services are being provided in the place the refugees are being received?
+  »»   If I am working in a team, how will we organize ourselves to help in this situation?
+       What tasks will each person take on? How will we coordinate with each other and
+       with other groups of helpers who may be there?
+
+
+                                            Psychological first aid: Guide for field workers   46
+As you encounter the group of refugees, what should you look for?
+
+     »»   What will most of the refugees need? Will they be hungry, thirsty or tired? Is
+          anyone injured or ill?
+     »»   Are there families or people from the same village within the refugee group?
+     »»   Are there any unaccompanied children or adolescents? Who else may need
+          special help?
+     »»   Individuals in the refugee group seem to be having different types of reactions to
+          the crisis. What kinds of serious emotional responses do you see?
+
+
+As you approach people among the refugee group, how can you best listen to their
+concerns and give comfort?
+
+     »»   How will I introduce myself to offer support?
+     »»   People who experienced or witnessed violence may be very frightened and feel
+          unsafe. How can I support them and help them feel calm?
+     »»   How can I find out the needs and concerns of people who may need special help,
+          such as women?
+     »»   How will I approach and help unaccompanied children and adolescents?
+
+
+
+     Sample conversation with an unaccompanied child
+     At the edge of the refugee group, you notice a boy of about 10 years old standing
+     alone and looking very frightened.
+
+     You [getting down on one knee at the eye level of the child]: Hi, my name is ___. I’m
+     with ___agency and I’m here to help. What is your name?
+
+     Child [looking down and speaking softly]: Adam.
+
+     You: Hi Adam. You just had a long ride to get here. Are you thirsty? [Offer something to eat
+     or drink or some other practical comfort like a blanket if you have it.] Where is your family?
+
+     Child: I don’t know. [beginning to cry]
+
+     You: I can see you’re scared, Adam. I will try to help you and connect you with
+     people who will help to locate your family. Can you tell me your surname and where
+     you are from?
+
+     Child: Yes, I’m Adam Duvall. I’m from __ village.
+
+
+
+47         Psychological first aid: Guide for field workers
+  You: Thank you, Adam. When is the last time you saw your family?
+
+  Child: My older sister was there when the trucks came to bring us here. But now I
+  can’t find her.
+
+  You: How old is your sister? What is her name?
+
+  Child: Her name is Rose. She’s 15.
+
+  You: I will try to help you find your sister. Where are your parents?
+
+  Child: We all ran from the village when we heard the gunfire. We got lost from my
+  parents. [crying]
+
+  You: I’m sorry, Adam. That must have been scary for you, but you’re safe now.
+
+  Child: I am scared!
+
+  You [in a warm, natural manner]: I understand. I would like to help you.
+
+  Child: What should I do?
+
+  You: I can stay with you for a while, and we can try to find your sister. Would you like that?
+
+  Child: Yes, thank you.
+
+  You: Is there anything else worrying you or anything that you need?
+
+  Child: No.
+
+  You: Adam, it is important that we talk with the people over there who can help find your
+  sister or other family. I will go with you to talk to them. [It is essential to help the child to
+  register with a reputable family tracing or child protection organization, if available.]
+
+
+
+
+In this sample conversation, notice that you:
+
+
+
+
+                                                                                                           Chapter 5
+  »»   saw an unaccompanied child in the crowd of refugees;
+  »»   got down on one knee to speak with the child on his eye level;
+  »»   spoke calmly and kindly to the child;
+  »»   found out information about the child’s family, including the name of his sister;
+  »»   stayed with the child while identifying a trustworthy family tracing organization
+       that could organize a safe place for the child to stay until his family is found.
+
+
+                                                Psychological first aid: Guide for field workers      48
+What can you do to link people with information and practical support?
+
+     »»   What basic needs might people have? What services do I know are available? How
+          can people access them?
+     »»   What accurate information do I have about the plans for caring for these refugees?
+          When and where can people find more information about what is happening?
+     »»   How can I help to protect vulnerable people, such as women or unaccompanied
+          children, from further harm? How can I help link vulnerable people with loved
+          ones and services?
+     »»   What special needs might people have, including those who have been exposed
+          to violence?
+     »»   What can I do to connect people with their loved ones or services?
+
+
+
+
+ 5.3 Case scenario 3: Accident
+
+
+
+
+You are travelling on a busy village road in a safe part of the country when up ahead you see
+an accident. It appears a man who was crossing the road with his wife and young daughter
+was hit by a passing car. The man is lying on the ground, bleeding and not moving. His wife
+and daughter are near him. His wife is crying and shaking, while his daughter is standing
+motionless and silent. Some villagers are gathering on the road near the scene of the accident.
+
+You need to react quickly in this situation, but take a moment to stay calm and consider
+the following as you prepare to help:
+
+
+49         Psychological first aid: Guide for field workers
+  »»   Are there any safety concerns for me or others?
+  »»   How can I address the situation?
+  »»   What needs to be done urgently, particularly for the man who is seriously injured?
+
+
+What is important to look for?
+
+  »»   Who needs assistance? What kind of assistance do they need?
+  »»   What assistance can I provide myself and what special help is needed?
+  »»   Who can I ask to help me? What help could the people who are gathering around
+       the site provide? In what ways might they interfere or not be helpful?
+
+
+As you make contact with the people involved in the accident, how can you best listen
+and provide comfort?
+
+  »»   How will I identify and introduce myself to offer support?
+  »»   How can I help to keep people safe from further harm? Are there special concerns
+       for the daughter who has witnessed her father’s injury and appears dazed and
+       shocked? Can her mother care for and comfort her at this time?
+  »»   Where can I provide PFA that is safe and relatively quiet?
+  »»   How will I ask people about their needs and concerns?
+  »»   How can I give affected people comfort and help them to feel calm?
+
+
+
+
+  Sample conversation and actions:
+  medical emergency
+  As you make a quick scan of the accident, you look to make sure you can approach
+  the scene of the accident safely. The road is a busy one and there is some traffic still
+  passing by the affected people and the onlookers. You are also worried the father
+  may be seriously injured.
+
+  You: Has anybody called for an ambulance?
+
+
+
+
+                                                                                                    Chapter 5
+  Villagers: No.
+
+  You [to a nearby villager]: Could you please call for an ambulance right away?
+
+  Villager: Yes, I will!
+
+
+
+
+                                            Psychological first aid: Guide for field workers   50
+     You [to other onlookers]: We need to try to redirect the traffic. Can you please help
+     with this?
+
+     [Some villagers go to flag down the passing cars and redirect traffic.]
+
+     [As you approach the affected people, you notice one of the villagers is about to move
+     the injured man.]
+
+     You: Please don’t move him! He may have an injury to his neck. An ambulance has
+     been called.
+
+     [If you or someone nearby is trained to do so, give physical first aid to the injured
+     man. Check or ask someone around you to help make sure the wife and daughter are
+     not injured. Once the injured man is attended to appropriately, and you are sure the
+     other affected people are not seriously injured, provide PFA.]
+
+     You [to the wife]: My name is ___. An ambulance has been called. Are you or your
+     daughter injured?
+
+     Wife [sobbing and shaking]: No, I’m not hurt.
+
+     You [to the wife, calmly and warmly]: What is your name?
+
+     Wife [crying]: Hanna, you can call me Hanna…Oh, my husband! My husband!
+
+     You: Hanna, I understand that you are very frightened. An ambulance has been
+     called to help your husband. I will stay with you for a while. Do you and your
+     daughter have any other needs or concerns right now?
+
+     Wife: Is my daughter OK?
+
+     You: Your daughter does not seem to be injured. Can you tell me her name so I can
+     talk to her?
+
+     Wife [reaching out to take her daughter’s hand]: This is Sarah.
+
+     You [warmly and on the eye level of the child]: Hi Sarah. My name is ___. I’m here
+     to help you and your mom.
+
+     [The conversation continues and you learn that the daughter is not talking. The
+     mother says this is unusual for her daughter, but stays focused on her husband. The
+     mother also says she wants to go with the father to the hospital to stay with him. The
+     daughter is at risk of spending the evening alone at home.]
+
+
+
+
+51        Psychological first aid: Guide for field workers
+  You: Hanna, it would be much better if your daughter stays with you or someone
+  you trust. She seems to be very frightened by what happened and it is best for her
+  not to be left alone right now. Is there someone you trust who could stay with her?
+
+  Wife: Yes, my sister could help. Sarah likes her very much.
+
+  You: Can I help you to call your sister?
+
+  Wife: Yes, please!
+
+  [You help the wife to contact her sister and it is arranged that the daughter will be
+  with her aunt for the evening. You also advise the mother to bring the daughter to a
+  health clinic if she stays silent over the coming days.]
+
+  You: When the ambulance arrives, I will find out where they will take your husband
+  and let you know if you and your daughter can go with them.
+
+  [When the ambulance arrives, you find out how the family can be kept together when
+  the injured man is taken to hospital.]
+
+
+
+In this sample conversation and actions, notice that you:
+
+  »»   first quickly scanned the crisis situation to be sure it was safe to enter and to see
+       who was seriously injured;
+  »»   made sure an ambulance was called immediately for the injured man, and
+       prevented him from being moved and possibly injured further;
+  »»   tried to work in a way that prevented further harm or danger to others (for
+       example, being careful of the traffic in the road);
+  »»   spoke respectfully and warmly to the wife and daughter;
+  »»   addressed the child on her eye level;
+  »»   helped the wife to make appropriate arrangements to look after her daughter;
+  »»   took steps to help the family stay together when the injured man was taken to hospital.
+
+
+
+
+                                                                                                     Chapter 5
+What can you do to link people with information and practical support?
+
+  »»   What basic needs may the non-injured, distressed people in this crisis situation have?
+  »»   What worries and concerns may be on the minds of the different people in this scenario?
+  »»   What information will they want?
+  »»   What can I do to connect people with their loved ones who may help to support them?
+
+
+                                             Psychological first aid: Guide for field workers   52
+       Psychological first aid: Pocket guide
+
+What is PFA?
+Psychological first aid (PFA) describes a
+humane, supportive response to a fellow human
+being who is suffering and who may need support.
+
+Providing PFA responsibly means:
+
+  1.   Respect safety, dignity and rights.
+  2.   Adapt what you do to take account of the person’s culture.
+  3.   Be aware of other emergency response measures.
+  4.   Look after yourself.
+
+
+
+                 »»   Learn about the crisis event.
+  Prepare        »»   Learn about available services and supports.
+                 »»   Learn about safety and security concerns.
+
+
+
+
+PFA Action Principles:
+
+
+                 »»   Check for safety.
+  Look           »»   Check for people with obvious urgent basic needs.
+                 »»   Check for people with serious distress reactions.
+
+
+                 »»   Approach people who may need support.
+  Listen         »»   Ask about people’s needs and concerns.
+                 »»   Listen to people, and help them to feel calm.
+
+
+                 »»   Help people address basic needs and access services.
+                 »»   Help people cope with problems.
+  Link           »»   Give information.
+                 »»   Connect people with loved ones and social support.
+Ethics:
+
+
+
+
+                                                                                               pfa pocket guide
+Ethical do’s and don’ts are offered as guidance to avoid causing further harm to the
+person, to provide the best care possible and to act only in their best interest. Offer help
+in ways that are most appropriate and comfortable to the people you are supporting.
+Consider what this ethical guidance means in terms of your cultural context.
+
+
+
+
+    »»    Be honest and trustworthy.                »»   Don’t exploit your relationship
+    »»    Respect people’s right to make                 as a helper.
+          their own decisions.                      »»   Don’t ask the person for any
+                                                         money or favour for helping them.
+    »»    Be aware of and set aside your
+          own biases and prejudices.                »»   Don’t make false promises or
+                                                         give false information.
+    »»    Make it clear to people that
+          even if they refuse help now,             »»   Don’t exaggerate your skills.
+          they can still access help in             »»   Don’t force help on people, and
+          the future.                                    don’t be intrusive or pushy.
+    »»    Respect privacy and keep the              »»   Don’t pressure people to tell you
+          person’s story confidential, if                their story.
+          this is appropriate.                      »»   Don’t share the person’s story
+    »»    Behave appropriately by                        with others.
+          considering the person’s                  »»   Don’t judge the person for their
+          culture, age and gender.                       actions or feelings.
+
+
+
+
+People who need more than PFA alone:
+Some people will need much more than PFA alone. Know your limits and ask for help
+from others who can provide medical or other assistance to save life.
+
+
+
+  People who need more advanced support immediately:
+     »»    People with serious, life-threatening injuries who need emergency medical care.
+     »»    People who are so upset that they cannot care for themselves or their children.
+     »»    People who may hurt themselves.
+     »»    People who may hurt others.
+     References
+     & resources
+     Bisson, JI & Lewis, C. (2009), Systematic Review of Psychological First Aid. Commissioned by the
+     World Health Organization (available upon request).
+
+     Brymer, M, Jacobs, A, Layne, C, Pynoos, R, Ruzek, J, Steinberg, A, et al. (2006). Psychological First
+     Aid: Field operations guide (2nd ed.). Los Angeles: National Child Traumatic Stress Network and
+     National Center for PTSD. http://www.nctsn.org/content/psychological-first-aid and
+     http://www.ptsd.va.gov/professional/manuals/psych-first-aid.asp
+
+     Freeman, C, Flitcroft, A, & Weeple, P. (2003) Psychological First Aid: A Replacement for
+     Psychological Debriefing. Short-Term post Trauma Responses for Individuals and Groups. The
+     Cullen-Rivers Centre for Traumatic Stress, Royal Edinburgh Hospital.
+
+     Hobfoll, S, Watson, P, Bell, C, Bryant, R, Brymer, M, Friedman, M, et al. (2007) Five essential elements
+     of immediate and mid-term mass trauma intervention: Empirical evidence. Psychiatry 70 (4): 283-315.
+
+     Inter-Agency Standing Committee (IASC) (2007). IASC Guidelines on Mental Health and
+     Psychosocial Support in Emergency Settings. Geneva: IASC.
+     http://www.who.int/mental_health_psychosocial_june_2007.pdf
+
+     International Federation of the Red Cross (2009) Module 5: Psychological First Aid and Supportive
+     Communication. In: Community-Based Psychosocial Support, A Training Kit (Participant’s Book and
+     Trainers Book). Denmark: International Federation Reference Centre for Psychosocial Support.
+     Available at: www.ifrc.org/psychosocial
+
+     Pynoos, R, Steinberg, A, Layne, C, Briggs, E, Ostrowski, S and Fairbank, J. (2009). DSM-V
+     PTSD Diagnostic Criteria for Children and Adolescents: A developmental perspective and
+     recommendations. Journal of Traumatic Stress 22 (5): 391-8.
+
+     The Sphere Project (2011) Humanitarian Charter and Minimum Standards in Disaster Response.
+     Geneva: The Sphere Project. http://www.sphereproject.org.
+
+     TENTS Project Partners. The TENTS Guidelines for Psychosocial Care following Disasters and Major
+     Incidents. Downloadable from http://www.tentsproject.eu.
+
+     War Trauma Foundation and World Vision International (2010). Psychological First Aid Anthology of
+     Resources. Downloadable from: www.wartrauma.nl and www.interventionjournal.com
+
+     World Health Organization (2010). mhGAP Intervention Guide for Mental Health, Neurological and
+     Substance Use Disorders in Non-specialized Health Settings. Geneva: WHO Mental Health Gap
+     Action Programme. http://www.who.int/mental_health/mhgap
+
+
+
+
+55        Psychological first aid: Guide for field workers
+notes
+
+
+
+                                                                references & resources
+
+
+
+
+        Psychological first aid: Guide for field workers   56
+This manual has been endorsed by...
+
+
+Action Contre la Faim
+
+
+American Red Cross
+
+
+CARE Austria
+
+
+Church of Sweden
+
+
+HealthNet TPO
+
+International Committee
+of the Red Cross
+
+
+International Medical Corps
+
+International Organization
+for Migration
+
+
+Medicos del Mundo
+
+
+Mercy Corps
+
+
+NGO Forum for Health
+
+Office of the United Nations High
+Commissioner for Human Rights
+
+
+Plan International
+
+Regional Phsychosocial Support
+Initiative - REPSSI
+
+
+Terre des Hommes
+
+
+UNICEF
+
+United Nations Department
+of Management
+
+United Nations Department
+of Safety and Security
+
+United Nations High
+Commissioner for Refugees
+
+
+War Child
+

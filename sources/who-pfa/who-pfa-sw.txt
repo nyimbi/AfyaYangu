@@ -1,0 +1,2227 @@
+Huduma ya Kwanza ya Usaidizi wa Kisaikolojia:
+Mwongozo kwa wahudumu walio mashinani
+Published by the World Health Organization in 2011 under the title Psychological first aid:
+Guide for field workers © World Health Organization 2011 The World Health Organization
+has granted translation and publication rights for an edition in Kiswahili to World Vision
+Kenya, which is solely responsible for the quality and faithfulness of the Kiswahili version.
+In the event of any inconsistency between the English and the Kiswahili versions, the
+original English version shall be the binding and authentic version.
+‘
+1. Njia za kusaidia katika hali ya hatari - mbinu. 2. Majanga. 3. Huduma za dharura za
+kimatibabu. 4. Mabadiliko ya kisaikolojia. 5. Huduma ya kwanza - saikolojia. 6. Matatizo
+ya mfadhaiko, mshtuko wa kiakili. 7. Miongozo.
+
+Huduma ya Kwanza ya Usaidizi wa Kisaikolojia (HKK): Mwongozo kwa wahudumu
+walio mashinani © World Vision Kenya 2015
+
+Waandishi na Wahariri Leslie Snider (War Trauma Foundation, WTF), Mark van Ommeren
+(Shirika la Afya Duniani, WHO) na Alison Schafer (Shirika la Kimatifa la World Vision,
+WVI).
+
+Mwongozo umetafsiriwa na kuhaririwa kutoka kwa Kiingereza hadi Kiswahili kwa
+usimamizi na uongozi wa Dkt. Iribe Mwangi akishirikiana na Dkt. Evans Mbuthia wote
+kutoka Idara ya Kiswahili, Chuo Kikuu cha Nairobi. Msaidizi wa tafsiri amekuwa John
+Paul Warambo wa TWB-K. Mwelekeo wa kitaaluma kuhusu afya ya kiakili umetolewa na
+Lincoln Ndogoni na Dorothy Anjuri wa World Vision Kenya.
+                                                Mwongozo kwa wahudumu walio mashinani
+
+
+
+
+Huduma ya Kwanza ya Usaidizi wa Kisaikolojia:
+Mwongozo kwa wahudumu walio mashinani
+DIBAJI
+Matukio mabaya yakitokea katika jamii zetu, nchi zetu na ulimwenguni, huwa tunataka kutoa
+usaidizi kwa waathiriwa. Mwongozo huu unashughulikia Huduma ya kwanza ya kiakili
+(kisaikolojia) ambayo inahusu usaidizi wa kiutu na kihalisia inayotolewa kwa binadamu wengine
+wanaopitia matukio ya hatari. Mwongozo huu umeandikiwa wasaidizi wa watu wanaopitia tukio la
+kufadhaisha sana. Mwongozo unaonyesha njia za kusaidia watu kwa kuheshimu utu wao, tamaduni
+na uwezo wao. Mbali na anwani yake, Mwongozo wa Huduma ya kwanza unashughulikia pia
+usaidizi wa kijamii na kisaikolojia.
+
+Pengine umeitwa kama mfanyikazi au msaidizi kusaidia katika janga kuu au umejipata katika eneo la
+ajali ambapo watu wamejeruhiwa. Pengine wewe ni mwalimu au mhudumu wa kiafya
+unayezungumza na mtu kutoka jamii yako ambaye ameshuhudia kifo cha mpendwa wake.
+Mwongozo huu utakusaidia kujua mambo ya kufanya au kusema kuwasaidia watu waliofadhaika.
+Mwongozo huu utakupa habari ya jinsi ya kushughulikia hali geni inayotatiza kwa usalama wako na
+wengine na kutosababisha madhara kwa matendo yako.
+
+Mwongozo wa Huduma ya kwanza ya kisaikolojia umependekezwa na mashirika ya kimataifa na
+makundi mengi ya kiufundi ya kitaifa ikiwa ni pamoja na kamati ya Inter-Agency Standing
+Committee (IASC) na Sphere Project. Huu ni mwongozo wa huduma mbadala wa tiba ya kupunguza
+mfadhaiko. Mwaka wa 2009, kikundi andalizi cha Mwongozo wa Shirika la Afya Duniani kilikagua
+ithibati za mwongozo wa huduma ya kwanza ya kisaikolojia na tiba ya kupunguza mfadhaiko.
+Kikindi hicho kilipendekeza kwamba watu walio na mfadhaiko mkali kufuatia tukio la kushtua
+wapatiwe huduma ya kwanza ya kisaikolojia badala ya tiba ya kupunguza mfadhaiko.
+
+Mwongozo huu uliandaliwa ili uwe nakala ya huduma ya kwanza ya kisaikolojia iliyokubalika
+kutumika katika nchi zenye mapato ya chini na ya juu. Habari tulizotoa hapa ni mfano tu.
+Utahitajika kuubadilisha kuafikiana na muktadha wa mashinani wa watu utakaowasaidia.
+
+Mwongozo huu – ulioidhinishwa na mashirika ya kimataifa – unatoa mashauri yanayofuata
+makubaliano ya kisayansi na kimataifa ya jinsi ya kuwasaidia watu ambao wamepitia matukio ya
+kufadhaisha sana.
+
+
+
+
+           Shekhar Saxena                 Stefan Germann                Marieke Schouten
+              Mkurugenzi                     Mkurugenzi                     Mkurugenzi
+      Idara ya Afya ya Kiakili na    Learning and Partnerships,      Wakfu walio na mshtuko wa
+     matumizi ya Dawa za kulevya         Global Health Team                     Vita
+        Shirika la Afya Duniani     Shirika la Kimataifa ya World
+                                                Vision
+
+
+
+ii     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+                                                                                                                                         DIBAJI na SHUKRANI
+  SHUKRANI
+Waandishi na Wahariri
+Leslie Snider (War Trauma Foundation, WTF), Mark van Ommeren (Shirika la Afya Duniani, WHO) na Alison Schafer (Shirika la
+Kimatifa la World Vision, WVI).
+
+Waandalizi (kialfabeti)
+Stefan Germann (WVI), Erin Jones (WVI), Relinde Reiffers (WTF), Marieke Schouten (WTF), Shekhar Saxena (WHO), Alison
+Schafer (WVI), Leslie Snider(WTF), Mark van Ommeren (WHO).
+
+Wachoraji
+Vielelezo na Julie Smith (PD Consulting), Michoro na usanifu na Adrian Soriano(WVI), Uratibishaji wa michoro na Andrew
+Wadey (WVI).
+
+Ufadhili
+Shirika la Kimataifa la World Vision
+
+Uidhinishaji
+Mwongozo huu umeidhinishwa na mashirika 23 ya Kimataifa (tazama majina na nembo katika jalada ya mbele na nyuma)
+pamoja na shirika la Médecins Sans Frontières (MSF).
+
+Wachangiaji na Wahakiki
+Numan Ali (Baghdad Teaching Hospital, Iraq), Amanda Allan (Mandala Foundation, Australia),Abdalla Mansour Amer ( Idara
+ya Usalama na Ulinzi ya Umoja wa Mataifa), Mary Jo Baca (International Medical Corps, Jordan), Nancy Baron (Global Psycho-
+Social Initiatives, Egypt), Pierre Bastin (Médecins Sans Frontières, Switzerland), Nancy Beaudoin (Consultant, France), Endry
+van den Berg (War Child Holland, the Netherlands), Elsa Berglund (Church of Sweden, Sweden), Sandra Bernhardt (Action
+Contre le Faim, France), Cecile Bizouerne (Action Contre le Faim, France), Margriet Blaauw (War Child Holland, the
+Netherlands), Martha Bragin (CARE, USA), Maria Bray (Terre des Hommes, Switzerland), Chris Brewin (University College
+London, United Kingdom), Melissa Brymer (National Center for Child Traumatic Stress, USA), Susie Burke (Australian
+Psychological Society, Australia), Sonia Chehil (Dalhousie University, Canada), Eliza Cheung (Chinese University of Hong
+Kong, People's Republic of China), Tatyana Chshieva (Dostizhenia Achievements Foundation, Russian Federation), Laetitia
+Clouin (Consultant, France), Penelope Curling (UNICEF), Jeanette Diaz-Laplante (University of West Georgia, USA), Annie
+Sophie Dybdal (Save the Children, Denmark), Tonka Eibs (CARE, Austria), Carina Ferreira-Borges (Shirikala Afya Duniani, Tifa
+ka Congo), Amber Gray (Restorative Resources, USA), Lina Hamdan (World Vision, Jordan), Sarah Harrison (Church of Sweden,
+Sweden), Michael Hayes (Save the Children, USA), Takashi Isutzu (Idara ya Usimamizi ya Umoja wa Mataifa), Kaz de Jong
+(Médecins Sans Frontières, the Netherlands), Mark Jordans (HealthNet TPO, Nepal), Siobhan Kimmerle (World Vision
+International, Jordan), Patricia Kormoss (Shirika la Afya Duniani, Switzerland), Unni Krishnan (Plan International, United
+Kingdom), Ronald Law (Idara ya Afya, Philippines), Christine McCormick (Save the Children, United Kingdom), Amanda
+Melville (UNICEF), Fritha Melville (Mandala Foundation, Australia), Kate Minto (Mandala Foundation, Australia), Jonathan
+Morgan (Regional Psychosocial Support Initiative (REPSSI, South Africa), Kelly O'Donnell (NGO Forum for Health,
+Switzerland), Patrick Onyango (Transcultural Psychosocial Organization Uganda), Pau Perez-Sales (Médicos del Mundo, Spain),
+Bhava Nath Poudyal (International Committee of the Red Cross, Nepal), Joe Prewitt-Diaz (American Red Cross, Puerto Rico),
+Megan Price (World Vision International, Australia), Robert Pynoos (National Center for Child Traumatic Stress, USA), Nino
+Makhashvili (Global Initiative on Psychiatry, Georgia), Miryam Rivera Holguin (Consultant, Peru), Sabine Rakotomalala (Terre
+des Hommes, Switzerland), Gilbert Reyes (National Center for Child Traumatic Stress, USA), Daryn Reichterer (Stanford
+University, USA), Chen Reis (Shirika la Afya Duniani, Switzerland), Khalid Saeed (Shirika la Afya Duniani, Egypt), Louise Searle
+(World Vision International, Australia), Marian Schilperoord (Tume Kuu ya Wakimbizi ya Umoja wa Mataifa, Switzerland),
+Guglielmo Schinina (International Organization for Migration, Switzerland), Merritt Schreiber (University of California Los
+Angeles,USA), Renato Souza (International Committee of the Red Cross, Switzerland), Alan Steinberg (National Center forChild
+Traumatic Stress, USA), Susannah Tipping (Mandala Foundation, Australia), Wietse Tol (HealthNet TPO,Nepal), Iris Trapman
+(Mandala Foundation, Australia), Patricia Watson (National Center for Child Traumatic Stress,USA), Inka Weissbecker
+(International Medical Corps, Gaza), Mike Wessells (Columbia University, USA), Nana Wiedemann (International Federation of
+the Red Cross, Denmark), Richard Williams (Glamorgan University, United Kingdom), M Taghi Yasamy (World Health
+Organization, Switzerland), Rob Yin (American Red Cross,USA), William Yule (Children and War Foundation, United Kingdom),
+Doug Zatzick (University of Washington, USA).
+Pamoja na hawa pia tunawashukuru wahojiwa 27 wasiotambulika kwa majina walioshiriki katika uchunguzi kuhusu mahitaji ya
+kuandaa mwongozo huu.
+
+Tafsiri
+Mwongozo umetafsiriwa na kuhaririwa kutoka kwa Kiingereza hadi Kiswahili kwa usimamizi na uongozi wa Dkt. Iribe Mwangi
+akishirikiana na Dkt. Evans Mbuthia wote kutoka Idara ya Kiswahili, Chuo Kikuu cha Nairobi. Msaidizi wa tafsiri amekuwa John
+Paul Warambo wa TWB-K. Mwelekeo wa kitaaluma kuhusu afya ya kiakili umetolewa na Lincoln Ndogoni na Dorothy Anjuri wa
+World Vision Kenya.
+
+
+
+   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani                                             iii
+iv   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+                                                                                                  YALIYOMO
+DIBAJI
+SHUKRANI
+SURA YA KWANZA:KUELEWA HUDUMA YA KWANZA YA USAIDIZI WA
+KISAIKOLOJIA                                                                              1
+1.1 Matukio ya dharura huwaathiri vipi watu?                                              2
+1.2 Huduma ya kwanza ya usaidizi wa kisaikolojia (HKK) ni nini?                           3
+1.3 HKK: Nani, lini na wapi?                                                              4
+
+
+SURA YA PILI:JINSI YA KUSAIDIA VIZURI                                                     7
+2.1 Heshimu usalama, utu na haki                                                          8
+2.2 Badilisha unayoyafanya kuambatana na utamaduni wa mtu                                 9
+2.3 Jua njia nyinginezo za kushughulikia hali ya dharura                                 11
+2.4 Jishughulikie mwenyewe                                                               12
+
+
+SURA YA TATU: UTOAJI WA HUDUMA YA KWANZA YA KISAIKOLOJIA                                 13
+3.1 Mawasiliano bora                                                                     14
+3.2 Jiandae: jifunze kuhusu hali yenyewe                                                 16
+3.3 Kanuni za huduma ya kwanza ya kisaikolojia: Tazama, Sikiliza, Unganisha              18
+
+3.4 Kutamatisha usaidizi wako                                                            29
+
+3.5 Watu wanaohitaji uangalizi maalumu                                                   30
+
+
+
+SURA YA NNE:KUJITUNZA MWENYEWE NA WAFANYIKAZI WENZA                                      37
+4.1 Kujiandaa kusaidia                                                                   38
+4.2 Kudhibiti mfadhaiko: Utendakaji bora na maadili ya kiafya                            39
+4.3 Kupumzika na kutafakari                                                              40
+
+
+SURA YA TANO:TEKELEZA ULICHOJIFUNZA                                                      41
+5.1 Mfano wa kisa 1: Janga la maumbile                                                   42
+5.2 Mfano wa kisa 2: Vita na Ukimbizi                                                    47
+5.3 Mfano wa kisa 3: Ajali                                                               51
+
+HUDUMA YA KWANZA YA USAIDIZI WA KISAIKOLOJIA
+(HKK):MWONGOZO WA KUBEBEA MFUKONI
+MAREJELEO NA ASILIA
+
+
+
+   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani        v
+    SURA YA 1
+    KUELEWA HUDUMA YA KWANZA YA USAIDIZI
+    WA KISAIKOLOJIA (HKK)
+
+
+
+
+1   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+                   :
+KATIKA SURA HII TUNAZUNGUMZIA:
+
+
+
+
+                                                                                                  Sura ya 1
+1.1 MATUKIO YA DHARURA HUWAATHIRI VIPI WATU?
+1.2 HUDUMA YA KWANZA YA USAIDIZI WA KISAIKOLOJIA (HKK) NI NINI?
+1.3 HKK: NANI, LINI NA WAPI?
+
+
+
+ 1.1          MATUKIO YA DHARURA HUWAATHIRI
+              VIPI WATU?
+
+
+
+
+Aina mbalilmbali za matukio ya kufadhaisha kama vita, majanga ya kimaumbile, ajali, mioto na
+vurugu baina ya watu (kwa mfano, dhuluma ya kimapenzi) hutukia katika ulimwengu. Watu
+binafsi, familia au jamii yote inaweza kuathiriwa. Watu wanaweza kupoteza maboma yao au
+wapendwa wao, wanaweza pia kutenganishwa na familia au jamii zao, au wanaweza
+kushuhudia vita, uharibifu au vifo.
+
+Ingawaje kila mtu huathiriwa na matukio haya kwa njia moja au nyingine, kila mtu anaweza
+kuwa na hisia tofautitofauti. Watu wengi wanaweza kuhisi kulemewa, kuchanganyikiwa au
+wasiweze kujua kinachofanyika. Wanaweza kuhisi woga au wasiwasi au ganzi na kujitenga.
+Baadhi ya watu wanaweza kuwa na dalili dogo ilhali wengine wanaweza kuwa na dalili kali.
+Dalili za mtu hutegemea maswala mengi yakiwemo:
+
+    ·      hali na ukali wa matukio wanayopitia;
+    ·      ujuzi au tajriba yao ya matukio ya kufadhaisha yaliyopita;
+    ·      usaidizi walionao maishani mwao kutoka kwa wengine;
+    ·      afya yao ya kimwili;
+    ·      historia yao na ya familia yao kuhusu afya na matatizo ya kiakili;
+    ·      mila na tamaduni zao;
+
+        Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   2
+     ·        umri wao (kwa mfano, watoto wenye umri mbalimbali huwa na dalili tofautitofauti).
+
+Kila mtu ana nguvu na uwezo wake wa kuwasaidia kukabiliana na changamoto za maisha. Hata
+hivyo, baadhi ya watu hulemewa na huhitaji usaidizi zaidi katika hali ya dharura. Watu hawa
+wanaweza kujumuisha wale walio hatarini au wanaohitaji usaidizi zaidi kwa ajili ya umri wao
+(watoto na wazee), kwa sababu wana matatizo ya kiakili, au kwa sababu wako kwenye kikundi
+kilichotengwa au kilicholengwa na vita. Sehemu ya 3.5 inatoa mwongozo wa kuwasaidia watu
+walio hatarini.
+
+        HUDUMA YA KWANZA YA USAIDIZI
+    1.2 WA KISAIKOLOJIA (HKK) NI NINI?
+Kulingana na Sphere (2011) na IASC (2007), huduma ya kwanza ya usaidizi wa kisaikolojia
+(Kuanzia sasa HKK) ni msaada utolewao kutokana na utu ili kumsaidia binadamu mwingine
+aliye kwenye matatizo na anayehitaji usaidizi. Huduma hii ya kwanza ya kisaikolojia inahusu
+mada zifuatazo:
+   ·    Utoaji wa utunzaji halisi na usaidizi usiomwingilia mtu:
+   ·    Uchunguzi wa mahitaji na matatizo:
+   ·    Kusaidia watu kushughulikia mahitaji ya kimsingi (kwa mfano, chakula na maji,
+              habari):
+      ·       Kuwasikiliza watu bila kuwalazimisha kuzungumza:
+      ·       Kuwafariji watu na kuwasaidia kutulia:
+      ·       Kuwasaidia watu kupata habari, huduma na usaidizi wa kijamii:
+      ·       Kuwalinda watu dhidi ya madhara.
+
+NI MUHIMU PIA KUELEWA HKK SIYO:
+
+          ·     Kitu ambacho kinaweza kufanywa na wataalamu peke yao.
+          ·     Mashauri ya kitaalamu.
+          ·     “Maelezo ya kisaikolojia ya kupunguza mfadhaiko” kwa kuwa huduma yenyewe
+                haijumuishi maelezo ya kina kuhusu tukio lililosababisha mfadhaiko.
+          ·     Kumuuliza mtu kuchanganua kilichomtendekea au kupanga vizuri matukio
+                kuzingatia muda wa kutendeka.
+          ·     Ulazimishaji wa watu kukueleza hisia na dalili zao hata ingawainahusu kusikiliza
+                visa vya watu wenyewe.
+
+Shirika la Afya Duniani (2010) na Sphere (2011) wanafafanua maelezo ya kisaikolojia ya kupunguza mfadhaiko kama njia ya kumfanya
+mtu kueleza matatizo yake kwa kumuuliza kueleza kwa kifupi lakini kwa utaratibu mitazamo yao, mawazo na dalili zao za kihisia wakati
+wa tukio la kufadhaisha lililowafika karibuni. Njia hii haipendekezwi. Hii inatofautiana na utaratibu wa maelezo ya kupunguza
+mfadhaiko unaotolewa na wafanyikazi wasaidizi katika baadhi ya mashirika mwishoni mwa shughuli au kazi.
+
+
+
+
+3        Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+Hii ni huduma inayoweza kutumika badala ya “maelezo ya kisaikolojia ya kupunguza
+
+
+
+
+                                                                                                 Sura ya 1
+mfadhaiko” ambayo imegunduliwa kuwa na upungufu. Kwa upande mwingine, huduma ya
+kwanza ya kisaikolojia inahusu maswala yanayoonekana kuwa na usaidizi zaidi kwa nafuu
+ya muda mrefu (kulingana na tafiti mbalimbali na makubaliano ya wasaidizi wengi wa
+dharura). Haya yanajumuisha:
+     ·   kujihisi ukiwa salama, uliye pamoja na wengine, mtulivu na mwenye matumaini;
+     ·   kufikia usaidizi wa kijamii, kimwili na kihisia; na
+     ·   kujisikia kuweza kujisaidia, wao binafsi na jamii.
+
+
+
+
+  1.3            HKK: KWA NANI, LINI NA WAPI?
+
+
+
+
+HKK INAKUSUDIWA NANI?
+Huduma ya kwanza ya usaidizi wa kisaikolojia imenuiwa watu waliofadhaika ambao wamepitia
+tukio la kufadhaisha muda mfupi uliopita. HKK inaweza kutoa usaidizi kwa watoto na watu
+wazima. Hata hivyo,siyo kila mtu aliyepitia tukio la kufadhaisha atahitaji huduma ya kwanza ya
+kisaikolojia. Usilazimishe usaidizi kwa watu wasiotaka, lakini uwe tayari kuwasaidia wale
+wanaohitaji msaada.
+
+
+Tazama Hobfoll, et al. (2007) na Bisson na Lewis (2009) katika marejeleo.
+
+
+
+
+       Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   4
+Kunaweza kuwa na hali ambapo mtu anahitaji usaidizi zaidi kuliko ule unaotolewa na HKK tu.
+Tambua mipaka ya uwezo wako na upate usaidizi kutoka kwa wengine kama vile wataalamu
+wa kiafya (kama wapo), wafanyikazi wenzako au watu wengine katika eneo hilo, viongozi
+walio mashinani, au jamii na viongozi wa kidini. Katika kisanduku kilicho hapa chini,
+tumeorodhesha watu wanaohitaji usaidizi zaidi wa haraka. Watu walio katika hali hizi
+wanahitaji usaidizi wa kiafya au mwingine kwa haraka ili maisha yao yaokolewe.
+
+
+
+WATU WANAOHITAJI USAIDIZI WA HARAKA WA KITAALAMU:
+
+     ·   Watu walio na majeraha makali yanayohatarisha maisha wanaohitaji utunzi wa
+         dharura wa kiafya.
+     ·   Watu waliokasirika kwa kuwa hawawezi kujitunza au kutunza watoto wao.
+     ·   Watu wanaoweza kujiumiza.
+     ·   Watu wanaoweza kuwaumiza wengine.
+
+
+
+HKK HUTOLEWA LINI?
+
+Japo watu wanaweza kuhitaji usaidizi kwa muda mrefu baada ya tukio, HKK inalenga
+kuwasaidia watu walioathiriwa na tukio la kufadhaisha ambalo halikutokea kitambo.
+Unaweza kutoa huduma ya kwanza ya kisaikolojia upatanapo na watu waliofadhaika sana. Hii
+huwa wakati au pindi tu baada ya tukio. Hata hivyo, wakati mwingine inaweza kuwa siku au
+wiki baadaye, kutegemea muda uliochukuliwa na tukio hilo au ukali wake.
+
+
+
+
+5   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+HKK HUTOLEWA WAPI?
+
+
+
+
+                                                                                                 Sura ya 1
+Unaweza kutoa huduma ya kwanza ya kisaikolojia wakati wowote ukiwa na usalama wa
+kufanya hivyo. Mara nyingi hii huwa katika jamii kama katika eneo la ajali, au mahali pa
+kuhudumia watu waliofadhaika kama vile katika vituo vya afya, vivulini au kwenye kambi,
+shuleni au maeneo ya kusambazia vyakula au aina nyingine ya usaidizi. Kusema kweli, jaribu
+kutoa huduma ya kwanza ya kisaikolojia mahali ambapo unaweza kudumisha siri
+unapozungumza na mtu. Kwa watu ambao wamepitia aina fulani ya matukio ya kufadhaisha
+kama dhuluma ya kimapenzi, kudumisha siri ni muhimu pamoja pia na kuheshimu
+ubinadamu wa mtu.
+
+
+
+
+     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani     6
+    SURA YA 2
+    JINSI YA KUSAIDIA VIZURI
+
+
+
+
+7   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+KUSAIDIA VIZURI KUNAHUSISHA HOJA NNE KUU:
+    2.2 HESHIMU USALAMA, UTU NA HAKI
+    2.3 BADILISHA UNAYOYAFANYA KUAMBATANA NA UTAMADUNI WA MTU
+    2.4 JUA NJIA NYINGINEZO ZA KUSHUGHULIKIA HALI YA DHARURA
+        JISHUGHULIKIE MWENYEWE
+
+
+
+
+    2.1 HESHIMU USALAMA, UTU NA HAKI
+
+
+                                                                                                 Sura ya 2
+Ukichukua jukumu la kusaidia katika hali ambapo watu wameathiriwa na matukio ya
+kufadhaisha sana, ni muhimu kuheshimu usalama, utu na haki za wale unaowasaidia. Kanuni
+zifuatazo zinafaa kwa mtu yeyote au mashirika ya kutoa misaada ya kibinadamu, yakiwepo
+yale yanayotoa huduma ya kwanza ya kisaikolojia:
+
+
+    KWA WOTE, HESHIMU…
+    Usalama:
+         » Epuka kuwaweka watu katika hatari zaidi ya madhara kutokana na vitendo
+            vyako.
+         » Kadiri ya uwezo wako, hakikisha kuwa watu wazima na watoto unaowasaidia
+          » wana usalama na uwalinde dhidi ya madhara ya kimwili au ya kisaikolojia.
+    Utu:
+         » Shughulikia watu kwa heshima na kwa kuzingatia utamaduni na desturi zao za
+            kijamii.
+    Haki:
+         » Hakikisha kwamba watu wanaweza kupata usaidizi kwa haki na bila ubaguzi
+            wowote.
+         » Wasaidie watu kutetea haki zao na kupata usaidizi.
+            Shughulikia mtu yeyote unayekumbana naye kuambatana na mahitaji yake.
+
+Zingatia kanuni hizi katika vitendo vyako kwa watu wote unaopatana nao bila kujali umri,
+jinsia,au kabila lao. Zingatia maana za kanuni hizi katika muktadha wa utamaduni. Fahamu na
+ufuate kwa wakati wote kanuni hizi ikiwa shirika unalolifanyia kazi au ulilojitolea kwalo lina
+kanuni hizi.
+Tunatoa kanuni zifuatazo za utendakazi kuhusu mambo yanayokubalika na yasiyokubalika
+kuwa kama mwongozo wa kuzuia kusababisha madhara zaidi kwa mtu, kutoa utunzi bora
+iwezekanavyo na kusaidia kuambatana na mahitaji ya mtu binafsi.
+3
+ Kwa habari zaidi, tazamaSphere Protection Chapter, Sphere Project (2011).
+
+
+
+      Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   8
+               MAMBO                                             MAMBO
+           YANAYOKUBALIKA                                    YASIYOKUBALIKA
+      Zingatia uaminifu.                             Usitumie vibaya uhusiano wako kama
+      Heshimu haki za watu kujiamulia                msaidizi.
+                                                     Usilipishe huduma yako au kutaka
+      mambo.
+                                                     kufanyiwa lolote baada ya kuwasaidia
+      Jua na uweke kando mapendeleo
+                                                     watu.
+      yako ya kibinafsi.                             Usitoe ahadi za uongo au kutoa habari
+      Wajulishe waathiriwa kwa uwazi                 za uongo.
+      kwamba iwapo hawahitaji usaidizi               Usitie chumvi kuhusu uwezo wako.
+      kwa wakati huo, basi wanaweza                  Usiwalazimishe watu kupokea usaidizi
+      kuuomba baadaye wakiuhitaji.                   wako, wala kuingilia mambo yao.
+      Zingatia siri; weka siri kuhusu tukio          Usiwalazimishe watu kukuambia
+                                                     habari zao.
+      la mtu binafsi, iwapo itafaa.
+                                                     Usiambie watu habari za wengine.
+      Onyesha maadili bora kwa kuzingatia            Usimchukulie vibaya mtu kwa msingi
+      utamaduni, umri na jinsi ya                    wa matendo au hisia zake.
+      mwathiriwa
+
+
+
+            BADILISHA UNAYOYAFANYA KUAMBATANA NA
+    2.2     UTAMADUNI WA MTU
+Tukio la dharura likitokea huwa kuna watu kutoka tamaduni mbalimbali miongoni mwa
+waathiriwa, wakiwemo wale walio wachache katika jamii au wengine waliotengwa.
+Utamaduni huathiri jinsi tunavyohusiana na watu na yanayokubalika kusema au kufanywa na
+yasiyokubalika kusemwa au kufanywa. Kwa mfano, katika tamaduni zingine, haikubaliki mtu
+kuzungumzia hisia zake na mtu mwingine aliye nje ya familia yake. Au wanawake wanafaa tu
+kuzungumza na wanawake wenzao, au pengine mitindo mingine ya mavazi au kujifunika ni
+muhimu sana miongoni mwa jamii fulani.
+
+Unaweza kujipata ukifanya kazi na watu kutoka tamaduni tofauti na yako. Kama msaidizi ni
+muhimu kufahamu utamaduni na imani zako ili uweke kando mapendeleo yako ya kibinafsi.
+Toa usaidizi kwa njia inayofaa zaidi kwa watu unaowasaidia.
+
+Kila hali ya dharura huwa tofauti kivyake. Badilisha mwongozo huu kuambatana na
+utamaduni, huku ukizingatia desturi za kijamii mashinani. Tazama kisanduku kilicho hapa
+chini kwa maswali unayoweza kutumia wakati wa kutoa huduma ya kwanza ya kisaikolojia
+katika tamaduni mbalimbali.
+
+9     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+                                                                                              Sura ya 2
+ZINGATIA MASWALI YAFUATAYO UNAPOJIANDAA KUTOA
+HUDUMA YA KWANZA YA KISAIKOLOJIA KATIKA
+TAMADUNI MBALIMBALI:
+                  » Je, ninahitaji kuvalia kwa namna fulani ili niwezekuheshimiwa?
+  Mavazi:
+                  » Je, watu walioathiriwa watahitaji mavazi ya aina fulani kudumisha
+                    utu na desturi zao?
+
+                  » Je, watu wa utamaduni huu wana njia zipi za maamkizi?
+  Lugha:
+                  » Je, wao huzungumza lugha ipi?
+
+
+ Jinsia, Umri » Je, wanawake walioathirika wanafaa kusaidiwa na wanawake
+ na Mamlaka:    wenzao tu?
+                  » Je, ninafaa kumwendea nani? (kwa maneno mengine, ni mkuu
+                    wa familia au wa jamii?)
+
+Tabia inayofaa
+               » Je, ni nini desturi inayohusu kuwagusa watu?
+na jinsi
+inayokubalika » Je, inakubalika kumgusa mtu mkono au mabega?
+ ya kumgusa » Je, kunayo mambo maalumu ya kuzingatia kitabia ukiwa karibu
+mtu:
+                     na watu tofauti kama vile wazee, watoto, wanawake au wengine?
+
+ Imani na dini: » Je, ni makabila na makundi yepi tofauti ya kidini yaliyoko miongoni
+                  mwa watu walioathirika?
+                  » Je, ni imani na desturi zipi zilizo muhimu kwa watu walioathirika?
+                  » Watu hawa wanawezaje kuelewa au kueleza kilichotokea?
+
+   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   10
+ 2.3 KUWA NA UFAHAMU WA NJIA NYINGINEZO
+          ZA USAIDIZI WAKATI WA DHARURA
+
+
+
+
+Huduma ya kwanza ya kisaikolojia ni mwitiko mpana kwa dharura kubwa ya kibinadamu
+(IASC, 2007). Wakati mamia au maelfu ya watu wameathirika, aina nyingi tofauti za usaidizi
+hutolewa, kama vile, oparesheni ya kutafuta na kuokoa watu, huduma ya dharura ya kiafya,
+malazi, usambazaji wa chakula, kuwatafuta wanafamilia na shughuli za kuwalinda watoto.
+Mara nyingine huwa siyo rahisi kwa wafanyikazi wasaidizi na wale wa kujitolea kujua kwa
+uhakika huduma zipi zinatolewa wapi. Hali huwa hivyo katika majanga yanayohusu watu
+wengi na katika maeneo yasiyo na muundomsingi wa kiafya na huduma nyinginezo.
+
+Jaribu ujue huduma na usaidizi ulioko ili uweze kuwapa habari watu unaowasaidia na
+kuwaambia jinsi ya kupata usaidizi halisi.
+
+
+
+
+11   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+ IKIWEZEKANA KATIKA KUSHUGHULIKIA HALI YA DHARURA:
+
+    »» Fuata maelekezo ya mashirika yanayoshughulikia hali hiyo ya dharura;
+    »» Jifunze kuhusu usaidizi wa dharura unaopangwa na rasilimali zilizopo
+       kuwasaidia watu, kama kunazo;
+    »
+     » Usiwazuie wafanyikazi wa kutafuta na kuokoa watu au wanaotoa huduma
+       ya dharura ya afya;
+    »
+
+
+
+
+                                                                                               Sura ya 2
+     » Jua jukumu lako na mipaka yake;
+
+
+
+Siyo lazima mtu awe na ujuzi wa mambo ya kisaikolojia na kijamii ili atoe huduma ya
+kwanza ya kisaikolojia. Hata hivyo, ukitaka kusaidia katika hali ya dharura
+tunapendekeza kwamba ufanye kazi chini ya shirika au kikindu cha kijamii. Ukifanya
+kazi kivyako, unaweza kujiweka katika hatari, na unaweza kuwa na athari mbaya kwa
+mpangilio wa juhudi za kutoa usaidizi na unaweza kukosa kuwaelekeza waathiriwa kwa
+rasilimali na usaidizi wanaohitaji.
+
+
+
+2.4      JITUNZE MWENYEWE
+
+Wajibu wa usaidizi pia unamaanisha kuwa utunze afya na
+usalama wako. Kama msaidizi unaweza kuathirika kwa
+mambo yanayotokea katika hali ya dharura au wewe au
+familia yako inaweza kuathirika moja kwa moja kutokana
+na tukio mbaya. Ni muhimu kwamba uwe makini kwa
+usalama wako na uwe na uwezo wa kimwili wa kusaidia
+wengine. Jilinde mwenyewe ili uweze kuwalinda
+wengine. Ikiwa unafanya kazi na wengine, fahamu
+usalama wa wasaidizi wenzako pia. (Tazama sura ya
+nne kwa habari zaidi kuhusu kuwatunza wahudumu
+wengine).
+
+
+
+
+    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   12
+     SURA YA 3
+     UTOAJI WA HUDUMA YA KWANZA
+     YA KISAIKOLOJIA
+
+
+
+
+13   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+KATIKA SURA HII, TUTAZUNGUMZIA:
+                              :
+3.1 MAWASILIANO BORA NA WATU WALIO NA MFADHAIKO MKALI,
+3.2 MAANDALIZI YA KUSAIDIA,
+3.3 KANUNI ZA UTENDAKAZI ZA HUDUMA YA KWANZA YA KISAIKOLOJIA ZA KUTAZAMA,
+     KUSIKILIZA NA KUUNGANISHA MAMBO,
+3.4 KUKAMILISHA USAIDIZI WAKO,
+3.5 WATU WANAOWEZA KUHITAJI UANGALIFU MAALUMU KATIKA HALI YA DHARURA.
+
+
+
+
+                                                                                               SURA YA 3
+ 3.1 MAWASILIANO BORA
+Jinsi unavyowasiliana na mtu aliye na mfadhaiko mwingi ni muhimu. Watu waliopitia tukio la
+dharura huweza kuwa wamekasirika, wakawa na wasiwasi mwingi au wakawa
+wamechanganyikiwa. Watu wengine wanaweza kujilaumu wenyewe kuhusu mambo
+yaliyotokea wakati wa dharura. Kutulia, kuonyesha kuwa unajali kunaweza kuwasaidia
+watu walio na mfadhaiko mkali kujihisi wakiwa salama, wanaeleweka, wameheshimiwa na
+wametunzwa vyema.
+
+Mtu ambaye amepitia tukio la kufadhaisha sana anaweza kutaka kukwambia habari zake.
+Kusikiliza habari ya mtu kunaweza kuwa usaidizi mkubwa. Hata hivyo, ni muhimu
+kutomshurutisha yeyote kukuarifu walichopitia. Watu wengine huenda wasitake
+kuzungumzia kilichotokea au hali zao. Hata hivyo, wanaweza kuthamini ukitulia nao,
+ukiwajulisha kuwa uko radhi wakitaka kuzungumza au kuwapa usaidizi halisi kama kuwapa
+chakula au glasi ya maji. Usizungumze sana wape muda wa kunyamaza. Kunyamaza kwa muda
+kunaweza kumpa mtu nafasi ya kutulia na kuwahimiza kuzungumza na wewe wakitaka.
+
+Ili uwasiliane vyema, chunguza maneno yako pamoja na ishara za mwili kama ishara ya uso,
+kutazamana ana kwa ana, miondoko ya kimwili au jinsi unavyo kaa na kuamka. Kila utamaduni
+una tabia zake maalumu zinazofaa na kuheshimika. Zungumza na uenende kwa njia
+inayozingatia utamaduni, umri, jinsia, desturi na dini ya mtu.
+
+    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   14
+Hapa chini kuna mapendekezo ya mambo ya kusema na kufanya na yale usiyofaa
+kuyasema wala kuyafanya. Muhimu kabisa ni kuwa ujifahamu, useme ukweli na uaminike
+katika kutoa usaidizi na utunzi.
+
+
+
+      MAMBO YA KUSEMA                                    MAMBO YA KUEPUKA
+        NA KUFANYA                                       KUSEMA AU KUFANYA
+     » Jaribu utafute mahali patulivu pa               » Usimshurutishe mtu kukwambia
+       kuzungumzia bila usumbufu kutoka                  habari zake.
+       nje.                                            » Usikatize au kuharakisha habari za
+     » Heshimu na uweke siri ya mtu kama                 mtu (kwa mfano usitazame kopo lako
+       inavyotakikana.                                   la saa au kuzungumza kwa haraka
+     » Kaa karibu na mteja lakini katika                 sana).
+       umbali unaotakikana kulingana na                » Usimguse mtu ikiwa hujui kwa
+       umri, jinsia na utamadumi wao.                    uhakika kwamba kufanya hivyo
+     » Wajulishe kuwa unawasikiliza, kwa                 kunafaa.
+       mfano kwa kutikisa kichwa chako                 » Usihukumu kile ambacho wamefanya
+       au kwa kusema “hmmmm….”                           au hawajafanya, au jinsi
+       Uwe na subira na utulivu.                         wanavyohisi. Usiseme: “Hufai kuhisi
+     » Toa habari za kweli ukiwa nazo.                   hivyo,” au “Una bahati uliponea”
+     » Useme ukweli kuhusu mambo                       » Usiseme vitu usivyojua.
+       unayoyajua na usiyoyajua. “Sijui                » Usitumie maneno magumu.
+       hilo lakini nitajaribu kukutafutia
+                                                       » Usiwambie habari za mtu mwingine.
+       habari hizo”
+                                                       » Usizungumzie matatizo yako
+     » Toa habari kwa njia ambayo mtu
+                                                         mwenyewe.
+       anaweza kuelewa – iwe rahisi.
+                                                       » Usitoe ahadi au hakikisho za uongo.
+     » Tambua jinsi wanavyohisi kutokana
+       na kupoteza kwao au wakikueleza                 » Usifikiri wala kufanya kitu kana
+       kuhusu matukio muhimu kama                        kwamba ni lazima utatue matatizo
+       kupoteza boma au kifo cha                         yote ya mtu.
+       mpendwa wao. “Pole sana. Jambo                  » Usipuuze nguvu na uwezo wa mtu
+       hili linakupa huzuni sana.”                       wa kujitunza mwenyewe.
+     » Tambua sifa bora za mtu na jinsi
+                                                       » Usiwazungumzie watu kwa njia
+       walivyojisaidia wenyewe.                          mbaya (kwa mfano usiwaite
+     » Ruhusu unyamavu.                                  “wendawazimu” au “kichaa”)
+
+
+
+
+Zingatia mawasilaino bora unapotazama, unaposikiliza na unapounganisha mambo
+kanuni za utendakazi za huduma ya kwanza ya kisaikolojia zilizozungumziwa katika kurasa
+zifuatazo.
+
+15     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+ 3.2 JIANDAE – JIFUNZE KUHUSU HALI YENYEWE
+
+                        Jifunze kuhusu hali yenyewe ya dharura.
+  JIANDAE               Jifunze kuhusu huduma na usaidizi uliopo.
+                        Jifunze kuhusu usalama na ulinzi.
+
+
+
+
+                                                                                               SURA YA 3
+
+
+
+
+Hali za dharura zinaweza kuwa na fujo na mara nyingi huhitaji hatua zichukuliwe kwa haraka.
+Hata hivyo, ikiwezekana kabla ya kwenda katika eneo la dharura, jaribu upate habari kamili
+kuhusu hali hiyo. Zingatia maswali yafuatayo:
+
+
+
+
+    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   16
+ KABLA YA KUINGIA KATIKA ENEO LA DHARURA,
+ JIFUNZE KUHUSU YAFUATAYO:
+                               Maswali muhimu
+
+                          Ni nini kilichotokea?
+     Hali yenyewe
+     ya dharura           Kilitokea wakati upi na wapi?
+                          Ni idadi gani ya watu wanaowezakuwa wameathirika
+                          na ni kina nani?
+
+                         Je, ni nani anayewapa mahitaji ya kimsingi kama huduma ya
+     Huduma na           dharura ya afya, chakula, maji, malazi au kutafuta jamaa na
+     usaidizi ulioko     wanafamilia?
+                         Je, watu wanaweza kuzipata wapi huduma hizo?
+                         Je, ni nani mwingine anayetoa usaidizi? Je, wanajamii wanahusika
+                         katika kutoa usaidizi?
+
+
+                         Je, hali hiyo ya dharura imeisha au ingali inaendelea, kama vile
+      Mambo ya           mshtuko unaofuata tetemeko la ardhi au vita vinavyoendelea?
+      usalama            Ni hatari zipi zinazoweza kuwa katika eneo hilo, kama vile kuwepo
+      na ulinzi          kwa waasi, mashimo ya migodi au miundomsingi iliyoharibiwa?
+                         Je, kunazo sehemu za kuepuka kuingia kwa sababu si salama (kwa
+                         mfano hatari iliyo wazi ya kimaumbile) au kwa sababu hujaruhusiwa
+                         kuwa hapo?
+
+
+Maswali haya muhimu ya maandalizi yanaweza kukusaidia kuelewa hali unayoingia kutoa
+huduma ya kwanza ya kisaikolojia na kufahamu zaidi kuhusu usalama wako.
+
+
+
+
+17   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+          KANUNI ZA UTENDAKAZI ZA HUDUMA YA KWANZA
+ 3.3      YA KISAIKOLOJIA - KUTAZAMA, KUSIKILIZA NA
+          KUUNGANISHA MAMBO
+Kanuni tatu za kimsingi za huduma ya kwanza ya kisaikolojia zinahusukutazama, kusikiza na
+kuunganisha. Kanuni hizi za kutenda zitasaidia kukupa mwongozo wa jinsi ya kuchukulia na
+kujihusisha na hali tata, kuzungumza na waathiriwa na kuelewa mahitaji yao, na
+kuwaunganisha na usaidizi na habari. (Tazama jedwali hapa chini)
+
+
+
+                     Chunguza kuhusu usalama.
+ Kutazama            Chunguza kuona watu walio na mahitaji wazi ya kimsingi.
+                     Chunguza kuona watu walio katika mfadhaiko mkali.
+
+
+
+
+                    Zungumza na watu wanaoweza kuwa wanahitaji usaidizi.
+
+
+
+
+                                                                                                SURA YA 3
+ Kusikiza           Uliza kuhusu mahitaji na wasiwasi wa watu.
+                    Wasikize watu na uwasaidie kutulia.
+
+
+
+                    Wasaidie watu kushughulikia mahitaji ya kimsingi na
+Kuunganisha
+                    kupata huduma wanazozihitaji.
+mambo               Wasaidie watu kukabiliana na matatizo.
+                    Toa habari kwa watu.
+                    Unganisha watu na wapendwa wao na usaidizi wa
+                    kijamii.
+
+
+
+                    Chunguza kuhusu usalama.
+                    Chunguza kuona watu walio na mahitaji wazi
+ Kutazama
+                    ya kimsingi.
+                    Chunguza kuona watu walio katika mfadhaiko mkali.
+
+
+
+Hali tata zinaweza kubadilika haraka sana. Unachopata katika eneo la tukio kinaweza kuwa
+tofauti na ulichojifunza kabla ya kuingia kwenye hali hiyo tata. Kwa hivyo ni muhimu kuchukua
+muda – hata ikiwa muda mfupi sana – kuchunguza mazingira yako kabla ya kutoa usaidizi.
+Ukijipata katika hali ya utata bila muda wa kujiandaa, unaweza kukagua mazingira kwa haraka.
+
+
+
+    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani    18
+Muda huu utakupa nafasi ya kutulia, kuhakikisha usalama na kufikiria kabla ya kutenda.
+Tazama jedwali hapa chini kwa maswali ya kuzingatia na jumbe muhimu unapochunguza
+mazingira yako.
+
+
+
+
+      TAZAMA              MASWALI                                      UJUMBE MUHIMU
+
+
+                          Ni hatari zipi unazoweza kuona            Iwapo huna uhakika kuhusu
+                          katika mazingira, kama vile vita,         usalama wa eneo la dharura,
+     Usalama              barabara mbovu, majengo yasiyo            usiende huko. Jaribu kupata
+                          thabiti, moto au mafuriko?                usaidizi kwa watu
+                          Unaweza kuwa hapo bila                    wanaohitaji. Ikiwezekana,
+                          kuathiriwa wewe au wengine?               wasiliana na waathiriwa
+                                                                    ukiwa mbali kidogo.
+
+                           Je, yeyote anaonekana kujeruhiwa         Jua jukumu lako na ujaribu
+                           sana na kuhitaji usaidizi wa             kupata usaidizi kwa watu
+                           dharura wa kimatibabu?                   wanaohitaji usaidizi
+     Watu walio            Je, yeyote anaonekana kuhitaji           maalum au walio na
+     na mahitaji           kuokolewa, kama vile waliokwama          mahitaji ya wazi ya
+     wazi ya               au walio katika hatari ya karibu?        kimsingi. Waelekeze watu
+     kimsingi              Je, yeyote ana mahitaji wazi ya          waliojeruhiwa sana kwa
+                           kimsingi ya haraka, kama vile            wahudumu wa afya au
+                           kukingwa dhidi ya hali ya anga,
+                                                                    wengine waliohitimu katika
+                           mavazi yaliyoraruka?
+                                                                    masuala ya huduma ya
+                           Je, ni watu gani wanaohitaji
+                                                                    kwanza.
+                           usaidizi kama huduma za kimsingi
+                           na uangalizi maalumu kukingwa
+                           dhidi ya ubaguzi na fujo?
+                           Je, ni nani mwingine karibu nawe
+                           anayehitaji kusaidiwa?
+
+
+
+                           Je, kuna watu wanaoonekana               Zingatia wanaoweza
+     Watu walio            kukasirishwa sana, wasioweza             kufaidika kutoka kwa mbinu
+     na dalili za          kutembea wenyewe, wasioitika, au         za HKK na jinsi unavyoweza
+     mfadhaiko             walio katika mshtuko?                    kuwasaidia.
+     mkali                 Wako wapi au ni kina nani
+                           waliohuzunika sana?
+
+
+19     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+Watu wanaweza kuonyesha hisia mbalimbali kwa dharura.
+Baadhi ya mifano ya matokeo ya huzuni imeorodheshwa hapa
+chini:
+
+  »» Dalili za kimwili (kwa mfano, kutetemeka,
+     maumivu ya kichwa, uchovu, kupoteza hamu ya
+     kula, maumivu na uchungu)
+  »» Kulia, huzuni, mfadhaiko, majonzi
+  »» Wasiwasi mwingi, woga
+  »» Kuwa 'makini' au 'asiyetulia'
+  »» Wasiwasi kuwa kitu kibaya zaidi kitatokea
+  »» Kukosa usingizi, majinamizi
+  »» Kukasirika haraka, hasira
+  »» Majisuto, fedheha (kwa mfano, kuwa alinusurika,
+     au kwa kutowasaidia au kuokoa wengine)
+  »» Kuchanganyikiwa, kukosa hisia za kiakili, au
+     kutojihisi sawasawa au aliyetunduwaa
+
+
+
+
+                                                                                               SURA YA 3
+  »» Kuonekana kujitenga au mtulivu sana
+     (asiyesonga)
+  »» Asiyeitikia wengine, haongei kabisa
+  »» Kukanganyika (kwa mfano, kutojua jina lake
+     mwenyewe, anakotoka, au kilichotendeka)
+  »» Kutoweza kujitunza au kutunza watoto wao
+     (kwa mfano, kutokula au kunywa, kutoweza
+     kufanya uamuzi rahisi)
+
+
+
+Watu wengine wanaweza kuhuzunika kidogo tu
+au wasihuzunike kabisa.
+
+Watu wengi watapata nafuu vizuri kwa muda, hasa wakiweza kupata tena mahitaji yao ya
+kimsingi na kupata usaidizi kwa mfano kutoka kwa walio karibu nao na/au huduma ya kwanza
+ya kisaikolojia. Hata hivyo, walio na matatizo makali ya huzuni au yanayodumu kwa muda
+mrefu wanaweza kuhitaji usaidizi zaidi kuliko HKK pekee, hasa ikiwa hawawezi kufanya
+shughuli katika maisha yao ya kila siku au ikiwa wanajihatarisha wenyewe au kuwahatarisha
+wengine. Hakikisha kuwa watu waliohuzunika sana hawaachwi peke yao na ujaribu kuhakisha
+usalama wao hadi matokeo yatakapoisha au hadi utakapopata usaidizi kutoka kwa wahudumu
+wa afya, viongozi au wanajamii wengine katika eneo hilo.
+
+Pia, tafuta watu miongoni mwa walioathiriwa wanaoweza kuhitaji uangalifu maalumu kwa
+utunzaji na usalama wao:
+
+
+    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   20
+WATU WANAOWEZA KUHITAJI UANGALIFU MAALUMU KATIKA
+DHARURA (TAZAMA SEHEMU 3.5):
+      » Watoto – wakiwemo wanaobaleghe – hasa waliotenganishwa na waangalizi wao
+        wanaweza kuhitaji kukingwa dhidi ya kutumiwa vibaya na kukandamizwa. Pia
+        wanaweza kuhitaji utunzaji kutoka kwa walio karibu nao na kusaidiwa kukidhi
+        mahitaji yao ya kimsingi.
+      » Watu walio na hali za kiafya au ulemavu wa kimwili na kiakili wanaweza kuhitaji
+        usaidizi maalum ili kufika mahali salama, kukingwa dhidi ya kutumiwa vibaya na
+        kufikia utunzaji wa kimatibabu na huduma zingine. Kundi hili linaweza kuhusisha
+        watu wazee zaidi, wanawake wajawazito, watu walio na matatizo makali ya kiakili, au
+        watu walio na matatizo ya kuona au kusikia.
+      » Watu walio katika hatari ya ubaguzi au fujo, kama vile wanawake au watu wa kabila
+        fulani wanaweza kuhitaji ukingaji maalum ili wawe salama katika mazingira ya
+        dharura na uwasaidie kufika pale msaada ulipo.
+
+
+
+
+                    Zungumza na watu wanaoweza kutaka usaidizi.
+     Kusikiza       Uliza kuhusu mahitaji na wasiwasi wa watu.
+                    Wasikize watu na uwasaidie kutulia.
+
+
+
+Kuwasikiza vizuri watu unaowasaidia ni muhimu ili kuelewa hali na mahitaji yao,
+kuwasaidia kutulia, na kuweza kuwapa usaidizi ufaao. Jifunze kusikiza kwa:
+
+      » Macho – kumpa mtu huyo umakinifu kamili
+      » Masikio – kusikiza wasiwasi wao vizuri
+      » Moyo – kwa utunzaji na kuonyesha heshima
+
+
+
+21   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+1. ZUNGUMZA NA WATU WANAOWEZA KUHITAJI USAIDIZI:
+      » Zungumza na watu kwa heshima na kulingana na tamaduni zao.
+      » Jitambulishe kwa jina lako na la shirika unaloliwakilisha.
+      » Uliza iwapo unaweza kusaidia.
+      » Ikiwezekana, tafuta mahali salama na pasipo na kelele ili mzungumze.
+      » Msaidie mtu huyo kutulia; kwa mfano, mpe maji ikiwezekana.
+      » Jaribu kuhakisha usalama wake.
+
+          » Ondoa mtu huyo kwenye hatari iliyopo
+            ikiwa ni salama kufanya hivyo.
+          » Jaribu kumkinga dhidi ya vyombo vya
+            habari kwa ajili ya siri na utu wake.
+          » Ikiwa mtu huyo amefadhaika sana, jaribu
+            kuhakisha kuwa haachwi pekee yake.
+
+
+
+
+                                                                                              SURA YA 3
+2. ULIZA KUHUSU MAHITAJI NA MAMBO YANAYOWATATIZA WATU:
+
+  » Ingawa mahitaji mengine yanajulikana, kama
+    vile blanketi au kitu cha kujifunikia kwa mtu
+    ambaye nguo zake zimeraruka, kila mara
+    uliza wanachohitaji na yanayowatatiza.
+  »    Tambua kilicho muhimu sana kwao wakati
+       huo na uwasaidie kutambua mambo ya
+       dharura nayenye umuhimu zaidi
+       wanayohitaji.
+
+
+
+                                                                                :
+3. WASIKIZE WATU NA UWASAIDIE KUTULIA:
+
+      » Kuwa karibu nao.
+      » Usiwalazimishe kuongea.
+      » Sikiza iwapo wanataka kuongea kuhusu kilichotokea.
+      » Ikiwa wamefadhaika sana, wasaidie kutulia na
+        ujaribu kuhakikisha kuwa hawaachwi pekee yao.
+
+
+
+
+   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   22
+ WASAIDIE WATU KUTULIA
+Watu wengine wanaopitia hali ya dharura wanaweza kuwa na wasiwasi sana au wakawa
+wamekasirika. Wanaweza kuhisi kuchanganyikiwa au kuzidiwa na mambo, na wanaweza
+kuonyesha matokeo ya kimwili kama vile kutetemeka au kugwaya, upumuaji mgumu au kuhisi
+moyo ukidunda sana. Zifuatazo ni mbinu kadhaa za kuwasaidia watu waliohuzunika sana
+kutulia katika akili na miili yao:
+
+     » Hebu sauti yako iwe tulivu na nyororo.
+     » Ikiwa inakubalika kitamaduni, jaribu kutazamana ana kwa ana na mtu huyo
+       mnapoongea.
+     » Mkumbushe mtu huyo kuwa uko pale kumsaidia. Mkumbushe kuwa yuko
+       salama, ikiwa ni kweli.
+     » Ikiwa mtu hajihisi kawaida au kama ametenganishwa na mazingira aliyoyazoea,
+       unaweza kumsaidia kwa kumfanya atangamane na mazingira yake ya sasa na
+       kujitambua. Unaweza kufanya haya kwa kumwambia:
+            » Kuweka na kuhisi miguu yake sakafuni.
+            » Kugonga vidole au mikono yake kwenye paja lake.
+            » Kutambua baadhi ya vitu visivyohuzunisha kwenye mazingira yake,
+              kamavile vitu anavyoweza kuona, kusikia au kuhisi. Muulize akwambie
+              anachoona na kusikia.
+            » Mhimize mtu huyo kuzingatia kupumua kwake, na kupumua polepole.
+
+
+
+
+23   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+             » Wasaidie watu kushughulikia mahitaji ya kimsingi na
+               kufikia huduma.
+ Kuunganisha » Wasaidie watu kukabiliana na matatizo.
+               Toa habari.
+             » Unganisha watu na wapendwa wao na usaidizi wa
+               kijamii.
+
+Ingawa kila hali ya dharura ni tofauti, watu walioathiriwa mara kwa mara huhitaji vitu
+vilivyoorodheshwa katika kisanduku hapa chini.
+
+
+MAHITAJI YA MARA KWA MARA:
+
+      » Mahitaji ya kimsingi, kama vile nyumba, chakula, maji na mazingira safi.
+      » Huduma za afya kwa majeraha au usaidizi kwa hali sugu za kiafya.
+      » Habari ya kueleweka na sahihi kuhusu tukio hilo, wapendwa wao, na
+        huduma zilizopo.
+
+
+
+
+                                                                                                 SURA YA 3
+      » Kuweza kuwasiliana na wapendwa wao, marafiki na usaidizi mwingine wa
+        kijamii.
+      » Kufikia usaidizi maalumu unaohusiana na tamaduni na dini zao.
+      » Kuulizwa na kuhusishwa katika uamuzi muhimu.
+
+
+
+
+Watu wanaweza kujihisi wanyonge, waliotengwa na wasio na nguvu baada ya tukio la
+kuhuzunisha. Katika hali zingine, maisha yao ya kila siku hutatizwa. Huenda waweze kufikia
+usaidizi wao wa kawaida, au wajipate tu wakiishi katika hali za kufadhaisha. Kuwaunganisha
+watu na usaidizi halisi ni sehemu muhimu ya HKK. Kumbuka kuwa mara nyingi HKK ni utatuzi
+wa mara moja na huenda uwe pale kusaidia kwa muda mfupi tu. Waathiriwa watahitaji kutumia
+ujuzi wao wa kuzoea ili kupata afueni katika muda mrefu.
+Wasaidie watu kujisaidia na
+kurejesha udhibiti wao
+wa hali yao.
+
+
+
+
+      Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   24
+ 1. WASAIDIE WATU KUTATUA MAHITAJI YA KIMSINGI NA
+      KUFIKIA HUDUMA.
+     Katika kusaidia watu kutatua mahitaji ya kimsingi, zingatia yafuatayo:
+
+      »   Punde tu baada ya tukio la dharura, jaribu kumsaidia mtu aliye katika mfadhaiko
+          mkali kutatua tatizo la mahitaji ya kimsingi anayoomba, kama vile chakula, maji,
+          nyumba, na usafi.
+      »   Jifunze ni mahitaji yapi maalum waliyo nayo watu – kama vile huduma za afya,
+          mavazi au vyombo vya kulishia watoto wadogo (vikombe na chupa) – na ujaribu
+          kuwaunganisha na usaidizi uliopo.
+      »   Hakikisha kuwa watu wanyonge na waliotengwa hawasahauliki (tazama sehemu ya
+          3.5).
+      »   Fuatilia watu ukiahidi kufanya hivyo.
+
+      WASAIDIE WATU KUKABILIANA NA MATATIZO
+
+
+
+
+Mtu aliye na mfadhaiko mkali anaweza kuhisi kuzidiwa na wasiwasi na woga. Msaidie
+kuzingatia mahitaji yake ya dharura, na jinsi ya kuyapanga na kuyatatua. Kwa mfano, unaweza
+kumwambia kufikiria kuhusu anachohitaji kutatua wakati huo na kinachoweza kungoja.
+Kuweza kudhibiti masuala machache kutamfanya ajihisi anayehusika katika kudhibiti hali hiyo
+na kuimarisha uwezo wake wa kuzoea. Kumbuka:
+      » Kuwasadia watu kutambua usaidizi katika maisha yao, kama vile marafiki au jamaa,
+        wanaoweza kuwasaidia katika hali iliyopo;
+      » Kutoa mapendekezo halisi yatakayowawezesha watu kukidhi mahitaji yao wenyewe
+        (kwa mfano, eleza jinsi mtu anavyoweza kujiandikisha ili kupokea msaada wa
+        chakula au msaada wa vitu vingine);
+      » Kumwuliza mtu huyo jinsi alivyozoea hali ngumu awali, na umhakikishie uwezo wake
+        wa kukabiliana na hali iliyopo;
+      » Kumwuliza mtu huyo kinachomsaidia kujisikia vyema. Mhimize kutumia njia bora za
+        kukabili hali na kuepuka njia mbaya za kukabiliana na hali (tazama hapa chini).
+
+
+
+25     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+ KUKABILI HALI
+Kila mtu ana njia za kiasili za kukabili hali tofauti. Wahimize watu kutumia njia zao
+wenyewe, huku wakiepuka njia zisizofaa. Hii itawasaidia kujihisi wenye ujasiri na
+kurejesha udhibiti wao. Utahitaji kubadilisha mapendekezo yafuatayo kuambatana na
+utamaduni wa mtu huyo na kinachowezekana katika hali hiyo ya dharura.
+
+
+  Himiza njia              » Pumzika vizuri.
+  bora za                  » Kula mara kwa mara iwezekanavyo na unywe maji.
+  kukabili hali            » Zungumza na ukae na jamaa na marafiki.
+                           » Jadili matatizo na mtu unayemwamini.
+                           » Fanya shughuli zitakazokusaidia kutulia (tembea, imba,
+                             sali, cheza na watoto).
+                           » Fanya mazoezi ya kimwili.
+                           » Tafuta njia salama za kuwasaidia wengine katika dharura
+                             hii na uhusike katika shughuli za jamii.
+
+
+
+
+                                                                                               SURA YA 3
+                           » Usitumie dawa za kulevya, usivute sigara wala kunywa
+ Kataza njia
+                             pombe.
+ zisizofaa katika          » Usilale siku kutwa.
+ kukabili hali
+                           » Usifanye kazi wakati wote bila kupumzika au kutulia.
+                           » Usijitenge na marafiki na wapendwa wako.
+                           » Usipuuze usafi wa kimsingi wa kimwili.
+                           » Usizue fujo.
+
+
+
+
+    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   26
+3. TOA HABARI
+     Watu walioathiriwa na tukio la dharura watahitaji habari sahihi kuhusu:
+
+            » Tukio hilo;
+            » Wapendwa wao au wengine walioathiriwa;
+            » Usalama wao;
+            » Haki zao;
+            » Jinsi ya kupata huduma na vitu wanavyohitaji.
+
+
+
+
+Kupata habari sahihi baada ya tukio la dharura kunaweza kuwa vigumu. Hii ni kwa sababu
+tukio la dharura linavyozidi kujulikana habari na hali hiyo inaweza kubadilika na kwa hivyo
+njia za kudhibiti hali hiyo vilivyopanga huweza kubadilika. Uvumi unaweza kutokea
+sana.Huenda usiwe na majibu yote katika hali yoyote ile lakini panapowezekana;
+
+     » Tafuta pa kupata habari sahihi, na lini na wapi pa kupata habari za mara kwa mara;
+     » Jaribu kupata habari nyingi iwezekanavyo kabla ya kutoa usaidizi kwa watu;
+     » Jaribu ufahamu kila wakati kuhusu hali ya dharura, masuala ya usalama, huduma
+       zilizopo, na habari na hali ya watu wanaokosekana au waliojeruhiwa;
+     » Hakikisha kuwa watu wanaambiwa kinachotendeka kuhusu mipango yoyote;
+     » Ikiwa huduma zipo (huduma za afya, kutafuta wanafamilia, makazi, ugavi wa
+       chakula), hakikisha kuwa watu wanazijua na wanaweza kuzipata.
+     » Toa anwani za watu za mawasiliano kwa huduma, au uwaelekeze moja kwa moja;
+     » Hakikisha kuwa watu wanyonge pia wanajua kuhusu huduma zilizopo. (tazama
+       sehemu 3.5)
+
+
+
+27    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+Katika kutoa habari kwa waathiriwa;
+    » Eleza ulikotoa habari hiyo na kiwango cha kuaminika kwake;
+    » Sema unachojua tu – usibuni habari au kutoa hakikisho za uongo;
+    » Ujumbe uwe rahisi na sahihi, na urudie ujumbe huo kuhakikisha kuwa watu wanasikia
+      na kuelewa habari hiyo;
+    » Inaweza kuwa bora kutoa habari kwa makundi ya waathiriwa, ili kila mtu asikie ujumbe
+      sawa;
+    » Wajulishe watu ikiwa utawapasha kuhusu mambo yanayotokea, ikiwemo wapi na lini.
+
+Unapotoa habari, fahamu kuwa msaidizi anaweza kulengwa kwa dhiki na hasira ambayo watu
+wanaweza kuhisi usipotekeleza matarajio yao. Katika hali hizi, jaribu kuwa mtulivu na uelewe.
+
+
+4. UNGANA NA WAPENDWA WAO NA PIA WASAIDIZI WA KIJAMII
+Imedhihirishwa kuwa watu wanaohisi kuwa walikuwa na usaidizi bora wakijamii baada ya
+dharura hukabili hali vizuri kuliko wale wanaohisi kuwa hawakusaidiwa vizuri. Kwa
+sababu hii, kuwaunganisha watu na wapendwa wao na usaidizi wa kijamii ni sehemu
+
+
+
+
+                                                                                                SURA YA 3
+muhimu ya huduma ya kwanza ya kisaikolojia.
+
+    » Saidia kuziweka familia pamoja, na uwaweke watoto na wazazi wao pamoja na
+      wapendwa wengine.
+    » Wasaidie watu kuwasiliana na marafiki na jamaa ili waweze kupata usaidizi, kwa
+      mfano, wape njia wanayoweza kutumia kuwapigia simu wapendwa wao.
+    » Mtu akikufahamisha kuwa maombi, shughuli ya kidini au usaidizi kutoka kwa
+      viongozi wa kidini unaweza kuwa bora kwake, jaribu kumuunganisha na jamii
+      yake ya kidini. Tazama kisanduku hapa chini kuhusu hali za dharura na mambo ya
+      kidini.
+    » Jaribu kuwaleta waathiriwa pamoja ili wasaidiane. Kwa mfano, waambie watu
+      kuwatunza wakongwe, au uwaunganishe wale wasio na familia na wanajamii
+      wengine.
+
+
+
+
+     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   28
+ HALI ZA DHARURA NA IMANI ZA KIDINI
+ Katika hali za dharura, imani za kidini za mtu zinaweza kuwa muhimu katika kumsaidia
+ kwenye maumivu na shida na kuimarisha matumaini. Kuweza kusali na kutekeleza kaida za
+ dini kunaweza kuwaliwaza vizuri. Hata hivyo, kupitia dharura – hasa inayoleta madhara –
+ pia kunaweza kuwafanya watu kutilia shaka imani zao. Imani ya watu inaweza kutiwa
+ changamoto, kuimarishwa au kubadilishwa na tukio hili. Hapa kuna mapendekezo kuhusu
+ vipengele vya kidini vya kutoa utunzaji na faraja baada ya tukio la kufadhaisha:
+
+       » Jua na uheshimu imani ya kidini ya mtu huyo.
+       » Uliza mtu huyo kinachomsaidia kuhisi vyema. Mhimize kufanya mambo
+         yanayomsaidia kuvumilia, yakiwemo taratibu za kidini iwapo atazitaja.
+       » Sikiliza kwa heshima, na bila kuhukumu imani za kidini au maswali anayoweza kuwa
+         nayo.
+       » Usilazimishe imani, au ufafanuzi wako wa kidini wa dharura kwa mtu huyo.
+       » Usikubaliane na wala kupinga imani au ufafanuzi wa kidini wa dharura hiyo hata
+         ukiulizwa.
+
+
+
+
+ 3.4       KUTAMATISHA USAIDIZI WAKO
+     Ni nini kitakachofuata? Lini
+     na jinsi ya kutamatisha
+     utoaji wa usaidizi wako
+     itategemea muktadha wa
+     dharura, jukumu lako na
+     hali na mahitaji ya watu
+     unaowasaidia. Tumia
+     ukaguzi wako wa hali,
+     mahitaji ya mtu huyo na
+     yako. Ikihitajika, mweleze
+     mtu huyo kuwa unaondoka,
+     na ikiwa mtu mwingine
+     atakuwa akimsaidia
+     kuanzia hapo kuendelea,
+     jaribu umtambulishe
+     k w a k e .       I k i w a
+     umemuunganisha mtu huyo
+     na huduma zingine, mfahamishe cha kutarajia na uhakikishe kuwa ana habari zaidi ili
+     kuweza kufuatilia. Bila kujali uhusiano wako ulivyokuwa na mtu huyo, unaweza kumuaga
+     kwa njia nzuri kwa kumtakia ufanisi.
+
+29    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+ 3.5     WATU WANAOHITAJI UANGALIZI MAALUMU
+
+
+
+
+Watu wanaoweza kuwa hatarini na wanahitaji usaidizi maalumu katika dharura ni:
+
+
+
+
+                                                                                                 SURA YA 3
+         1.      Watoto wakiwemo wanaobaleghe
+         2.      Watu walio na matatizo ya kiafya au ulemavu;
+         3.      Watu walio katika hatari ya ubaguzi au fujo.
+
+
+Kumbuka kuwa watu wote wana uwezo wao kuvumilia, wakiwemo wale walio hatarini
+zaidi. Wasaidie watu walio hatarini kutumia uwezo huo na njia zao wenyewe za
+kuvumilia.
+
+
+1. WATOTO WAKIWEMO WANAOBALEGHE
+Watoto wengi-wakiwemo wanaobaleghe – wako hatarini zaidi katika hali ya dharura. Matukio
+ya dharura mara kwa mara huvuruga mazingira wanayoyajua, wakiwemo watu, mahali na
+taratibu zinazowahakikishia usalama. Watoto wanaoathiriwa na dharura wanaweza kuwa
+katika hatari ya dhuluma za kimapenzi, kutumiwa vibaya na kukandamizwa, ambayo hutokea
+sana kwenye michafuko ya hali ya dharura. Watoto wachanga hasa huwa hatarini kwa sababu
+hawawezi kukidhi mahitaji yao ya kimsingi au kujikinga, na watunzaji wao wanaweza
+kuzidiwa. Watoto wakubwa wanaweza kuuzwa, kukandamizwa kimapenzi au kulazimishwa
+kujiunga katika jeshi.. Wasichana na wavulana mara nyingi hukumbwa na hatari tofauti.
+Wasichana hukumbwa na hatari kubwa zaidi ya dhuluma za kimapenzi na kukandamizwa, na
+waliofanyiwa vitendo hivi wanaweza kuaibika na kujitenga.
+
+Jinsi watoto wanavyoonyesha hisia kutokana na hali ngumu za dharura (kwa mfano,
+kushuhudia uharibifu, majeraha au kifo, kutangamana na visababishi vya hatari hiyo, ukosefu
+wa chakula na maji) hutegemea umri wao na kiwango cha ukuaji. Pia hutegemea jinsi watunzaji
+
+      Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   30
+wao, na watu wengine wazima wanavyoingiliana nao. Kwa mfano, huenda watoto wachanga
+wasielewe kikamilifu kinachotendeka katika mazingira yao, na wanahitaji sana usaidizi wa
+watunzaji wao. Kijumla, watoto hukabiliana vyema wakiwa na mtu mzima aliye imara na
+mtulivu.
+
+
+
+
+Watoto na vijana wanaweza kuonyesha hisia za mfadhaiko mwingi sawa na watu wazima
+(tafadhali tazama kurasa za 13 na 14). Pia wanaweza kuwa na baadhi ya hisia za mfadhaiko
+mwingi zifuatazo)4
+
+         » Watoto wachanga wanaweza kurejelea mienendo ya awali (kwa mfano, kukojoa
+           kwenye malazi, au kunyonya kidole gumba), wanaweza kuwashikilia watunzaji
+           sana na kupunguza kucheza kwao au warudierudie mchezo unaohusiana na tukio
+           hilo la kufadhaisha.
+         » Watoto walio na umri wa kwenda shuleni wanaweza kuamini kuwa walisababisha
+           kutokea kwa jambo baya, wakumbwe na woga mpya, wapunguze upendo wao,
+           wahisi upweke na kujishughulisha na kukinga au kuokoa watu walio katika
+           dharura.
+         » Huenda watoto
+            wanaobaleghe
+            wasihisi chochote,
+            wahisi kuwa tofauti
+            au kutengwa na
+            marafiki zao, au
+            waonyeshe
+            mienendo ya
+            kuhatarisha, na
+            mitazamo mibaya.
+
+
+
+
+ 4
+     Tazama Pynoos, et al. (2009) katika Marejeo na Asilia.
+
+
+
+
+31        Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+Familia na watoa utunzaji wengine ni nyenzo muhimu za kinga na usaidizi wa kihisia kwa
+watoto. Waliotenganishwa na watunzaji wanaweza kujipata katika sehemu wasizozijua na kwa
+watu wasiowajua wakati wa tukio la dharura. Wanaweza kuwa waoga sana na wasiweze
+kuchunguza vizuri hatari zilizo karibu nao. Hatua muhimu ya kwanza ni kuwaunganisha watoto
+waliotenganishwa – wakiwemo wanaobaleghe – na familia na watunzaji wao. Usijaribu kufanya
+haya kivyako. Ukikosea, utazorotesha hali ya watoto hao zaidi. Badala yake jaribu kuwasiliana
+mara moja na shirika la kinga kwa watoto linaloweza kuanza shughuli ya kuwaandikisha na
+kuwasajili watoto hao na kuhakikisha wanatunzwa.
+Watoto wakiwa na watunzaji wao, jaribu kuwasaidia watunzaji katika kuwatunza watoto wao
+wenyewe. Kisanduku kilicho hapa chini kinatoa mapendekezo ya jinsi wanavyoweza
+kuwasaidia watoto wa umri na viwango tofauti za ukuaji.
+
+
+
+  MAMBO AMBAYO WATUNZAJI WANAWEZA
+  KUFANYA KUSAIDIA WATOTO
+
+    Watoto   » Dumisha joto na usalama wao.
+
+
+
+
+                                                                                                 SURA YA 3
+    wachanga » Waweke mbali na kelele na fujo.
+                    »   Wabebe na uwakumbatie.
+                    »   Ikiwezekana, weka ratiba ya kula na kulala.
+                    »   Zungumza kwa sauti tulivu na nyororo.
+
+
+                    »   Wape muda na uangalifu zaidi.
+     Watoto         »   Wakumbushe mara kwa mara
+     wadogo             kuwa wako salama.
+                    »   Waeleze kuwa hawalaumiki
+                        kwa mabaya yaliyotokea.
+                    »   Epuka kutenganisha watoto
+                        wadogo na watunzaji, ndugu na
+                        wapendwa wao.
+                    »   Zingatia utaratibu na ratiba
+                        maalumu iwezekanavyo.
+                    »   Wape majibu rahisi kuhusu
+                        yaliyotokea bila habari ya
+                        kutisha.
+                    »   Kuwa mvumilivu na watoto wanaoanza kuonyesha mienendo
+                        waliyofanya wakiwa wadogo, kama vile kunyonya kidole gumba, au
+                        kukojoa kwenye malazi.
+                    »   Wape nafasi ya kucheza na kustarehe ikiwezekana.
+                    »   Waruhusu wakae karibu nawe wakiwawaoga au wakitaka
+                        kukushikilia.
+
+      Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   32
+     MAMBO AMBAYO WATUNZAJI WANAWEZA
+     KUFANYA KUSAIDIA WATOTO
+
+
+     Watoto      » Wape muda na uangalifu wako.
+     wakubwa     » Wasaidie kuweka utaratibu maalumu.
+     na          » Wape ukweli kuhusu yaliyotokea na ueleze kinachoendelea
+     wanaobaleghe kwa wakati huo.
+                           » Waruhusu kuhuzunika. Usiwatarajie kuwa wavumilivu sana.
+                           » Sikiza mawazo na woga wao bila kuwashutumu.
+                           » Weka kanuni na matarajio wazi.
+                           » Waulize kuhusu hatari zinazowakumba, wasaidie na ujadili
+                           » jinsi wanavyoweza kuepuke madhara.
+                           » Wahimize na uwape fursa ya kutoa usaidizi.
+
+
+
+
+Ikiwa mtunzaji atajeruhiwa, au amekasirika sana au asiweze kuwatunza watoto hao, unaweza
+kumtafutia usaidizi na uwatunze watoto hao. Husisha shirika la kuaminika la kinga ya watoto,
+ikihitajika. Hakikisha kuwa watoto na watunzaji wao wako pamoja na usijaribu kuwaacha
+watenganishwe. Kwa mfano, ikiwa mtunzaji anapelekwa mahali fulani kwa huduma ya
+kimatibabu, jaribu kuwaweka watoto naye au utoe habari kuhusu mahali ambapo mtunzaji
+huyo anapelekwa ili waweze kuunganishwa.
+Pia fahamu kuwa watoto wanaweza kukusanyika mahali pa dharura na waweze kushuhudia
+matukio ya kutisha, hata ikiwa wao au watunzaji wao hawajaathiriwa moja kwa moja na tukio
+hilo. Katika fujo za dharura, mara nyingi watu wazima huwa na shughuli na huenda
+wasimakinike kwa karibu kuhusu mambo ambayo watoto katika eneo hilo wanafanya, au
+wanachoona au kusikia. Jaribu kuwakinga dhidi ya mambo na habari za kufadhaisha sana.
+
+
+33    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+   MAMBO YA KUZUNGUMZIA AU KUFANYIA WATOTO
+
+   Waweke      » Waweke pamoja na watunzaji na familia zao panapowezekana.
+   pamoja        Jaribu wasitenganishwe.
+   na wapendwa » Wasipokuwa na mtu yeyote, waunganishe na shirika
+   wao           linaloaminika la kinga ya watoto. Usiache mtoto bila
+                 kushughulikiwa.
+               » Ikiwa hakuna shirika la kinga ya watoto, chukua hatua
+                 mwenyewe kuwatafuta watunzaji wao au kuwasiliana na familia
+                 nyingine inayoweza kuwatunza.
+
+                     » Wakinge dhidi ya kutangamana na matukio ya kufadhaisha, kama
+   Hakikisha           vile watu waliojeruhiwa au uharibifu mkubwa.
+   usalama
+                     » Wakinge dhidi ya kusikia habari za kufadhaisha kuhusu tukio hilo.
+                     » Wakinge dhidi ya vyombo vya habari au watu wanaotaka
+                       kuwahoji ambao si wa makundi ya kusaidia.
+
+
+
+
+                                                                                                SURA YA 3
+    Sikiza,           » Kuwa mtulivu, zungumza kwa upole na uwe mkarimu.
+    zungumza          » Sikiza maoni ya watoto kuhusu hali yao.
+    na ucheze
+                      » Jaribu kuzungumza nao kwa kiwango chao na utumie maneno na
+    nao
+                        maelezo wanayoweza kuelewa.
+                      » Jitambulishe kwa jina na uwafahamishe kuwa uko pale
+                        kuwasaidia.
+                      » Fahamu majina yao, wanakotoka na habari nyingine unazoweza
+                        kupata ili uweze kupata watunzaji na jamaa zao.
+                      » Wakiwa na watunzaji wao, saidia watunzaji katika kuwatunza
+                        watoto wao.
+                      » Ikiwa unapitisha muda na watoto hao, jaribu kuwahusisha katika
+                        shughuli za michezo au mazungumzo rahisi kuhusu mambo
+                        wanayopenda, kulingana na umri wao.
+
+
+
+Kumbuka kuwa watoto pia wana uwezo wao wenyewe wa kukabili tatizo. Jifunze
+kuuhusu na uhimize njia bora ya kukabili tatizo, huku ukiwasaidia kuepuka njia mbaya ya
+kukabili. Watoto wakubwa na wanaobaleghe wanaweza kusaidia mara kwa mara katika hali za
+dharura. Upataji wa njia salama zao kushiriki katika hali hiyo unaweza kuwasaidia kujihisi
+walio katika usukani.
+
+
+
+
+     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   34
+2. WATU WALIO NA MATATIZO YA KIAFYA AU ULEMAVU WA
+   KIMWILI AU KIAKILI
+
+
+
+
+                                                                                                  SURA YA 3
+Watu walio na matatizo sugu ya kiafya, ulemavu wa kimwili au kiakili (yakiwemo matatizo
+makali ya kiakili), au wakongwe wanaweza kuhitaji usaidizi maalum kufikia mahali salama,
+kupata usaidizi wa kimsingi na utunzaji wa kiafya, au kujitunza wenyewe. Tukio la dharura
+linaweza kuharibu zaidi aina tofauti za matatizo ya kiafya (kama vile shinikizo la juu la damu,
+matatizo ya moyo, pumu, wasiwasi mwingi na matatizo mengine ya kiafya na kiakili).
+Wanawake wajawazito na wanaolea wanaweza kukumbwa na mfadhaiko mkali unaoweza
+kuathiri ujauzito wao, au afya yao na ya watoto wao wachanga kutokana na dharura hiyo.
+Watu wasioweza kutembea kivyao, au walio na matatizo ya kuona au kusikia wanaweza
+kuwa na ugumu wa kupata wapendwa wao au kufikia huduma zilizopo.
+
+Baadhi ya mambo unayoweza kufanya kuwasaidia watu walio na matatizo ya kiafya au
+ulemavu yameorodheshwa hapa chini:
+
+     » Wasaidie kufika mahali salama.
+     » Wasaidie kukidhi mahitaji yao ya kimsingi, kama vile kuweza kula, kunywa, kupata maji
+       safi, kujitunza, au kujenga nyumba kwa vifaa vilivyotolewa na mashirika.
+     » Waulize watu ikiwa wana matatizo yoyote ya kiafya, au iwapo wao hunywa dawa mara
+       kwa mara kwa tatizo la kiafya. Jaribu kuwasaidia watu kupata matibabu yao au kufikia
+       huduma za matibabu, zikiwepo.
+     » Kaa na mtu huyo au jaribu kuhakikisha kuwa ana mtu wa kumsaidia ukihitaji kuondoka.
+       Zingatia kumuunganisha na shirika la kinga au usaidizi mwingine husika, kuwasaidia
+       katika siku za baadaye.
+     » Wape habari kuhusu jinsi ya kufikia huduma zozote zilizopo.
+
+
+
+35       Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+3. WATU WALIO KATIKA HATARI YA UBAGUZI AU FUJO
+Watu walio katika hatari ya ubaguzi au fujo ni pamoja na wanawake, watu kutoka katika
+makundi fulani ya kikabila au kidini, na watu wenye ulemavu wa kiakili. Wamo katika hatari
+kubwa kwa sababu huenda:
+
+   » wakapitwa wakati huduma muhimu zinapotolewa;
+   » wakasahaulika wakati uamuzi kuhusu msaada, huduma ama mahali pa
+     kuhamia unapofanywa; na
+   » wakalengwa kwa dhuluma, ikiwa ni pamoja na dhuluma za kimapenzi.
+
+
+Watu walio katika hatari ya ubaguzi au fujo wanaweza kuhitaji ulinzi maalumu ili wawe salama
+katika hali ya dharura, na wanaweza kuhitaji usaidizi wa ziada ili kukidhi mahitaji yao ya
+kimsingi na kupata huduma zinazotolewa. Watambue watu kama hawa na uwasaidie:
+
+   » kupata mahali salama pa kukaa;
+   » kuungana na wapendwa wao na wengine wanaowaamini; na
+   » kupata habari kuhusu huduma zinazopatikana na pia kuwaunganisha na
+     huduma hizo ikihitajika.
+
+
+
+
+      Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   36
+     Sura ya 4
+     KUJITUNZA NA KUWATUNZA
+     WAFANYAKAZI WENZA
+
+
+
+
+37   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+KATIKA SURA HII TUNAZUNGUMZIA:
+
+  4.1 Kujiandaa kusaidia
+  4.2 Kudhibiti mfadhaiko: Utendakaji bora na maadili ya kiafya
+  4.3 Kupumzika na kutafakari
+
+
+
+Wewe au familia yako mnaweza kuathiriwa na hali ya hatari moja kwa moja. Hata ikiwa
+huhusiki kwa njia ya moja kwa moja, unaweza kuathiriwa na mambo unayoyaona au kusikia
+unapotoa usaidizi. Kama msaidizi, ni muhimu kuzingatia maslahi yako mwenyewe kwa makini
+zaidi. Jitunze ili uweze kuwatunza wengine!
+
+
+
+
+ 4.1 KUJIANDAA KUSAIDIA
+Fikiri kuhusu jinsi unavyoweza kujiandaa vyema zaidi kuwa msaidizi
+katika hali za hatari. Ikiwezekana:
+
+     » Jifunze kuhusu hali za hatari, na majukumu na
+       wajibu wa aina mbalimbali wa wasaidizi;
+     » Zingatia afya yako mwenyewe, na maswala ya
+       kibinafsi au ya kifamilia yanayoweza
+       kusababisha mawazo unapochukua jukumu
+
+
+
+
+                                                                                                 SURA YA 4
+       la kuwasaidia wengine; naFanya uamuzi
+     » adilifu ukiwa tayari kutoa usaidizi katika
+       hali hii na wakati huu.
+
+
+
+
+      Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   38
+ 4.2 KUDHIBITI
+            MFADHAIKO:
+            UTENDAKAZI BORA
+            NA MAADILI
+            YA KIAFYA
+
+
+
+Kama msaidizi, unaweza kuhisi kwamba umewajibika na usalama na utunzaji wa watu. Chanzo
+kikuu cha mawazo kwa wasaidizi ni matatizo ya kila siku ya kazini, hasa wakati wa hatari.
+Kufanya kazi kwa vipindi virefu, majukumu makubwa, ukosefu wa maelezo bayana kuhusu
+kazi, mawasiliano au usimamizi duni, na kufanya kazi mahali pasipo salama ni baadhi ya
+mifano ya matatizo ya kikazi yanayoweza kuwaathiri wasaidizi.
+Unaweza kushuhudia au hata kupitia mambo magumu, kama vile uharibifu, majeraha, kifo au
+ghasia. Unaweza pia kusikia habari kuhusu mateso na machungu ya watu. Matukio haya yote
+yanaweza kukuathiri wewe na wasaidizi wenza.
+Fikiri jinsi unavyoweza kudhibiti mfadhaiko wako, kupokea usaidizi kutoka kwa wasaidizi
+wenza na kuwasaidia pia. Maoni yafuatayo yanaweza kukusaidia kudhibiti mfadhaiko wako.
+
+
+     » Fikiri kuhusu hatua zilizokuwezesha kukabiliana na mambo magumu awali, na zile
+       unazoweza kuchukua ili kusimama imara.
+     » Jaribu kutenga wakati wa kula, kupumzika na kutulia, hata kwa vipindi vifupi.
+     » Jaribu kudumisha vipindi vifupi vya kufanya kazi ili usichoke sana. Jaribu, kwa mfano,
+       kuigawa kazi yako miongoni mwa wasaidizi, kufanya kazi kwa zamu katika kipindi
+       kikali cha hatari hii na kuchukua vipindi vingi vya kupumzika.
+     » Watu wanaweza kuwa na matatizo mengi baada ya tukio la hatari. Unaweza kujihisi
+       dhaifu au kukata tamaa unapokosa uwezo wa kuwasaidia watu katika matatizo yao
+       yote. Kumbuka kuwa si jukumu lako kusuluhisha matatizo yote ya kila mtu. Fanya
+       unaloweza tu ili kuwasaidia watu kujisaidia.
+     » Punguza unywaji pombe, kahawa au nikotini, na usitumie dawa usizoagizwa na
+       daktari.
+     » Watembelee wasaidizi wengine kuona jinsi wanavyoendelea, na pia uwakaribishe
+       kukutembelea. Tafuteni njia za kusaidiana.
+     » Zungumza na marafiki, wapendwa au watu wengine unaowaamini ili wakusaidie.
+
+
+
+
+39    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+ 4.3       KUPUMZIKA NA KUTAFAKARI
+Kuchukua muda wa kupumzika na kufikiria ni sehemu muhimu ya kutamatisha jukumu lako la
+usaidizi. Hali ya matatizo na mahitaji ya watu uliyokumbana nayo huenda yalikuwa magumu
+sana, hivyo inaweza kuwa vigumu kuyabeba maumivu na mateso yao. Baada ya kusaidia katika
+tatizo fulani, tenga wakati wa kufikiria kuhusu tukio hilo kwa ajili yako na wengine. Maoni
+yafuatayo yanaweza kukusaidia kupata nafuu kutokana na tukio hilo baya.
+
+       »   Zungumza na msimamizi wako, msaidizi mwenza au mtu unayemwamini kuhusu
+           mambo unayopitia unapotoa usaidizi.
+       »   Zingatia mambo uliyofaulu kufanya kuwasaidia wengine, ingawaje madogo.
+       »   Jifunze kufikiria kuhusu mambo uliyofanya vyema, yale yasiofanyika vyema, na
+           kipimo cha uwezo wako katika hali ile.
+       »   Tenga wakati, ikiwezekana, ili kupumzika na kutulia kabla ya kuanza tena
+           majukumu yako ya kikazi na kimaisha.
+
+Ukijipata na mawazo ya kukasirisha kuhusu tukio lile, ukihisi wasiwasi mkuu au huzuni
+kubwa, unashindwa kulala, au unalewa sana au kutumia dawa, ni muhimu kupata usaidizi
+kutoka kwa mtu unayemwamini. Zungumza na mtaalamu wa afya, au, ikiwa yupo, mtaalamu
+wa afya ya kiakili iwapo matatizo haya yataendelea kwa zaidi ya mwezi mmoja.
+
+
+
+
+                                                                                                SURA YA 4
+
+
+
+
+     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   40
+      Sura ya 5
+     TEKELEZA ULICHOJIFUNZA
+
+
+41   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+IFUATAYO NI MIFANO YA MATUKIO UNAYOWEZA KUKUMBANA NAYO
+KATIKA JUKUMU LAKO KAMA MSAIDIZI. UNAPOISOMA MIFANO HII,
+FIKIRIA:
+  1. Ni nini ningehitaji kwa dharura zaidi iwapo tukio kama hili lingetokea kwangu?
+  2. Ni nini ningetambua kuwa chenye manufaa zaidi?
+
+Kumbuka kanuni za HKK za kutazama, kusikiza na kuunganisha-huku ukiwaza jinsi
+ungewajibu watu katika kila tukio. Tumejumuisha maswali kadhaa muhimu ili kukusaidia
+kufikiri kuhusu mambo ya kuzingatia, na pia njia za kujibu
+
+
+
+
+ 5.1 MFANO WA KWANZA: JANGA LA KIMAUMBILE
+
+
+
+
+                                                                                                SURA YA 5
+Umesikia kwamba mtetemo mkubwa wa ardhi umetokea katika sehemu kuu ya jiji katikati
+mwa siku yenye shughuli nyingi.Watu wengi wameathirika na majengo mengi
+kuanguka.Wewe na wafanyakazi wenzako mlihisi mtetemo huo, lakini mko salama.Kiwango
+cha uharibifu uliotokea hakijulikani vyema.Shirika unalofanyia kazi limekuomba wewe na
+wafanyakazi wengine kuwasaidia majeruhi, na kuwasaidia watu wowote walioathiriwa zaidi
+iwapo mtawapata.
+
+
+
+     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   42
+Ukijiandaa kusaidia, jiulize maswali yafuatayo.
+
+     »» Niko tayari kutoa usaidizi? Ni maswala gani ya kibinafsi yanayoweza kuwa muhimu?
+     »» Ni nini ninachojua kuhusu tatizo hili?
+     »» Nitasafiri pekee yangu au pamoja na wafanyakazi wenzangu? Kwa nini?
+
+
+
+     MAMBO YA KUZINGATIA:
+
+      » Unapokwenda kusaidia katika tatizo - hasa punde baada ya janga kuu - zingatia
+          manufaa ya kufanya kazi katika kikundi au vikundi vya watu wawili. Kufanya kazi
+          katika vikundi kutakuwezesha kusaidiwa katika hali ngumu na ni muhimu kwa
+          usalama wako. Unaweza pia kufanya kazi vyema zaidi katika kikundi. Kwa mfano,
+          mtu mmoja anaweza kukaa na mtu aliyeathiriwa huku mwingine akizingatia
+          kupata usaidizi maalumu kama vile huduma ya kiafya, ikihitajika. Ikiwezekana,
+          jaribu kuwa na 'mfumo wa marafiki' ambapo wewe na msaidizi mwenzako
+          mnaweza kutembeleana ili kusaidiana.
+
+     »    Mashirika mengine yanaweza kukupa usaidizi kama vile vifaa, usafiri, vifaa vya
+          mawasiliano, habari zinazochipuka kuhusu hali ile au maswala ya kiusalama na
+          kushirikiana na wafanyakazi wengine au huduma.
+
+
+
+
+ Unapotembea mjini, unafaa kujifahamisha (kutazama)nini?
+
+      »   Je, ni salama kabisa kuwa katika eneo hili la hatari?
+      »   Huduma na usaidizi uliopo ni upi?
+      »   Kuna watu walio na mahitaji wazi ya dharura?
+      »   Kuna watu walioathiriwa sana kimawazo?
+      »   Ni nani anayeweza kuhitaji usaidizi maalum?
+      »   Naweza kutolea wapi huduma ya kwanza ya kisaikolojia?
+
+
+
+
+43    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+Unapoanza kuwahudumia watu, unawezaje kuwasikiza vyema zaidi waathiriwa
+wakisimulia kuhusu matatizo yao kisha kuwahudumia?
+  » Watu walioathiriwa wanaweza kuwa na mahitaji gani ya kimsingi?
+  » Nitajitambulisha vipi ili kuanza kutoa usaidizi?
+  » Inamaanisha nini katika hali hii kuwasaidia waathiriwa kujiweka salama
+    dhidi ya hatari?
+  » Nitawauliza watu kwa njia gani kuhusu mahitaji na maswala yao?
+  » Nawezaje kuwasaidia na kuwatuliza waathiriwa?
+
+
+ MFANO WA MAZUNGUMZO KATI YA MSAIDIZI NA MTU ALIYE
+ NA MAWAZO MENGI
+
+  Katika majadiliano haya, umemfikia mwanamke aliyesimama nje ya jengo lililoanguka.
+  Mwanamke huyu analia na kutetemeka, ingawa haonekani kuumia kimwili.
+ Wewe:            Jambo, jina langu ni ______. Nafanya kazi na shirika la ______________.
+                  Tunaweza kuzungumza?
+ Mwanamke:        Hii ni hali mbaya sana! Nilikuwa karibu kuingia kwenye jengo hili
+                  lilipoanza kutetemeka! Sielewi kinachoendelea!
+ Wewe:            Ndio, huo ulikuwa mtetemeko wa ardhi na naelewa kwamba
+                  ulikushtua. Jina lako nani?
+ Mwanamke:        Mimi ni Maria–Maria Tembo.Nimeshtuka sana! [akilia na
+                  kutetemeka] Sijui kama niingie mle ndani na kujaribu kuwatafuta
+                  wenzangu? Sijui kama wako salama!
+ Wewe:            Bi.Tembo, si salama kabisa kuingia mle kwa sasa, unaweza
+                  kujeruhiwa.Ukipenda, tunaweza kuzungumza mbali kidogo katika
+                  mahali salama, na naweza kukaa nawe kidogo. Ni sawa?
+ Mwanamke:        Ndio. [Mnaenda pahali patulivu kidogo mbali kidogo na jengo
+                  lililoanguka ambapo vikundi vya uokoaji na matibabu vinafanyia
+                  kazi.]
+ Wewe:            Nikutafutie maji? [Ikiwezekana, mpe usaidizi halisi wa kumpa faraja
+                  kama vile maji au blanketi.]
+
+
+
+
+                                                                                                 SURA YA 5
+ Mwanamke:        Nataka tu kukaa hapa kidogo.
+                  Kaa karibu naye kwa dakika mbili au tatu, hadi aanze kuzungumza
+                  tena.]
+ Mwanamke:        Nasikia vibaya! Ningebakia kwenye jengo hilo kuwasaidia watu!
+ Wewe:            Naelewa.
+
+
+   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani      44
+     Mwanamke:        Nilitorokea nje. Lakini nawahurumia hao watu wengine.
+     Wewe:            Ni vigumu kujua hatua bora ya kuchukua katika hali kama
+                      ile.Lakini nafikiri ulifanya uamuzi bora kukimbia kutoka kwenye
+                      jengo lile, la sivyo ungeumia.
+     Mwanamke:        Niliwaona wakiuondoa mwili kwenye maporomoko. Nafikiri
+                      alikuwa rafiki yangu [akilia]
+     Wewe:            Pole sana.Kikundi cha uokoaji kinafanya kazi, hivyo tutajua
+                      baadaye jinsi watu waliokuwa mle ndani walivyo.
+                      [Majadiliano haya yanaendelea kwa dakika zingine 10 hivi
+                       ukiendelea kumskiza na kuendelea kumuuliza kuhusu mahitaji
+                       yake na wasiwasi wake. Majadiliano haya yanatamatishwa
+                       hivi:]
+     Mwanamke:        Nahitaji kujua kama familia yangu iko salama, lakini nilipoteza
+                      simu mtetemo ulipoanza, na sijui nitafikaje nyumbani.
+     Wewe:            Naweza kukusaidia kuipigia simu familia yako, kisha tunaweza
+                      kutafuta jinsi utakavyowafikia.
+     Mwanamke:        Asante.Utakuwa umenisaidia sana.
+
+
+
+
+45    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+Katika majadiliano ya hapo juu, fahamu kwamba:
+
+  »» ulijitambulisha kwa jina na kumwambia mtu yule shirika unalofanyia kazi;
+  »» ulimwuliza mtu yule kama angetaka kuzungumza nawe;
+  »» ulimwita kwa heshima kwa jina lake
+  »» ulimkinga dhidi ya hatari zaidi kwa kumpeleka mahali salama zaidi
+  »» ulimpa liwazo mtu aliyeathirika (kwa mfano, maji);
+  »» ulimsikiza na kukaa naye bila kumshurutisha kuzungumza;
+  »» ulimkumbusha hatua bora alizochukua;
+  »» ulimsikiliza kwa subira;
+  »» ulitambua mahitaji na maswala yake;
+  »» ulikubaliana naye kuhusu wasiwasi wake kuhusu wenzake ambao huenda walikufa;
+  »» ulijitolea kumsaidia kuwasiliana na jamii yake.
+
+
+
+
+Unaweza kufanya nini ili kuwaunganishawatukwa habari muhimu na usaidizi mwafaka?
+  »» Ni matatizo gani yanayoweza kuwepo unapojaribu kubaini kuhusu usaidizi (chakula,
+     malazi, maji) au huduma zilizopo za kuwasaidia waathiriwa?
+  »» Ni wasiwasi au maswala gani yanayoweza kuwa katika mawazo ya watu? Ni maoni gani
+     ya mwafaka ninayoweza kuwapa ili kuwasaidia kusuluhisha matatizo yao?
+  »» Waathiriwa watahitaji habari gani? Nitapata wapi habari za kuaminika na za hivi
+     karibuni zaidi kuhusu tukio hili?
+  »» Nitachukua hatua gani kuwawezesha waathiriwa kuwasiliana na wapendwa wao ama
+     wahudumu? Ni changamoto gani zinazoweza kuwepo?
+  »» Watoto, vijana baleghe au watu wenye matatizo ya kiafya wanaweza kuhitaji nini?
+     Naweza kusaidia kuwaunganisha watu walio hatarini na wapendwa wao au
+     wahudumu?
+
+
+
+
+                                                                                               SURA YA 5
+
+
+    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   46
+          MFANO WA PILI: MAPIGANO NA UHAMISHAJI
+ 5.2 WA WATU
+
+
+
+
+Wakimbizi wanaletwa kwa lori katika makao mapya na kufahamishwa kwamba watakuwa
+wakiishi humo.Walihamishwa kufuatia vita katika makao yao.Wanaposhushwa kutoka kwenye
+lori, baadhi yao wanalia, wengine wanaonekana kushtuka, wengine wamechanganyikiwa huku
+wengine wakionekana kufarijika.Wengi wao wameshtuka na kuyashuku makao haya mapya, na
+hawajui watakapolala, kula wala kupokea matibabu. Wengine wanaonekana kushtuka
+wanaposikia sauti kubwa, wakifiri ni milio zaidi ya bunduki.Umejitolea kuhudumu kupitia
+shirika linalotoa vyakula, hivyo umeombwa kusaidia katika vituo vya kugawia chakula.
+
+
+Unapojiandaa kusaidia, fikiri mambo ungelitaka kujua kuhusu hali hii:
+
+
+  »» Ni kina nani nitakuwa nikiwasaidia? Mila zao ni zipi?
+  »» Je, kuna kanuni za kimahusiano ninazohitaji kufuata? Kwa mfano, inakubalika
+     zaidi kwa wasaidizi wa kike kuzungumza na wakimbizi wa kike?
+  »» Wamesafiri kutoka mbali? Nafahamu nini kuhusu tatizo lililowapata?
+  »» Ni huduma gani zinazotolewa katika eneo la kuwapokea wakimbizi?
+  »» Iwapo nafanya kazi katika kikundi, tutajipanga vipi kusaidia katika hali hii? Ni
+     majukumu gani ambayo kila mtu atachukua? Tutashirikiana vipi kama
+     wasaidizi, na pia na vikundi vingine vya usaidizi vinavyoweza kuwepo?
+
+
+
+
+     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+Unapokutana na kikundi cha wakimbizi, unafaa kujifahamisha (kutazama)nini?
+
+
+  »»   Idadi kubwa ya wakimbizi watahitaji nini? Je, watakuwa wenye njaa, kiu au
+       uchovu? Kuna yeyote aliyejeruhiwa au mgonjwa?
+  »»   Kuna familia au watu waliotoka kijiji kimoja katika kikundi hiki cha wakimbizi?
+  »»   Kuna watoto au vijana wasioandamana na familia? Ni nani mwingine anayeweza
+       kuhitaji usaidizi?
+  »»   Watu mbalimbali katika kikundi hiki cha wakimbizi wanaonekana kukabiliana
+       na hali hii kwa namna mbalimbali. Ni athari gani kuu za kimawazo
+       unazotambua?
+
+Unapoanza kuwahudumia watu wa kikundi hiki, unawezaje kuwasikiza vyema zaidi
+wakisimulia kuhusu matatizo yao kisha kuwatuliza?
+
+  »» Nitajitambulisha vipi ili kuanza kutoa usaidizi?
+  »» Watu walioshuhudia au kupitia ghasia wanaweza kuogopa sana na kuhisi kwamba
+     wako hatarini. Nawezaje kuwasaidia na kuwawezesha kutulia?
+  »» Nawezaje kutambua mahitaji na maswala ya watu wanaoweza kuhitaji usaidizi
+     maalumu, kama vile wanawake?
+  »» Nitaanza kuwasaidia kwa namna gani watoto na vijana wasioandamana na jamaa zao?
+
+
+
+
+ MFANO WA MAZUNGUMZO NA MTOTO ASIYEANDAMANA NA
+ JAMAA ZAKE
+
+   Kando mwa kikundi cha wakimbizi, unamwona mvulana wa takriban miaka 10
+   akisimama pekee na kuonekana mwenye hofu sana.
+
+
+   Wewe:            [Ukipiga goti hadi kufikia kimo cha macho yake].Jambo, jina langu ni
+                    _________.Nafanya kazi na shirika la ______________ na niko hapa
+                             kukusaidia.Jina lako nani?
+
+
+
+
+                                                                                                SURA YA 5
+   Mtoto:           [Huku akitazama chini na kuzungumza kwa sauti ndogo]. Ni Musa.
+   Wewe:            Jambo Musa. Umekuwa na safari ndefu sana kuja hapa.Unahisi
+                     kiu?[Mpe chakula au kinywaji, msaada wowote kama vile blanketi
+                    ukiwa unao.] Familia yako iko wapi?
+   Mtoto:           Sijui [akianza kulia].
+
+
+
+    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani    48
+ Wewe:            Najua unaogopa, Musa. Nitajaribu kukusaidia kukuunganisha na
+                  watu watakaokusaidia kutafuta familia yako. Utaniambia jina la
+                   familia yako na nyumbani kwenu ni wapi?
+ Mtoto:           Ndio, mimi ni Musa Mangi. Natoka kijiji cha _______________ .
+ Wewe:            Asante, Musa. Familia yako uliiona mwisho lini?
+ Mtoto:           Dada yangu mkubwa alikuwepo lori zilipokuja kutuleta hapa. Lakini
+                   sasa simwoni.
+ Wewe:            Dada yako ana miaka mingapi? Jina lake ni nani?
+ Mtoto:           Anaitwa Rose. Ana umri wa miaka 15.
+ Wewe:            Nitajaribu kukusaidia kumtafuta.Wazazi wako wako wapi?
+ Mtoto:           Sote tulitoroka kutoka kijijini tuliposikia milio ya risasi. Tulipotea
+                   kutoka kwa wazazi wetu. [akilia]
+ Wewe:            Pole sana, Musa.Najua uliogopa sana, lakini sasa uko salama.
+ Mtoto:           Naogopa!
+ Wewe             [kwa njia ya kirafiki]: Naelewa.Ningetaka kukusaidia.
+ Mtoto:           Nifanye nini?
+ Wewe:            Naweza kukaa nawe kidogo, na sote tujaribu kumtafuta dada yako.
+                  Ni sawa?
+ Mtoto:           Ndio, asante.
+ Wewe:            Kuna jambo lingine lolote linalokusumbua au kitu unachohitaji?
+ Mtoto:           Hapana.
+ Wewe:            Musa, inafaa tuzungumze na watu wale ili watusaidie kumtafuta dada
+                   yako au watu wengine wa familia.Tutaenda pamoja kuzungumza
+                  nao. [Ni muhimu kumsaidia mtoto yule kujisajili na shirika
+                  linaloaminika la kutafuta familia au kuwalinda watoto kama
+                  likiwepo.]
+
+
+
+
+49   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+Katika mfano huu wa majadiliano, fahamu kwamba:
+
+  »»    ulimwona mtoto asiyeandamana na jamaa zake katika kikundi cha wakimbizi;
+  »»    ulipiga goti ili kuzungumza na mtoto huyu kwenye kimo cha macho yake;
+  »»    ulizungumza naye kwa upole na ukarimu;
+  »»    ulitafuta habari kuhusu familia yake, likiwemo jina la dada yake;
+  »»    ulikaa na mtoto yule huku ukitafuta shirika linaloaminika la kutafuta familia ili
+        kumtafutia mahali salama pa kukaa hadi familia yake ipatikane.
+
+
+
+Unaweza kufanya nini ili kuwaunganisha watu kwa habari muhimu na
+usaidizi mwafaka?
+
+  »» Watu wanaweza kuwa na mahitaji gani ya kimsingi? Ni huduma gani ninazojua
+     kwamba zipo? Watu wanaweza kuzifikia kwa njia gani?
+  »» Ni habari gani nilizo nazo kuhusu mipango ya kuwahudumia wakimbizi hawa? Wakati
+     gani na ni wapi ninapoweza kupata habari zaidi kuhusu tukio linaloendelea?
+
+  »» Nawezaje kusaidia kuwalinda watu walio hatarini, kama vile wanawake au watoto
+     wasioandamana na jamaa zao ili wasiathiriwe zaidi? Naweza kusaidia kuwaunganisha
+     watu walio hatarini na wapendwa wao au huduma muhimu?
+  »» Watu wanaweza kuwa na mahitaji gani ya kimsingi, ikijumuisha wale walioathiriwa na
+     ghasia.
+  »» Nitachukua hatua gani kuwawezesha waathiriwa kuwasiliana na wapendwa wao ama
+        wahudumu?
+
+
+
+
+                                                                                                  SURA YA 5
+
+
+       Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   50
+ 5.3 MFANO WA TATU: AJALI
+
+
+
+
+Ukiwa safarini katika kijiji chenye watu wengi, unashuhudia ajali mbele yako. Inaonekana
+kwamba mtu aliyekuwa akivuka barabara pamoja na mkewe na binti yake mdogo aligongwa na
+gari.Mtu huyu amelala chini akivuja damu na hasongi.Mke na binti yake wako karibu naye.Mke
+wake analia na kutetemeka huku binti yake akisimama wima na kimya.Wanakijiji wachache
+wanakusanyika barabarani karibu na eneo la ajali.
+Unahitaji kuchukua hatua ya haraka katika hali hii, lakini chukua wakati utulie kwanza na
+kuzingatia yafuatayo unapojiandaa kutoa usaidizi:
+
+     »» Kuna mambo yoyote yanayonihatarisha mimi au wengine?
+     »» Hali hii nitaitatua vipi?
+     »» Ni jambo gani linalohitajika kufanywa kwa dharura, hasa kwa mwanaume aliyejeruhiwa
+        vibaya?
+
+Ni nini cha muhimu kujifahamisha (kutazama)?
+     »» Ni nani anayehitaji usaidizi? Watu hawa wanahitaji usaidizi wa aina gani?
+     »» Ni usaidizi gani ninaoweza kutoa na ni usaidizi gani maalumu unaohitajika?
+     »» Ni nani ninayeweza kumwomba anisaidie? Watu waliokusanyika katika eneo hili
+        wanaweza kusaidia kwa njia gani? Ni kwa njia gani watu hawa wanaweza kutatiza au
+        kutosaidia?
+
+
+
+51     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+Unapohusiana na watu waliohusika katika ajali ile, unaweza kusaidia kwa njia gani au
+kuwasikiza vyema zaidi na kuwatuliza
+
+   » Nitajitambulisha vipi ili kuanza kutoa usaidizi?
+   » Nawezaje kuwakinga watu hawa dhidi ya hatari zaidi? Kuna maswala maalum kuhusu
+     mtoto aliyeshuhudia ajali iliyomhusisha baba yake, na anaonekana kushtuka na
+     kuduwaa? Mama yake anaweza kumtunza na kumtuliza kwa sasa?
+   » Naweza kupata wapi mahali salama na tulivu pa kutolea Huduma ya Kwanza ya
+     Kisaikolojia?
+   » Nitawauliza watu kwa njia gani kuhusu mahitaji na maswala yao?
+   » Nawezaje kuwahudumia waathiriwa na kuwasaidia kutulia?
+
+
+
+MIFANO YA MAZUNGUMZO NA HATUA MUHIMU: DHARURA YA KIMATIBABU
+
+Unapofanya ukaguzi wa haraka wa ajali ile, unachunguza kama unaweza kukaribia eneo la
+ajali bila kujihatarisha. Barabara hii ina magari mengi na bado kuna magari yanayopita karibu
+na waathiriwa na watazamaji. Pia unakisia kwamba yule mwanaume huenda aliumia vibaya.
+
+ Wewe:                     Kuna mtu yeyote aliyeagiza ambyulensi?
+ Majirani:                 Hapana.
+ Wewe:                     [ukimwambia jirani aliye karibu]:Tafadhali agiza
+                           ambyulensi sasa hivi!
+ Jirani:                   Sawa, nitafanya hivyo!
+ Wewe:                     [ukiwaambia watu waliokuja kushuhudia] Tunahitaji
+                           kujaribu kuyaelekeza magari upande mwingine.Unaweza
+                           kusaidia hapa?
+                           [Baadhi ya wanakijiji wanakwenda kusimamisha magari
+                           yanayopita na kuyaelekeza kwingine.]
+                           [Unapokaribia, unagundua kwamba mmojawapo wa
+                           wanakijiji anajaribu kumsongesha mtu aliyeumia.]
+ Wewe:                     Tafadhali usimsongeshe! Huenda amejeruhiwa
+                           shingoni.Ambyulensi imeshaagizwa.
+                           [Mpe mtu huyu huduma ya kwanza iwapo wewe au mtu
+                           yeyote ana utaalamu wa kuitoa. Chunguza, au umwagize
+                           mtu mwingine aliye karibu kuhakikisha kwamba mwanamke
+                           na mtoto wake hawajaumia. Mtu aliyeumia akishahudumiwa
+                           ifaavyo, na una uhakika kwamba waathiriwa wengine
+
+
+
+    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   52
+                         hawajaumia vibaya, toa HKK.]
+Wewe:                    [ukimzungumzia mke] Jina langu ni ________. Ambyulensi
+                         imeshagizwa. Umeumia? Binti yako ameumia?
+Mke:                     [akilia na kutetemeka]:Hapana, sijaumia.
+Wewe:                    [ukimzungumzia mke kwa upole na ukarimu] Jina lako nani?
+Mke:                     [akilia] Hanna, niite tu Hanna...Jamani mume wangu!Mume
+                         wangu!
+Wewe:                    Hanna, naelewa kwamba unaogopa sana.Ambyulensi
+                         imeshaagizwa kumsaidia mume wako.Nitakaa nawe
+                         kidogo.Wewe na mwanao mna mahitaji au maswala yoyote
+                         kwa sasa?
+Mke:                     Mwanangu yuko salama?
+Wewe:                    Mwanao anaonekana kuwa salama.Tafadhali niambie jina
+                         lake ili nizungumze naye.
+Mke:                     [akimshika mkono mtoto wake] Anaitwa Sarah.
+Wewe:                    [kwa ukarimu na kwenye kimo cha macho ya mtoto] Jambo
+                         Sarah. Jambo, jina langu ni _________________.Niko hapa
+                         kukusaidia wewe na mama yako.
+                         [Majadiliano haya yanaendelea, na unatambua kwamba
+                         mtoto huyu hazungumzi. Mama anasema kwamba si kawaida
+                         kwa mtoto kunyamaza hivi, lakini anawaza zaidi kuhusu
+                         mumewe. Mama huyu pia anasema kuwa anataka
+                         kuandamana na mumewe hadi hospitalini ili kukaa naye.
+                         Mtoto huyu yuko katika hatari ya kulala peke yake
+                         nyumbani.]
+Wewe:                    Hanna, itakuwa muhimu iwapo utakaa na mtoto wako, au
+                         atunzwe na mtu unayemwamini. Anaonekana kutishwa sana
+                         na jambo lililotokea, hivyo itakuwa bora kwake kukaa na mtu
+                         kwa sasa. Yupo mtu unaye mwamini anayeweza kukaa naye?
+Mke:                     Ndio, dada yangu anaweza kusaidia. Sarah anampenda sana.
+
+
+
+
+ Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+  Wewe:                       Nikusaidie kuwasiliana na dada yako?
+  Mke:                        Ndio!
+                              [Unamsaidia mwanamke huyu kuwasiliana na dada yake,
+                              kisha inapangwa kwamba mtoto wake msichana atakuwa
+                              na shangazi yake usiku kucha. Pia unamshauri mama huyu
+                              kumleta mtoto huyo katika kituo cha afya ikiwa atakaa
+                              kimya katika siku chache zitakazofuata.]
+  Wewe:                       Ambyulensi ikifika, nitajua ni wapi watakapompeleka
+                              mumeo kisha nikwambie iwapo wewe na mtoto wako
+                              mnaweza kuandamana naye.
+                              [Ambyulensi ikifika, unabaini jinsi familia hii inavyoweza
+                              kuwekwa pamoja mwanaume aliyejeruhiwa akipelekwa
+                              hospitalini.]
+
+
+Katika majadiliano ya hapa juu, fahamu kwamba:
+
+   » kwanza ulikagua hali ile ili kuhakikisha kwamba ilikuwa salama kuingia na kutambua
+     nani aliyekuwa ameumia vibaya;
+   » ulihakikisha kuwa mwanaume yule aliyeumia aliitiwa ambyulensi haraka, hivyo
+     kumzuia asitingizwe na labda kujeruhiwa zaidi;
+   » ulijaribu kufanya kazi kwa njia inayozuia majeraha au hatari zaidi kwa watu wengine
+     (kwa mfano, kujikinga dhidi ya magari barabarani);
+   » ulizungumzia mama na mtoto wake kwa heshima na ukarimu;
+   » ulimzungumzia mtoto katika kimo cha macho yake.
+   » ulimsaidia mwanamke kufanya mipango mwafaka ya kumtunza mtoto wake.
+   » ulichukua hatua ya kuisaidia familia kuwa pamoja mwanaume aliyejeruhiwa
+     akipelekwa hospitalini.
+
+Unaweza kufanya nini ili kuwaunganisha watu kwa habari muhimu na usaidizimwafaka?
+
+
+
+
+                                                                                                  SURA YA 5
+   »     Watu wasiojeruhiwa lakini walioathiriwa wanaweza kuhitaji nini?
+   »     Ni wasiwasi au maswala gani yanayoweza kuwa katika mawazo ya watu mbalimbali
+         katika mfano huu?
+
+   »     Waathiriwa watahitaji habari gani?
+   »     Nitachukua hatua gani kuwaunganisha na wapendwa wao wanaoweza kusaidia
+         kuwahudumia?
+
+
+       Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   54
+           Huduma ya Kwanza ya Usaidizi wa
+           Kisaikolojia:
+           Mwongozo wa kubebea mfukoni
+
+     HKK ni Nini?
+     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia
+     (HKK) hueleza kuhusu huduma saidizi na ya
+     kibinadamu kwa binadamu wenza wanaoteseka
+     hivyo wanahitaji kusaidiwa.
+
+     Kutoa HKK ifaavyo ni:
+          1.   Kuzingatia usalama, utu na haki.
+          2.   Kuhakikisha kuwa huduma yako inaambatana na tamaduni za
+               mwathiriwa.
+          3.   Kumakinika kuhusu hatua zingine za usaidizi wa dharura.
+          4.   kujitunza.
+
+
+                        »   Jiandae kujifunza kuhusu hali ile ya hatari.
+       JIANDAE          »   Jiandae kujifunza huduma na usaidizi uliopo.
+                        »   Jiandae kujifunza maswala ya kiusalama.
+
+
+
+     KANUNI ZA HATUA ZA HKK
+
+                        »
+                        »» Kagua hali ya usalama.
+                        » Kagua kama kuna watu walio na mahitaji bayana ya
+       KUTAZAMA         »»
+                           dharura.
+                        »» Kagua kama kuna watu walio na athari kuu za dhiki.
+
+                        »»» Waendee watu wanaoweza kuhitaji usaidizi.
+       KUSIKILIZA
+                         »» Waulize kuhusu mahitaji na maswala yao.
+                        »» Wasikize kisha uwasaidie kutulia.
+
+                        »»» Wasaidie watu kupata mahitaji ya kimsingi na kupata
+     KUUNGANISHA            huduma.
+                        »» Wasaidie watu kukabiliana na matatizo.
+                         »» Toa habari.
+                         »» Waunganishe watu walio hatarini na wapendwa
+                            wao au huduma muhimu
+
+55     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+MAADILI:
+
+
+
+
+                                                                                                (HKK): Mwongozo wa kubebea mfukoni
+Maadili kuhusu mambo unayofaa kufanya na unayofaa kuepuka hutolewa kama
+mwongozo wa kuzuia kusababisha kuathiriwa zaidi kwa watu, kutoa huduma bora zaidi na
+kutoa huduma ikiwa tu zitawafaidi. Toa usaidizi kwa njia zilizo mwafaka zaidi na
+zinazokubalika na watu unaosaidia. Chunguza umuhimu wa mwongozo huu wa kimaadili
+kwa msingi wa muktadha wa utamaduni.
+
+
+
+       MAMBO                                             MAMBO
+       YANAYOKUBALIKA                                    YASIYOKUBALIKA
+   »» Zingatia uaminifu.                         »» Usitumie vibaya uhusiano wako
+   »» Heshimu haki za watu kujiamulia               kama msaidizi.
+      mambo.                                     »» Usilipishe huduma yako au kutaka
+                                                    kufanyiwa lolote baada ya
+   »» Jua na uweke kando mapendeleo
+                                                    kuwasaidia watu.
+      yako ya kibinafsi.                         »» Usitoe ahadi za uongo au kutoa
+   »» Wajulishe waathiriwa kwa uwazi                habari za uongo.
+       kwamba iwapo hawahitaji                   »» Usiutie chumvi uwezo wako.
+       usaidizi kwa sasa, wanaweza               »» Usiwalazimishe watu kupokea
+                                                    usaidizi wako, wala kuingilia mambo
+       kuuomba baadaye wakihitaji.
+                                                    yao.
+   »» Zingatia siri; weka siri kuhusu
+                                                 »» Usiwalazimishe watu kukuambia
+      tukio la mtu binafsi, iwapo itafaa.           habari zao.
+   »» Onyesha maadili bora kwa                   »» Usiwaambie watu habari za wengine.
+       kuzingatia utamaduni, umri na             »» Usimhukumu mtu kwa msingi wa
+                                                    matendo au hisia zao.
+       jinsi ya mwathiriwa
+
+WATU WANAOHITAJI USAIDIZI ZAIDI YA HKK PEKEE:
+Baadhi ya watu watahitaji zaidi ya HKK pekee: Fahamu kipimo cha uwezo wako hivyo
+uombe msaada kwa watu wanaoweza kutoa msaada wa kimatibabu au wa aina yoyote ili
+kuokoa maisha.
+
+
+  WATU WANAOHITAJI USAIDIZI WA KIWANGO CHA JUU MARA MOJA:
+
+     »» Watu wenye majeraha makuu yanayohatarisha maisha yao hivyo wanaohitaji
+        huduma ya dharura ya kimatibabu.
+     »» Watu waliokasirika kiasi cha kutoweza kujitunza wala kuwatunza watoto wao.
+     »» Watu wanaoweza kujiumiza.
+     »» Watu wanaoweza kuwaumiza wengine.
+
+
+
+     Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   56
+     MAREJELEO
+     NA ASILIA
+     Bisson, JI & Lewis, C. (2009), Systematic Review of Psychological First Aid. Commissioned by the
+     World Health Organization (available upon request).
+
+     Brymer, M, Jacobs, A, Layne, C, Pynoos, R, Ruzek, J, Steinberg, A, et al. (2006). Psychological First
+     Aid: Field operations guide (2nd ed.). Los Angeles: National Child Traumatic Stress Network an
+     dNational Center for PTSD. http://www.nctsn.org/content/psychological-first-aid and
+     http://www.ptsd.va.gov/professional/manuals/psych-first-aid.asp
+
+     Freeman, C, Flitcroft, A, & Weeple, P. (2003) Psychological First Aid: A Replacement for
+     Psychological Debriefing. Short-Term post Trauma Responses for Individuals and Groups. The
+     Cullen-Rivers Centre for Traumatic Stress, Royal Edinburgh Hospital.
+
+     Hobfoll, S, Watson, P, Bell, C, Bryant, R, Brymer, M, Friedman, M, et al. (2007) Five essential
+     elements of immediate and mid-term mass trauma intervention: Empirical evidence. Psychiatry
+     70 (4): 283-315.
+
+     Inter-Agency Standing Committee (IASC) (2007). IASC Guidelines on Mental Health and
+     Psychosocial Support in Emergency Settings. Geneva: IASC.
+     http://www.who.int/mental_health_psychosocial_june_2007.pdf
+
+     International Federation of the Red Cross (2009) Module 5: Psychological First Aid and
+     Supportive Communication. In: Community-Based Psychosocial Support, A Training Kit
+     (Participant's Book and Trainers Book). Denmark: International Federation Reference Centre
+     for Psychosocial Support. Available at: www.ifrc.org/psychosocial
+
+     Pynoos, R, Steinberg, A, Layne, C, Briggs, E, Ostrowski, S and Fairbank, J. (2009). DSM-V
+     PTSD Diagnostic Criteria for Children and Adolescents: A developmental perspective and
+     recommendations. Journal of Traumatic Stress 22 (5): 391-8.
+
+     The Sphere Project (2011) Humanitarian Charter and Minimum Standards in Disaster Response.
+     Geneva: The Sphere Project. http://www.sphereproject.org.
+
+     TENTS Project Partners. The TENTS Guidelines for Psychosocial Care following Disasters and
+     Major Incidents. Downloadable from http://www.tentsproject.eu.
+
+     War Trauma Foundation and World Vision International (2010). Psychological First Aid
+     A n t h o l o g y o f R e s o u r c e s . D o w n l o a d a b l e f r o m : w w w. w a r t r a u m a . n l a n d
+     www.interventionjournal.com
+
+     World Health Organization (2010). mhGAP Intervention Guide for Mental Health, Neurological
+     andSubstance Use Disorders in Non-specialized Health Settings. Geneva: WHO Mental Health
+     Gap Action Programme. http://www.who.int/mental_health/mhgap
+
+
+
+
+57    Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+                                                                                           MAREJELEO NA ASILIA
+
+
+
+
+Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   58
+Maelezo
+
+
+
+
+59   Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani
+                                                                                           Maelezo
+
+
+
+
+Huduma ya Kwanza ya Usaidizi wa Kisaikolojia: Mwongozo kwa wahudumu walio mashinani   60
+

@@ -8,7 +8,8 @@ that uses it, with its retrieval URL, date, and checksum.
 |---|---|---|
 | WHO Child Growth Standards, LMS tables | `afya.records.growth`, `afya.records.growth_standards` | `who-child-growth-standards/` |
 | CKD-EPI 2021, KDIGO CKD classification, ILAE status epilepticus, sickle cell and epilepsy guidance | `afya.chronic.conditions` | `clinical-thresholds/` |
-| PHQ-9 and GAD-7 instruments, with the Pfizer instruction manual | §REC-005's screenings — the readings the section names and `afya.mental` does not yet carry | `phq9-gad7/` |
+| PHQ-9 and GAD-7 instruments, with the Pfizer instruction manual | `afya.mental.instruments`, `afya.mental.service` — §REC-005's screenings | `phq9-gad7/` |
+| Psychological first aid: guide for field workers (WHO, 2011), English and Kiswahili | `afya.mental.support` — §REC-005's coping strategies and outbreak-specific support | `who-pfa/` |
 
 Every source is stored as the published artefact **and** as layout-preserving text (`pdftotext
 -layout`), with both checksums recorded. The text copy is what a tool reads: an agent given a PDF
@@ -206,26 +207,107 @@ distribute"*, which is what makes the localisation §REC-005 asks for a licensin
 | `PHQ-9_English.pdf` | The PHQ-9: nine items, each scored 0–3, plus the tenth unnumbered functional-impairment question | `e3fb5b8853e3530c` |
 | `GAD-7_English.pdf` | The GAD-7: seven items, each scored 0–3, with the office-coding total line | `180538a8e3f2f3cb` |
 | `instructions.pdf` | The Pfizer instruction manual (9 pages): background, coding and scoring, versions, use as severity and outcome measures, translations | `6ed2f00f97e438c1` |
+| `PHQ-9_Kiswahili.pdf` | The PHQ-9 in Kiswahili ("PHQ9_Swahili for Africa"): all nine items, the four response options and the licence statement translated | `771671cb4f3c5750` |
 
-Text copies: `56b395d530087098`, `b26a82ab638eb3a3`, `6e34c3a1ef25c994`.
+Text copies: `56b395d530087098`, `b26a82ab638eb3a3`, `6e34c3a1ef25c994`, `fba4e765828a168c`.
 
-**Retrieval URLs:** `https://www.phqscreeners.com/` (the PHQ and GAD-7 screeners site). The specific
-document paths are not recorded here because the site serves them behind a session; the retrieved
-artefacts are the authority, and the checksums above pin them.
+**Retrieval URLs** (all under `https://www.phqscreeners.com/images/sites/g/files/`):
+
+| File | URL |
+|---|---|
+| `instructions.pdf` | `…/g10016261/f/201412/instructions.pdf` |
+| `PHQ-9_English.pdf` | `…/g10060481/f/201412/PHQ-9_English.pdf` |
+| `GAD-7_English.pdf` | `…/g10060481/f/201412/GAD-7_English.pdf` — **404s live**; retrieved from `https://web.archive.org/web/20250912043959if_/` + that path |
+
+The two live URLs above answered on 2026-10-12. The GAD-7 form did not, and its copy came from the
+Wayback Machine's 2025-09-12 capture of the same path — so the checksum pins a *capture*, not the
+publisher's current bytes, and a re-retrieval that fails is expected rather than a drift signal.
 
 ### What the sources support, and what they do not
 
 - **Item text and scale are complete.** Both instruments extract with all items, the four-point
   frequency scale (`0` Not at all … `3` Nearly every day), and PHQ-9's functional-impairment question.
-- **Severity bands are not in these files.** The item PDFs print the items and the total line; the
-  cut-points (PHQ-9 5/10/15/20, GAD-7 5/10/15) live in the instruction manual's *Coding and Scoring*
-  section, which is archived here — but the bands are **not** transcribed into `sources/INDEX.md` and
-  are not implemented, because a threshold copied out of a 9-page manual into a docstring is a
-  threshold nobody re-checks. Whoever implements §REC-005 should read them from
-  `instructions.txt` and cite the page.
-- **Localisation is a licence non-issue but not a translation.** The instruments may be translated
-  freely; no validated Kiswahili PHQ-9/GAD-7 is archived here, and §REC-005's "localised" is
-  therefore unmet in both senses — the instrument and its language.
+- **The cut-points are in the manual, not in the item forms.** The item PDFs print the items and the
+  total line; the thresholds live in the instruction manual, and they are:
+
+  | Instrument | Cut-points | Where |
+  |---|---|---|
+  | PHQ-9 | 5 / 10 / 15 / 20 → Mild / Moderate / Moderately Severe / Severe (0–4 None-minimal) | p. 6, Table 4 |
+  | GAD-7 | 5 / 10 / 15 → Mild / Moderate / Severe; **≥10 is the recommended cut-point for further evaluation** | pp. 6–7 |
+  | PHQ-2, GAD-2 | ≥3 on either (each 0–6) | p. 7 |
+  | PHQ-4 | PHQ-2 + GAD-2, 0–12 | p. 7 |
+
+  Table 4 also carries the treatment actions per band, which are the manual's proposals and not
+  protocol: `afya.mental` uses the bands for triage only and names no drug.
+- **Localisation: PHQ-9 yes, GAD-7 no — and the gap is in the source, not here.** A Kiswahili PHQ-9
+  is archived (`PHQ-9_Kiswahili.pdf`). There is **no** Kiswahili GAD-7: the publisher's own language
+  listing carries Afrikaans, Arabic, Bulgarian, Cebuano, Chinese, Croatian, Czech, Danish, Dutch,
+  English, Filipino, Finnish, French, German, Greek, Gujarati, Hebrew, Hindi, Hungarian, Indonesian,
+  Italian, Kannada, Korean, Lithuanian, Malayalam, Marathi, Norwegian, Polish, Portuguese, Punjabi,
+  Romanian, Russian, Slovak, Spanish, Swedish, Tamil, Telugu, Thai, Turkish, Ukrainian and Urdu — no
+  Swahili. So a Kiswahili self-check can screen depression in the person's own language and anxiety
+  only in English or not at all, and that asymmetry is the publisher's, recorded here so that nobody
+  later reads it as an omission in this repo. The manual's own caveat (p. 7) is that the translations
+  "are linguistically valid" but "unlike the English versions … few … have been psychometrically
+  validated against an independent structured psychiatric interview" — so the archived Kiswahili
+  PHQ-9 is a *linguistically valid* translation, not a psychometrically validated one, and the word
+  "validated" in §REC-005's bullet is discharged only for the English forms.
 - **WHO-5 is not the same instrument.** It is five items on a six-point scale, scored `raw × 4` to a
   0–100 index. Substituting it for PHQ-9 is not a narrower version of the same screen; it is a
   different instrument with different cut-points, and `afya.mental` says which one it carries.
+
+---
+
+## WHO Psychological first aid — §REC-005's coping and outbreak support
+
+§REC-005 asks for "coping strategies and psychoeducation" and for outbreak-specific support for
+isolation distress, grief and healthcare worker burnout. That content makes claims about what helps
+a distressed person, so it is transcribed from a source rather than written here — and the source is
+archived in **both** the languages the app serves, so the Kiswahili is a published edition and not a
+rendering of the English one.
+
+**Publisher:** World Health Organization, War Trauma Foundation and World Vision International.
+**Retrieved:** 2026-10-12.
+**Licence:** WHO publications are distributed under CC BY-NC-SA 3.0 IGO; the guide itself carries no
+"no permission required" statement, so it is cited and quoted rather than reproduced wholesale.
+
+| File | What it is | SHA-256 (first 16) |
+|---|---|---|
+| `who-pfa-en.pdf` | *Psychological first aid: Guide for field workers*, English, 62 pp. | `9e688553fbacc1f7` |
+| `who-pfa-sw.pdf` | The same guide in Kiswahili (the publisher's own translation) | `f0f0522ab964819e` |
+
+Text copies: `de8e17474ba32c75`, `109ba96cf1a6a4b8`.
+
+**Retrieval URLs:**
+`https://iris.who.int/server/api/core/bitstreams/e7e129fb-b306-496d-84a5-67bb70abc130/content`
+(English) and `…/8dcf5921-af76-4995-953c-611d325b143b` (Kiswahili). The bitstream ids are recorded
+because the human-readable `iris.who.int/bitstream/handle/…` paths answer `200` with an HTML landing
+page rather than the PDF — a `curl -o` against one silently stores a web page under a `.pdf` name.
+The record page is `https://www.who.int/publications/i/item/9789241548205`.
+
+### What the source supports, and what it does not
+
+- **The three action principles are the source's structure.** Look, listen, link — rendered in the
+  Kiswahili edition as *Tazama, Sikiliza, Unganisha*. `afya.mental.support`'s six coping strategies
+  follow them, and the Kiswahili titles are that edition's own wording.
+- **What PFA is *not* is load-bearing, and it is what shapes the content.** The guide states PFA "is
+  not professional counselling", "is not 'psychological debriefing'", and "is not about pressuring
+  people to tell you their feelings". `tests/ci/test_rec005.py` asserts the served coping text does
+  not push anyone to recount the event, and its canary plants a sentence that does.
+- **Grief is listed as an expected reaction, not an illness.** The guide's distress-reaction list
+  includes "crying, sadness, depressed mood, grief". The served grief guidance says so in as many
+  words, so the app does not send bereaved people to a clinic for being bereaved.
+- **The guide is addressed to a *helper*, not to the affected person.** Its imperatives are
+  "wasikize watu na uwasaidie kutulia" — listen to people and help them feel calm. `afya.mental`
+  speaks to the person directly, so where it does, the text is *adapted* from the helper's
+  instruction rather than quoted, and `support.py` says so at the point of adaptation. It is not
+  presented as the guide's own words to a sufferer.
+- **No clinical protocol, and none is implied.** The guide is psychological first aid for field
+  workers; it is not a treatment manual. Nothing in `afya.mental` prescribes, and the PHQ-9
+  instruction manual's per-band treatment actions (Table 4) are deliberately *not* carried into
+  served advice — those are a clinician's options, and a drug name in a self-check response is a
+  prescription nobody wrote.
+- **The Kiswahili edition is the publisher's, and that is the whole of the claim.** It is not a
+  psychometrically validated Kiswahili instrument; it is WHO's own translation of WHO's own guidance,
+  which is what makes it citable. The instruments' localisation caveat is in the `phq9-gad7/`
+  section above and is a separate matter.

@@ -1028,3 +1028,88 @@ feature code appears in any title, label, placeholder or description.
 
 **Counts: 6 rows flipped `missing` → `carried`, 120 → 114.** §AI-003 is now 6/6 carried. 490 rows,
 `carried` 360, `missing` 114, `deferred` 16. 1152 tests green, pyright clean.
+
+---
+
+## §REC-005 — Mental health self-check and support
+
+Five of six bullets were `missing`. The carried one was the counselling-line directory; what was
+there for the rest was **WHO-5**, which is not a smaller PHQ-9 — five positional 0–5 scores with no
+item text, `raw = sum × 4`, and different cut-points. `WHO5.scores[2]` is a number nobody can be
+asked, and a screening whose items are never shown cannot be localised at all.
+
+**The instruments are transcribed, not summarised.** `afya.mental.instruments` holds the PHQ-9 and
+GAD-7 item banks, the four-point scale and the cut-points, from the archived sources:
+`sources/phq9-gad7/PHQ-9_English.pdf`, `GAD-7_English.pdf`, `PHQ-9_Kiswahili.pdf` and
+`instructions.pdf`. The cut-points are the manual's Table 4 (p. 6) for PHQ-9 and its pp. 6–7
+statement for GAD-7, including that further evaluation is recommended at **10** — which is *not* one
+of the severity bands, so the two are separate fields rather than one band doing double duty.
+
+**A boundary test caught an off-by-one I had written.** The band table first read
+`((5, 'none_minimal'), (10, 'mild'), …)`, i.e. the cut-points themselves as ceilings. That scores a
+5 as `none_minimal` and a 10 as `mild`, and it is exactly what the manual's "scores of 5, 10, 15 and
+20 represent cutpoints for mild, moderate, moderately severe and severe" invites if you read the
+numbers as the top of each band instead of the start. Table 4 prints them as intervals — 0–4, 5–9,
+10–14, 15–19, 20–27 — so the ceilings are 4/9/14/19/27. The canary for this gate lowers the ceiling
+back and the boundary assertions fail, which is the only reason to trust them.
+
+**Item 9 outranks the band.** PHQ-9's ninth item asks about being better off dead or hurting
+yourself. A total of 1 is `none_minimal`, whose advice is "nothing here suggests you need
+treatment" — and with item 9 positive that is a person at risk being waved through by their own
+total. So the self-harm item is read on its own *and* summed, and when it is positive it overrides
+every band. The advice names what was endorsed without quoting the instrument back at the person:
+"better off dead" is a clinical phrasing written to be answerable on a form, and repeating it
+verbatim to someone who just ticked the box is blunter than saying the same thing plainly.
+
+**Localisation: PHQ-9 yes, GAD-7 no — and the gap is the publisher's.** A Kiswahili PHQ-9 exists
+("PHQ9_Swahili for Africa", retrieved from the Wayback Machine because the live path 404s) and is
+served with its own translated items, options and timeframe. There is **no** Kiswahili GAD-7: the
+publisher's language listing runs Afrikaans to Urdu across 41 languages and Swahili is not among
+them. So `GET /mental/screen` with `lang: sw` and `instrument: gad7` serves the English items and
+sets `served_in_english_instead`, and the advice says so. The failure that design refuses is the one
+that looks best on a screenshot: English items under a `sw` label, returning a score from a person
+who could not read the questions. The manual's own caveat is recorded too — the translations are
+"linguistically valid", but "unlike the English versions … few … have been psychometrically
+validated", so §REC-005's word *validated* is discharged for the English forms and *localised* for
+the Kiswahili PHQ-9, and neither claim is stretched over the other.
+
+**Coping and psychoeducation come from WHO PFA, in both languages.** `sources/who-pfa/` holds
+*Psychological first aid: guide for field workers* (WHO/War Trauma Foundation/World Vision, 2011) in
+English and in the publisher's own Kiswahili edition, so the Kiswahili guidance is a published text
+rather than a rendering of the English one. The source's three action principles — look, listen,
+link, rendered as *Tazama, Sikiliza, Unganisha* — are the spine of the six strategies. More
+importantly the guide states what PFA **is not**: "not professional counselling", "not
+'psychological debriefing'", "not about pressuring people to tell you their feelings". A wellness
+feature's commonest error is precisely the opposite — pushing a distressed person into an unguided
+debrief — so the content is tested against the source's own line rather than trusted to have
+respected it, and the canary plants a debrief-promoting sentence to watch that test fail.
+
+**The three outbreak-specific conditions are named conditions, not bands.** Isolation distress, grief
+and healthcare worker burnout each carry signs to recognise and a route, because "your score is 14"
+does not tell someone in quarantine that what they are feeling has a name. Grief is explicitly *not*
+medicalised — the source lists crying, sadness and grief among expected reactions, and the text says
+so — and the worker content points staff at the same lines they send others to.
+
+**Referral routes somebody, and admits what it cannot reach.** The predecessor was a prose sentence
+in `assess`: "consider 719 for referral". Nothing was created and nobody was routed.
+`MentalHealthService.refer` builds a record that names the services, keeps the person's own reason,
+and lists by name every line whose number is unverified — all three in `COUNSELLING_LINES` are
+marked `verified: 'False'`, so all three appear in `unreachable`. A referral to a number nobody
+checked is worse than no referral, because the person stops looking. `ReferralRequest` is separate
+from `ServiceReferral` so a client cannot supply the id, the service list or the unreachable list:
+those are the app's statements about what it can reach.
+
+**The mood log is not the instrument scale.** `MoodEntry.score` is 0–10 and PHQ-9 is 0–27; averaging
+a self-rating with a scored instrument produces a number with neither a person's trend nor a
+validated instrument's cut-points, so they are stored and served apart. `mood_trend` returns a
+direction or the named `too_few`, because two readings with the same score are two readings and not
+a steady mood.
+
+**Routes, all self-scoped where a subject is involved:** `POST /mental/screen`, `GET
+/mental/instruments`, `POST /mental/mood`, `GET /mental/mood/trend`, `GET /mental/coping`, `GET
+/mental/outbreak-support/{condition}`, `POST /mental/referral`. A positive self-harm item is
+deliberately **not** turned into a §AI-003 signal: that ledger is counts by county, and nothing in it
+may point at a person.
+
+**Counts: 5 rows flipped `missing` → `carried`, 114 → 109.** §REC-005 is now 6/6 carried. 490 rows,
+`carried` 365, `missing` 109, `deferred` 16. 1210 tests green, pyright clean.
