@@ -228,3 +228,61 @@ async def test_compatibility_refuses_unknown_platform() -> None:
 	svc = AccessService()
 	with pytest.raises(AssertionError):
 		svc.compatibility('windows')
+
+
+# --- §13.2 against the spec's own table ------------------------------------------------------
+
+def _spec_13_2_rows() -> list[list[str]]:
+	"""§13.2's degradation table, read out of the spec so a revision fails here rather than passing."""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split('### 13.2 Graceful Degradation Strategy', 1)[1].split('**Principle:**', 1)[0]
+	rows: list[list[str]] = []
+	for line in section.splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip().replace('**', '') for c in line.strip('|').split('|')]
+		if len(cells) != 2 or cells[0] == 'Missing sensor':
+			continue
+		rows.append(cells)
+	return rows
+
+
+def test_the_fallback_table_is_the_sections_rows() -> None:
+	"""§13.2 is nine rows and every one is carried. The section keys its rows on the sensor it names
+	("No LiDAR"), the table keys them on a slug, and the two vocabularies differ in three places —
+	which is how a row can be dropped without anything noticing."""
+	from afya.access.service import SPEC_FALLBACK_ROWS
+	spec = _spec_13_2_rows()
+	assert len(spec) == 9, f'the section names {len(spec)} missing-sensor rows'
+	assert [label for _, label, _ in SPEC_FALLBACK_ROWS] == [r[0] for r in spec]
+	assert [text for _, _, text in SPEC_FALLBACK_ROWS] == [r[1] for r in spec]
+
+
+def test_the_rendered_fallback_is_a_rewrite_not_a_transcription() -> None:
+	"""The table a client renders is plain language with the spec ids dropped, so its text is
+	deliberately not the section's — but the row *set* must be exactly the section's, or a sensor
+	the section names has no fallback and a sensor it does not has one."""
+	from afya.access.service import SPEC_FALLBACK_ROWS
+	spec_slugs = {slug for slug, _, _ in SPEC_FALLBACK_ROWS}
+	assert set(SENSOR_FALLBACKS) == spec_slugs, 'the table and the section must key the same rows'
+	for slug, _, spec_text in SPEC_FALLBACK_ROWS:
+		rendered = SENSOR_FALLBACKS[slug]
+		assert rendered and rendered != spec_text, f'{slug}: the rendered copy is the section verbatim'
+		# The ids the section prints may not reach a screen (tests/ci/test_ui_vocabulary.py).
+		import re
+		assert not re.search(r'\b[A-Z]{2,4}-\d{3}\b', rendered), f'{slug} leaks a spec id to a client'
+
+
+def test_the_sections_vocabulary_differs_from_the_tables_and_that_is_recorded() -> None:
+	"""The three mismatches, named: §13.2 says `camera` where §13.1 splits rear from front, and
+	`wearable` where §13.1 has no sensor row at all (a wearable is a §14.6 integration). A check
+	that assumed the two vocabularies were the same would have silently dropped the camera row."""
+	from afya.access.service import SPEC_FALLBACK_ROWS
+	from afya.sensors.service import SENSORS
+	sensor_slugs = {s.slug for s in SENSORS}
+	section_slugs = {slug for slug, _, _ in SPEC_FALLBACK_ROWS}
+	assert section_slugs - sensor_slugs == {'camera', 'wearable'}, 'the two rows §13.1 has no sensor for'
+	# `camera` covers both §13.1 rows, which is why the sensors module aliases them onto it.
+	assert {'camera_rear', 'camera_front'} <= sensor_slugs and 'camera' not in sensor_slugs
+	assert 'wearable' not in sensor_slugs, 'a wearable is an integration, not a handset sensor'

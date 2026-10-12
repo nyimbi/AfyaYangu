@@ -23,6 +23,26 @@ SENSOR_FALLBACKS: dict[str, str] = {
 	'wearable': 'Enter your readings by hand.',
 }
 
+# §13.2's nine rows, verbatim: the sensor the section names as missing, and the path it says still
+# works. The section keys its rows on the sensor ("No LiDAR"), while `SENSOR_FALLBACKS` keys them on
+# a slug — and the two vocabularies differ in three places, which is exactly how the tables drift:
+# §13.2 says `camera` where §13.1 splits rear from front, and `wearable` where §13.1 has no row at
+# all. Carrying the section's own labels here lets the two be compared instead of assumed equal.
+#
+# The fallback text is deliberately not the section's: `SENSOR_FALLBACKS` is what a client renders,
+# so it is a plain-language rewrite with the spec ids dropped. Only the row *set* is compared.
+SPEC_FALLBACK_ROWS: tuple[tuple[str, str, str], ...] = (
+	('lidar', 'No LiDAR', 'Acoustic respiration estimation (SENS-002) or manual entry'),
+	('microphone', 'No microphone access', 'Manual symptom entry'),
+	('gyroscope', 'No gyroscope', 'Accelerometer-only fall detection (reduced accuracy)'),
+	('gps', 'No GPS', 'Manual location entry, cell-tower triangulation, QR check-in'),
+	('bluetooth', 'No Bluetooth', 'Manual contact listing'),
+	('nfc', 'No NFC', 'QR code scan'),
+	('camera', 'No camera', 'Manual medicine registration number entry'),
+	('thermometer', 'No biometric sensor', 'Manual temperature entry'),
+	('wearable', 'No wearable', 'Manual health data entry'),
+)
+
 # Screen contracts the native clients render. Touch targets are asserted at >= 48 dp.
 UI_SCREENS: tuple[UIAsset, ...] = (
 	UIAsset(screen_id='home', pictogram='house', label='Home', risk_colour='neutral', touch_target_dp=56,

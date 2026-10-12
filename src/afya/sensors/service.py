@@ -74,6 +74,63 @@ SENSORS: tuple[SensorSpec, ...] = (
 		sensitivity=Sensitivity.medium, battery=BatteryCost.negligible, enhancement_only=True),
 )
 
+# §13.1's row name and its Android and iOS cells, verbatim, paired to the rows above by slug. The `Availability` enum
+# normalises these, and the normalisation loses information the section carries: "Rare" and "Very
+# rare" both become `rare`, and "Some", "iPhone Pro / iPad Pro" and "Limited" all become `some`. The
+# collapse is sound for the one predicate §13.2 is keyed on — `all` is the only value that is not
+# absence-prone — but a client rendering a capability matrix should read the section's words, because
+# `rare` for a thermometer understates "Very rare" and `some` for USB/OTG overstates "Limited".
+SPEC_AVAILABILITY: tuple[tuple[str, str, str, str], ...] = (
+	('lidar', 'LiDAR', 'Select flagships', 'iPhone Pro / iPad Pro'),
+	('microphone', 'Microphone', 'All', 'All'),
+	('accelerometer', 'Accelerometer', 'All', 'All'),
+	('gyroscope', 'Gyroscope', 'Most', 'All'),
+	('magnetometer', 'Magnetometer', 'Most', 'All'),
+	('barometer', 'Barometer', 'Some', 'Most'),
+	('ambient_light', 'Ambient light', 'All', 'All'),
+	('proximity', 'Proximity', 'All', 'All'),
+	('gps', 'GPS / GNSS', 'All', 'All'),
+	('bluetooth', 'Bluetooth LE', 'All', 'All'),
+	('nfc', 'NFC', 'Most', 'Most'),
+	('camera_rear', 'Camera (rear)', 'All', 'All'),
+	('camera_front', 'Camera (front)', 'All', 'All'),
+	('flash', 'Flash / LED', 'All', 'All'),
+	('screen', 'Screen', 'All', 'All'),
+	('thermometer', 'Thermometer', 'Very rare', 'None'),
+	('heart_rate', 'Heart rate (optical)', 'Rare', 'None'),
+	('usb_otg', 'USB / OTG', 'Most', 'Limited'),
+)
+
+# The section's nine Android/iOS spellings, mapped. Every cell in §13.1 must appear here, so a
+# revision that writes a tenth fails at import rather than being silently normalised into a
+# neighbour — which is the failure mode this table exists to make impossible.
+AVAILABILITY_SPELLINGS: dict[str, Availability] = {
+	'All': Availability.all,
+	'Most': Availability.most,
+	'Some': Availability.some,
+	'Select flagships': Availability.select,
+	'iPhone Pro / iPad Pro': Availability.some,
+	'Rare': Availability.rare,
+	'Very rare': Availability.rare,
+	'Limited': Availability.some,
+	'None': Availability.none,
+}
+
+# §13.1 feature ids the row's own cell does not name, and where they come from instead. USB/OTG's
+# cell reads "External thermometer, BP cuff" with no id; §14.9 is the section that gives it SENS-009,
+# so the attribution is real but it is not §13.1's. Named here so the comparison against the section
+# is exact rather than a superset test that would tolerate any addition.
+SPEC_FEATURE_ADDITIONS: dict[str, tuple[str, ...]] = {'usb_otg': ('SENS-009',)}
+
+_SPEC_AVAILABILITY_BY_SLUG: dict[str, tuple[str, str]] = {slug: (a, i) for slug, _, a, i in SPEC_AVAILABILITY}
+assert set(_SPEC_AVAILABILITY_BY_SLUG) == {s.slug for s in SENSORS}, '§13.1 availability must name every sensor row'
+for _s in SENSORS:
+	_android_cell, _ios_cell = _SPEC_AVAILABILITY_BY_SLUG[_s.slug]
+	assert AVAILABILITY_SPELLINGS[_android_cell] is _s.android, (
+		f'{_s.slug}: §13.1 android cell {_android_cell!r} is not {_s.android.value}')
+	assert AVAILABILITY_SPELLINGS[_ios_cell] is _s.ios, (
+		f'{_s.slug}: §13.1 ios cell {_ios_cell!r} is not {_s.ios.value}')
+
 # What each class permits (§17.2 minimisation, SEC-002 on-device processing, §17.4 consent). Every
 # class carries `raw_may_be_retained=False`, which is the rule §13.1's "derived only" note states for
 # one sensor and §14's privacy sections state for the rest. Stating it per class is what makes it
@@ -340,10 +397,21 @@ class SensorService(LogMixin):
 
 	def capabilities(self) -> list[dict[str, object]]:
 		"""§13.1 rendered for a client: the sensor rows with the handling each class permits. Spec ids
-		are dropped and `used_for` carries the meaning, because a code may not reach a screen."""
+		are dropped and `used_for` carries the meaning, because a code may not reach a screen.
+
+		`android` and `ios` are §13.1's own cells rather than the normalised enum, because the enum
+		is lossy where a person is reading: it cannot tell "Very rare" from "Rare" or "Limited" from
+		"Some", so serving it would tell a user their handset is supported on the same terms as one
+		the section called "Limited". `absence_prone` carries the normalised answer, which is the
+		only thing the enum is for.
+		"""
+		by_slug = {slug: (a, i) for slug, _, a, i in SPEC_AVAILABILITY}
 		return [
 			{
-				'sensor': s.slug, 'name': s.name, 'android': s.android.value, 'ios': s.ios.value,
+				'sensor': s.slug, 'name': s.name,
+				'android': by_slug[s.slug][0], 'ios': by_slug[s.slug][1],
+				'android_availability': s.android.value, 'ios_availability': s.ios.value,
+				'absence_prone': s.can_be_absent(),
 				'used_for': s.used_for, 'sensitivity': s.sensitivity.value,
 				'derived_only': s.derived_only, 'battery': s.battery.value,
 				'retention_days': s.retention_days,

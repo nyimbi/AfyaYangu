@@ -196,6 +196,26 @@ def test_capabilities_are_served_without_a_spec_code() -> None:
 	assert all(r['raw_retained'] is False for r in rows), 'no sensor may report a retained raw stream'
 
 
+def test_the_served_matrix_prints_the_sections_words_not_the_enum() -> None:
+	"""A user deciding whether the app suits their handset reads this. The enum cannot tell "Very
+	rare" from "Rare" or "Limited" from "Some", so serving it would answer "is my phone supported?"
+	with a value that overstates or understates §13.1 in exactly the three places the section
+	distinguishes. The normalised answer stays beside it, under a name that says what it is for."""
+	from afya.sensors.service import SPEC_AVAILABILITY
+	rows = {r['sensor']: r for r in SensorService(FeatureRegistry()).capabilities()}
+	for slug, _, android, ios in SPEC_AVAILABILITY:
+		assert rows[slug]['android'] == android, f'{slug} android cell'
+		assert rows[slug]['ios'] == ios, f'{slug} ios cell'
+	# The three that would have been lost, named on the wire.
+	assert rows['thermometer']['android'] == 'Very rare'
+	assert rows['usb_otg']['ios'] == 'Limited'
+	assert rows['lidar']['ios'] == 'iPhone Pro / iPad Pro'
+	# And the normalised form is still there, labelled for what it answers.
+	assert rows['thermometer']['android_availability'] == 'rare'
+	assert rows['thermometer']['absence_prone'] is True
+	assert rows['accelerometer']['absence_prone'] is False, 'the accelerometer is on every device'
+
+
 def test_a_raw_field_name_is_refused_by_name() -> None:
 	"""The guard that replaced a dead one. `guard_raw` asserted `not RAW_FORBIDDEN` on a non-empty
 	tuple — always false, so it raised whenever called, and nothing called it. `extra='forbid'`
@@ -418,3 +438,91 @@ async def test_the_ingest_route_returns_the_disclosure_not_just_the_band() -> No
 		assert out['verdict']['band'] == 'alert'
 		assert out['disclosure'] and out['limitations'] and out['confidence'] == 'good'
 		assert out['seek_clinician'] is True
+
+
+# --- §13.1 against the spec's own table -----------------------------------------------------
+
+def _spec_13_1_rows() -> list[list[str]]:
+	"""§13.1's inventory, read out of the spec so a revision fails here rather than passing."""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split('### 13.1 Full Sensor Inventory', 1)[1].split('### 13.2', 1)[0]
+	rows: list[list[str]] = []
+	for line in section.splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip().replace('**', '') for c in line.strip('|').split('|')]
+		if len(cells) != 6 or cells[0] == 'Sensor':
+			continue
+		rows.append(cells)
+	return rows
+
+
+def test_the_matrix_is_the_sections_rows_in_its_own_words() -> None:
+	"""§13.1's row names and Android/iOS cells are carried verbatim, not merely normalised.
+
+	The normalisation loses information the section carries — "Rare" and "Very rare" both become
+	`rare`, "Some", "iPhone Pro / iPad Pro" and "Limited" all become `some` — so a check that read
+	only the enum would pass a table whose cells had been rewritten to any of the synonyms."""
+	from afya.sensors.service import AVAILABILITY_SPELLINGS, SPEC_AVAILABILITY
+	spec = _spec_13_1_rows()
+	assert len(spec) == 18, f'the section names {len(spec)} sensors'
+	assert [name for _, name, _, _ in SPEC_AVAILABILITY] == [r[0] for r in spec]
+	assert [(a, i) for _, _, a, i in SPEC_AVAILABILITY] == [(r[1], r[2]) for r in spec]
+	# And every spelling the section uses is one the map knows, so a tenth fails rather than
+	# normalising into a neighbour.
+	for _, _, android, ios in SPEC_AVAILABILITY:
+		assert android in AVAILABILITY_SPELLINGS and ios in AVAILABILITY_SPELLINGS
+
+
+def test_the_normalised_availability_agrees_with_the_sections_words() -> None:
+	"""The map is what turns the section's prose into the enum the fallback predicate reads. If the
+	two disagree, §13.2's "every feature must degrade gracefully" is being applied to a different
+	table than the one §13.1 prints."""
+	from afya.sensors.service import AVAILABILITY_SPELLINGS, SPEC_AVAILABILITY
+	by_slug = {s.slug: s for s in SENSORS}
+	for slug, _, android, ios in SPEC_AVAILABILITY:
+		assert by_slug[slug].android is AVAILABILITY_SPELLINGS[android], f'{slug} android'
+		assert by_slug[slug].ios is AVAILABILITY_SPELLINGS[ios], f'{slug} ios'
+
+
+def test_the_enum_cannot_hold_every_spelling_and_that_is_recorded() -> None:
+	"""The finding this unit exists to make visible: §13.1 writes nine Android/iOS strings and the
+	enum has six members, so three collapses happen. They are sound for `can_be_absent` — `all` is
+	the only value that is not absence-prone, and no spelling collapses *onto* `all` — but a client
+	printing the matrix must read `SPEC_AVAILABILITY`, not the enum, or it will tell a user their
+	device is fine when the section said "Limited"."""
+	from afya.sensors.service import AVAILABILITY_SPELLINGS, SPEC_AVAILABILITY
+	spellings = {s for _, _, a, i in SPEC_AVAILABILITY for s in (a, i)}
+	assert len(spellings) == 9, f'§13.1 uses {len(spellings)} spellings: {sorted(spellings)}'
+	assert set(AVAILABILITY_SPELLINGS) == spellings, 'the map and the section must name the same strings'
+	assert len(set(AVAILABILITY_SPELLINGS.values())) == 6, 'six enum members for nine spellings'
+	# The three collapses, named rather than counted: three spellings for `some`, two for `rare`.
+	assert sorted(sp for sp, v in AVAILABILITY_SPELLINGS.items()
+	              if v is Availability.some) == ['Limited', 'Some', 'iPhone Pro / iPad Pro']
+	assert sorted(sp for sp, v in AVAILABILITY_SPELLINGS.items()
+	              if v is Availability.rare) == ['Rare', 'Very rare']
+	# The collapse never crosses the absence boundary, which is what makes it safe for §13.2: `All`
+	# is the only spelling that maps to `all`, so no absence-prone cell can read as universal.
+	assert {sp for sp, v in AVAILABILITY_SPELLINGS.items() if v is Availability.all} == {'All'}
+	# And the one that would mislead a person is named: USB/OTG's iOS cell is "Limited", not "Some".
+	assert dict((s, (a, i)) for s, _, a, i in SPEC_AVAILABILITY)['usb_otg'] == ('Most', 'Limited')
+	assert AVAILABILITY_SPELLINGS['Limited'] is Availability.some
+
+
+def test_every_feature_id_the_section_prints_is_carried() -> None:
+	"""§13.1's Primary Features column, ids only. A sensor row citing a feature the section does not
+	name is a row that gained a capability on its own authority; one dropping an id loses a path.
+
+	The comparison is exact in both directions, with the additions §13.1's cell cannot supply named
+	in `SPEC_FEATURE_ADDITIONS` rather than tolerated by a superset test."""
+	import re
+	from afya.sensors.service import SPEC_AVAILABILITY, SPEC_FEATURE_ADDITIONS
+	spec = _spec_13_1_rows()
+	by_slug = {s.slug: s for s in SENSORS}
+	for row, (slug, _, _, _) in zip(spec, SPEC_AVAILABILITY, strict=True):
+		printed = re.findall(r'\b[A-Z]{2,4}-\d{3}\b', row[3])
+		carried = sorted(by_slug[slug].primary_features)
+		expected = sorted(set(printed) | set(SPEC_FEATURE_ADDITIONS.get(slug, ())))
+		assert carried == expected, f'{slug}: section prints {printed}, code carries {carried}'
+	assert set(SPEC_FEATURE_ADDITIONS) <= set(by_slug), 'an addition names a row that does not exist'
