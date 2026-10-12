@@ -7,52 +7,37 @@ reported -> investigated -> lab_result -> closed.
 from afya.auth.views import now_ms
 from afya.community.protocol import PROTOCOL, ResponseClock, coverage, response_clock
 from afya.community.views import (
-	ISSUE_ROUTING, CaseReport, CaseReportView, CaseStatus, CommunityIssue, ContactEntry, ContactList,
-	ContactTracingSummary, IssueReceipt, IssueStatus, MisinfoCluster, MisinfoSubmission, PeerAlert,
-	PeerAlertReceipt,
+	ISSUE_ROUTING, CaseReport, CaseReportView, CaseStatus, ClaimAnswer, CommunityIssue, ContactEntry,
+	ContactList, ContactTracingSummary, IssueReceipt, IssueStatus, MisinfoCluster, MisinfoSubmission,
+	PeerAlert, PeerAlertReceipt,
 )
 from afya.identity.service import IdentityService
+from afya.info.myths import (
+	DRAFTED_ON_ISO, FALLBACK_CORRECTION, FALLBACK_TOPIC, classify, correction_library, myth_for,
+)
 from afya.info.principles import Subject, judge
 from afya.logmixin import LogMixin
 from afya.strings import answerable
 
 # Misinformation topics with a pre-drafted, source-attributed correction (§6.4 response protocol).
 #
+# Derived from `afya.info.myths` rather than written here. The corrections were a table of their own
+# until §INF-004 was built, and the myth library held the same facts again as prose — two authors,
+# one subject, and nothing keeping them in step. The corpus now carries the claim, the correction and
+# the named authority as three fields, `correction_text` renders the sentence §6.4 publishes, and this
+# is that rendering. The correction the protocol publishes and the correction the library shows are
+# therefore the same string by construction.
+#
 # Every correction carries both languages. §6.4's step 4 says the correction is drafted "in all
 # relevant languages" and §6.2.4 forbids publishing English-only for a life-safety message, so an
-# English-only correction is one the audience §3.3 principle 8 puts first cannot read. The table was
-# a bare `str` per topic until §6.4 was built; `coverage()` now reports any that go missing.
+# English-only correction is one the audience §3.3 principle 8 puts first cannot read. `coverage()`
+# reports any that go missing.
 #
 # The attributions are separated by a hyphen and not an em dash. §6.4 step 5 publishes "all channels
 # simultaneously", and SMS is one of the channels §6.2.6 names — a character outside GSM-7 cannot be
-# sent as a plain SMS, so every one of these six corrections was unpostable on a channel the section
-# requires. `tests/ci/test_misinfo_protocol.py` holds that shut.
-CORRECTION_LIBRARY: dict[str, dict[str, str]] = {
-	'cure_claim': {
-		'en': 'No herbal or religious remedy cures Ebola. Only supportive care in a treatment unit improves survival - MoH/PHEOC.',
-		'sw': 'Hakuna dawa ya miti shamba wala ya kidini inayotibu Ebola. Huduma katika kituo cha matibabu pekee huongeza nafasi ya kupona - Wizara ya Afya/PHEOC.',
-	},
-	'transmission_claim': {
-		'en': 'Ebola spreads through direct contact with blood or body fluids of a sick or dead person. It is not airborne and not spread by food - WHO.',
-		'sw': 'Ebola huenea kwa kugusa damu au majimaji ya mwili ya mtu mgonjwa au aliyefariki. Hauenei kwa hewa wala kwa chakula - WHO.',
-	},
-	'vaccine_claim': {
-		'en': 'Approved Ebola vaccines are tested and free at designated points. Vaccination protects your family - MoH.',
-		'sw': 'Chanjo za Ebola zilizoidhinishwa zimepimwa na ni bure katika vituo vilivyotajwa. Chanjo inalinda familia yako - Wizara ya Afya.',
-	},
-	'burial_claim': {
-		'en': 'Safe and dignified burial protects the family while respecting the deceased. Burial teams are trained and free - MoH/PHEOC.',
-		'sw': 'Mazishi salama na ya heshima hulinda familia na kumheshimu marehemu. Timu za mazishi zimefundishwa na hazina malipo - Wizara ya Afya/PHEOC.',
-	},
-	'denial_claim': {
-		'en': 'Ebola is real and Kenya has activated its response. Reporting symptoms early saves lives - PHEOC.',
-		'sw': 'Ebola ni kweli na Kenya imeanzisha mwitikio wake. Kuripoti dalili mapema huokoa maisha - PHEOC.',
-	},
-	'unknown': {
-		'en': 'This claim is under verification by MoH. Treat unverified health claims as unconfirmed and follow official channels.',
-		'sw': 'Madai haya yanachunguzwa na Wizara ya Afya. Chukulia madai ya afya yasiyothibitishwa kama hayajathibitishwa na fuata njia rasmi.',
-	},
-}
+# sent as a plain SMS. `afya.info.myths` holds the corpus to the character set and
+# `tests/ci/test_misinfo_protocol.py` holds this rendering of it shut.
+CORRECTION_LIBRARY: dict[str, dict[str, str]] = correction_library()
 
 # The clock starts when a rumour is first seen. A submission carries no timestamp of its own — the
 # flagger is a member of the public and their phone's clock is not evidence — so detection is the
@@ -307,9 +292,50 @@ class CommunityService(LogMixin):
 		to a Dholuo-speaking community — the audience §4.1's Persona F is, and the one §6.2.8's
 		response clock is most likely to be running for.
 		"""
-		texts = CORRECTION_LIBRARY.get(topic, CORRECTION_LIBRARY['unknown'])
+		texts = CORRECTION_LIBRARY.get(topic, CORRECTION_LIBRARY[FALLBACK_TOPIC])
 		served = answerable(lang)
 		return texts.get(served) or texts['en']
+
+	def answer_claim(self, claim: str, lang: str = 'en') -> ClaimAnswer:
+		"""§INF-004's "Ask about a rumour" — a claim submitted for verification, answered to the asker.
+
+		This is not `flag_misinfo`, and the difference is the whole feature. A flagger reports a rumour
+		they saw *someone else* spread, and gets a cluster: how many reports, which counties, how fast
+		it is moving. That is PHEOC's view of a rumour, and it is the wrong answer to give a person who
+		has just asked whether something they heard is true — they are told their question started a
+		surveillance row and handed no correction.
+
+		So the answer carries the correction, the claim it corrects, and the authority behind it. The
+		correction is served in the asker's own language and `answered_in` says which they got, so a
+		Dholuo speaker is answered in English *and knows it* rather than reading English believing it is
+		Dholuo — the discipline `answerable()` exists for.
+
+		A claim matching nothing drafted is answered with the fallback rather than guessed at. Naming
+		the wrong rumour would put a confident correction in front of someone asking about a different
+		one, which is worse than the honest "under verification".
+		"""
+		assert claim.strip(), 'a claim is required'
+		topic, matched = classify(claim)
+		served = answerable(lang)
+		myth = myth_for(topic, served) if topic else None
+		text = self.correction_for(topic or FALLBACK_TOPIC, lang)
+		return ClaimAnswer(
+			claim=claim, topic=topic, matched=matched, correction=text,
+			# The fallback is drafted in both languages too, so an unrecognised claim is answered in
+			# the asker's own language rather than dropped to English: "under verification" is the
+			# whole answer and it is no less useful to a Swahili reader than a correction is.
+			fact=myth.fact if myth else FALLBACK_CORRECTION[served],
+			source=myth.source if myth else '',
+			slug=myth.slug if myth else '',
+			# The language the correction is actually in, not the one asked for. `answerable()` resolves
+			# a language with no table to English rather than refusing, and a person told which language
+			# they got is not left reading English believing it is Dholuo.
+			answered_in=served,
+			recognised=myth is not None,
+			# §6.2.3: the correction a person is shown carries when it was drafted, because an
+			# undated correction about a live rumour is one nobody can weigh.
+			drafted_on_iso=DRAFTED_ON_ISO,
+		)
 
 	# --- §6.4 the response protocol, as a clock and as coverage ---------------------------------
 

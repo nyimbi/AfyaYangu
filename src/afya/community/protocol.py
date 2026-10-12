@@ -27,6 +27,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from afya.info.myths import MYTH_CATEGORIES, MythCategory
+
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 # §6.2.4 and §6.4 step 4: the languages a life-safety correction must reach. English is second by
@@ -85,24 +87,6 @@ class ResponseClock(BaseModel):
 	next_due_ms: int | None
 
 
-class MythCategory(BaseModel):
-	"""One of §6.4's six categories to pre-draft, and whether a correction exists for it.
-
-	`topics` names the correction-library keys that answer this category, so the link is data rather
-	than a naming convention a reader has to guess. An empty list is the gap the section warns about.
-
-	`examples` is empty for the two categories §6.4 names without any — "Vaccine myths" and "Burial
-	and body-handling myths" are printed bare, while the other four carry a parenthetical. The field
-	is not defaulted to something plausible: inventing "infertility" for the vaccine row would put a
-	myth into the pre-drafting brief that the section never listed, and a brief is acted on.
-	"""
-	model_config = MODEL_CONFIG
-	slug: str = Field(pattern=r'^[a-z][a-z0-9_]*$')
-	label: str = Field(min_length=1)
-	examples: list[str]
-	topics: list[str]
-
-
 class ProtocolCoverage(BaseModel):
 	"""§6.4's readiness, reported rather than assumed."""
 	model_config = MODEL_CONFIG
@@ -133,18 +117,13 @@ STEP_BY_NUMBER: dict[int, ProtocolStep] = {s.step: s for s in PROTOCOL}
 assert set(STEP_BY_NUMBER) == set(range(1, 7)), '§6.4 has six steps'
 
 # §6.4's "Common myth categories to pre-draft", with the parenthetical examples the section gives.
-MYTH_CATEGORIES: tuple[MythCategory, ...] = (
-	MythCategory(slug='false_cures', label='False cures', topics=['cure_claim'],
-	             examples=['herbal', 'spiritual', 'pharmaceutical']),
-	MythCategory(slug='transmission', label='Transmission myths', topics=['transmission_claim'],
-	             examples=['airborne', 'mosquito-borne', 'cursed']),
-	MythCategory(slug='vaccine', label='Vaccine myths', topics=['vaccine_claim'], examples=[]),
-	MythCategory(slug='conspiracy', label='Conspiracy narratives', topics=[],
-	             examples=['population control', 'bioweapon']),
-	MythCategory(slug='stigma', label='Stigma narratives', topics=[],
-	             examples=['blaming specific communities', 'counties', 'nationalities']),
-	MythCategory(slug='burial', label='Burial and body-handling myths', topics=['burial_claim'], examples=[]),
-)
+# Defined in `afya.info.myths` beside the corpus they describe and re-exported here, because the
+# category a correction answers is a property of the correction: stated in both places, a category
+# could gain a topic in one and not the other, and `coverage()` would then report a gap the library
+# had closed.
+__all__ = ['CORRECTION_LANGS', 'MYTH_CATEGORIES', 'PROTOCOL', 'MythCategory', 'ProtocolCoverage',
+           'ProtocolStep', 'ResponseClock', 'StepState', 'StepStatus', 'coverage', 'response_clock',
+           'step_statuses']
 
 
 def step_statuses(detected_at_ms: int, now_ms: int, completed_through: int) -> list[StepStatus]:

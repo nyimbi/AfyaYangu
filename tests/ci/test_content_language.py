@@ -35,9 +35,17 @@ SPEC = REPO / 'docs' / 'spec.md'
 # and the disagreement check below. A life-safety rank is not a label an author picks — it drags
 # §6.2.4's bilingual-publication rule onto the item — so the set is reviewed rather than inferred,
 # and naming it once is what keeps the pin and the check from drifting apart.
+#
+# The five `myth-*` slugs are all rank 5, "What's true and what's rumour?", and all five are
+# life-safety for §6.1's own stated reason: "a false cure or a false transmission route changes what
+# a person does, which is the harm §6.4 exists to answer". Listing only `myth-salt-water` was a
+# statement about how many rumours happened to be drafted when the pin was written, not about the
+# rule — a myth row added to the corpus would have arrived outside §6.2.4's jurisdiction without
+# anything failing, which is the one mutation this list exists to catch.
 LIFE_SAFETY_SLUGS = frozenset({
 	'ebola-basics', 'prevention', 'myth-salt-water', 'safe-burial',
 	'protect-yourself-and-family', 'exposed-to-ebola', 'testing-and-treatment', 'isolation-facility',
+	'myth-airborne', 'myth-vaccine', 'myth-burial', 'myth-denial',
 })
 
 
@@ -176,6 +184,11 @@ def test_the_seed_assigns_the_ranks_six_one_gives_them() -> None:
 	assert assigned['ebola-basics'] == 3, 'I have a fever right now — what do I do?'
 	assert assigned['prevention'] == 4, 'How do I protect my family?'
 	assert assigned['myth-salt-water'] == 5, "What's true and what's rumour?"
+	# Every myth row, not just the one that happened to be first: the corpus drafts five rumours and
+	# each answers the same §6.1 question, so a row that arrived at rank `None` would drop out of
+	# §6.2.4's jurisdiction while the salt-water pin above still passed.
+	for slug in sorted(s for s in assigned if s.startswith('myth-')):
+		assert assigned[slug] == 5, f'{slug} answers §6.1 rank 5'
 	assert assigned['safe-burial'] == 4, 'household risk; the burial row answers the protection question'
 	assert assigned['protect-yourself-and-family'] == 4, 'the household checklist is rank 4'
 	assert assigned['exposed-to-ebola'] == 3, 'fever plus contact risk is the rank 3 triage'

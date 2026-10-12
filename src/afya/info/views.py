@@ -1,11 +1,19 @@
 """Information content models (INF-001..010, §6 content strategy, §18.4 hotline)."""
 from enum import Enum
+from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from afya.derived import DerivedFields
 from afya.info.recency import UNDATED_MS
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
+
+# The harmony tag §INF-004's corpus carries, named here because `ContentItem` asserts the rumour
+# fields travel with it and nothing else: a myth is a claim with a correction, and a first-aid card
+# marked as one would be a rumour nobody stated. The seed, the myth corpus and the browse facets all
+# read this one name rather than spelling it out three times.
+MYTH_TAG = 'mythbusting'
 
 
 class CountyRisk(BaseModel):
@@ -204,7 +212,7 @@ class ContentFormat(str, Enum):
 		return self in (ContentFormat.article, ContentFormat.card)
 
 
-class ContentItem(BaseModel):
+class ContentItem(DerivedFields, BaseModel):
 	"""One library item, carrying the governance §6.5 requires of everything published.
 
 	`owner`, `reviewer`, `reviewed_on_iso` and `version` have no defaults. §6.5 says every content
@@ -248,6 +256,13 @@ class ContentItem(BaseModel):
 	# derived from the slug, because `f'{parent}-{fmt.value}'` is a convention and a parent whose slug
 	# happens to end in a format word would silently point at the wrong item.
 	rendition_of: str | None = None
+	# §INF-004's Format: "Rumour: [claim]. Fact: [correction]. Source: [authority]." Three parts, and
+	# `body` is only the second of them. The claim is what a person searches for and what a browse
+	# list shows, and the source is what makes the correction checkable — so a myth held as one
+	# `body` string is a rumour nobody can look up and a correction nobody can weigh. The two travel
+	# together and only on a myth: a first-aid card has no rumour to refute.
+	claim: str | None = None
+	source: str | None = None
 
 	def model_post_init(self, _context: object) -> None:
 		assert self.format.is_text == (self.media_ref is None), (
@@ -258,6 +273,13 @@ class ContentItem(BaseModel):
 			f'{self.item_id}: a rendition names the item it is a rendition of, and a text item is not '
 			'one — a non-text item with no parent is a blank entry in the library'
 		)
+		assert (self.claim is None) == (self.source is None), (
+			f'{self.item_id}: §INF-004\'s rumour and its authority are one Format — a claim with no '
+			'source is a correction nobody can weigh, and a source with no claim corrects nothing'
+		)
+		assert (self.harmony_tag == MYTH_TAG) == (self.claim is not None), (
+			f'{self.item_id}: a myth-busting item carries the rumour it refutes and nothing else does'
+		)
 	# §6.2.3 "Timestamp everything." When the item was last written or moved, as an instant. It has
 	# a default because the *service* stamps it — on write, on advance and at seed — and
 	# `upsert_content` overwrites whatever it is handed rather than keeping it. `UNDATED_MS` is the
@@ -266,6 +288,40 @@ class ContentItem(BaseModel):
 	# field at all: it is computed at serve time, because a stored "2 hours ago" is wrong an hour
 	# later.
 	updated_at_ms: int = Field(default=UNDATED_MS, ge=0)
+
+	@computed_field
+	@property
+	def share_card(self) -> str:
+		"""§3.3 principle 10: every output shareable as a WhatsApp card, rendered server-side.
+
+		The same shape `TriageResult.summary_card` has, for the same reason — the server renders the
+		card so no platform SDK is needed and every client forwards the same text. A myth renders
+		§INF-004's own Format, with the rumour named before the correction: a card that states the
+		correction alone reads as an assertion out of nowhere, and the person who receives it has no
+		way to tell what it is answering.
+
+		The title is carried for every item because a card with no heading is one the recipient cannot
+		place, and the correction is the body rather than the title for a myth — the title is a label
+		for the library list, not the thing being said.
+		"""
+		lines = [self.title]
+		if self.claim is not None:
+			lines.append(f'Rumour: {self.claim}')
+			lines.append(f'Fact: {self.body}')
+			lines.append(f'Source: {self.source}')
+		else:
+			lines.append(self.body)
+		return '\n'.join(lines)
+
+	@computed_field
+	@property
+	def share_url(self) -> str:
+		"""The card as a WhatsApp share target, the same deep link `HotlineActions.share_url` uses.
+
+		A URL rather than a scheme for the reason the directory's is: there is no cross-platform
+		"share this text" scheme, and `wa.me` is where §3.3 principle 10's card actually travels.
+		"""
+		return f'https://wa.me/?text={quote(self.share_card)}'
 
 
 class DecisionNode(BaseModel):

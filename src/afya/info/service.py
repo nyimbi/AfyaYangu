@@ -28,10 +28,22 @@ from afya.info.questions import (
 from afya.info.recency import UNDATED_MS, ServedFreshness, freshness, freshness_line, midnight_ms
 from afya.info.views import (
 	ContactDirectory, ContactKind, ContentItem, ContentStage, CountyRisk, DecisionNode, DecisionStep,
-	EntryAnswer, HotlineActions, HotlineInfo, InfoLink,
+	EntryAnswer, HotlineActions, HotlineInfo, InfoLink, MYTH_TAG,
 )
 from afya.logmixin import LogMixin
 from afya.places.views import PlaceKind, PlacesService
+
+# The human label for a harmony tag, so §INF-004's browse list reads as categories rather than as
+# slugs. A tag with no label here falls back to its own words with the hyphens opened out, which is
+# what `facets()` does — a new tag is then browsable under a readable name the moment it is used,
+# rather than invisible until somebody remembers to add a label.
+_TAG_LABELS: dict[str, str] = {
+	MYTH_TAG: 'Rumours and corrections',
+	'ebola-library': 'Ebola',
+	'tips': 'Everyday health',
+	'first-aid': 'First aid',
+	'burial': 'Safe burial',
+}
 
 # §6.5 review cycle: clinical content is reviewed weekly during an outbreak and monthly otherwise.
 # Which regime applies is the caller's fact, so both are named and the staleness check takes one.
@@ -261,6 +273,71 @@ class InfoService(LogMixin):
 		]
 		assert all(c.harmony_tag for c in out), 'unharmonised content must be tagged before serving'
 		return out
+
+	def search(self, query: str, lang: str = 'en', tag: str | None = None) -> list[ContentItem]:
+		"""§INF-004's Search: the library items whose claim, title or body match a query.
+
+		Served over the *claim* as well as the title and body, which is the half that needs the
+		corpus to have one. §INF-004's library is "a searchable library of common rumours", and a
+		person who types "salt water" is searching for a rumour — with the claim as prose inside
+		`body` it was findable by accident, and with the claim as a field it is findable on purpose.
+
+		Every term must match, and matching is on the lowercased text. Both are deliberate: an
+		OR over terms makes a two-word query return more than a one-word query, which is the
+		opposite of what a person narrowing a search expects, and case-folding is what lets
+		"Ebola" find "ebola" without an index the deployment would have to build.
+
+		Not a ranked search and not a fuzzy one. §INF-004 asks for search, not for relevance scoring,
+		and a corpus of tens of items that answers a term match in corpus order is one a reader can
+		predict — where a scored list they cannot see the ranking of is one they cannot.
+		"""
+		assert query.strip(), 'a search needs a query'
+		terms = [t for t in query.lower().split() if t]
+		out = []
+		for item in self.library(lang):
+			if tag is not None and item.harmony_tag != tag:
+				continue
+			haystack = ' '.join(filter(None, (item.claim, item.title, item.body))).lower()
+			if all(t in haystack for t in terms):
+				out.append(item)
+		return out
+
+	def facets(self, lang: str = 'en') -> list[dict[str, object]]:
+		"""§INF-004's "Browse by category": the tags the library can be browsed by, with counts.
+
+		The library served a flat list and `harmony_tag` was a field on each row, so a client could
+		group by tag only by fetching everything and grouping it itself — which is a category list
+		the client invents rather than one the deployment states. A facet is the section's own
+		grouping, named and counted, so a browse screen renders from the server's answer.
+
+		Counts are of *served* items, read through `library()` rather than off `_content`: a facet
+		that counted a draft would offer a category with nothing behind it, and a browse screen
+		opening onto an empty list is the defect this count exists to prevent.
+		"""
+		counts: dict[str, int] = {}
+		for item in self.library(lang):
+			if item.harmony_tag:
+				counts[item.harmony_tag] = counts.get(item.harmony_tag, 0) + 1
+		return [
+			{'tag': tag, 'count': n, 'label': _TAG_LABELS.get(tag, tag.replace('-', ' '))}
+			for tag, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+		]
+
+	def myths(self, lang: str = 'en', query: str | None = None) -> list[ContentItem]:
+		"""§INF-004's library as the rumour cards it is: claim, correction, authority.
+
+		Filtered to the myth tag and, when a query is given, through `search` — so the myth surface
+		and the search surface are one implementation rather than two that can disagree about what
+		matches. Every row returned carries a `claim` and a `source`, asserted rather than assumed:
+		a row under this surface without them is a card that states a correction for no stated
+		rumour, which is the shape the corpus was rebuilt to remove.
+		"""
+		items = self.search(query, lang, tag=MYTH_TAG) if query else [
+			c for c in self.library(lang) if c.harmony_tag == MYTH_TAG
+		]
+		assert all(c.claim and c.source for c in items), \
+			'a myth row without its claim or authority is a correction with no rumour (§INF-004)'
+		return items
 
 	def renditions_of(self, slug: str) -> list[ContentItem]:
 		"""Every rendition of the item with this slug: its illustrations, audio versions, videos.

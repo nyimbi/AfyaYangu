@@ -10,7 +10,14 @@ stamps each from its own review date — a corpus that claimed to have been upda
 started would render "Updated just now" for text written in September, which is the untrustworthy
 freshness line §6.2.3 exists to prevent.
 """
-from afya.info.views import ContentFormat, ContentItem, ContentStage
+from afya.info.myths import MYTHS
+from afya.info.views import MYTH_TAG, ContentFormat, ContentItem, ContentStage
+
+# §6.1's fifth question, "What's true and what's rumour?", which every myth row answers. Named here
+# rather than repeated on each row because it is the same answer for all of them — a rumour library
+# exists to answer exactly that question — and it is a life-safety rank, so it is what drags §6.2.4's
+# bilingual-publication rule onto the myth corpus.
+MYTH_RANK = 5
 
 # (item_id, title, body, lang, harmony_tag, slug, answers_rank)
 #
@@ -21,7 +28,6 @@ from afya.info.views import ContentFormat, ContentItem, ContentStage
 _ROWS: tuple[tuple[str, str, str, str, str, str, int | None], ...] = (
 	('INF-003-en', 'Ebola basics (en)', 'EVD symptoms appear 2-21 days after exposure: fever, severe headache, muscle pain, sore throat, vomiting, diarrhoea. Call 719 immediately with fever plus contact risk.', 'en', 'ebola-library', 'ebola-basics', 3),
 	('INF-003-en-2', 'Prevention (en)', 'Wash hands with soap frequently; avoid bushmeat; avoid contact with body fluids; use safe burial practices.', 'en', 'ebola-library', 'prevention', 4),
-	('INF-004-en', 'Myth: salt-water cures (en)', 'Warm salt water does not cure EVD. Rumours spread faster than official correction — reply or call 719 to verify guidance.', 'en', 'mythbusting', 'myth-salt-water', 5),
 	('INF-008-en', 'Hygiene: handwashing at five key times (en)', 'Handwashing with soap remains the single most effective hygiene step at home and school. Wash at five key times: after using the toilet, before preparing food, before eating, after cleaning a child, and after handling animals. Treat drinking water by boiling, chlorine or solar disinfection.', 'en', 'tips', 'health-tips', None),
 	('INF-009-en', 'Choking first aid (en)', 'Encourage coughing; 5 back blows between shoulder blades then 5 abdominal thrusts; call for help.', 'en', 'first-aid', 'first-aid-choking', None),
 	('INF-010-en', 'Safe and dignified burial (en)', 'Traditional washing of EVD bodies spreads the virus. Burial teams follow WHO protocol — dignity is preserved.', 'en', 'burial', 'safe-burial', 4),
@@ -53,7 +59,6 @@ _ROWS: tuple[tuple[str, str, str, str, str, str, int | None], ...] = (
 	('INF-003-sw-6', 'Unyanyapaa na waokokaji wa Ebola (sw)', 'Ebola huenea kwa kugusa, si kwa kuwa karibu na mtu. Usiwatenge wale waliopona, wala wafanyakazi wa afya waliowahudumia. Unyanyapaa hufanya watu kuficha dalili na kuchelewa kupata matibabu, hivyo kupambana nao ni hatua ya afya ya umma.', 'sw', 'ebola-library', 'stigma', None),
 	('INF-003-sw-7', 'Kinachotokea katika kituo cha kutengwa (sw)', 'Kituo cha kutengwa ni mahali ambapo huduma ya Ebola hutolewa kwa usalama. Unakaa katika eneo tofauti, wafanyakazi huvaa vifaa vya kujikinga, na unaweza kuongea na familia yako kwa simu. Usibaki nyumbani ukiwa na dalili: kufika mapema huongeza nafasi yako ya kupona.', 'sw', 'ebola-library', 'isolation-facility', 6),
 	('INF-003-sw-8', 'Kupona na waokokaji (sw)', 'Watu wengi wanaopona Ebola hupata kinga dhidi ya aina iliyowaambukiza na hawana tena uwezo wa kuambukiza. Baadhi ya waokokaji hupata athari za kudumu kwenye macho, viungo au kusikia, hivyo endelea kuhudhuria kliniki za ufuatiliaji. Damu na plazima za waokokaji zimetumika kuwatibu wengine.', 'sw', 'ebola-library', 'recovery-and-survivors', None),
-	('INF-004-sw', 'Ishihara: maji ya chumvi (sw)', 'Maji ya chumvi hayauponyi Ebola. Hadithi za uwongo huenea kwa haraka — piga 719 kupata maelezo sahihi.', 'sw', 'mythbusting', 'myth-salt-water', 5),
 	('INF-008-sw', 'Vidokezo vya afya (sw)', 'Kunawa mikono kwa sabuni ni ulinzi mkuu dhidi ya magonjwa nyumbani na shuleni.', 'sw', 'tips', 'health-tips', None),
 	('INF-009-sw', 'Msaada wa kwanza: koo (sw)', 'Hamasa mtu kukohoa; migo mitano mgongoni; mitano tumboni; piga msaada wa dharura.', 'sw', 'first-aid', 'first-aid-choking', None),
 	('INF-010-sw', 'Maziko salama (sw)', 'Kunawa mwili wa marehemu wa Ebola hueneza virusi. Timu za maziko hufuata WHO; heshima huhifadhiwa.', 'sw', 'burial', 'safe-burial', 4),
@@ -150,6 +155,38 @@ _RENDITIONS: tuple[tuple[str, str, str, ContentFormat, str], ...] = (
 )
 
 
+# The title a myth row carries is the corpus's own short label, and the language's own word for
+# "myth" — `Hadithi` in Swahili, not the English word borrowed. The corpus used to title the Swahili
+# row "Ishihara: maji ya chumvi", which is a colour-vision test and not a word for anything a reader
+# of that row would recognise; a label reaches a screen, so a wrong one is a screen with a wrong
+# word on it.
+_MYTH_TITLE = {'en': 'Myth: {label} (en)', 'sw': 'Hadithi: {label} (sw)'}
+
+
+def myth_rows() -> list[ContentItem]:
+	"""§INF-004's corpus as library items, one per myth per language.
+
+	`answers_rank=MYTH_RANK` on every row because a rumour correction answers §6.1's fifth question —
+	"What's true and what's rumour?" — which §6.2.4 counts as life-safety, so a myth drafted in one
+	language only is withheld from the library in both. That is the correct behaviour and it is why
+	the corpus asserts both languages per topic.
+
+	`title` is the label and `claim` is the rumour, kept apart because §INF-004's card prints the
+	claim under "Rumour:" — a title that *is* the claim would render the rumour twice on the card it
+	appears on.
+	"""
+	return [
+		ContentItem(
+			item_id=f'INF-004-{m.slug}-{m.lang}', title=_MYTH_TITLE[m.lang].format(label=m.label),
+			body=m.fact, lang=m.lang, harmony_tag=MYTH_TAG, slug=m.slug,
+			owner=SEED_OWNER, reviewer=SEED_REVIEWER, reviewed_on_iso=SEED_REVIEWED_ON,
+			version=SEED_VERSION, stage=ContentStage.published, answers_rank=MYTH_RANK,
+			format=ContentFormat.article, claim=m.claim, source=m.source,
+		)
+		for m in MYTHS
+	]
+
+
 def rendition_rows() -> list[ContentItem]:
 	"""The non-text renditions, as items. Empty body by construction: a rendition's content is the
 	file at `media_ref`, and a body here would be a second copy of the parent's text that nothing
@@ -178,9 +215,15 @@ SEED_VERSION = 1
 # column on every row: a `tips` row is a card and an `ebola-library` row is an article, and putting
 # it here means a new tip cannot be added as an article by forgetting to say otherwise. A tag not
 # named falls back to `article`, which is what the default on the model is for.
+#
+# `mythbusting` is named explicitly even though it falls back to the same `article`: §INF-004 prints
+# no Format cell for a *medium* — its Format cell is the Rumour/Fact/Source structure — so the
+# delivery format is the default, and saying so here is the difference between "no card was asked
+# for" and "a card was asked for and nobody wrote it".
 _TAG_FORMAT: dict[str, ContentFormat] = {
 	'tips': ContentFormat.card,
 	'ebola-library': ContentFormat.article,
+	MYTH_TAG: ContentFormat.article,
 }
 
 
@@ -193,4 +236,4 @@ def seed_rows() -> list[ContentItem]:
 			format=_TAG_FORMAT.get(tag, ContentFormat.article),
 		)
 		for (i, t, b, lang, tag, slug, rank) in _ROWS
-	]
+	] + myth_rows()

@@ -592,6 +592,7 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/monitoring/medication/adherence'),
 	('POST', '/community/issues'),    # a citizen's own report of a problem where they live
 	('POST', '/community/misinformation'),
+	('POST', '/info/myths/ask'),      # a rumour in, a correction out; nothing stored, like `/triage/diagnose`
 	('POST', '/emergency/sos'),       # an emergency must not wait for a token
 	('POST', '/emergency/fall'),
 	('POST', '/emergency/card/qr'),

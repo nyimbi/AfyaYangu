@@ -3,6 +3,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from afya.derived import DerivedFields
+
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 
@@ -60,7 +62,7 @@ WATCH_FOR: tuple[tuple[str, str], ...] = (
 )
 
 
-class TriageInput(BaseModel):
+class TriageInput(DerivedFields, BaseModel):
 	model_config = MODEL_CONFIG
 	symptoms: list[str] = []
 	temperature_c: float = Field(default=36.5, ge=30, le=45)
@@ -172,7 +174,7 @@ class TriageResult(BaseModel):
 		return '\n'.join(lines)
 
 
-class DiaryEntry(BaseModel):
+class DiaryEntry(DerivedFields, BaseModel):
 	model_config = MODEL_CONFIG
 	entry_id: str = Field(pattern=r'^DIARY-[A-Z0-9]{10,}$')
 	subject_ref: str

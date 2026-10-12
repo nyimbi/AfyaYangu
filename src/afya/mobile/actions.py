@@ -86,6 +86,8 @@ FEATURE_OF: dict[str, str] = {
 	'diary_trend': 'TRI-002', 'diary_export': 'TRI-002', 'diary_prompt': 'TRI-002',
 	'symptom_diary': 'TRI-002',
 	'what_should_i_do': 'INF-002', 'entry_answers': 'INF-002', 'health_library': 'INF-003', 'publish_content': 'INF-003',
+	'search_library': 'INF-004', 'library_categories': 'INF-004', 'myth_library': 'INF-004',
+	'ask_about_a_rumour': 'INF-004',
 	'advance_content': 'INF-003', 'content_governance': 'INF-003', 'report_content_error': 'INF-003',
 	'content_errors': 'INF-003', 'record_back_translation': 'INF-003', 'record_community_validation': 'INF-003',
 	'content_localisation': 'INF-003',
@@ -304,6 +306,13 @@ def catalogue() -> list[MobileAction]:
 		_a('entry_answers', 'What do you need help with?', 'Triage', 'GET', '/info/entry-answers', []),
 		# Information library (§6.2, INF-003/004/008/009/010/015)
 		_a('health_library', 'Health information', 'Information', 'GET', '/info/library', [_f('lang', 'Language', 'select', ['en', 'sw'])]),
+		# §INF-004's own four Features. `health_library` above reaches the corpus but opens a flat
+		# list; these are the operations the section names over it — find a rumour, see the
+		# categories, ask whether something is true, and forward the correction.
+		_a('search_library', 'Search health information', 'Information', 'GET', '/info/library', [_f('q', 'What are you looking for?'), _f('lang', 'Language', 'select', ['en', 'sw'])]),
+		_a('library_categories', 'Browse by topic', 'Information', 'GET', '/info/library/categories', [_f('lang', 'Language', 'select', ['en', 'sw'])]),
+		_a('myth_library', 'What is rumour and what is true?', 'Information', 'GET', '/info/myths', [_f('lang', 'Language', 'select', ['en', 'sw']), _f('q', 'Something you heard', ph='optional')]),
+		_a('ask_about_a_rumour', 'Is it true that…?', 'Information', 'POST', '/info/myths/ask', [_f('claim', 'What did you hear?', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw'])]),
 		_a('hotline_directory', 'Useful phone numbers', 'Information', 'GET', '/info/hotlines', []),
 		_a('county_risk', 'How is my county doing?', 'Information', 'GET', '/info/dashboard/{county}', [_f('county', 'County', 'path')]),
 		_a('set_county_risk', 'Update a county status', 'Information', 'POST', '/info/dashboard/{county}', [_f('county', 'County', 'path'), _f('risk_level', 'Risk level', 'select', ['low', 'moderate', 'high']), _f('active_signals', 'Active signals', 'int'), _f('bulletin', 'What should people do?', 'textarea'), _f('source', 'Source', ph='county health office')]),
@@ -610,6 +619,10 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'what_should_i_do': ('What should I do?', 'A few yes/no questions that lead to advice'),
 	'entry_answers': ('What do you need help with?', 'Six common worries, each opening the right guidance'),
 	'health_library': ('Health information', 'Ebola, prevention, first aid, safe burial — official guidance'),
+	'search_library': ('Search health information', 'Find guidance by what you are looking for'),
+	'library_categories': ('Browse by topic', 'Guidance grouped by subject, with how much is in each'),
+	'myth_library': ('What is rumour and what is true?', 'Rumours going round, each with the facts and who says so'),
+	'ask_about_a_rumour': ('Is it true that…?', 'Ask about something you heard and get the answer and its source'),
 	'publish_content': ('Draft health information', 'Write or correct a guidance item for review'),
 	'advance_content': ('Move a draft forward', 'Send an item to the next review stage, or retire it'),
 	'content_governance': ('Who reviewed this?', 'Who owns each guidance item and when it was last reviewed'),

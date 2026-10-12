@@ -63,7 +63,10 @@ ON_DEVICE: dict[str, str] = {
 	# excuse — but the operations over it are the section's own and a client can reach each.
 	# The health library is one corpus serving several spec features; each item carries its own
 	# slug and harmony tag, and `health_library` reaches all of it.
-	'INF-004': 'myth-busting items are in the health library corpus',
+	# INF-004 was here as "myth-busting items are in the health library corpus", which was true
+	# while the corpus held the corrections as prose and nothing could be done with them. §INF-004
+	# prints four Features over that corpus — search, browse by category, ask about a rumour, share
+	# the card — and each has its own action now, so the entry came off.
 	'INF-008': 'health-tip items are in the health library corpus',
 	'INF-009': 'first-aid items are in the health library corpus',
 	'INF-010': 'burial-guidance items are in the health library corpus',

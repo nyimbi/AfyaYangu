@@ -1177,3 +1177,78 @@ unguarded-route list is the one way that gate can fail open.
 
 **Counts: 5 rows flipped `missing` → `carried`, 109 → 104.** §MON-009 is now 9/9 carried. 490 rows,
 `carried` 370, `missing` 104, `deferred` 16.
+
+## §INF-004 — the myth-busting library: one rumour, four things done to it
+
+§INF-004 is four lines long. It prints a Format, "Rumour: [claim]. Fact: [correction]. Source:
+[authority].", and four Features over it — Search, Browse by category, "Ask about a rumour",
+Shareable as a card — and none of the five had a carrier. The corpus held a rumour as one `body`
+string: the claim, the correction and the authority were prose in that order, findable by accident,
+weightable by nobody, and forwardable as whatever a client chose to compose. Five audit rows said so.
+
+**The three parts are fields, and they travel together.** `ContentItem` gained `claim` and `source`,
+and two `model_post_init` assertions make the Format structural rather than a convention the seed
+happens to follow: a claim with no source is refused (a correction nobody can weigh), a source with
+no claim is refused (an authority correcting nothing), and either on a row that is not tagged
+`mythbusting` is refused — a first-aid card has no rumour to refute. The row that states a rumour as
+its own correction is the shape the old corpus had, and `Myth` refuses it outright.
+
+**One table, two consumers.** The correction existed in two unlinked places: the library rows, and
+`community.CORRECTION_LIBRARY` holding fact-plus-authority per §6.4 topic in en and sw. A rumour
+answered one way in the library and another way by the response protocol is the same fact stated
+twice, and the two drift the moment either is edited. `afya/info/myths.py` is now the one table —
+ten rows, five topics in both languages — and both consumers derive from it: `content_seed.myth_rows`
+builds the library items, `CORRECTION_LIBRARY = correction_library()` builds the protocol's. The
+correction §6.4 publishes and the correction the library serves are the same string by construction.
+The module imports nothing from `afya` at all, which is what keeps the `community → info` direction
+intact; the six §6.4 categories moved here from `community/protocol.py` and are re-exported.
+
+**Search reaches the claim, and the test that said so was wrong first.** `InfoService.search` AND-s
+every term over the lowercased claim, title and body, and `/info/library?q=` serves it. The first
+version of the gate searched "salt water" and passed with the claim dropped from the haystack
+entirely — the *title* carries those words too, so the assertion restated what the title already
+proved. The canary caught it: the test now queries `warm`, which lives in `myth-salt-water`'s claim
+and nowhere else in that row, and asserts that premise rather than assuming it.
+
+**Browse by category counts what it serves.** `facets()` reads through `library()`, not off
+`_content`, so a category is offered only when something published is behind it. Pointed at the
+store instead it reports `first-aid 33` against 11 served rows — a browse screen opening onto two
+thirds empty, which is the defect the count exists to prevent. Labels are human (`Rumours and
+corrections`), because a browse screen showing `mythbusting` is the feature-code failure one level
+down.
+
+**Asking is not flagging.** `CommunityService.answer_claim` classifies a claim against a per-language
+keyword table and returns the drafted correction with its authority; `POST /info/myths/ask` serves it
+unauthenticated, because §6.2.7's whole point is that the correction reaches the person who has the
+rumour. It is deliberately not `flag_misinfo`, which takes a rumour someone *else* spread and returns
+PHEOC a cluster — a person asking whether something is true is not reporting anything, and answering
+them with a surveillance row answers a question they did not ask. An unmatched claim is answered
+"under verification" with `recognised=false` rather than attached to the nearest rumour: a confident
+correction to the wrong question is worse than §6.2.8's honest one. The fallback is drafted in both
+languages, so a Swahili speaker gets Swahili and `answered_in` reports the language actually served
+rather than the one asked for.
+
+**The card is the Format.** `ContentItem.share_card` and `share_url` are computed fields, rendered
+server-side for §3.3 principle 10's reason: §5.4 puts this answer on WhatsApp, USSD and SMS, and only
+one of those can compose a forwardable message. A myth renders the section's own three lines, with
+the rumour named before the correction — a card stating the correction alone reads as an assertion
+out of nowhere, and the recipient cannot tell what it answers.
+
+**The computed fields broke the API, and that is the finding worth keeping.** Adding `share_card` and
+`share_url` made `ContentItem` refuse its own `model_dump()`: `extra='forbid'` counts a derived field
+as an extra, so the API's output became a 422 against the API's input. Nothing in this section failed.
+It surfaced two files away, as two localisation tests failing on `assert 422 == 200` because they seed
+a translated row by round-tripping a library item through `POST /info/content` — and the same latent
+break was live in `TriageInput.exposure_history` and `DiaryEntry.worst_red_flag`, both request bodies.
+`afya/derived.py` is the fix: a `mode='before'` validator drops exactly the names the model computes,
+so a round trip closes while an invented key is still refused. `test_request_bodies_round_trip.py`
+walks every request body the published schema names, so a model that gains a computed field is caught
+at the model rather than at whichever route happens to post it.
+
+**Four actions, no codes.** §INF-004 came off `ON_DEVICE` — "myth-busting items are in the health
+library corpus" was true while the corpus was all there was — and gained `search_library`,
+`library_categories`, `myth_library` and `ask_about_a_rumour`, each with friendly copy. Catalogue
+coverage 59 → 63 of 79 available features.
+
+**Counts: 5 rows flipped `missing` → `carried`, 109 → 99.** §INF-004 is now 5/5 carried. 490 rows,
+`carried` 375, `missing` 99, `deferred` 16.

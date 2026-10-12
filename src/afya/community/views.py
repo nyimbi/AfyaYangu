@@ -187,3 +187,43 @@ class MisinfoCluster(BaseModel):
 	detected_at_ms: int | None = None
 	next_due_at_ms: int | None = None
 	response_overdue: bool = False
+
+
+class ClaimAnswer(BaseModel):
+	"""§INF-004's "Ask about a rumour", answered to the person who asked.
+
+	`MisinfoCluster` is the wrong shape for this and the difference is the feature. A cluster is
+	PHEOC's view of a rumour — how many reports, which counties, how fast it is moving — and it is
+	what a *flagger* gets, because a flagger reports something they saw someone else spread. Someone
+	who asks "is it true that salt water cures Ebola" is not flagging anything: they want the
+	correction, and handing them a surveillance row instead answers a question they did not ask.
+
+	So the correction travels with the claim it corrects and the authority behind it, which is
+	§INF-004's Format — "Rumour: [claim]. Fact: [correction]. Source: [authority]." — as fields rather
+	than as one rendered string. `recognised` is what makes the fallback honest: a claim matching no
+	drafted rumour is answered "under verification" and says so, rather than being attached to the
+	nearest correction with the confidence of a match.
+	"""
+	model_config = MODEL_CONFIG
+	claim: str = Field(min_length=5)
+	# None when no drafted rumour matched. The topic, not the category: a category is a pre-drafting
+	# grouping for §6.4's brief and several topics answer one, so naming the category here would lose
+	# which rumour was actually recognised.
+	topic: str | None = None
+	# The words that decided the match, so a reader can argue with the classification rather than
+	# being told an answer with no evidence behind it.
+	matched: list[str] = []
+	correction: str = Field(min_length=1)
+	fact: str = Field(min_length=1)
+	source: str = ''
+	# The library item this correction is, so a client can open the full myth card rather than
+	# rendering the correction as a dead end. Empty when nothing matched — there is no card for a
+	# claim the library has not drafted.
+	slug: str = ''
+	# The language the answer is actually in, which is not always the one asked for: `answerable()`
+	# resolves a language with no table to English rather than refusing, and a person told which
+	# language they got is not left reading English believing it is Dholuo.
+	answered_in: str = Field(pattern=r'^(en|sw)$')
+	recognised: bool
+	# §6.2.3: an undated correction about a live rumour is one nobody can weigh.
+	drafted_on_iso: str = Field(min_length=10)

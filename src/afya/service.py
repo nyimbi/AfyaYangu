@@ -62,6 +62,7 @@ from afya.facilities.views import (
 from afya.info.escalation import CORRECTION_FEED_CATEGORY, ContentError
 from afya.info import health_education
 from afya.info.localisation import BackTranslation, CommunityValidation, workflow_for
+from afya.info.myths import categories_of, topic_for_slug
 from afya.info.recency import instant_iso
 from afya.info.service import InfoService
 from afya.info.views import WORKFLOW, ContentItem, CountyRisk
@@ -991,7 +992,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		        'updated_line': info.dashboard_freshness(county, at_ms, 'en')}
 
 	@app.get('/info/library')
-	async def info_library(lang: str = 'en', now_ms: int | None = None, tag: str | None = None) -> list[dict[str, object]]:
+	async def info_library(lang: str = 'en', now_ms: int | None = None, tag: str | None = None,
+			q: str | None = None) -> list[dict[str, object]]:
 		"""§6.2 content library (INF-003/004/008/009/010/015), served by language.
 
 		Served as {slug,title,body,harmony_tag} — never `item_id`, whose seed values embed spec codes
@@ -1001,6 +1003,19 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		open: "I want to protect my family" is the Ebola library and "I heard something — is it true?"
 		is the myth-busting corpus. Without the filter those entries would open the whole library and
 		leave the reader to find the section themselves, which is not what an entry question is for.
+
+		`q` is §INF-004's Search. It matches over the claim as well as the title and body, which is
+		the half that needed the corpus to carry a claim at all: a person typing "salt water" is
+		searching for a rumour, and while the rumour lived as prose inside `body` it was findable by
+		accident rather than on purpose. `claim` and `source` travel on every row that has them, so a
+		client renders §INF-004's "Rumour: … Fact: … Source: …" from fields rather than by parsing
+		the body. Both are null on a non-myth row, which is the honest shape: a first-aid card has no
+		rumour to refute.
+
+		§INF-004's "Shareable as a card" travels as `share_card` and `share_url`, rendered here for
+		the reason §INF-003's renditions are: §5.4's single content repository puts this answer on
+		WhatsApp, USSD and SMS, and only one of those can compose a forwardable message. The card is
+		§INF-004's own three-line Format for a myth and the title plus body for anything else.
 
 		§6.2.4 withholds a life-safety item whose other required language is missing, in *both*
 		languages — publishing it English-only is the act the section forbids, and `library()` is
@@ -1021,12 +1036,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		twice would render the article before knowing it had an audio version. `media_ref` is the file;
 		the client fetches it, which is why no bytes are in this payload.
 		"""
-		items = info.library(lang)
-		if tag is not None:
+		items = info.search(q, lang, tag=tag) if q else info.library(lang)
+		if q is None and tag is not None:
 			items = [c for c in items if c.harmony_tag == tag]
 		return [
 			{'slug': c.slug, 'title': c.title, 'body': c.body, 'harmony_tag': c.harmony_tag or '',
 			 'lang': c.lang, 'answers_rank': c.answers_rank, 'format': c.format.value,
+			 'claim': c.claim, 'source': c.source,
+			 'share_card': c.share_card, 'share_url': c.share_url,
 			 'renditions': [
 				 {'format': r.format.value, 'media_ref': r.media_ref, 'title': r.title}
 				 for r in info.renditions_of(c.slug)
@@ -1034,6 +1051,44 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			 **info.item_freshness(c, now_ms, lang).model_dump(mode='json')}
 			for c in items
 		]
+
+	@app.get('/info/library/categories')
+	async def info_library_categories(lang: str = 'en') -> list[dict[str, object]]:
+		"""§INF-004's "Browse by category": the tags the library can be browsed by, with counts.
+
+		A route of its own rather than a key on `/info/library`, because a browse screen and a list
+		screen are different requests: a client opening the library wants the items, and one drawing
+		a category chooser wants the categories, and folding the facets into every library response
+		would make every list request carry a count it does not render.
+
+		Counts are of served items — read through `library()`, not off the store — so a category is
+		offered only when something is behind it. A browse screen that opens onto an empty list
+		because the facet counted a draft is the failure the count exists to prevent.
+		"""
+		return info.facets(lang)
+
+	@app.get('/info/myths')
+	async def info_myths(lang: str = 'en', q: str | None = None) -> list[dict[str, object]]:
+		"""§INF-004's myth library: the rumour, the correction and the authority, as three fields.
+
+		Every row carries all three, which is the section's Format. Served as its own route rather
+		than as a `tag=mythbusting` filter on `/info/library` because the shape is different: a
+		library row is prose and a myth row is a claim with a correction beside it, and a client that
+		had to branch on whether `claim` is null to decide which to render is a client doing the
+		server's job. `q` searches the same corpus `/info/library?q=` does, through the same
+		implementation, so the two cannot disagree about what matches.
+
+		No `now_ms`: a myth is not a feed item and the section prints no freshness line for it. The
+		correction's own `drafted_on` travels instead, which is what makes it weighable.
+		"""
+		return [
+			{'slug': c.slug, 'title': c.title, 'claim': c.claim, 'fact': c.body, 'source': c.source,
+			 'lang': c.lang, 'answers_rank': c.answers_rank, 'harmony_tag': c.harmony_tag or '',
+			 'share_card': c.share_card, 'share_url': c.share_url,
+			 'category': (categories_of(topic_for_slug(c.slug, c.lang) or '') or [None])[0]}
+			for c in info.myths(lang, q)
+		]
+
 
 	@app.get('/info/questions')
 	async def info_questions() -> list[dict[str, object]]:
@@ -2804,6 +2859,30 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/community/misinformation')
 	async def community_misinfo(submission: MisinfoSubmission) -> dict[str, object]:
 		return (await community.flag_misinfo(submission)).model_dump(mode='json')
+
+	@app.post('/info/myths/ask')
+	async def info_myths_ask(claim: str, lang: str = 'en') -> dict[str, object]:
+		"""§INF-004's "Ask about a rumour" — a claim submitted for verification, answered to the asker.
+
+		Deliberately not `/community/misinformation`. That route is a *flag*: a person reports a rumour
+		they saw someone else spread, and PHEOC gets a cluster — how many reports, which counties, how
+		fast it is moving. Someone who asks "is it true that salt water cures Ebola" is not reporting
+		anything; they want the correction, and answering them with a surveillance row is answering a
+		question they did not ask. This returns the claim, the correction and the authority behind it,
+		which is §INF-004's own Format.
+
+		Unscoped and unauthenticated, like the rest of the myth library: §6.2.7's whole point is that
+		the correction reaches the person who has the rumour, and requiring an account to ask whether
+		something is true is how a correction stays unread.
+
+		A claim matching nothing drafted is answered "under verification" with `recognised=false`,
+		rather than being attached to the nearest rumour. A confident correction to the wrong question
+		is worse than the honest one §6.2.8 asks for.
+
+		`lang` is the asker's language and `answered_in` is the language they actually got, which
+		differ when the language has no table — the same disclosure every channel route makes.
+		"""
+		return community.answer_claim(claim, lang).model_dump(mode='json')
 
 	@app.get('/community/misinformation/clusters')
 	async def community_clusters(now_ms: int | None = None) -> list[dict[str, object]]:
