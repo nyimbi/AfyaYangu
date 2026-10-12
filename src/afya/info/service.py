@@ -12,6 +12,7 @@ the section calls destructive. The relative age is computed at serve time agains
 — see `afya.info.recency` for why the line is built server-side and never stored.
 """
 from datetime import date
+from urllib.parse import quote
 
 from afya.auth.views import now_ms
 from afya.info.content_seed import seed_rows
@@ -25,8 +26,12 @@ from afya.info.questions import (
 	QUESTION_BY_RANK, REQUIRED_LANGS, RANKED_QUESTIONS, RankedQuestion, is_life_safety,
 )
 from afya.info.recency import UNDATED_MS, ServedFreshness, freshness, freshness_line, midnight_ms
-from afya.info.views import ContentItem, ContentStage, CountyRisk, DecisionNode, HotlineInfo
+from afya.info.views import (
+	ContactDirectory, ContactKind, ContentItem, ContentStage, CountyRisk, DecisionNode, HotlineActions,
+	HotlineInfo,
+)
 from afya.logmixin import LogMixin
+from afya.places.views import PlaceKind, PlacesService
 
 # §6.5 review cycle: clinical content is reviewed weekly during an outbreak and monthly otherwise.
 # Which regime applies is the caller's fact, so both are named and the staleness check takes one.
@@ -40,9 +45,63 @@ def _days_since(iso: str, today_iso: str) -> int:
 
 
 HOTLINES: tuple[HotlineInfo, ...] = (
-	HotlineInfo(name='Ministry of Health Hotline', number='719', hours='24/7', verified=False),
-	HotlineInfo(name='ODPC Complaints Desk', number='+254-20-4226849', hours='business hours', verified=False),
+	HotlineInfo(name='Ministry of Health Hotline', number='719', hours='24/7', verified=False,
+		kind=ContactKind.emergency_hotline),
+	HotlineInfo(name='ODPC Complaints Desk', number='+254-20-4226849', hours='business hours',
+		verified=False, kind=ContactKind.complaints_desk),
 )
+
+# §INF-006 prints eight Contents and the two rows above cover one of them plus a desk the section
+# does not name. The mental-health, substance-abuse and ambulance numbers *do* exist in the tree —
+# `mental.COUNSELLING_LINES` holds all three — and the directory route never read that table, so
+# three of the eight were in the repo and off the screen. They are folded in here rather than
+# duplicated: the mental-health module keeps the table (it owns the counselling surface) and this
+# reads it, which is why the numbers cannot drift between the two.
+COUNSELLING_KINDS: tuple[tuple[str, ContactKind], ...] = (
+	('Befrienders Kenya (emotional support)', ContactKind.mental_health_helpline),
+	('NACADA helpline (substance abuse)', ContactKind.substance_abuse_helpline),
+	('Emergency', ContactKind.ambulance),
+)
+
+
+def _dialable(number: str) -> str:
+	"""The one number a dialler can use, out of what a row was written with.
+
+	§INF-006's rows are prose: the ODPC desk is `+254-20-4226849` and the tree's own emergency row is
+	`1199 (ambulance) / 719 (MoH)`, which names *two* numbers. Stripping non-digits from the second
+	concatenates them into `1199719` — a number that dials nothing — so a row that names more than one
+	is cut to its first and the rest are dropped, because a directory entry is one destination. The
+	`/` is the tell and the assert is on it: a row written some other way that still carries two
+	numbers would otherwise pass silently into a `tel:` URI, which is the failure `hotline_actions`
+	exists to prevent.
+	"""
+	first = number.split('/')[0]
+	digits = ''.join(ch for ch in first if ch.isdigit() or ch == '+')
+	assert digits, f'{number!r} has no dialable number'
+	return digits
+
+
+def _directory_rows() -> tuple[HotlineInfo, ...]:
+	"""§INF-006's directory: `HOTLINES` plus the `mental.COUNSELLING_LINES` rows the route never read.
+
+	The ambulance row is the section's own "ambulance" and the counselling rows are its "mental
+	health helpline"; NACADA is filed under the substance-abuse kind because the section names no
+	such entry and inventing a row the spec does not ask for would be worse than filing the number
+	under the kind it actually answers. Each keeps `mental`'s own `verified` flag, which is False on
+	every row, so a number folded in here does not arrive looking checked.
+	"""
+	from afya.mental.views import COUNSELLING_LINES
+	by_name = {row['name']: row for row in COUNSELLING_LINES}
+	out: list[HotlineInfo] = list(HOTLINES)
+	for name, kind in COUNSELLING_KINDS:
+		row = by_name.get(name)
+		assert row is not None, f'{name} is no longer in mental.COUNSELLING_LINES'
+		out.append(HotlineInfo(
+			name=name, number=row['number'], hours=row['hours'] or 'not stated',
+			verified=row['verified'] == 'True', kind=kind,
+		))
+	return tuple(out)
+
 
 
 class InfoService(LogMixin):
@@ -487,3 +546,85 @@ class InfoService(LogMixin):
 
 	def hotlines(self) -> list[HotlineInfo]:
 		return list(HOTLINES)
+
+	@staticmethod
+	def hotline_actions(row: HotlineInfo, lang: str = 'en') -> HotlineActions:
+		"""§INF-006's four Features for one entry: call, SMS, save, share.
+
+		Rendered here rather than left to each client, the way `PlacesService.directions` renders its
+		two maps URLs — a directory of life-safety numbers whose four Features are a client's
+		obligation is a directory where two clients disagree about whether "one-tap call" works. The
+		digits are stripped of everything a dialler cannot use, because the section's own rows are
+		written `+254-20-4226849` and a `tel:` URI carrying the hyphens may not dial.
+
+		`share_url` is a `wa.me` deep link rather than a bare number, because §3.3 principle 10 says
+		every output must be shareable as a WhatsApp card and a card needs a link to carry.
+		"""
+		dialable = _dialable(row.number)
+		label = row.name.replace("'", '')
+		body = f'You can reach {row.name} on {row.number}' + (f' ({row.hours})' if row.hours else '')
+		return HotlineActions(
+			tel_uri=f'tel:{dialable}',
+			sms_uri=f'sms:{dialable}',
+			vcard=f'BEGIN:VCARD\nVERSION:3.0\nN:{label}\nFN:{label}\nTEL;TYPE=VOICE:{dialable}\nEND:VCARD',
+			share_url=f'https://wa.me/?text={quote(body)}',
+		)
+
+	def hotline_directory(
+		self, at_ms: int | None = None, lang: str = 'en',
+		lat: float | None = None, lon: float | None = None, places: PlacesService | None = None,
+	) -> ContactDirectory:
+		"""§INF-006's "single screen with all relevant contacts", with the ones this deployment lacks.
+
+		`absent` is coverage of the section's own eight Contents (`SPEC_CONTENTS`), not of every enum
+		member: the ODPC complaints desk and NACADA's line are rows this deployment has and the section
+		does not name, and a gap list that counted them would report the directory incomplete for
+		holding more than asked. A kind the section names appears in `absent` the moment a row for it
+		is not there, which is what makes "GBV helpline: not in this deployment" a fact a screen can
+		print rather than a blank.
+
+		`nearest_facility` is the one Content that is not a fixed row — it is whichever facility is
+		closest to the caller, so it is only answerable with a position. Given one, the nearest place
+		of any clinical kind is folded in and carries its own `phone` when OSM had one; without one
+		the kind is reported absent, because a directory cannot name a nearest facility to nobody.
+		"""
+		rows = [
+			row.model_copy(update={
+				'actions': self.hotline_actions(row, lang),
+				'updated_line': self.hotline_freshness(row, at_ms, lang),
+			})
+			for row in _directory_rows()
+		]
+		rows.extend(self._nearest_facility_rows(lat, lon, places, lang))
+		return ContactDirectory(contacts=rows)
+
+	def _nearest_facility_rows(
+		self, lat: float | None, lon: float | None,
+		places: PlacesService | None, lang: str,
+	) -> list[HotlineInfo]:
+		"""§INF-006's "nearest facility", as a directory row rather than a map pin.
+
+		A facility with no `phone` in OSM is still the nearest facility and is listed without one: the
+		row is the answer to "where do I go", and dropping it for want of a number would hide the
+		destination because the number is missing. `actions` is None on such a row for the same reason
+		`HotlineActions` requires a dialable number — there is nothing to dial, and a `tel:` URI built
+		from an empty string is the failure the assert in `hotline_actions` exists to catch.
+		"""
+		if lat is None or lon is None or places is None:
+			return []
+		clinical = {
+			PlaceKind.clinic, PlaceKind.hospital, PlaceKind.treatment_unit, PlaceKind.testing_site,
+		}
+		try:
+			found = places.nearest(lat, lon, clinical, limit=1)
+		except AssertionError:
+			return []  # nothing imported: no nearest facility, reported absent rather than invented
+		place, km = found[0]
+		row = HotlineInfo(
+			name=place.name,
+			number=place.phone or 'no number published',
+			hours=place.opening_hours or 'hours not published',
+			kind=ContactKind.nearest_facility,
+			updated_line=f'{km:.1f} km away',
+		)
+		return [row.model_copy(update={'actions': self.hotline_actions(row, lang)})] if place.phone else [row]

@@ -1,7 +1,7 @@
 import pytest
 
 from afya.info.service import InfoService
-from afya.info.views import ContentItem, ContentStage, CountyRisk
+from afya.info.views import SPEC_CONTENTS, ContactKind, ContentItem, ContentStage, CountyRisk
 
 
 async def test_dashboard_defaults_low() -> None:
@@ -104,9 +104,20 @@ def test_tree_depth_bounded() -> None:
 
 
 def test_hotline_directory_includes_719() -> None:
+	"""§INF-006's directory, which is the surface the section describes.
+
+	This asserted two rows of the raw `HOTLINES` table while naming itself after the directory —
+	and the two rows were the whole of what the route served, so the test read as coverage of a
+	directory that was missing three of the eight contacts the section names. It reads the directory
+	now, and the coverage question is `SPEC_CONTENTS`'.
+	"""
 	svc = InfoService()
-	numbers = [h.number for h in svc.hotlines()]
-	assert '719' in numbers and len(numbers) == 2
+	directory = svc.hotline_directory()
+	numbers = [h.number for h in directory.contacts]
+	assert '719' in numbers and len(numbers) >= 5
+	kinds = {h.kind for h in directory.contacts}
+	assert {ContactKind.emergency_hotline, ContactKind.mental_health_helpline} <= kinds
+	assert all(h.actions is not None for h in directory.contacts), 'every row is actionable'
 
 
 def test_seed_corpus_en_and_sw() -> None:

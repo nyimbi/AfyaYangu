@@ -1,7 +1,7 @@
 """Information content models (INF-001..010, §6 content strategy, §18.4 hotline)."""
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from afya.info.recency import UNDATED_MS
 
@@ -21,6 +21,66 @@ class CountyRisk(BaseModel):
 	source: str = ''
 
 
+class ContactKind(str, Enum):
+	"""§INF-006's eight Contents as a closed set of contact types.
+
+	The section prints the directory as a list of *kinds* of contact — a hotline, a county office, a
+	facility, an ambulance, a CHW, and three helplines — and `HotlineInfo` carried no kind at all,
+	so the rows were indistinguishable and the route could not say which of the eight a deployment
+	had. The four the tree has no number for (`county_health_office`, `chw`, `gbv_helpline`,
+	`child_helpline`) are members here rather than absent, because the *gap* is a fact the report
+	has to be able to name; a deployment that later signs a GBV line adds a row, not an enum member.
+	"""
+
+	emergency_hotline = 'emergency_hotline'
+	mental_health_helpline = 'mental_health_helpline'
+	substance_abuse_helpline = 'substance_abuse_helpline'
+	ambulance = 'ambulance'
+	nearest_facility = 'nearest_facility'
+	county_health_office = 'county_health_office'
+	chw = 'chw'
+	gbv_helpline = 'gbv_helpline'
+	child_helpline = 'child_helpline'
+	complaints_desk = 'complaints_desk'
+
+
+# §INF-006's Contents, in the section's own order. Held apart from the enum because two members are
+# not the section's: `complaints_desk` is a row the deployment has and the section does not name, and
+# `substance_abuse_helpline` is the kind NACADA's number answers under. Completeness is coverage of
+# *these eight* — an enum-wide count would report the directory incomplete for holding an extra.
+SPEC_CONTENTS: tuple[ContactKind, ...] = (
+	ContactKind.emergency_hotline,
+	ContactKind.county_health_office,
+	ContactKind.nearest_facility,
+	ContactKind.ambulance,
+	ContactKind.chw,
+	ContactKind.mental_health_helpline,
+	ContactKind.gbv_helpline,
+	ContactKind.child_helpline,
+)
+
+
+class HotlineActions(BaseModel):
+	"""§INF-006's four Features, rendered as the URIs a client can act on.
+
+	The section's Features are "One-tap call, one-tap SMS, save to contacts, share", and all four
+	were absent: `HotlineInfo` carried the number and the route served it as text, so a directory of
+	life-safety numbers was data a client could not act on. This is the same shape `Directions`
+	already had — the server renders the deep link and the client opens it, so no platform SDK is
+	needed and the four features exist as fields rather than as a client's obligation.
+
+	`vcard` is a vCard 3.0 body rather than a URL, because there is no cross-platform scheme for
+	"saving a contact" the way there is for dialling: a client hands the text to the contacts app.
+	"""
+
+	model_config = MODEL_CONFIG
+	tel_uri: str = Field(pattern=r'^tel:')
+	sms_uri: str = Field(pattern=r'^sms:')
+	vcard: str = Field(min_length=1)
+	share_url: str = Field(pattern=r'^https://wa\.me/')
+
+
+
 class HotlineInfo(BaseModel):
 	model_config = MODEL_CONFIG
 	name: str
@@ -30,11 +90,61 @@ class HotlineInfo(BaseModel):
 	# §18.4 and §6.2.3. `verified=False` is an assertion about the number that nobody can act on
 	# without knowing when it was last checked, which is why the stamp travels with it.
 	verified_at_ms: int = Field(default=UNDATED_MS, ge=0)
+	# §INF-006's own list is of contact *kinds*; without this the eight rows the section names are
+	# indistinguishable and "which of the eight does this deployment have" is unanswerable.
+	kind: ContactKind = ContactKind.emergency_hotline
+	# §INF-006's Features, rendered by the service rather than left to each client.
+	actions: HotlineActions | None = None
+	# §6.2.3's age line for this entry, computed at serve time. A field rather than a key the route
+	# bolts on, because `HotlineInfo` is `extra='forbid'` and a `model_copy` update with an undeclared
+	# key would add it silently — the directory would then serve one shape and its model describe
+	# another. None means never verified, which is a fact to render, not silence to infer from.
+	updated_line: str | None = None
 
 	def model_post_init(self, _context: object) -> None:
 		assert not self.verified or self.verified_at_ms > UNDATED_MS, (
 			f'{self.name}: a number claimed as verified carries the instant it was checked (§6.2.3)'
 		)
+
+
+class ContactDirectory(BaseModel):
+	"""§INF-006's directory as a screen: the contacts this deployment has, and the ones it lacks.
+
+	The section asks for "a single screen with all relevant contacts" and prints eight. Serving only
+	the rows that exist would answer the question "what is in the directory" while hiding the one a
+	reader of the section is actually asking — which of the eight is missing.
+
+	`absent` is *derived* rather than passed in, and that is the point: as a field it was a line the
+	service had to remember to compute from `SPEC_CONTENTS`, and a directory that counted the whole
+	enum instead would report a deployment incomplete for holding a row the section does not name
+	(the ODPC desk) — a wrong answer no type could catch, because both spellings produce a
+	`list[ContactKind]`. Deriving it here makes the invariant structural, and a caller can no longer
+	hand over a gap list that disagrees with the rows beside it.
+	"""
+
+	model_config = MODEL_CONFIG
+	contacts: list[HotlineInfo]
+
+	@computed_field
+	@property
+	def absent(self) -> list[ContactKind]:
+		"""The section's Contents no row covers, in the section's own order."""
+		present = {row.kind for row in self.contacts}
+		return [k for k in SPEC_CONTENTS if k not in present]
+
+	@computed_field
+	@property
+	def complete(self) -> bool:
+		"""Whether the screen carries every Content §INF-006 prints.
+
+		Coverage only — the four Features are a property of each row and are read off the row, where
+		`actions is None` says "listed, but there is nothing to dial". Folding that into `complete`
+		would make a deployment that honestly lists a facility OSM gave no number for report its whole
+		directory as incomplete, which conflates a missing contact with an unlisted number.
+		"""
+		return not self.absent
+
+
 
 
 class ContentStage(str, Enum):

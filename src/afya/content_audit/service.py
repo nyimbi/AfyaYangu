@@ -469,44 +469,53 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 		'cannot be rendered as the number the card would show'),
 
 	# --- §8.5 INF-006: Hotline and Contact Directory ------------------------------------------
-	# Eight Contents, and the directory carries three of them. Two are one field: `HOTLINES` is
-	# `HotlineInfo` rows, so the MoH 719 row and the ODPC row are a hotline *table*, and
-	# `HotlineInfo` has `name`/`number`/`hours` — no contact type, so the eight named contacts
-	# cannot be distinguished by kind. `mental health helpline` sits in a different table
-	# (`mental.COUNSELLING_LINES`) that `/info/hotlines` never reads.
+	# The section asks for "a single screen with all relevant contacts" and prints eight Contents and
+	# four Features. What existed was two rows of one table served as text: no contact kind, so the
+	# eight were indistinguishable; three of the eight in `mental.COUNSELLING_LINES`, a table the
+	# directory route never read; and none of the four Features rendered, so the screen was data a
+	# client could not act on. `InfoService.hotline_directory` answers it now, and `absent` is
+	# *derived* from the section's own eight rather than kept as a second list — which is what makes
+	# the four still missing a fact the screen prints instead of a blank.
 	('INF-006', 'Contents', '719 hotline', 'carried', 'afya.info.service:HOTLINES',
-		'the "Ministry of Health Hotline" row, number 719, served by `/info/hotlines`'),
+		'the "Ministry of Health Hotline" row, number 719, `kind=emergency_hotline`'),
 	('INF-006', 'Contents', 'county health office', 'missing', None,
-		'`HOTLINES` has two rows — the MoH hotline and the ODPC complaints desk — and no county '
-		'health office; `HotlineInfo` carries no county or office type'),
-	('INF-006', 'Contents', 'nearest facility', 'missing', None,
-		'no directory entry carries a facility; `Facility` has no phone field and `/info/hotlines` '
-		'reads only `HOTLINES`'),
-	('INF-006', 'Contents', 'ambulance', 'missing', None,
-		'`HOTLINES` has no ambulance row; `mental.COUNSELLING_LINES` prints "1199 (ambulance) / 719" '
-		'as one emergency entry and `/info/hotlines` does not read that table'),
+		'`HOTLINES` has two rows and neither is a county office, and no county health office number '
+		'exists anywhere in the tree — `monitoring` routes a breeding-site report *to* one by name '
+		'(`routed_to`) without carrying a number. Reported in `absent` rather than blank'),
+	('INF-006', 'Contents', 'nearest facility', 'carried',
+		'afya.info.service:InfoService._nearest_facility_rows',
+		'composed from the caller\'s position over `PlacesService.nearest` and `Place.phone`, so the '
+		'row exists only when `lat`/`lon` are given — a nearest facility is an answer about where '
+		'the caller is, and without a position the kind is reported `absent` rather than guessed'),
+	('INF-006', 'Contents', 'ambulance', 'carried', 'afya.info.service:COUNSELLING_KINDS',
+		'the tree\'s own "1199 (ambulance) / 719 (MoH)" row, folded into the directory under '
+		'`kind=ambulance`; `_dialable` cuts it to 1199 because stripping both numbers concatenates '
+		'them into `1199719`, which dials nothing'),
 	('INF-006', 'Contents', 'CHW', 'missing', None,
-		'`CaseReport.chw_ref` is a CHW reference and carries no phone number, so no CHW contact '
-		'can be listed'),
-	('INF-006', 'Contents', 'mental health helpline', 'missing', None,
-		'`mental.COUNSELLING_LINES` holds the counselling numbers but `/info/hotlines` serves only '
-		'`info.HOTLINES`, so the mental-health helpline is not in the directory'),
+		'`CaseReport.chw_ref` and `ChwProfile.chw_ref` are references and `ChwProfile` carries no '
+		'phone, so no CHW contact can be listed. Reported in `absent`'),
+	('INF-006', 'Contents', 'mental health helpline', 'carried',
+		'afya.info.service:_directory_rows',
+		'Befrienders Kenya\'s number, folded in from `mental.COUNSELLING_LINES` — the table the '
+		'directory route never read — so the two modules cannot drift; `mental` keeps the row'),
 	('INF-006', 'Contents', 'GBV helpline', 'missing', None,
-		'no GBV helpline exists anywhere in the tree'),
+		'no GBV helpline number exists anywhere in the tree. A deployment that signs one adds a row '
+		'and this row becomes `carried`; until then it is named in `absent`'),
 	('INF-006', 'Contents', 'child helpline', 'missing', None,
-		'no child helpline exists anywhere in the tree'),
-	('INF-006', 'Features', 'One-tap call', 'missing', None,
-		'`HotlineInfo` carries the number and no `tel:` link or action; nothing renders a callable'),
-	('INF-006', 'Features', 'one-tap SMS', 'missing', None,
-		'no `sms:` link and no SMS action; `channels` routes a WhatsApp hotline keyword and dials '
-		'nothing'),
-	('INF-006', 'Features', 'save to contacts', 'missing', None,
-		'`HotlineInfo` carries `name`/`number`/`hours` and no vCard or contact payload, and the '
-		'route renders none — where `Directions` renders `apple_maps_url`/`google_maps_url` for a '
-		'maps app, nothing here renders a saveable artifact for a contacts app'),
-	('INF-006', 'Features', 'share', 'missing', None,
-		'§3.3 principle 10 requires every output to be shareable as a WhatsApp card; `/info/hotlines` '
-		'serves `HotlineInfo` rows and nothing renders a shareable directory payload'),
+		'no child helpline number exists anywhere in the tree; named in `absent`'),
+	('INF-006', 'Features', 'One-tap call', 'carried', 'afya.info.views:HotlineActions',
+		'`tel_uri` rendered by `InfoService.hotline_actions` off `_dialable`, so a row naming two '
+		'numbers or written `+254-20-4226849` still dials'),
+	('INF-006', 'Features', 'one-tap SMS', 'carried', 'afya.info.views:HotlineActions',
+		'`sms_uri`, the same handoff as `tel_uri` — "one-tap" is the client opening the messaging '
+		'composer with the number prefilled, which is what a `sms:` URI does. §EMG-001\'s "works '
+		'over SMS when data is unavailable" is a different claim and still has no path'),
+	('INF-006', 'Features', 'save to contacts', 'carried', 'afya.info.views:HotlineActions',
+		'a vCard 3.0 body rendered server-side — there is no cross-platform scheme for "save a '
+		'contact" the way there is for dialling, so the client hands the text to the contacts app'),
+	('INF-006', 'Features', 'share', 'carried', 'afya.info.views:HotlineActions',
+		'`share_url`, a `wa.me` deep link carrying the name, number and hours — §3.3 principle 10 '
+		'requires every output be shareable as a WhatsApp card, and a card needs a link to carry'),
 )
 
 _LABELS: tuple[str, ...] = ('Features', 'Contents', 'Additional inputs', 'Outputs', 'Signals monitored')

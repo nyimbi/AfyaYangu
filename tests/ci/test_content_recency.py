@@ -270,8 +270,9 @@ async def test_the_dashboard_and_directory_routes_carry_the_stamp() -> None:
 		unassessed = (await c.get(f'/info/dashboard/Marsabit?now_ms={T0}')).json()
 		assert unassessed['updated_line'] is None, 'an unassessed county claims no date'
 		hotlines = (await c.get(f'/info/hotlines?now_ms={T0}')).json()
-		assert all('updated_line' in row for row in hotlines), hotlines
-		assert hotlines[0]['updated_line'] is None, 'the seed directory is not claimed as verified'
+		assert all('updated_line' in row for row in hotlines['contacts']), hotlines
+		assert all(row['updated_line'] is None for row in hotlines['contacts']), \
+			'the seed directory is not claimed as verified'
 
 
 async def test_the_governance_view_names_the_undated_items() -> None:

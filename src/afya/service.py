@@ -816,17 +816,21 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- info & records ---
 	@app.get('/info/hotlines')
-	async def info_hotlines(lang: str = 'en', now_ms: int | None = None) -> list[dict[str, object]]:
-		"""§INF-006's directory, with §6.2.3's stamp on each entry.
+	async def info_hotlines(
+		lang: str = 'en', now_ms: int | None = None, lat: float | None = None, lon: float | None = None,
+	) -> dict[str, object]:
+		"""§INF-006's directory, with §6.2.3's stamp on each entry and the ones this deployment lacks.
 
 		`verified` is an assertion about a number, and one nobody can act on without knowing when it
 		was last checked — so the age travels with it. `updated_line` is None for an entry that has
 		never been verified, which is a fact a client should render rather than infer from silence.
+
+		The section's fourth Content is "nearest facility", which is not a row but an answer about the
+		caller's position, so it is composed only when `lat`/`lon` are given. The four Features are
+		served as `actions` on each row, rendered here rather than left to each client.
 		"""
-		return [
-			{**h.model_dump(mode='json'), 'updated_line': info.hotline_freshness(h, now_ms, lang)}
-			for h in info.hotlines()
-		]
+		directory = info.hotline_directory(now_ms, lang, lat, lon, places)
+		return directory.model_dump(mode='json')
 
 	@app.get('/info/dashboard/{county}')
 	async def info_dashboard(county: str, lang: str = 'en', now_ms: int | None = None) -> dict[str, object]:
