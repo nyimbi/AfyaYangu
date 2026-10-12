@@ -1883,15 +1883,47 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		]
 
 	@app.get('/places/testing-sites')
-	async def places_testing_sites(lat: float, lon: float, limit: int = 5) -> list[dict[str, object]]:
+	async def places_testing_sites(
+		lat: float, lon: float, limit: int = 5, test: str | None = None,
+		max_cost_kes: int | None = None, max_turnaround_hours: int | None = None,
+	) -> dict[str, object]:
 		"""FND-003. The kinds are fixed by the route rather than passed by the client, so a client
-		cannot ask the testing-site endpoint for pharmacies and render the answer as test locations."""
-		return await places_nearest(lat, lon, kinds=[PlaceKind.testing_site.value], limit=limit)
+		cannot ask the testing-site endpoint for pharmacies and render the answer as test locations.
+
+		The three filter arguments are §FND-003's own Features cell — "Filter by test, cost, hours,
+		results turnaround" — and `unanswered` names the ones this deployment's data cannot answer,
+		so a screen can say "cost not published" instead of showing a shorter list that reads as one.
+		"""
+		found, unanswered = places.find(
+			lat, lon, {PlaceKind.testing_site, PlaceKind.clinic, PlaceKind.hospital, PlaceKind.treatment_unit},
+			limit, test=test, max_cost_kes=max_cost_kes, max_turnaround_hours=max_turnaround_hours)
+		return {
+			'places': [
+				{'place': p.model_dump(mode='json'), 'km': round(km, 2),
+					'directions': places.directions(p, lat, lon).model_dump(mode='json')}
+				for p, km in found
+			],
+			'unanswered': unanswered,
+		}
 
 	@app.get('/places/vaccination-points')
-	async def places_vaccination_points(lat: float, lon: float, limit: int = 5) -> list[dict[str, object]]:
-		"""FND-005. Routine and campaign vaccination points, fixed to their own kind for the same reason."""
-		return await places_nearest(lat, lon, kinds=[PlaceKind.vaccination_point.value], limit=limit)
+	async def places_vaccination_points(
+		lat: float, lon: float, limit: int = 5, vaccine: str | None = None,
+		age_months: int | None = None, max_cost_kes: int | None = None, walk_in_only: bool = False,
+	) -> dict[str, object]:
+		"""FND-005. Routine and campaign vaccination points, fixed to their own kind for the same
+		reason, with the section's own filters — vaccine, age eligibility, cost, walk-in."""
+		found, unanswered = places.find(
+			lat, lon, {PlaceKind.vaccination_point, PlaceKind.clinic, PlaceKind.hospital}, limit,
+			vaccine=vaccine, age_months=age_months, max_cost_kes=max_cost_kes, walk_in_only=walk_in_only)
+		return {
+			'places': [
+				{'place': p.model_dump(mode='json'), 'km': round(km, 2),
+					'directions': places.directions(p, lat, lon).model_dump(mode='json')}
+				for p, km in found
+			],
+			'unanswered': unanswered,
+		}
 
 	@app.post('/places/import-osm')
 	async def places_import_osm(county_lat: float, county_lon: float, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, int]:

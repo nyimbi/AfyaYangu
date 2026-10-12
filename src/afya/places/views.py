@@ -21,6 +21,54 @@ class PlaceKind(str, Enum):
 	water_point = 'water_point'
 
 
+class TestOffering(BaseModel):
+	"""One test a facility does, and the three things §FND-003 asks a person to filter on.
+
+	The section's Features are "Filter by test, cost, hours, results turnaround". A filter needs a
+	field to filter on, and `Place` carried none of the three: it is an OSM-normalised POI, and OSM
+	knows a clinic's name and position, not what it tests for or what it charges. These are facts a
+	county health office publishes, so they are a list a deployment posts rather than something
+	inferred from `opening_hours`.
+
+	`cost_kes` and `turnaround_hours` are `int | None` rather than defaulted to 0, for the reason
+	`EmergencyCard.organ_donor` is tri-state: "this test is free" and "nobody has told us what it
+	costs" are different answers, and a `0` default answers the second as the first on the screen
+	someone uses to decide whether they can afford to get tested.
+	"""
+
+	model_config = MODEL_CONFIG
+	# pytest collects any class whose name starts with `Test`, and this one is a model: without this
+	# the import is a PytestCollectionWarning on every run of the suite that touches `places`.
+	__test__ = False
+	name: str = Field(min_length=1)
+	cost_kes: int | None = Field(default=None, ge=0, le=1_000_000)
+	turnaround_hours: int | None = Field(default=None, ge=0, le=8760)
+
+
+class VaccineOffering(BaseModel):
+	"""One vaccine a point offers, with §FND-005's four filters.
+
+	"Filter by vaccine, age eligibility, cost (usually free), hours, whether walk-in or appointment."
+	`walk_in` is `bool | None` for the same tri-state reason: "appointment only" and "we were not
+	told" send a person to a clinic on different days, and a defaulted `False` collapses them.
+
+	Age bounds are in months so one pair covers both the infant schedule and school-age campaigns;
+	`min_age_months=None` means no lower bound is published, which is not the same as zero.
+	"""
+
+	model_config = MODEL_CONFIG
+	name: str = Field(min_length=1)
+	cost_kes: int | None = Field(default=None, ge=0, le=1_000_000)
+	min_age_months: int | None = Field(default=None, ge=0, le=1200)
+	max_age_months: int | None = Field(default=None, ge=0, le=1200)
+	walk_in: bool | None = None
+
+	def model_post_init(self, _context: object) -> None:
+		assert self.min_age_months is None or self.max_age_months is None \
+			or self.min_age_months <= self.max_age_months, \
+			f'{self.name}: an age band that excludes everyone is not a band'
+
+
 class Place(BaseModel):
 	model_config = MODEL_CONFIG
 	osm_id: str = Field(pattern=r'^(N|W|R)\d+$')
@@ -32,6 +80,11 @@ class Place(BaseModel):
 	opening_hours: str | None = None
 	phone: str | None = None
 	website: str | None = None
+	# §FND-003's and §FND-005's filter dimensions. Empty means "nothing published", which is what a
+	# freshly imported OSM row is — the finder then reports no filter rather than pretending the
+	# facility does no tests, and a deployment fills these from the county's own service list.
+	tests: list[TestOffering] = []
+	vaccines: list[VaccineOffering] = []
 
 
 class Directions(BaseModel):
@@ -61,6 +114,102 @@ class PlacesService:
 		pool = [p for p in self._places.values() if not kinds or p.kind in kinds]
 		assert pool, 'no places imported yet'
 		return sorted(((p, haversine_km(lat, lon, p.lat, p.lon)) for p in pool), key=lambda x: x[1])[:limit]
+
+	def find(
+		self, lat: float, lon: float, kinds: set[PlaceKind] | None = None, limit: int = 5,
+		test: str | None = None, vaccine: str | None = None, max_cost_kes: int | None = None,
+		age_months: int | None = None, walk_in_only: bool = False, max_turnaround_hours: int | None = None,
+	) -> tuple[list[tuple[Place, float]], list[str]]:
+		"""§FND-003's and §FND-005's finders, with their own filter dimensions applied.
+
+		Both sections' Features cells are filter lists, and a filter that is not applied is a screen
+		that shows every facility and calls the list filtered. Each argument here is one of those
+		dimensions; `test`/`max_turnaround_hours` are §FND-003's and `vaccine`/`age_months`/
+		`walk_in_only` are §FND-005's, and they compose because both are the same search over the same
+		pool.
+
+		The second return value is the finding rather than a nicety: `unanswered` names the dimensions
+		the *data* cannot answer — a facility with no `tests` published is not one that does no tests,
+		and filtering it out would turn "nobody has filled this in" into "this clinic does not test for
+		HIV". The filter is applied only over the places that published the dimension, and the
+		dimensions nothing published are reported so the screen can say "cost unknown" rather than
+		showing a shorter list that reads as an answer.
+
+		A `max_cost_kes` filter keeps a place whose offering has `cost_kes is None`: unknown cost is
+		not a cost above the ceiling, and dropping it would hide the free public clinic whose row
+		nobody has priced. `walk_in_only` is the one filter that *does* exclude on absence, because
+		§FND-005 asks whether a point takes walk-ins and a person turning up without an appointment
+		needs a yes, not a maybe.
+		"""
+		found, had_pool = self._nearest_or_empty(lat, lon, kinds, len(self._places) or 1)
+		if not had_pool:
+			# No places at all is not a dimension the data failed to answer — there is no data, and
+			# "we have nothing imported" is a different sentence from "nobody has published a test
+			# list for these facilities". Reporting `unanswered` here would put a filter defect on the
+			# screen of a deployment whose import simply has not run.
+			return [], []
+		unanswered: list[str] = []
+		if test is not None:
+			if not any(p.tests for p, _ in found):
+				unanswered.append('test')
+			else:
+				wanted = test.strip().lower()
+				found = [(p, km) for p, km in found
+					if any(wanted in t.name.lower() for t in p.tests)]
+		if max_turnaround_hours is not None:
+			if not any(t.turnaround_hours is not None for p, _ in found for t in p.tests):
+				unanswered.append('results turnaround')
+			else:
+				found = [(p, km) for p, km in found if any(
+					t.turnaround_hours is not None and t.turnaround_hours <= max_turnaround_hours
+					for t in p.tests)]
+		if vaccine is not None:
+			if not any(p.vaccines for p, _ in found):
+				unanswered.append('vaccine')
+			else:
+				wanted = vaccine.strip().lower()
+				found = [(p, km) for p, km in found
+					if any(wanted in v.name.lower() for v in p.vaccines)]
+		if age_months is not None:
+			if not any(v.min_age_months is not None or v.max_age_months is not None
+					for p, _ in found for v in p.vaccines):
+				unanswered.append('age eligibility')
+			else:
+				found = [(p, km) for p, km in found if any(
+					(v.min_age_months is None or age_months >= v.min_age_months)
+					and (v.max_age_months is None or age_months <= v.max_age_months)
+					for v in p.vaccines)]
+		if max_cost_kes is not None:
+			offerings = [(t.cost_kes, None) for p, _ in found for t in p.tests]
+			offerings += [(v.cost_kes, None) for p, _ in found for v in p.vaccines]
+			if not any(c is not None for c, _ in offerings):
+				unanswered.append('cost')
+			else:
+				def _affordable(p: Place) -> bool:
+					"""A place with nothing priced stays in the list. It has not said it is expensive —
+					it has said nothing, and a cost ceiling that dropped every unpriced facility would
+					hide the public clinic whose row nobody has filled in, which is the one a person
+					looking for the cheapest option most needs to see."""
+					costs = [t.cost_kes for t in p.tests] + [v.cost_kes for v in p.vaccines]
+					return not costs or any(c is None or c <= max_cost_kes for c in costs)
+				found = [(p, km) for p, km in found if _affordable(p)]
+		if walk_in_only:
+			if not any(v.walk_in is not None for p, _ in found for v in p.vaccines):
+				unanswered.append('whether walk-in or appointment')
+			else:
+				found = [(p, km) for p, km in found if any(v.walk_in is True for v in p.vaccines)]
+		return found[:limit], unanswered
+
+	def _nearest_or_empty(
+		self, lat: float, lon: float, kinds: set[PlaceKind] | None, limit: int,
+	) -> tuple[list[tuple[Place, float]], bool]:
+		"""`nearest` with the empty pool answered as an empty list. A locator whose import has not run
+		has no answer, and `nearest`'s assert would surface as a 500 on the screen a person opens when
+		they are unwell."""
+		try:
+			return self.nearest(lat, lon, kinds, limit), True
+		except AssertionError:
+			return [], False
 
 	def count(self) -> int:
 		return len(self._places)

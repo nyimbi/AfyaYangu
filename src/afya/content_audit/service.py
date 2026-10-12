@@ -20,7 +20,7 @@ seven Tier-2 sections a person meets next plus §9.2 REC-001 (INF-004, INF-005, 
 MON-001–004); and the four remaining Tier-1 sections (§8.2 FND-003 and FND-005, §8.4 EMG-003, §8.5
 INF-006). §19.4 carries the spec's only other `**Access:**` label and is not audited. `audited_features`
 and `UNAUDITED_FEATURES` are served alongside the
-findings, because a report that showed 85 gaps without saying how much of the spec it had read would
+findings, because a report that showed 78 gaps without saying how much of the spec it had read would
 invite the reader to take it as complete — which is the failure mode of every gate that scopes
 itself.
 
@@ -422,31 +422,39 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	# --- §8.2 FND-003: Testing Site Locator ---------------------------------------------------
 	# The section prints a `**Test types (context-dependent):**` list of seven tests — malaria RDT
 	# and microscopy, typhoid, HIV, TB, COVID-19, Ebola (designated sites only) and general
-	# laboratory panels — but that is not one of the five labels the audit reads, so it is not
-	# audited; only the `**Features:**` cell is, as the brief requires.
-	('FND-003', 'Features', 'Filter by test', 'missing', None,
-		'`Place` carries no test type and the `/places/testing-sites` route fixes the kind and '
-		'takes `lat`/`lon`/`limit` only, so there is no filter to apply'),
-	('FND-003', 'Features', 'cost', 'missing', None, '`Place` carries no cost field'),
+	# laboratory panels — but that is not one of the auditable labels, so it is not a row here; the
+	# `**Features:**` cell is, and those four are the filter dimensions. `Place` is an
+	# OSM-normalised POI and carried none of them, so the route took `lat`/`lon`/`limit` and
+	# returned everything: a filter that is not applied is a screen that calls an unfiltered list
+	# filtered. `Place.tests` is a list of `TestOffering` and `PlacesService.find` applies each
+	# dimension, reporting the ones the *data* cannot answer rather than dropping a facility whose
+	# row nobody has filled in — "no test list published" is not "does not test for HIV".
+	('FND-003', 'Features', 'Filter by test', 'carried', 'afya.places.views:TestOffering',
+		'`Place.tests[].name`, matched case-insensitively by `PlacesService.find`; the test-type list '
+		'the section prints is the vocabulary a deployment publishes these against'),
+	('FND-003', 'Features', 'cost', 'carried', 'afya.places.views:TestOffering',
+		'`cost_kes`, an `int | None` filter ceiling; a place with nothing priced stays in the list '
+		'because unknown cost is not a cost above the ceiling'),
 	('FND-003', 'Features', 'hours', 'carried', 'afya.places.views:Place',
-		'`opening_hours` is a free-text field; `nearest` returns the whole `Place`, so a client can '
-		'filter on it — unlike cost, which has no field to filter on'),
-	('FND-003', 'Features', 'results turnaround', 'missing', None,
-		'`Place` carries no turnaround field and nothing records how long a test takes'),
+		'`opening_hours`, a free-text field the whole `Place` carries into every payload'),
+	('FND-003', 'Features', 'results turnaround', 'carried', 'afya.places.views:TestOffering',
+		'`turnaround_hours`, filtered by `max_turnaround_hours`'),
 
 	# --- §8.2 FND-005: Vaccination Point Finder -----------------------------------------------
-	('FND-005', 'Features', 'Filter by vaccine', 'missing', None,
-		'`Place` carries no vaccine field and the `/places/vaccination-points` route fixes the kind '
-		'and takes `lat`/`lon`/`limit` only'),
-	('FND-005', 'Features', 'age eligibility', 'missing', None,
-		'`Place` carries no age-eligibility field'),
-	('FND-005', 'Features', 'cost (usually free)', 'missing', None,
-		'`Place` carries no cost field; `LocationService.GUIDANCE[\'vaccination_point\']` says "doses '
-		'are free" as a message string, which is not a filterable field'),
+	('FND-005', 'Features', 'Filter by vaccine', 'carried', 'afya.places.views:VaccineOffering',
+		'`Place.vaccines[].name`, matched case-insensitively by `PlacesService.find`'),
+	('FND-005', 'Features', 'age eligibility', 'carried', 'afya.places.views:VaccineOffering',
+		'`min_age_months`/`max_age_months`, in months so one band covers the infant schedule and '
+		'school-age campaigns; a band with its bounds reversed is refused at construction'),
+	('FND-005', 'Features', 'cost (usually free)', 'carried', 'afya.places.views:VaccineOffering',
+		'`cost_kes`, tri-state: free is `0` and unpriced is `None`, so the advisory string in '
+		'`LocationService.GUIDANCE` ("doses are free") is no longer the only place the claim lives'),
 	('FND-005', 'Features', 'hours', 'carried', 'afya.places.views:Place',
-		'`opening_hours` is a free-text field the `nearest` payload carries'),
-	('FND-005', 'Features', 'whether walk-in or appointment', 'missing', None,
-		'`Place` carries no walk-in/appointment field'),
+		'`opening_hours`, a free-text field the whole `Place` carries into every payload'),
+	('FND-005', 'Features', 'whether walk-in or appointment', 'carried',
+		'afya.places.views:VaccineOffering',
+		'`walk_in`, tri-state, and the one filter that excludes on absence — a person turning up '
+		'without an appointment needs a yes rather than a maybe'),
 
 	# --- §8.4 EMG-003: Offline Emergency Card -------------------------------------------------
 	# The section prints seven Contents and `EmergencyCard` carries five fields. Two of the seven
@@ -547,7 +555,7 @@ _LABELS: tuple[str, ...] = (
 
 # §8–§12's feature sections that carry a labelled content list and are not audited above. Listed
 # rather than omitted so the report cannot be read as covering the spec: the spec prints 293 such
-# items across 47 sections, 160 of them are audited above and these 133 across 23 sections are not.
+# items across 47 sections, 167 of them are audited above and these 136 across 23 sections are not.
 # A finding list presented without that context invites exactly the misreading this module exists to
 # prevent. Each is a section whose content nobody has crossed against the code yet — a to-do with a
 # count, not a claim of coverage.

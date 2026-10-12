@@ -146,10 +146,10 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§MED-004': 4, '§FND-006': 3, '§INF-007': 4, '§TRI-003': 4,
 		'§INF-004': 4, '§INF-005': 1, '§MON-001': 4, '§MON-002': 9, '§MON-003': 3,
 		'§MON-004': 2, '§REC-001': 6,
-		'§FND-003': 3, '§FND-005': 4, '§INF-006': 4,
-		# §EMG-003 is audited and carries nothing missing: all seven Contents and both Access clauses
-		# resolve to code, so the section has no row here — absence from this dict is the strongest
-		# verdict the audit has, and it should be read as one.
+		'§INF-006': 4,
+		# §EMG-003, §FND-003 and §FND-005 are audited and carry nothing missing: every Content,
+		# Access clause and filter dimension resolves to code, so the sections have no row here —
+		# absence from this dict is the strongest verdict the audit has, and should be read as one.
 	}, per_feature
 
 
