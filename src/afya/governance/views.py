@@ -103,6 +103,30 @@ class ResidencyDecision(BaseModel):
 	reason: str
 
 
+class OpenQuestion(BaseModel):
+	"""One Appendix D row: a decision the spec states is still open, and where it bites.
+
+	`blocks` is the section's own "Blocks" cell verbatim, because it names two different kinds of
+	thing and collapsing them would lose the distinction: `§15.2` is a *section* this repo has
+	modelled and whose answer the decision would change, `governance, contracting` is a programme
+	workstream with nothing here to cross against. `live_at` is the `module:attr` reference to the
+	place the undecided value is actually used — the checkable half of the row, and None where the
+	row names no artefact (question 1 is about an entity, not a value in this tree).
+
+	`assumed` is the value the code carries in the absence of the decision, and it is the reason
+	the row is worth carrying as data: Appendix D's questions read as a to-do list, but a deployment
+	is already running on an answer to most of them, and that answer was chosen in a file rather
+	than by the owner the row names.
+	"""
+
+	model_config = MODEL_CONFIG
+	number: int = Field(ge=1)
+	question: str = Field(min_length=1)
+	blocks: str = Field(min_length=1)
+	live_at: str | None = None
+	assumed: str | None = None
+
+
 class ScaleTarget(BaseModel):
 	model_config = MODEL_CONFIG
 	metric: str

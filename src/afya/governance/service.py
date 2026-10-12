@@ -10,8 +10,8 @@ trust.
 """
 from afya.governance.views import (
 	RESIDENCY_RULES, HOST_JURISDICTIONS, LEGAL_REVIEW_EXCEPTION, AgreementParty, ArchitectureComponent,
-	CapacityCheck, CapacityReport, DataClass, DataSharingAgreement, Jurisdiction, ResidencyDecision,
-	ScaleTarget, StackLayer, StackReport, StackStatus,
+	CapacityCheck, CapacityReport, DataClass, DataSharingAgreement, Jurisdiction, OpenQuestion,
+	ResidencyDecision, ScaleTarget, StackLayer, StackReport, StackStatus,
 )
 from afya.logmixin import LogMixin
 from afya.refs import resolves
@@ -39,6 +39,71 @@ class GovernanceService(LogMixin):
 	def __init__(self, agreements: list[DataSharingAgreement] | None = None) -> None:
 		self._agreements: dict[AgreementParty, DataSharingAgreement] = {a.party: a for a in (agreements or [])}
 		self._log_info('governance initialised', agreements=len(self._agreements))
+
+	# --- Appendix D: the open questions ------------------------------------------------------
+	# The last block of the spec nothing carried. Its seven rows were cited in prose three times
+	# (`rollout/service.py`, `registry/gate.py`, `test_activation.py`) and held as data nowhere, so
+	# the list of decisions the spec says are *required* was itself a thing a reader had to
+	# remember. Two of the seven are not open in the tree at all: question 4's provider choice has
+	# already been made in the negative — `HOST_JURISDICTIONS` classifies every AWS and Azure host
+	# as outside Africa, so §15.3's own example option is refused for the classes §15.3 protects —
+	# and question 7's cap is a literal 730 at `privacy/service.py:257` whose provenance the spec
+	# states and the code did not. Carrying the rows makes both visible; neither is repaired here,
+	# because both are the owner's call and this module reports rather than decides.
+	OPEN_QUESTIONS: tuple[OpenQuestion, ...] = (
+		OpenQuestion(number=1,
+			question='Product owner entity (MoH Digital Health Agency vs implementing partner) — listed TBD',
+			blocks='governance, contracting', live_at=None, assumed=None),
+		OpenQuestion(number=2,
+			question='Official hotline codes/platform names/case counts require MoH/PHEOC validation '
+				'(see Verification Note)',
+			blocks='content, USSD menus, INF-006', live_at='afya.info.service:HOTLINES',
+			assumed='719, unverified — `HotlineInfo.verified` is False on both rows and the age of '
+				'the last check travels with the number'),
+		OpenQuestion(number=3,
+			question='Tier-4 activation protocol: who holds PHEOC authorization + flag authority + '
+				'DPIA sign-off?',
+			blocks='surveillance gate', live_at='afya.registry.service:Tier4Activation',
+			assumed='three keys held by whoever calls the gate — the model records that they were '
+				'held, not by whom, so the protocol the row asks for is the one thing the gate '
+				'cannot state'),
+		OpenQuestion(number=4,
+			question='Cloud provider + data residency final selection (AWS Africa vs Azure South '
+				'Africa vs on-prem)',
+			blocks='§15.3, DPIA', live_at='afya.governance.views:HOST_JURISDICTIONS',
+			assumed='none — every AWS and Azure host is classified outside_africa, so §15.3\'s own '
+				'option is refused for case management, contact tracing and citizen personal data; '
+				'no host in the table is classified african_union'),
+		OpenQuestion(number=5,
+			question='Unleash instance vs internal feature flags for Tier-4 control',
+			blocks='§15.2', live_at='afya.registry.service:FeatureRegistry',
+			assumed="internal — the three-key gate; §15.2's stack row records the divergence"),
+		OpenQuestion(number=6,
+			question='Telco zero-rating agreements for CHAN-001', blocks='distribution',
+			live_at='afya.channels.cost:zero_rating_gaps',
+			assumed='unagreed — with no rules pulled the two zero-rating channels report unverified, '
+				'not free; the check exists so the claim cannot be made without the agreement'),
+		OpenQuestion(number=7,
+			question='Retention policy per data type needs ODPC sign-off (24-month cap assumed in code)',
+			blocks='privacy service', live_at='afya.privacy.service:RETENTION_CAP_DAYS',
+			assumed='730 days for consent-based records — the cap the row names, enforced against '
+				'every consent record whose basis is not a mandatory notification'),
+	)
+
+	def open_questions(self) -> list[OpenQuestion]:
+		"""Appendix D's seven rows, each with whether the place it bites resolves.
+
+		Nothing here is a verdict on the decision. The list answers "what is still open and where
+		does it land", which is the question a reader of the appendix is actually asking — and
+		`unresolved` is the finding, because a row naming a place that no longer exists is a
+		blocker someone will believe is tracked when the code it names is gone.
+		"""
+		return list(self.OPEN_QUESTIONS)
+
+	@staticmethod
+	def unresolved_questions() -> list[int]:
+		return [q.number for q in GovernanceService.OPEN_QUESTIONS
+		        if q.live_at is not None and not resolves(q.live_at)]
 
 	# --- §15.3 residency ---------------------------------------------------------------------
 

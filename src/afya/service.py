@@ -3218,6 +3218,23 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=f'not §15.4 metrics: {unknown}')
 		return governance.capacity_report(observed).model_dump(mode='json')
 
+	@app.get('/governance/open-questions')
+	async def governance_open_questions(_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Appendix D's seven decisions, each with the place it bites and the value the code carries
+		while it is open.
+
+		Infrastructure-scoped: it names the retention cap, the residency table and the activation
+		gate as undecided, which is a deployment fact rather than something a citizen endpoint
+		should be asked to assert. `unresolved` is the finding — a row naming a `module:attr` that
+		no longer resolves is a blocker someone will believe is tracked after the code it names is
+		gone. Nothing here is a verdict on the decision itself; the spec says these are the
+		owner's, and this says only where each one lands.
+		"""
+		return {
+			'questions': [q.model_dump(mode='json') for q in governance.open_questions()],
+			'unresolved': governance.unresolved_questions(),
+		}
+
 	@app.get('/governance/egress')
 	async def governance_egress(_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
 		"""Every configured outbound wire classified against §15.3, with its party and data class.

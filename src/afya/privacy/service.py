@@ -55,6 +55,14 @@ MANDATORY_NOTIFICATION_PURPOSES: frozenset[str] = frozenset({
 	'case_report', 'disease_notification', 'notification', 'idsr_report',
 })
 
+# Appendix D question 7's cap, named rather than left as a literal at the assert that applies it.
+# The spec states the number in one place only — the appendix row "Retention policy per data type
+# needs ODPC sign-off (24-month cap assumed in code)" — and until this constant existed the code
+# stated it in a different one, as a bare `730` with a message. Two statements of one number, one
+# of which says *why* it is that number: the cap is an assumption the sign-off has not confirmed,
+# which is a fact about the value and not a comment on it.
+RETENTION_CAP_DAYS: int = 730
+
 # §17.1, one row per instrument, with the Implementation cell split into its own items. The cell is
 # a semicolon list and each item is a separate claim about this repo, so they are separate rows: a
 # single boolean over "Consent registry; data minimisation by design; retention schedule; user data
@@ -254,7 +262,10 @@ class PrivacyService(LogMixin):
 		assert record.subject_ref, 'subject_ref required'
 		assert record.purpose, 'purpose required'
 		if not record.legal_basis is LegalBasis.legal_obligation:
-			assert record.retention_days <= 730, 'health data retention must be bounded (24 months cap)'
+			assert record.retention_days <= RETENTION_CAP_DAYS, (
+				f'health data retention must be bounded ({RETENTION_CAP_DAYS} days — Appendix D '
+				f'question 7\'s {RETENTION_CAP_DAYS // 30}-month cap, assumed pending ODPC sign-off)'
+			)
 		else:
 			# §17.2 lawfulness: the legal-obligation basis is for "mandatory disease notification
 			# only". Until this assert existed the basis was a label a caller chose, so the one door

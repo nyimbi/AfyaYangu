@@ -324,3 +324,162 @@ def test_the_canary_watches_a_phantom_module_fire() -> None:
 	finally:
 		governance_service.GovernanceService.ARCHITECTURE = original
 	assert GovernanceService().stack_report().unresolved_components == [], 'restore failed'
+
+
+# --- Appendix D: the open questions --------------------------------------------------------------
+
+def _appendix_d_rows() -> list[list[str]]:
+	"""Appendix D's table, read from the spec rather than restated, so a row reworded there fails
+	here instead of silently detaching the register from the text it claims to carry."""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	body = text.split('## Appendix D: Open Questions and Decisions Required', 1)[1].split('\n## ', 1)[0]
+	rows = []
+	for line in body.splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip() for c in line.strip('|').split('|')]
+		if cells[0] == '#':
+			continue
+		rows.append(cells)
+	return rows
+
+
+def test_the_open_questions_are_the_appendix_rows_in_its_own_words() -> None:
+	"""Appendix D's seven rows, verbatim. The block was cited in prose three times and carried as
+	data nowhere, so the list of decisions the spec says are *required* was itself a thing a reader
+	had to remember — and a row whose `Blocks` cell was paraphrased could name a section that does
+	not exist without anything noticing."""
+	from afya.governance.service import GovernanceService
+	rows = _appendix_d_rows()
+	assert len(rows) == 7, f'Appendix D lists seven open questions, found {len(rows)}'
+	assert [q.number for q in GovernanceService.OPEN_QUESTIONS] == [int(r[0]) for r in rows]
+	for row, question in zip(rows, GovernanceService.OPEN_QUESTIONS):
+		assert question.question == row[1], f'Q{row[0]} question: {question.question!r} != {row[1]!r}'
+		assert question.blocks == row[2], f'Q{row[0]} blocks: {question.blocks!r} != {row[2]!r}'
+
+
+def test_every_question_that_bites_names_a_place_that_resolves() -> None:
+	"""`live_at` is the checkable half of the row, and `unresolved` is the finding: a row naming a
+	`module:attr` that no longer resolves is a blocker someone will believe is tracked after the
+	code it names is gone. Question 1 is the one row with nothing in this tree to attach to — it is
+	about an entity, not a value — and a `live_at` invented for it would be the fabrication the
+	field exists to avoid."""
+	from afya.refs import resolves
+	from afya.governance.service import GovernanceService
+	assert GovernanceService().unresolved_questions() == []
+	assert GovernanceService.unresolved_questions() == []
+	without = [q.number for q in GovernanceService.OPEN_QUESTIONS if q.live_at is None]
+	assert without == [1], 'only the product-owner entity has no artefact in this tree'
+	for q in GovernanceService.OPEN_QUESTIONS:
+		if q.live_at is not None:
+			assert resolves(q.live_at), f'Q{q.number} names {q.live_at}, which does not resolve'
+
+
+def test_the_assumed_values_are_the_ones_the_code_actually_carries() -> None:
+	"""An open question is not a blank: a deployment is already running on an answer to five of the
+	seven, and each `assumed` names what that answer is. Each is checked against the code rather
+	than trusted, because a register of assumptions that drifted from the assumptions would be
+	worse than none — it would read as the inventory of what is undecided."""
+	from afya.channels.cost import zero_rating_gaps
+	from afya.governance.service import GovernanceService
+	from afya.governance.views import DataClass, Jurisdiction
+	from afya.info.service import HOTLINES
+	from afya.privacy.service import RETENTION_CAP_DAYS
+	from afya.registry.service import FeatureRegistry, Tier4Activation
+	by_number = {q.number: q for q in GovernanceService.OPEN_QUESTIONS}
+
+	def assumed(n: int) -> str:
+		"""The `assumed` text for one row, refusing None.
+
+		`assumed` is optional because one row genuinely has nothing in this tree to assume from —
+		question 1 is about which entity owns the product, and no value in the code answers it. Every
+		other row is already running on an answer, so a None there is a defect in the register
+		rather than a fact about the world.
+		"""
+		text = by_number[n].assumed
+		assert text is not None, f'Q{n} carries no assumption, and only Q1 legitimately has none'
+		return text
+
+	# Q2: the hotline codes are the spec's own example and neither row is verified.
+	assert [h.number for h in HOTLINES][0] == '719'
+	assert not any(h.verified for h in HOTLINES)
+	assert '719' in assumed(2) and 'unverified' in assumed(2)
+	# Q3: the gate records that the three keys were held, never by whom — which is the protocol
+	# the row asks for and the one thing `Tier4Activation` cannot state. The check names the
+	# *holder* fields a protocol would need, not the substring "by": `authorized_by_pheoc` contains
+	# it, so a `'by' in field` guard passes on the very field it is meant to exclude.
+	assert 'authorized_by_pheoc' in Tier4Activation.model_fields
+	holder_fields = [f for f in Tier4Activation.model_fields
+	                 if f in ('holder', 'holders', 'authorized_by', 'signed_off_by', 'flag_authority')]
+	assert not holder_fields, f'a key holder is recorded now ({holder_fields}), so Q3 has moved'
+	assert 'by whom' in assumed(3)
+	# Q4: the negative answer. Every AWS and Azure host is outside_africa, so §15.3's own example
+	# option is refused for the classes §15.3 protects, and no host is classified african_union.
+	from afya.governance.views import HOST_JURISDICTIONS
+	assert not [h for h, j in HOST_JURISDICTIONS if j is Jurisdiction.african_union], \
+		'an AU host rule exists now, so Q4\'s assumption has changed and this test must change'
+	svc = GovernanceService()
+	assert not svc.residency_decision('ministry_of_health', 's3.af-south-1.amazonaws.com',
+		DataClass.case_management).allowed, 'AWS Africa must be refused for case management'
+	assert 'african_union' in assumed(4)
+	# Q5: internal flags, and §15.2's own stack row records the divergence.
+	assert FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_review_id='r1',
+		flag_enabled=True)).tier4_active()
+	assert 'internal' in assumed(5)
+	# Q6: with no rules pulled the two zero-rating channels report unverified rather than free.
+	assert zero_rating_gaps(None) == [], 'no rules means unverified, not a gap and not a pass'
+	assert 'unagreed' in assumed(6)
+	# Q7: the cap the appendix names, and the constant that now carries its provenance.
+	assert RETENTION_CAP_DAYS == 730 and '24-month cap' in by_number[7].question
+	assert str(RETENTION_CAP_DAYS) in assumed(7)
+	# Exactly one row has nothing to assume from, and it is the one about an entity.
+	assert [q.number for q in GovernanceService.OPEN_QUESTIONS if q.assumed is None] == [1]
+
+
+def test_the_retention_cap_is_named_and_refuses_over_it() -> None:
+	"""Appendix D question 7 says the cap is "assumed in code". It was a bare `730` at the assert
+	that applied it — the same number the appendix states, in a second place, with no link between
+	them. `RETENTION_CAP_DAYS` is that number named once, so the appendix row can point at it.
+
+	The first cut of this test did not await the call, so the coroutine was never run, the assert
+	never fired and `DID NOT RAISE` was the result — the shape CLAUDE.md records as twenty minutes
+	lost to a fixture nobody awaited. A refusal test that cannot reach the refusal is not evidence
+	the refusal exists.
+	"""
+	import asyncio
+	import pytest as _pytest
+	from afya.privacy.service import RETENTION_CAP_DAYS, PrivacyService
+	from afya.privacy.views import ConsentRecord, LegalBasis
+
+	async def _over_the_cap() -> None:
+		svc = PrivacyService()
+		await svc.record_consent(ConsentRecord(subject_ref='U1', purpose='symptom_storage',
+			data_types=['symptom_logs'], retention_days=RETENTION_CAP_DAYS + 1,
+			legal_basis=LegalBasis.consent))
+
+	with _pytest.raises(AssertionError, match=str(RETENTION_CAP_DAYS)):
+		asyncio.run(_over_the_cap())
+
+	async def _at_the_cap() -> None:
+		svc = PrivacyService()
+		await svc.record_consent(ConsentRecord(subject_ref='U1', purpose='symptom_storage',
+			data_types=['symptom_logs'], retention_days=RETENTION_CAP_DAYS,
+			legal_basis=LegalBasis.consent))
+
+	asyncio.run(_at_the_cap())  # the cap itself is permitted; only over it is refused
+
+
+async def test_the_open_questions_route_is_infrastructure_scoped() -> None:
+	"""The report names the retention cap, the residency table and the activation gate as
+	undecided, which is a deployment fact rather than something a citizen endpoint should assert."""
+	from afya.governance.service import GovernanceService
+	services = build_services()
+	sysadmin = _sysadmin(services)
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(services)), base_url='http://t') as c:
+		assert (await c.get('/governance/open-questions')).status_code in (401, 403)
+		out = (await c.get('/governance/open-questions',
+			headers={'authorization': f'Bearer {sysadmin}'})).json()
+		assert len(out['questions']) == 7 and out['unresolved'] == []
+		assert [q['number'] for q in out['questions']] == [1, 2, 3, 4, 5, 6, 7]
+		assert out['questions'] == [q.model_dump(mode='json') for q in GovernanceService.OPEN_QUESTIONS]
