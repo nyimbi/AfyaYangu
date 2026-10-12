@@ -282,10 +282,6 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§COM-104': 2,
 		'§EMG-001': 4,
 		'§EMG-002': 1,
-		'§FND-001': 9,
-		'§FND-002': 4,
-		'§FND-003': 7,
-		'§FND-004': 1,
 		'§FND-006': 3,
 		'§INF-001': 3,
 		'§INF-002': 7,
@@ -326,9 +322,10 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§SEC-004': 1,
 		'§SEC-006': 2,
 		'§TRI-003': 4,
-		# §EMG-003, §FND-003, §FND-005, §TRI-001 and §TRI-002 are audited and carry nothing missing:
-		# every Content, Access clause, filter dimension and Output resolves to code, so the sections
-		# have no row here — absence from this dict is the strongest verdict the audit has.
+		# §EMG-003, §FND-001, §FND-002, §FND-003, §FND-004, §FND-005, §TRI-001 and §TRI-002 are
+		# audited and carry nothing missing: every Content, Access clause, filter dimension, test
+		# type and Output resolves to code, so the sections have no row here — absence from this
+		# dict is the strongest verdict the audit has.
 	}, per_feature
 
 

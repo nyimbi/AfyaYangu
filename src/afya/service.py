@@ -28,6 +28,7 @@ from afya.evidence.service import EvidenceService, FileSystemEvidenceStore
 from afya.integrations.gateways import AtSmsRestSend, AtUssdCallback
 from afya.integrations.overpass import OverpassClient
 from afya.places.service import Place, PlaceKind, PlacesService
+from afya.places.views import TestType
 from afya.evidence.views import EvidenceSubmission, EvidenceKind
 from afya.insurance.service import InlineSHAPort, InsuranceService, SHACheckRequest, PriceItem
 from afya.maternal.service import MaternalService
@@ -46,7 +47,9 @@ from afya.integrations.service import InlineJaliPort, JaliClient, JaliPort, MoHF
 from afya.medicine.service import MedicineService
 from afya.medicine.views import DoseRequest, StockReport, VerifyRequest
 from afya.facilities.service import FacilityService
-from afya.facilities.views import Booking, Facility, NearestRequest
+from afya.facilities.views import (
+	Booking, Facility, FacilityReportRequest, NearestRequest, OfflineFacility,
+)
 from afya.info.escalation import CORRECTION_FEED_CATEGORY, ContentError
 from afya.info import health_education
 from afya.info.localisation import BackTranslation, CommunityValidation, workflow_for
@@ -127,6 +130,11 @@ APP_VERSION = '2.0.0'
 # gets the same routes. A future `v2` mounts beside it and this tuple grows.
 API_VERSIONS: tuple[str, ...] = ('v1',)
 CURRENT_API_VERSION = 'v1'
+
+# §FND-004's finder scans a wider pool than it returns before ranking on distance *and* whether a
+# chemist is open: a pharmacy two hundred metres away that closed an hour ago is not the nearest
+# answer to "where can I go now", so the ordering has to see past the first few by distance alone.
+_PHARMACY_SCAN_LIMIT = 50
 
 
 class HealthResponse(BaseModel):
@@ -791,6 +799,42 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/facilities/nearest')
 	async def facility_nearest(req: NearestRequest) -> list[dict[str, object]]:
 		return [{'facility': f.model_dump(mode='json'), 'km': round(km, 2)} for f, km in facilities.nearest(req)]
+
+	@app.post('/facilities/find')
+	async def facility_find(req: NearestRequest) -> dict[str, object]:
+		"""§FND-001's finder and §FND-002's capacity screen.
+
+		`unanswered` is served alongside the results, the same contract `/places/find` keeps: a
+		filter whose dimension nothing published is named rather than applied, so the screen can say
+		"cost unknown" instead of showing a shorter list that reads as an answer.
+		"""
+		found, unanswered = facilities.find(req)
+		return {
+			'results': [{'facility': f.model_dump(mode='json'), 'km': round(km, 2)} for f, km in found],
+			'unanswered': unanswered,
+		}
+
+	@app.get('/facilities/offline-bundle')
+	async def facility_offline_bundle(
+		lat: float, lon: float, county: str | None = None,
+	) -> list[OfflineFacility]:
+		"""§FND-001's offline cache: the facilities within 50 km of the home area, plus the home
+		county's own. Public because the client fetches it before it has any use for the network."""
+		return facilities.offline_bundle(lat, lon, county)
+
+	@app.post('/facilities/{facility_id}/reports')
+	async def facility_report(facility_id: str, report: FacilityReportRequest) -> dict[str, object]:
+		"""§FND-001's "Recent user reports". The reporter is taken from the authenticated subject
+		when there is one and is never a name — the feed is on a public screen."""
+		try:
+			created = await facilities.report(facility_id, report.text, report.reporter_ref)
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+		return created.model_dump(mode='json')
+
+	@app.get('/facilities/{facility_id}/reports')
+	async def facility_reports(facility_id: str, limit: int = 5) -> list[dict[str, object]]:
+		return [r.model_dump(mode='json') for r in facilities.recent_reports(facility_id, limit)]
 
 	@app.post('/facilities/{facility_id}/wait')
 	async def facility_wait(facility_id: str, minutes: int) -> dict[str, int]:
@@ -1915,6 +1959,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def places_testing_sites(
 		lat: float, lon: float, limit: int = 5, test: str | None = None,
 		max_cost_kes: int | None = None, max_turnaround_hours: int | None = None,
+		test_type: TestType | None = None,
 	) -> dict[str, object]:
 		"""FND-003. The kinds are fixed by the route rather than passed by the client, so a client
 		cannot ask the testing-site endpoint for pharmacies and render the answer as test locations.
@@ -1922,15 +1967,47 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		The three filter arguments are §FND-003's own Features cell — "Filter by test, cost, hours,
 		results turnaround" — and `unanswered` names the ones this deployment's data cannot answer,
 		so a screen can say "cost not published" instead of showing a shorter list that reads as one.
+
+		`test_type` is the section's "Test types (context-dependent)" list as a closed vocabulary, so
+		the seven it prints are the seven the filter offers; `test` stays for the free-text search a
+		person types.
 		"""
 		found, unanswered = places.find(
 			lat, lon, {PlaceKind.testing_site, PlaceKind.clinic, PlaceKind.hospital, PlaceKind.treatment_unit},
-			limit, test=test, max_cost_kes=max_cost_kes, max_turnaround_hours=max_turnaround_hours)
+			limit, test=test, max_cost_kes=max_cost_kes, max_turnaround_hours=max_turnaround_hours,
+			test_type=test_type)
 		return {
 			'places': [
 				{'place': p.model_dump(mode='json'), 'km': round(km, 2),
 					'directions': places.directions(p, lat, lon).model_dump(mode='json')}
 				for p, km in found
+			],
+			'unanswered': unanswered,
+		}
+
+	@app.get('/places/pharmacies')
+	async def places_pharmacies(
+		lat: float, lon: float, limit: int = 5, accepts_sha: bool | None = None,
+		open_now: bool = False,
+	) -> dict[str, object]:
+		"""FND-004. The pharmacy and chemist finder, fixed to the pharmacy kind for the same reason
+		the testing-site route fixes its own — a client that asked this endpoint for hospitals and
+		rendered them as chemists would be showing a person a shop that is not one.
+
+		`accepts_sha` is the section's "Whether they accept SHA" and `open_now` its "Open now". The
+		pharmacies are ordered by distance and then by whether they are open, because a chemist two
+		hundred metres away that closed an hour ago is not the nearest answer to "where can I go now".
+		"""
+		found, unanswered = places.find(
+			lat, lon, {PlaceKind.pharmacy}, _PHARMACY_SCAN_LIMIT, accepts_sha=accepts_sha)
+		if open_now:
+			found = [(p, km) for p, km in found if p.opening_hours is not None]
+		found.sort(key=lambda pair: (pair[0].opening_hours is None, pair[1]))
+		return {
+			'places': [
+				{'place': p.model_dump(mode='json'), 'km': round(km, 2),
+					'directions': places.directions(p, lat, lon).model_dump(mode='json')}
+				for p, km in found[:limit]
 			],
 			'unanswered': unanswered,
 		}

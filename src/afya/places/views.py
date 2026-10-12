@@ -21,6 +21,28 @@ class PlaceKind(str, Enum):
 	water_point = 'water_point'
 
 
+class TestType(str, Enum):
+	"""§FND-003's seven "Test types (context-dependent)", closed.
+
+	The section prints seven and `TestOffering.name` was free text, so the filter matched a
+	substring and the seven the section names had no vocabulary behind them: a deployment that wrote
+	"RDT" or "malaria rapid test" was offering a test the finder could not recognise, and the
+	screen's filter chips could not be generated from the spec at all. A closed set makes the seven
+	the section prints the seven the filter offers.
+
+	`general_lab` is the seventh and is deliberately broad — the section's own wording is "General
+	laboratory panels", which is what a facility offers when it does not specialise.
+	"""
+
+	malaria_rdt_microscopy = 'malaria_rdt_microscopy'
+	typhoid = 'typhoid'
+	hiv = 'hiv'
+	tb = 'tb'
+	covid19 = 'covid19'
+	ebola = 'ebola'
+	general_lab = 'general_lab'
+
+
 class TestOffering(BaseModel):
 	"""One test a facility does, and the three things §FND-003 asks a person to filter on.
 
@@ -34,6 +56,9 @@ class TestOffering(BaseModel):
 	`EmergencyCard.organ_donor` is tri-state: "this test is free" and "nobody has told us what it
 	costs" are different answers, and a `0` default answers the second as the first on the screen
 	someone uses to decide whether they can afford to get tested.
+
+	`test_type` is §FND-003's own vocabulary and `name` stays free text for what the facility calls
+	it: the type is what the filter matches and the name is what the screen shows.
 	"""
 
 	model_config = MODEL_CONFIG
@@ -41,6 +66,7 @@ class TestOffering(BaseModel):
 	# the import is a PytestCollectionWarning on every run of the suite that touches `places`.
 	__test__ = False
 	name: str = Field(min_length=1)
+	test_type: TestType | None = None
 	cost_kes: int | None = Field(default=None, ge=0, le=1_000_000)
 	turnaround_hours: int | None = Field(default=None, ge=0, le=8760)
 
@@ -80,6 +106,10 @@ class Place(BaseModel):
 	opening_hours: str | None = None
 	phone: str | None = None
 	website: str | None = None
+	# §FND-004's "Whether they accept SHA". Tri-state, for the reason §FND-001's identical field is:
+	# "this chemist takes my insurance" and "nobody has filed it" are different answers, and a
+	# defaulted `False` would tell a person their cover is refused when the row is simply empty.
+	accepts_sha: bool | None = None
 	# §FND-003's and §FND-005's filter dimensions. Empty means "nothing published", which is what a
 	# freshly imported OSM row is — the finder then reports no filter rather than pretending the
 	# facility does no tests, and a deployment fills these from the county's own service list.
@@ -119,14 +149,19 @@ class PlacesService:
 		self, lat: float, lon: float, kinds: set[PlaceKind] | None = None, limit: int = 5,
 		test: str | None = None, vaccine: str | None = None, max_cost_kes: int | None = None,
 		age_months: int | None = None, walk_in_only: bool = False, max_turnaround_hours: int | None = None,
+		test_type: TestType | None = None, accepts_sha: bool | None = None,
 	) -> tuple[list[tuple[Place, float]], list[str]]:
 		"""§FND-003's and §FND-005's finders, with their own filter dimensions applied.
 
 		Both sections' Features cells are filter lists, and a filter that is not applied is a screen
 		that shows every facility and calls the list filtered. Each argument here is one of those
-		dimensions; `test`/`max_turnaround_hours` are §FND-003's and `vaccine`/`age_months`/
-		`walk_in_only` are §FND-005's, and they compose because both are the same search over the same
-		pool.
+		dimensions; `test`/`test_type`/`max_turnaround_hours` are §FND-003's, `vaccine`/`age_months`/
+		`walk_in_only` are §FND-005's, and `accepts_sha` is §FND-004's — they compose because all
+		three are the same search over the same pool.
+
+		`test` matches the free-text `name` and `test_type` matches the closed vocabulary the section
+		prints; both exist because a person searching "RDT" and a filter chip generated from the spec
+		are different queries over the same offering.
 
 		The second return value is the finding rather than a nicety: `unanswered` names the dimensions
 		the *data* cannot answer — a facility with no `tests` published is not one that does no tests,
@@ -156,6 +191,19 @@ class PlacesService:
 				wanted = test.strip().lower()
 				found = [(p, km) for p, km in found
 					if any(wanted in t.name.lower() for t in p.tests)]
+		if test_type is not None:
+			if not any(t.test_type is not None for p, _ in found for t in p.tests):
+				unanswered.append('test type')
+			else:
+				found = [(p, km) for p, km in found
+					if any(t.test_type is test_type for t in p.tests)]
+		if accepts_sha is not None:
+			if not any(p.accepts_sha is not None for p, _ in found):
+				unanswered.append('SHA acceptance')
+			else:
+				# An unpublished row stays: "nobody filed it" is not "they refuse your cover".
+				found = [(p, km) for p, km in found
+					if p.accepts_sha is None or p.accepts_sha is accepts_sha]
 		if max_turnaround_hours is not None:
 			if not any(t.turnaround_hours is not None for p, _ in found for t in p.tests):
 				unanswered.append('results turnaround')

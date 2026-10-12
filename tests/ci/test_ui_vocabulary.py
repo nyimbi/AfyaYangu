@@ -553,6 +553,8 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/ai/risk-score'),       # derived on-device score; the caller supplies the inputs
 	('POST', '/ai/fairness-audit'),
 	('POST', '/facilities/nearest'),  # a read expressed as a POST: a coordinate in, a list out
+	('POST', '/facilities/find'),     # the same read with §FND-001's four filters in the body
+	('POST', '/facilities/{facility_id}/reports'),  # a crowd-sourced report; `reporter_ref` is the claim
 	('POST', '/facilities/{facility_id}/booking'),
 	('POST', '/facilities/{facility_id}/correction'),
 	('POST', '/facilities/{facility_id}/wait'),

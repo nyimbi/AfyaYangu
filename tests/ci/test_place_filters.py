@@ -149,3 +149,78 @@ async def test_the_routes_serve_the_filters_and_the_unanswered_dimensions() -> N
 		assert body['places'] == [], 'the lab costs 300, over the ceiling'
 		body = (await c.get('/places/vaccination-points?lat=-1.29&lon=36.82&walk_in_only=true')).json()
 		assert [r['place']['name'] for r in body['places']] == ['Kayole Health Centre']
+
+
+# --- §FND-003's test types and §FND-004's SHA acceptance --------------------------------------
+
+async def test_the_seven_test_types_are_a_closed_vocabulary() -> None:
+	"""§FND-003 prints seven "Test types (context-dependent)" and `TestOffering.name` was free text,
+	so the seven had no vocabulary behind them: a deployment that wrote "RDT" was offering a test
+	the filter could not recognise, and the screen's filter chips could not be generated from the
+	spec. The set is closed for the same reason `RED_FLAGS` is — an open string is a value nothing
+	filters on and nothing can render."""
+	from afya.places.views import TestType
+	assert len(TestType) == 7, 'the section prints seven'
+	assert {t.value for t in TestType} == {
+		'malaria_rdt_microscopy', 'typhoid', 'hiv', 'tb', 'covid19', 'ebola', 'general_lab'}
+	with pytest.raises(ValidationError):
+		TestOffering(name='Malaria', test_type='malaria')  # type: ignore[arg-type]
+
+
+async def test_the_test_type_filter_matches_the_closed_set_not_the_name() -> None:
+	"""The section's filter is "Filter by test", and a person typing "RDT" and a chip generated from
+	the spec are two different queries. `test_type` answers the second; `test` stays for the first."""
+	from afya.places.views import TestType
+	svc = _service()
+	await _seed(svc, [
+		Place(osm_id='N1', kind=PlaceKind.testing_site, name='Kayole Lab', lat=-1.28, lon=36.90,
+			tests=[TestOffering(name='Malaria rapid test', test_type=TestType.malaria_rdt_microscopy)]),
+		Place(osm_id='N2', kind=PlaceKind.testing_site, name='Buruburu Lab', lat=-1.29, lon=36.88,
+			tests=[TestOffering(name='HIV screening', test_type=TestType.hiv)]),
+	])
+	found, unanswered = svc.find(*NAIROBI, {PlaceKind.testing_site}, test_type=TestType.hiv)
+	assert [p.osm_id for p, _ in found] == ['N2'], 'the free-text name must not decide this'
+	assert unanswered == []
+	# The free-text search still works over the name, which is what a person types.
+	found, _ = svc.find(*NAIROBI, {PlaceKind.testing_site}, test='rapid')
+	assert [p.osm_id for p, _ in found] == ['N1']
+
+
+async def test_a_test_type_nothing_published_is_reported_not_filtered() -> None:
+	"""The tri-state contract, extended to the new dimension: a facility whose `tests` carry no
+	`test_type` has not said it does no HIV tests, so the filter reports the dimension rather than
+	dropping the facility from a list that then reads as an answer."""
+	svc = _service()
+	await _seed(svc, [Place(osm_id='N1', kind=PlaceKind.testing_site, name='Lab', lat=-1.28, lon=36.90,
+		tests=[TestOffering(name='Something', cost_kes=100)])])
+	from afya.places.views import TestType
+	found, unanswered = svc.find(*NAIROBI, {PlaceKind.testing_site}, test_type=TestType.hiv)
+	assert 'test type' in unanswered
+	assert len(found) == 1, 'the facility is not dropped — nobody said it does not test for HIV'
+
+
+async def test_sha_acceptance_is_tri_state_and_an_unfiled_row_stays() -> None:
+	"""§FND-004's "Whether they accept SHA" and §FND-001's identical field. A defaulted `False`
+	would tell a person their insurance is refused when the county simply has not filed the row, so
+	the filter keeps the unpublished facility and the screen shows it as unconfirmed."""
+	svc = _service()
+	await _seed(svc, [
+		Place(osm_id='N1', kind=PlaceKind.pharmacy, name='Good Chemist', lat=-1.28, lon=36.90,
+			accepts_sha=True),
+		Place(osm_id='N2', kind=PlaceKind.pharmacy, name='Cash Only', lat=-1.285, lon=36.905,
+			accepts_sha=False),
+		Place(osm_id='N3', kind=PlaceKind.pharmacy, name='Unfiled', lat=-1.286, lon=36.906),
+	])
+	found, unanswered = svc.find(*NAIROBI, {PlaceKind.pharmacy}, accepts_sha=True)
+	ids = [p.osm_id for p, _ in found]
+	assert 'N1' in ids and 'N2' not in ids, 'a refusal is an answer and excludes'
+	assert 'N3' in ids, 'nobody filed it, which is not a refusal'
+	assert unanswered == []
+
+
+async def test_a_sha_filter_nothing_published_is_reported() -> None:
+	svc = _service()
+	await _seed(svc, [Place(osm_id='N1', kind=PlaceKind.pharmacy, name='Chemist', lat=-1.28, lon=36.90)])
+	found, unanswered = svc.find(*NAIROBI, {PlaceKind.pharmacy}, accepts_sha=True)
+	assert 'SHA acceptance' in unanswered
+	assert len(found) == 1
