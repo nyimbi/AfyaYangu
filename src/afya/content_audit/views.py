@@ -5,7 +5,7 @@ MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_ali
 
 
 class ContentBullet(BaseModel):
-	"""One labelled bullet under a §8–§12 feature section, and what carries it.
+	"""One labelled bullet under a spec feature section, and what carries it.
 
 	`kind` is tri-state because the bullets are not all the same sort of claim. `carried` names code;
 	`deferred` is a bullet the spec itself puts out of scope here (a `(see X)` cross-reference, or a

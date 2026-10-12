@@ -8,7 +8,19 @@ from pathlib import Path
 
 SPEC = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
 
-LABELS = ('Features', 'Contents', 'Additional inputs', 'Outputs', 'Signals monitored')
+def _every_spec_label() -> set[str]:
+	"""Every bold label the spec prints on a `#### FID:` section.
+
+	The audit's label vocabulary is a partition of this set, and that is the point of computing it
+	from the spec rather than from the module: the first version of the module knew six labels and
+	reported total coverage, while the spec prints seventy-four and §FND-001's ten-item content list
+	sits under `**Data displayed per facility:**`. An instrument that cannot see a label cannot
+	measure it, and the number it reports is then a fact about the instrument.
+	"""
+	labels: set[str] = set()
+	for fid in _spec_feature_ids():
+		labels |= set(re.findall(r'^\*\*([^*]+):\*\*', _spec_section(fid), re.M))
+	return labels
 
 
 def _spec_section(feature_id: str) -> str:
@@ -35,6 +47,15 @@ def _spec_bullets(feature_id: str, label: str) -> list[str]:
 	bullets = [line[2:].strip() for line in segment.splitlines() if line.startswith('- ')]
 	if bullets:
 		return bullets
+	# The third shape: an ordered list. §LOC-002's How it works is a six-step protocol written
+	# `1.` … `6.`, and the two shapes above read it as one prose cell — which is how a six-step
+	# exposure-notification design became a single item, and how step 5, where a user's app checks
+	# the uploaded tokens and notifies them, went unmeasured. A numbered protocol is as much a
+	# content list as a bulleted one.
+	numbered = [re.sub(r'^\s*\d+\.\s*', '', line).strip()
+		for line in segment.splitlines() if re.match(r'^\s*\d+\.\s', line)]
+	if numbered:
+		return numbered
 	prose = segment.strip().lstrip('- ').strip()
 	assert prose, f'{feature_id} has a {label} label with nothing after it'
 	return [item.strip() for item in prose.rstrip('.').split(',')]
@@ -46,10 +67,83 @@ def _spec_feature_ids() -> list[str]:
 
 
 def _carries_a_label(feature_id: str) -> bool:
-	"""Whether the section prints any of the five labelled content lists — the set the audit's two
+	"""Whether the section prints any of the audited content lists — the set the audit's two
 	coverage lists must partition."""
+	from afya.content_audit.service import _LABELS
 	body = _spec_section(feature_id)
-	return any(f'**{label}:**' in body for label in LABELS)
+	return any(f'**{label}:**' in body for label in _LABELS)
+
+
+# --- the instrument's own vocabulary ------------------------------------------------------------
+
+def test_every_spec_label_is_either_audited_or_declared_out_of_scope() -> None:
+	"""The label partition, asserted against the spec.
+
+	This is the test the module was missing when it called its coverage total. It knew six labels —
+	`Features`, `Contents`, `Additional inputs`, `Outputs`, `Signals monitored` and `Access` — and
+	§8.2 FND-001's ten-item content list is under `**Data displayed per facility:**`, §8.3 FND-003's
+	seven under `**Test types (context-dependent):**`, §6.2 INF-001's seven under `**Displays:**`.
+	None of those sections could be measured, and three of them were reported as having nothing
+	missing.
+
+	A label in neither set is a section's content nobody can find out is unread, which is the same
+	failure the unaudited list exists to prevent — one level up, about the instrument rather than
+	the spec.
+	"""
+	from afya.content_audit.service import _CLAIM_LABELS, _LABELS
+	declared = set(_LABELS) | set(_CLAIM_LABELS)
+	assert len(_LABELS) + len(_CLAIM_LABELS) == len(declared), 'a label is in both sets'
+	unknown = _every_spec_label() - declared
+	assert unknown == set(), f'the spec prints labels the audit does not know: {sorted(unknown)}'
+	stale = declared - _every_spec_label()
+	assert stale == set(), f'declared labels the spec no longer prints: {sorted(stale)}'
+	assert len(declared) == 74, 'the spec prints seventy-four labels'
+
+
+def test_a_label_declared_out_of_scope_has_no_list_under_it() -> None:
+	"""The partition is on the *shape of the body*, and this is the half that was wrong.
+
+	`_CLAIM_LABELS` is for labels that state something about a feature rather than listing what it
+	does. Eight of them were lists: `Application` (§SEC-002), `Behaviour` (§EMG-002, §LOC-004),
+	`Conditions supported` (§MON-003), `Deployment points` (§LOC-004), `How it works` (§LOC-003),
+	`Privacy properties` (§LOC-002), `Standards` (§SEC-003), `Technical approach` (§ACC-003,
+	§ACC-004). Those eight were the whole of the eight sections the audit called contentless — the
+	same failure as the six-label version, one level down: not "the instrument cannot see the label"
+	but "the instrument filed the label where it would not look".
+
+	A label whose body is a bullet or numbered list is a content list, wherever it is declared.
+	"""
+	from afya.content_audit.service import _CLAIM_LABELS, _LABELS
+	for label in _CLAIM_LABELS:
+		for fid in _spec_feature_ids():
+			body = _spec_section(fid)
+			if f'**{label}:**' not in body:
+				continue
+			segment = re.split(r'\n\*\*|\n####|\n###', body.split(f'**{label}:**', 1)[1])[0]
+			listy = [line for line in segment.splitlines()
+				if line.startswith('- ') or re.match(r'^\s*\d+\.\s', line)]
+			assert not listy, f'§{fid} prints a list under {label!r}, which is declared out of scope'
+	assert 'Application' not in _CLAIM_LABELS and 'Application' in _LABELS
+
+
+def test_every_content_label_a_section_prints_has_rows_under_it() -> None:
+	"""The gate that would have caught §FND-001, and the one the first version of this module
+	needed. The audit was organised *by section*: a section was in `FEATURE_CONTENT` or it was not,
+	and once it was in, nobody checked that every list it prints had been read. §FND-001 was in the
+	table and its `**Data displayed per facility:**` — ten items — had no row at all.
+
+	So a section is not the unit of coverage. The unit is the (section, label) pair, and this
+	asserts every pair the spec prints has at least one row. Without it, adding a list to a section
+	already being audited is silent, which is the exact shape of the miss that started this.
+	"""
+	from afya.content_audit.service import FEATURE_CONTENT, _LABELS
+	covered = {(f, label) for f, label, _, _, _, _ in FEATURE_CONTENT}
+	printed = {(fid, label) for fid in _spec_feature_ids() for label in _LABELS
+		if f'**{label}:**' in _spec_section(fid)}
+	assert printed - covered == set(), \
+		f'content lists the spec prints with no rows under them: {sorted(printed - covered)}'
+	assert covered - printed == set(), \
+		f'rows under a label the section does not print: {sorted(covered - printed)}'
 
 
 # --- the audit reads the section it says it read ------------------------------------------------
@@ -95,7 +189,26 @@ def test_the_audited_sections_are_the_ones_the_survey_found_uncited() -> None:
 	assert {'COM-101', 'COM-102', 'COM-103', 'COM-104', 'LOC-005'} <= audited, 'the §12 sections'
 	assert {'AI-001', 'AI-003', 'ACC-001', 'ACC-002', 'SEC-001', 'SEC-004',
 		'SEC-006'} <= audited, 'the §12.4–§12.7 sections'
-	assert len(audited) == 47, 'every labelled section in the spec is audited exactly once'
+	# The eighth tranche was not a tranche anyone chose. Widening the label vocabulary moved eight
+	# labels from the claim side to the content side — `Application`, `Behaviour`, `Conditions
+	# supported`, `Deployment points`, `How it works`, `Privacy properties`, `Standards`, `Technical
+	# approach` — and those eight were the whole of the eight sections this table called
+	# contentless. They are named here as one group because they were one bug: a label filed where
+	# the instrument would not look.
+	assert {'EMG-002', 'LOC-002', 'LOC-003', 'LOC-004', 'ACC-003', 'ACC-004',
+		'SEC-002', 'SEC-003'} <= audited, 'the sections whose labels were filed as claims'
+	# The ninth tranche is the one the *pair* gate found, and it is the first tranche a count could
+	# not have produced. The eight above were found by asking what the instrument could not see; this
+	# one was found by asking what the instrument had read but not *finished* — 44 items sitting
+	# under labels inside sections already in the table. Fixing that exposed the last fourteen
+	# sections, whose content lists hang off a label that names an artefact (a `Displays`, an
+	# `Entry questions`, a `Format`, a `Topics`, an `Options`, a `Targets`, a `Content`, a `User
+	# rights`) rather than a feature. The first six labels the module ever knew were all
+	# feature-shaped, which is why these read as sections with nothing to audit.
+	assert {'INF-001', 'INF-002', 'INF-003', 'LOC-001', 'ALT-003', 'REC-002', 'COM-005',
+		'INF-008', 'INF-009', 'INF-010', 'AI-002', 'ALT-004', 'ACC-005', 'SEC-005'} <= audited, \
+		'the sections whose content hangs off an artefact label'
+	assert len(audited) == 69, 'every section in the spec is audited exactly once'
 
 
 # --- the three verdicts, kept apart -------------------------------------------------------------
@@ -133,9 +246,14 @@ def test_the_report_states_how_much_of_the_spec_it_read() -> None:
 	assert audited | set(report.unaudited_features) == labelled, \
 		'every labelled section is either audited or named as unaudited'
 	assert not audited & set(report.unaudited_features)
-	assert report.audited_features == len(audited) == 47
+	assert report.audited_features == len(audited) == 69
 	assert report.unaudited_features == list(UNAUDITED_FEATURES) == []
-	assert len(labelled) == 47, 'the spec prints 47 sections with a labelled content list' 
+	# 69 of 69: every `#### FID:` section in the spec prints at least one content list under a
+	# label. There is no unlabelled section left to explain away, which is the version of this
+	# sentence a reader can check — the earlier one said 47 of 69 and spent a paragraph accounting
+	# for the other 22, and eight of those 22 were the miscategorised labels.
+	assert len(labelled) == 69, 'every section in the spec prints a labelled content list'
+	assert len(_spec_feature_ids()) == 69, 'the spec prints 69 feature sections' 
 
 
 # --- the findings -------------------------------------------------------------------------------
@@ -150,47 +268,64 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 	for m in missing:
 		per_feature[m.split(':')[0]] = per_feature.get(m.split(':')[0], 0) + 1
 	assert per_feature == {
-		'§FND-001': 3,
-		'§FND-002': 4,
-		'§FND-004': 1,
-		'§MED-001': 4,
-		'§MED-002': 2,
-		'§MED-003': 4,
-		'§EMG-001': 4,
-		'§REC-001': 6,
-		'§MED-004': 4,
-		'§FND-006': 3,
-		'§INF-007': 4,
-		'§TRI-003': 4,
-		'§INF-004': 4,
-		'§INF-005': 1,
-		'§MON-001': 4,
-		'§MON-002': 9,
-		'§MON-003': 3,
-		'§MON-004': 2,
-		'§INF-006': 4,
-		'§REC-003': 2,
-		'§REC-004': 4,
-		'§MON-005': 3,
-		'§MON-006': 3,
-		'§MON-007': 2,
-		'§MON-008': 2,
-		'§REC-005': 5,
-		'§REC-006': 2,
+		'§ACC-001': 2,
+		'§ACC-002': 3,
+		'§ACC-003': 1,
+		'§ACC-004': 1,
+		'§ACC-005': 1,
+		'§AI-001': 4,
+		'§AI-003': 6,
 		'§ALT-002': 1,
-		'§MON-009': 5,
 		'§COM-101': 2,
 		'§COM-102': 4,
 		'§COM-103': 1,
 		'§COM-104': 2,
+		'§EMG-001': 4,
+		'§EMG-002': 1,
+		'§FND-001': 9,
+		'§FND-002': 4,
+		'§FND-003': 7,
+		'§FND-004': 1,
+		'§FND-006': 3,
+		'§INF-001': 3,
+		'§INF-002': 7,
+		'§INF-003': 13,
+		'§INF-004': 5,
+		'§INF-005': 1,
+		'§INF-006': 4,
+		'§INF-007': 4,
+		'§INF-008': 11,
+		'§INF-009': 10,
+		'§INF-010': 3,
+		'§LOC-001': 1,
+		'§LOC-002': 1,
+		'§LOC-004': 1,
 		'§LOC-005': 3,
-		'§AI-001': 2,
-		'§AI-003': 6,
-		'§ACC-001': 2,
-		'§ACC-002': 3,
+		'§MED-001': 4,
+		'§MED-002': 2,
+		'§MED-003': 4,
+		'§MED-004': 4,
+		'§MON-001': 4,
+		'§MON-002': 9,
+		'§MON-003': 6,
+		'§MON-004': 2,
+		'§MON-005': 3,
+		'§MON-006': 3,
+		'§MON-007': 2,
+		'§MON-008': 2,
+		'§MON-009': 5,
+		'§REC-001': 6,
+		'§REC-002': 7,
+		'§REC-003': 2,
+		'§REC-004': 4,
+		'§REC-005': 5,
+		'§REC-006': 2,
 		'§SEC-001': 2,
+		'§SEC-002': 1,
+		'§SEC-003': 3,
 		'§SEC-004': 1,
 		'§SEC-006': 2,
+		'§TRI-003': 4,
 		# §EMG-003, §FND-003, §FND-005, §TRI-001 and §TRI-002 are audited and carry nothing missing:
 		# every Content, Access clause, filter dimension and Output resolves to code, so the sections
 		# have no row here — absence from this dict is the strongest verdict the audit has.
@@ -218,10 +353,12 @@ def test_tri_003_names_four_exposures_the_input_cannot_distinguish() -> None:
 
 
 def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world() -> None:
-	"""Ten bullets are deferred and they are two kinds, neither a gap. Eight are device actions — a
-	maps app, a dialler, a barcode reader, a camera, and a call-log and location permission — which
-	the coverage gate's `ON_DEVICE` set already lists as client-side by design. The other two are
-	conditions on the world rather than on this tree: TRI-003's vaccination input, written "if a
+	"""Sixteen bullets are deferred and they are two kinds, neither a gap. Fourteen are device
+	actions — a maps app, a dialler, a barcode reader, a camera, a call-log and location permission,
+	the SOS button and its auto-dial, the accelerometer stream and its "Are you OK?" prompt, a QR or
+	NFC scan, the always-on microphone loop, the handset's own encrypted store and its OS keystore —
+	which the coverage gate's `ON_DEVICE` set already lists as client-side by design. The other two
+	are conditions on the world rather than on this tree: TRI-003's vaccination input, written "if a
 	vaccine is available and deployed", and ALT-002's check-in prompt, written "during a declared
 	emergency in the user's area". Kept out of `missing` because reporting them as gaps would put a
 	fact about vaccine deployment or about whether an outbreak has been declared in a defect list.
@@ -233,7 +370,7 @@ def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world()
 	"""
 	from afya.content_audit.service import FEATURE_CONTENT
 	deferred = [(f, b, n) for f, _, b, k, _, n in FEATURE_CONTENT if k == 'deferred']
-	assert len(deferred) == 10, deferred
+	assert len(deferred) == 16, deferred
 	world = {(f, b) for f, b, n in deferred if n is not None and 'fact about the world' in n}
 	assert world == {
 		('TRI-003', 'Vaccination status (if a vaccine is available and deployed)'),
