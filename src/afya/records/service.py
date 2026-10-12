@@ -162,15 +162,34 @@ class RecordsService(LogMixin):
 		self._members[member.member_ref] = member
 		return member
 
+	def member_refs(self) -> set[str]:
+		"""Every member this wallet holds, as a set of refs.
+
+		An accessor rather than a reader of `_members`, because the child tracker asks this question
+		to decide whether a dose it was handed has a wallet to go into, and a second module reaching
+		into the store would be a second place that knows its shape.
+		"""
+		return set(self._members)
+
 	def immunisation_gaps(self, member_ref: str, today: date | None = None) -> list[str]:
+		"""The doses this child is behind on, measured in *days* since birth rather than in years.
+
+		The earlier version multiplied whole years by twelve, so every child under one year old had
+		age 0 and no dose was ever due: the six-week, ten-week and fourteen-week sets — the three
+		visits that carry almost the whole infant schedule — appeared for the first time on the
+		child's first birthday, by which point they were a year late. A gap list that is silent for
+		the exact period it exists to cover is worse than none, because the parent reads it as
+		"nothing due".
+		"""
 		assert member_ref in self._members, 'unknown member'
 		given = {(r.vaccine, r.dose_no) for r in self._imm if r.member_ref == member_ref}
-		age = age_years(self._members[member_ref].dob_iso, today or date.today()) * 12
+		born = date(*(int(p) for p in self._members[member_ref].dob_iso.split('-')[:3]))
+		age_days = ((today or date.today()) - born).days
 		return [
 			f'{vac} dose {dose}'
 			for vac, doses in EPI_SCHEDULE.items()
-			for dose in doses
-			if dose <= age and (vac, dose) not in given
+			for dose, due_weeks in doses
+			if due_weeks * 7 <= age_days and (vac, dose) not in given
 		]
 
 	def owns(self, subject_ref: str, member_ref: str, today: date | None = None) -> bool:

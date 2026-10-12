@@ -120,7 +120,7 @@ from afya.location.views import (
 )
 from afya.monitoring.service import MonitoringService
 from afya.monitoring.views import (
-	AdherenceEvent, ConditionProfile, FoodSafetyAlert, HouseholdMemberRequest,
+	AdherenceEvent, CampaignNotice, ConditionProfile, FoodSafetyAlert, HouseholdMemberRequest,
 	LocationConsentDecision, MedSchedule, MonitoringDay, PeakFlowReading, WeightReading,
 )
 from afya.realtime.service import RealtimeService
@@ -253,6 +253,9 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	channels_svc = ChannelService(sms_port, telco_rules, triage_svc, identity_svc, privacy_svc)
 	emergency_svc = EmergencyService(
 		Inline719Port(), channels_svc, FacilityAmbulancePort(facilities_svc))
+	# §MON-001's tracker reads and writes the wallet's dose log, so the wallet is built first and
+	# handed to it — the same shape as §EMG-001's ambulance leg wrapping §FND-001's registry.
+	records_svc = RecordsService()
 
 	return {
 		'registry': registry,
@@ -275,7 +278,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'channels': channels_svc,
 		'emergency': emergency_svc,
 		'info': InfoService(),
-		'records': RecordsService(),
+		'records': records_svc,
 		'women': WomenService(),
 		'maternal': MaternalService(),
 		'chronic': ChronicService(),
@@ -286,7 +289,10 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'places': PlacesService(),
 		'evidence': EvidenceService(registry, FileSystemEvidenceStore('var/evidence')),
 		'sync': SyncService(store),
-		'monitoring': MonitoringService(),
+		# §MON-001's child tracker is a view over the wallet's doses, not a second store: a dose
+		# recorded on the tracker screen has to reach the record that outlives the paper card, or the
+		# certificate and the gap list describe a child the parent has been vaccinating.
+		'monitoring': MonitoringService(records_svc),
 		'identity': identity_svc,
 		'community': CommunityService(identity_svc),
 		'alerting': AlertingService(),
@@ -2805,14 +2811,48 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-	@app.post('/monitoring/child/{member_ref}/dose')
-	async def monitoring_dose(member_ref: str, vaccine: str, dose_no: int, given_iso: str, _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> dict[str, bool]:
+	@app.post('/monitoring/child/dose')
+	async def monitoring_dose(rec: ImmunisationRecord, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, object]:
+		"""§MON-001's "Record doses given (with photo of card)", into the wallet's dose log.
+
+		The body carries the member rather than the path, because the record is the wallet's and it
+		already names its member; the guard binds it the same way every other wallet write does.
+		"""
 		try:
-			records.assert_owns(_subject, member_ref)
-			await monitoring.record_dose(member_ref, vaccine, dose_no, given_iso)
+			records.assert_owns(_subject, rec.member_ref)
+			out = await monitoring.record_dose(rec)
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
-		return {'ok': True}
+		return out.model_dump(mode='json')
+
+	@app.get('/monitoring/child/{member_ref}/alerts')
+	async def monitoring_alerts(member_ref: str, today_iso: str = '2026-10-10', _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> list[dict[str, object]]:
+		"""§MON-001's "Missed-dose alerts", as data: the device schedules them (§ACC-004)."""
+		try:
+			records.assert_owns(_subject, member_ref)
+			return [a.model_dump(mode='json') for a in monitoring.missed_dose_alerts(member_ref, today_iso)]
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.post('/monitoring/campaign')
+	async def monitoring_campaign(notice: CampaignNotice, _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		"""§MON-001's campaign notification — issued by an authority, published into the feed.
+
+		`require_self(names_subject=False)` because the notice names counties and an age band and no
+		subject: the caller is the issuing officer, and what is being written is a public notice
+		rather than anything about them. Whether this role may issue one is §17.4's question and is
+		enforced by the role check `require_self` already applies.
+		"""
+		try:
+			out = await monitoring.publish_campaign(notice, alerting)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return out.model_dump(mode='json')
+
+	@app.get('/monitoring/campaigns')
+	async def monitoring_campaigns(county: str, on_iso: str = '2026-10-10') -> list[dict[str, object]]:
+		"""The campaigns running in a county on a day — a public question with a public answer."""
+		return [c.model_dump(mode='json') for c in monitoring.campaigns(county, on_iso)]
 
 	@app.post('/monitoring/medication')
 	async def monitoring_medication(sched: MedSchedule, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, str]:

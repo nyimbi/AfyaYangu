@@ -8,6 +8,7 @@ from afya.monitoring.service import MonitoringService
 from afya.monitoring.views import (
 	AdherenceAction, AdherenceEvent, ConditionProfile, MedSchedule, MonitoringDay, PeakFlowReading,
 )
+from afya.records.views import ImmunisationRecord
 
 
 def _statuses(rows: list) -> dict[tuple[str, int], str]:
@@ -39,7 +40,8 @@ async def test_schedule_marks_overdue_after_grace_window() -> None:
 async def test_schedule_marks_given_and_ignores_age() -> None:
 	svc = MonitoringService()
 	await svc.register_child('c1', '2026-01-01')
-	await svc.record_dose('c1', 'BCG', 1, '2026-01-02')
+	await svc.record_dose(ImmunisationRecord(member_ref='c1', vaccine='BCG', dose_no=1,
+	                                         given_iso='2026-01-02'))
 	rows = svc.schedule('c1', '2026-03-05')
 	assert _statuses(rows)[('BCG', 1)] == 'given'
 
@@ -74,7 +76,8 @@ async def test_record_dose_refuses_unknown_vaccine() -> None:
 	svc = MonitoringService()
 	await svc.register_child('c1', '2026-01-01')
 	with pytest.raises(AssertionError):
-		await svc.record_dose('c1', 'Unobtainium', 1, '2026-01-02')
+		await svc.record_dose(ImmunisationRecord(member_ref='c1', vaccine='Unobtainium', dose_no=1,
+		                                         given_iso='2026-01-02'))
 
 
 async def test_adherence_percentage_and_refill_detection() -> None:

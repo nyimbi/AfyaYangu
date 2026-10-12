@@ -16,18 +16,51 @@ class WalletMember(BaseModel):
 
 
 class ImmunisationRecord(BaseModel):
+	"""One dose that was given — the durable record, and the only one there is.
+
+	`dose_no` is 0-indexed because Kenya's EPI schedule has a real dose 0: OPV0 is the birth dose,
+	given within the first two weeks. The field was `ge=1`, so the wallet refused to record the one
+	dose every child in the country receives on their first day.
+
+	`card_photo_sha256` is §MON-001's "(with photo of card)" and §9.2's "Immunisation cards (photo
+	or digital)", as a digest rather than an image. §18.7's evidence rule and this wallet both keep
+	uploads behind a reference, so what travels here is the hash a later reader can check a
+	photograph against — the photo itself lives in the media store like every other upload. Optional,
+	because a dose given at a campaign post may have no card, and requiring one would refuse the
+	dose rather than the photograph.
+	"""
+
 	model_config = MODEL_CONFIG
 	member_ref: str
 	vaccine: str
-	dose_no: int = Field(ge=1)
+	dose_no: int = Field(ge=0, le=4)
 	given_iso: str
 	batch: str | None = None
+	card_photo_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
 
 
-# Kenya EPI doses due within first 12 months (vaccine -> 1-indexed dose numbers)
-EPI_SCHEDULE: dict[str, list[int]] = {
-	'BCG': [1], 'OPV': [1, 2, 3, 4], 'PCV10': [1, 2, 3], 'DPT-HepB-Hib': [1, 2, 3],
-	'RV1': [1, 2], 'IPV': [2], 'MMR': [1, 2],
+# Kenya's EPI schedule: vaccine -> [(dose_no, due_age_weeks)]. This is the one copy.
+#
+# It used to exist twice, and the two disagreed. `records` held `dict[str, list[int]]` naming `RV1`
+# and `MMR` with IPV at dose 2; `monitoring` held ages and named `RV` and `Measles-Rubella` with IPV
+# at dose 1. A dose recorded through the child tracker was therefore invisible to the wallet's gap
+# check — the two were keyed on different spellings of the same vaccine — and a certificate and a
+# gap list could describe the same child differently. The schedule with ages is the richer fact and
+# dose numbers are a projection of it, so it lives here and `monitoring` re-exports it.
+#
+# Ages are the *earliest* week a dose is due, which is what the EPI schedule is: BCG and OPV0 at
+# birth, the six-week set, then nine, ten and a half months, then measles-rubella at nine months and
+# again at eighteen. HPV is the two-dose course for girls, ten years apart by a year.
+EPI_SCHEDULE: dict[str, list[tuple[int, int]]] = {
+	'BCG': [(1, 0)],
+	'OPV': [(0, 0), (1, 6), (2, 10), (3, 14)],
+	'PCV10': [(1, 6), (2, 10), (3, 14)],
+	'DPT-HepB-Hib': [(1, 6), (2, 10), (3, 14)],
+	'RV': [(1, 6), (2, 10)],
+	'IPV': [(1, 14)],
+	'Measles-Rubella': [(1, 39), (2, 78)],
+	'Yellow Fever': [(1, 39)],
+	'HPV': [(1, 520), (2, 546)],
 }
 
 

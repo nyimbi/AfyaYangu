@@ -146,6 +146,7 @@ FEATURE_OF: dict[str, str] = {
 	'birth_plan': 'MON-002', 'save_birth_plan': 'MON-002', 'pmtct_referral': 'MON-002',
 	'maternity_facilities': 'MON-002',
 	'child_schedule': 'MON-001', 'catch_up_doses': 'MON-001', 'record_dose': 'MON-001', 'register_child': 'MON-001',
+	'missed_doses': 'MON-001', 'vaccination_campaigns': 'MON-001',
 	'add_medication': 'MON-004', 'log_adherence': 'MON-004',
 	'peak_flow': 'MON-003', 'log_weight': 'MON-003', 'condition_profile': 'MON-003', 'clinical_report': 'MON-003',
 	# §MON-003's three conditions with no reading behind them, and its three missing features. The
@@ -489,7 +490,8 @@ def catalogue() -> list[MobileAction]:
 		_a('register_child', "Add my child's date of birth", 'Children', 'POST', '/monitoring/child', [_f('member_ref', 'Child'), _f('dob_iso', 'Date of birth')]),
 		_a('child_schedule', 'My child vaccine schedule', 'Children', 'GET', '/monitoring/child/{member_ref}/schedule', [_f('member_ref', 'Child', 'path')]),
 		_a('catch_up_doses', 'Which doses were missed?', 'Children', 'GET', '/monitoring/child/{member_ref}/catch-up', [_f('member_ref', 'Child', 'path')]),
-		_a('record_dose', 'Record a vaccine given', 'Children', 'POST', '/monitoring/child/{member_ref}/dose', [_f('member_ref', 'Child', 'path'), _f('vaccine', 'Vaccine'), _f('dose_no', 'Dose number', 'int'), _f('given_iso', 'Date given')]),
+		_a('record_dose', 'Record a vaccine given', 'Children', 'POST', '/monitoring/child/dose', [_f('member_ref', 'Child'), _f('vaccine', 'Vaccine'), _f('dose_no', 'Dose number', 'int'), _f('given_iso', 'Date given'), _f('card_photo_sha256', 'Photo of the card', ph='optional')]),
+		_a('missed_doses', 'Which doses is my child behind on?', 'Children', 'GET', '/monitoring/child/{member_ref}/alerts', [_f('member_ref', 'Child', 'path')]),
 		_a('add_medication', 'Remind me to take my medicine', 'Children', 'POST', '/monitoring/medication', [_auto('schedule_id', 'Reminder number'), _f('member_ref', 'Who is this for?'), _f('drug', 'Medicine'), _f('dose', 'How much'), _f('times_per_day', 'Times a day', 'int'), _f('start_iso', 'Starting on'), _f('duration_days', 'For how many days', 'int')]),
 		_a('log_adherence', 'I took my medicine', 'Children', 'POST', '/monitoring/medication/adherence', [_f('schedule_id', 'Reminder number'), _f('at_iso', 'When'), _f('action', 'What happened?', 'select', ADHERENCE_ACTIONS)]),
 		# Environment & nutrition
@@ -498,6 +500,7 @@ def catalogue() -> list[MobileAction]:
 		_a('food_alert', 'Issue a food safety alert', 'Environment', 'POST', '/monitoring/food-alert', [_f('county', 'County'), _f('kind', 'Kind', 'select', ['aflatoxin', 'recall', 'cholera_food', 'other']), _f('detail', 'Details', 'textarea'), _f('source', 'Source')]),
 		_a('food_alerts', 'Food safety alerts', 'Environment', 'GET', '/monitoring/food-alerts/{county}', [_f('county', 'County', 'path')]),
 		_a('nutrition', 'What should my child eat?', 'Environment', 'GET', '/monitoring/nutrition/{age_months}', [_f('age_months', 'Age in months', 'path')]),
+		_a('vaccination_campaigns', 'Any vaccination campaign near me?', 'Children', 'GET', '/monitoring/campaigns', [_f('county', 'County'), _f('on_iso', 'Which day', ph='optional')]),
 		_a('water_advisory', 'Is the water safe?', 'Environment', 'POST', '/environment/water', [_f('county', 'County'), _f('ecoli_detected', 'E. coli detected?', 'bool'), _f('turbidity_ntu', 'Turbidity NTU', 'decimal')]),
 		_a('air_advisory', 'How is the air?', 'Environment', 'POST', '/environment/air', [_f('county', 'County'), _f('pm25', 'PM2.5 µg/m³', 'decimal')]),
 		_a('flood_risk', 'Flood and cholera risk', 'Environment', 'POST', '/environment/flood', [_f('county', 'County'), _f('rainfall_mm_72h', 'Rainfall mm in 3 days', 'decimal'), _f('population_at_risk', 'People at risk', 'int')]),

@@ -1633,3 +1633,87 @@ past is a canary that did not run**, and the `assert count == 1` guard is what s
 PIN-protected. Excluded from cloud backup by default" is not implemented. It is a privacy requirement
 alongside the six Features, not one of them, and it belongs with §MON-003's `hiv_pin_set` in a unit of
 its own rather than folded into a tracker change.
+
+## §MON-001 — a schedule kept twice, a dose that never reached the record, and four Features with no carrier
+
+The section prints nine Features. Five were implemented and four were not, and the four failed in
+three different ways — a fact with no carrier, a fact with two carriers that disagreed, and a fact
+whose only carrier was a status string nobody read.
+
+**The schedule existed twice, and the two copies disagreed.** `records.views.EPI_SCHEDULE` named
+`RV1`, `MMR` and IPV at dose 2; `monitoring.views.EPI_DUE_WEEKS` named `RV`, `Measles-Rubella` and
+IPV at dose 1. The keys are what the two modules join on, so a dose recorded through the tracker was
+invisible to the wallet's gap check and a dose recorded through the wallet was invisible to the
+tracker's. This is the second time in this build that one fact had two homes — §REC-004's
+`LUTEAL_PHASE_DAYS` was the first — and the dependency direction settles it the same way: `records`
+never imports `monitoring`, so the wallet owns the record and the schedule, and the tracker is a
+*view* over them. `EPI_DUE_WEEKS` is now `= EPI_SCHEDULE`, a re-export, and
+`test_the_schedule_is_one_dict_and_the_tracker_re_exports_it` asserts identity (`is`), not equality.
+Two dicts that agree today are not one source of truth.
+
+**`immunisation_gaps` measured age in whole years times twelve.** A child of eleven months had age 0,
+so the six-week, ten-week and fourteen-week sets — BCG, OPV1–3, PCV10, pentavalent, rotavirus, IPV,
+three visits carrying most of the infant schedule — first appeared on the child's *first birthday*.
+The list was silent for the exact eleven months it exists to cover, and a parent reading an empty gap
+list concludes nothing is due. It now measures days. Same class as §REC-004's 30-day month:
+arithmetic that is internally consistent and wrong for the population it serves.
+
+**A dose recorded on the tracker never reached the record.** `record_dose` took four scalars and
+added a tuple to a set of its own. The section's own "Why this works" says the record "outlives the
+paper card" — a dose filed through the tracker and absent from the wallet is that promise lost at the
+seam. `record_dose` now takes an `ImmunisationRecord` and writes through to
+`RecordsService.record_immunisation`, so the dose is one object in one place, and
+`immunisation_gaps`, the vaccination certificate and the export all see it.
+
+- **Record doses given (with photo of card).** `card_photo_sha256`, a 64-hex digest, optional. A
+  digest rather than the image, because the record outlives the device and a base64 photograph in a
+  wallet record is a different storage problem; optional, because a dose logged without a photograph
+  is still a dose and refusing it would lose the dose to protect the photo.
+- **Missed-dose alerts.** `missed_dose_alerts` returns an alert per dose, split into `overdue` (with
+  `days_overdue`) and `due_soon` (from `REMINDER_LEAD_DAYS`, the 3-day and 1-day lead the section
+  names). Served as data for the device to schedule rather than as a notification queue — §ACC-004
+  wants no background polling, and the same reasoning produced §REC-004's contraception reminder and
+  §EMG-001's countdown.
+- **Campaign notifications (polio, measles).** `CampaignNotice` carries the disease slug, the
+  counties, the age band and the window; `publish_campaign` files one verified `FeedItem` per county
+  under a new `immunisation` feed category, and `campaigns(county, on_iso)` returns only those
+  running that day. **Polio is expressible as a campaign target precisely because it is not a §3.3
+  principle 12 outbreak disease** — `SPEC_DISEASES` is `('evd','cholera','rvf','mpox','measles')`, so
+  `outbreak_polio` correctly raises `ValueError`, and the audit row that read "`AlertKind` carries
+  neither polio nor a campaign type" was asking the wrong model to hold the fact. The age band has a
+  `model_validator` because `(59, 9)` is a tuple of two ints and a campaign addressed to nobody, and
+  a client posting the notice reaches the model before it reaches any service assert.
+- **Shareable immunisation record.** The wallet's own `ShareGrant` over the `immunisation` document
+  kind, with `share_view` enforcing the expiry. Not a second share mechanism: a second one would be
+  a second expiry rule, and the two would drift.
+
+**The toggle that had no producer now has one.** `immunisation_reminders` was in `TOGGLEABLE` and
+`FEED_PREFERENCE` had no entry mapping a feed category to it, so a parent who switched it on could
+not receive anything under it whatever the server published. The `immunisation` category closes that,
+and the ALT-003 row is updated rather than left saying "no producer".
+
+**A gate that could not fail.** `test_another_persons_child_is_refused` originally asked for a child
+ref that did not exist — refused three times over, by the route guard, by the route's own ownership
+check and by the service's "unknown child" assertion — so it passed whether or not the ownership rule
+was applied at all. The distinguishing case is a child who *exists* in somebody else's wallet: only
+the ownership rule refuses that, and without it the caller is served a named child's schedule. The
+test now registers the child, asserts the guardian reads it, then asserts a stranger gets 403. That
+was canary 15, and it was the one that MISSED on the first run.
+
+Fifteen canaries were run against `tests/ci/canary_mon001.py` and all fifteen fire: the schedule
+copied and renamed again, the dose stopping short of the wallet, the card digest accepting any
+string, dose zero refused again (OPV0 is the birth dose), the gap list measuring whole years again,
+the coming alert never firing, a missed dose raising nothing, a given dose reported missed, the
+campaign landing under a category nobody set, a campaign with no county published anyway, a backwards
+age band accepted, the campaign window ignored, the feed publishing unverified, the share never
+expiring, and the IDOR guard loosened.
+
+**Counts: 4 rows left `missing` — 4 to `carried` — 78 → 74.** 493 rows, `carried` 402, `missing` 74,
+`deferred` 17.
+
+**Not done in this unit, and named so it is not mistaken for done.** §MON-001's "Facility finder
+integration for vaccination points" stays `carried` with its caveat: `/places/vaccination-points`
+serves the kind and the immunisation schedule does not call it, so the client joins the two itself.
+§MON-007's "larviciding campaign notifications" is a `missing` row with no producer, and the
+`CampaignNotice`/`publish_campaign` machinery built here is its obvious carrier — it should be reused
+rather than duplicated, and that is a §MON-007 unit.

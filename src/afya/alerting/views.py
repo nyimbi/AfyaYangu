@@ -9,7 +9,7 @@ MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_ali
 # The public hazard types a feed item can carry.
 FEED_CATEGORIES: tuple[str, ...] = (
 	'outbreak', 'weather', 'flood', 'fire', 'road', 'security', 'drug_recall', 'water',
-	'food_recall', 'service',
+	'food_recall', 'service', 'immunisation',
 )
 
 # Which preference governs each feed category. A feed item and a preference are not the same
@@ -21,6 +21,11 @@ FEED_PREFERENCE: dict[str, str] = {
 	'fire': 'county_alerts', 'road': 'county_alerts', 'security': 'county_alerts',
 	'drug_recall': 'facility_alerts', 'water': 'water_quality', 'food_recall': 'nutrition',
 	'service': 'facility_alerts',
+	# §MON-001's campaign notices: a polio or measles campaign is a service offered to an age band,
+	# and the parent who asked for immunisation reminders is the person it is for. The preference
+	# existed with no producer until the campaign publisher was written — this is the mapping that
+	# makes it deliverable rather than a toggle that switches nothing.
+	'immunisation': 'immunisation_reminders',
 }
 
 

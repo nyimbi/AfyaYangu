@@ -1,29 +1,25 @@
 """Monitoring & reminder models (spec §9.1 MON-001..004, §10.2 MON-005..008, §11.3 MON-009)."""
 from enum import Enum
 
+from typing import Self
+
 from afya.sensors.views import MeasurementSource
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from afya.ids import uuid7str
+from afya.records.views import EPI_SCHEDULE
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 
 # --- MON-001: child immunisation tracker -------------------------------------------------
 
-# Kenya EPI schedule: vaccine -> (dose_no, due_age_weeks). Ages are upper bounds; a dose is
-# "due" once the child reaches the age and overdue after the catch-up grace window.
-EPI_DUE_WEEKS: dict[str, list[tuple[int, int]]] = {
-	'BCG': [(1, 0)],
-	'OPV': [(0, 0), (1, 6), (2, 10), (3, 14)],
-	'PCV10': [(1, 6), (2, 10), (3, 14)],
-	'DPT-HepB-Hib': [(1, 6), (2, 10), (3, 14)],
-	'RV': [(1, 6), (2, 10)],
-	'IPV': [(1, 14)],
-	'Measles-Rubella': [(1, 39), (2, 78)],
-	'Yellow Fever': [(1, 39)],
-	'HPV': [(1, 520), (2, 546)],
-}
+# The schedule is `records.views.EPI_SCHEDULE`, re-exported rather than restated. The tracker is a
+# *view* over the doses the wallet holds — it decides what is due and what is overdue — and a
+# schedule kept beside the record would be the second copy of one fact. The two disagreed until
+# this change: `RV`/`Measles-Rubella` here against `RV1`/`MMR` there, and IPV at dose 1 against dose
+# 2, so a dose recorded through the tracker was invisible to the wallet's gap check.
+EPI_DUE_WEEKS: dict[str, list[tuple[int, int]]] = EPI_SCHEDULE
 
 CATCH_UP_GRACE_WEEKS = 4
 REMINDER_LEAD_DAYS = (3, 1)
@@ -44,6 +40,69 @@ class ImmunisationCatchUp(BaseModel):
 	member_ref: str
 	defaulted: list[str]
 	advise: str
+
+
+class ImmunisationAlert(BaseModel):
+	"""§MON-001's "Missed-dose alerts", as the alert a client acts on rather than a status string.
+
+	`schedule` has always been able to say a dose is `overdue`; what was missing is anything that
+	*raises* one. The alert is served as data on the same reasoning as §REC-004's contraception
+	reminder and §EMG-001's countdown — §ACC-004 wants no background polling, so the server states
+	the alert and the device schedules it. `kind` separates the two the section names apart: a dose
+	the child is behind on (`overdue`) and a dose that is coming (`due_soon`), which are different
+	messages to a parent and were the same string before.
+	"""
+
+	model_config = MODEL_CONFIG
+	member_ref: str
+	vaccine: str
+	dose_no: int = Field(ge=0, le=4)
+	kind: str = Field(pattern=r'^(overdue|due_soon)$')
+	days_overdue: int = Field(ge=0)
+	due_iso: str
+	message: str
+
+
+class CampaignNotice(BaseModel):
+	"""§MON-001's "Campaign notifications (polio, measles)" — the notice, and who issued it.
+
+	A campaign is not a §11.1 community alert: it is not a hazard in a county, it is a service
+	being offered to an age group, and its audience is the parents of children in that band rather
+	than everyone within a boundary. So it carries its own shape and is published into the feed
+	under the immunisation category, where a parent who asked for immunisation reminders is the
+	person who receives it.
+
+	`disease` is a `registry.diseases` slug, which is what makes "polio" expressible: polio is a
+	campaign and not one of §3.3 principle 12's outbreak diseases, so it is a campaign target and
+	never an `AlertKind`. `target_age_months` is the band the campaign is for, because a measles
+	campaign for nine-month-olds and one for school entrants are different notices to the same
+	parent.
+	"""
+
+	model_config = MODEL_CONFIG
+	campaign_id: str = Field(default_factory=lambda: 'CMP-' + uuid7str().replace('-', '')[-8:].upper())
+	disease: str
+	counties: list[str]
+	target_age_months: tuple[int, int]
+	starts_iso: str
+	ends_iso: str
+	headline: str = Field(max_length=120)
+	body: str = Field(max_length=600)
+	issued_by: str = Field(pattern=r'^(MoH|PHEOC|County)$')
+
+	@model_validator(mode='after')
+	def _band_is_ordered(self) -> Self:
+		"""`(59, 9)` is a tuple of two ints and an age band of nobody.
+
+		A validator rather than an assertion in the service, because the service's assert is only
+		reached by callers that go through the service — a client posting the notice is checked by
+		the model, and a band that reads backwards would otherwise publish a campaign addressed to
+		no child. The upper bound is 216 months: eighteen years, past which a person is an adult and
+		not the subject of a child vaccination campaign.
+		"""
+		low, high = self.target_age_months
+		assert 0 <= low < high <= 216, f'{low}-{high} months is not an age band a campaign can have'
+		return self
 
 
 # --- MON-004: medication reminders -------------------------------------------------------

@@ -7,10 +7,14 @@ and testable without a clock.
 from afya.logmixin import LogMixin
 from afya.monitoring.views import (
 	CATCH_UP_GRACE_WEEKS, EPI_DUE_WEEKS, REMINDER_LEAD_DAYS, REMINDER_SLOTS, AdherenceEvent,
-	AdherenceReport, AdherenceAction, ConditionProfile, FoodSafetyAlert, HouseholdMonitor,
-	ImmunisationCatchUp, ImmunisationDue, MedSchedule, MonitoringDay, MonitoringReminder,
-	MonitoringVerdict, NutritionGuidance, PeakFlowReading, ReminderSlot, VectorRisk, WeightReading,
+	AdherenceReport, AdherenceAction, CampaignNotice, ConditionProfile, FoodSafetyAlert,
+	HouseholdMonitor, ImmunisationAlert, ImmunisationCatchUp, ImmunisationDue, MedSchedule,
+	MonitoringDay, MonitoringReminder, MonitoringVerdict, NutritionGuidance, PeakFlowReading,
+	ReminderSlot, VectorRisk, WeightReading,
 )
+from afya.alerting.views import FeedItem
+from afya.records.service import RecordsService
+from afya.records.views import ImmunisationRecord
 
 # Danger symptoms for a monitored contact (MON-009): any of these, or fever, escalates.
 MONITORING_ALERT_SYMPTOMS: frozenset[str] = frozenset(
@@ -76,7 +80,12 @@ def _days_between(iso_a: str, iso_b: str) -> int:
 
 
 class MonitoringService(LogMixin):
-	def __init__(self) -> None:
+	def __init__(self, wallet: RecordsService | None = None) -> None:
+		# The wallet, so a dose recorded here reaches the record that outlives the paper card. The
+		# dependency runs one way — `records` never imports `monitoring` — which is what makes the
+		# wallet the owner of the dose and the tracker a view over it rather than a second store.
+		self._wallet: RecordsService | None = wallet
+		self._campaigns: list[CampaignNotice] = []
 		self._dob: dict[str, str] = {}
 		self._given: dict[str, set[tuple[str, int]]] = {}
 		self._schedules: dict[str, MedSchedule] = {}
@@ -100,12 +109,34 @@ class MonitoringService(LogMixin):
 		self._dob[member_ref] = dob_iso
 		self._given.setdefault(member_ref, set())
 
-	async def record_dose(self, member_ref: str, vaccine: str, dose_no: int, given_iso: str) -> None:
-		assert member_ref in self._dob, 'unknown child — register dob first'
-		assert vaccine in EPI_DUE_WEEKS, f'unknown vaccine {vaccine}'
-		assert 0 <= dose_no <= 4, 'dose bounds'
-		self._given.setdefault(member_ref, set()).add((vaccine, dose_no))
-		self._log_info('dose recorded', member=member_ref, vaccine=vaccine, dose=dose_no, on=given_iso)
+	async def record_dose(self, rec: ImmunisationRecord) -> ImmunisationRecord:
+		"""§MON-001's "Record doses given (with photo of card)", into the wallet that owns the dose.
+
+		This used to take four scalars and add a tuple to a set of its own, so a dose recorded
+		through the child tracker never reached the wallet: `immunisation_gaps`, the vaccination
+		certificate and the export all read `RecordsService._imm` and none of them could see it. The
+		tracker is the screen a parent uses and the wallet is the record that outlives the paper card
+		— the section says so — so a dose filed in the first and absent from the second is the whole
+		point of the feature lost at the seam between two modules.
+
+		The record goes to the wallet when the child is in it, and is kept here either way, because
+		the schedule has to work for a child whose guardian registered them in the tracker without
+		enrolling them as a wallet member.
+		"""
+		assert rec.member_ref in self._dob, 'unknown child — register dob first'
+		assert rec.vaccine in EPI_DUE_WEEKS, f'unknown vaccine {rec.vaccine}'
+		assert 0 <= rec.dose_no <= 4, 'dose bounds'
+		self._given.setdefault(rec.member_ref, set()).add((rec.vaccine, rec.dose_no))
+		if self._wallet is not None and rec.member_ref in self._wallet_members():
+			await self._wallet.record_immunisation(rec)
+		self._log_info('dose recorded', member=rec.member_ref, vaccine=rec.vaccine,
+		               dose=rec.dose_no, on=rec.given_iso, card=bool(rec.card_photo_sha256))
+		return rec
+
+	def _wallet_members(self) -> set[str]:
+		"""The member refs the wallet knows, read through its own accessor rather than its store."""
+		assert self._wallet is not None
+		return self._wallet.member_refs()
 
 	def schedule(self, member_ref: str, today_iso: str) -> list[ImmunisationDue]:
 		"""Full EPI schedule with per-dose status and the 3-day/1-day reminder leads."""
@@ -141,6 +172,76 @@ class MonitoringService(LogMixin):
 			if defaulted else 'No missed doses: the child is up to date.'
 		)
 		return ImmunisationCatchUp(member_ref=member_ref, defaulted=defaulted, advise=advise)
+
+	def missed_dose_alerts(self, member_ref: str, today_iso: str) -> list[ImmunisationAlert]:
+		"""§MON-001's "Missed-dose alerts" — the alert, as data the device schedules.
+
+		`schedule` has always been able to say a dose is `overdue`; what the section asked for and
+		nothing raised is an alert. Two kinds, because they are two different messages to a parent: a
+		dose the child is *behind* on, and one that is *coming* within the 3-day lead. The second is
+		what makes the reminder fire before the visit is missed rather than after, and it is why this
+		reads `remind_days_before` instead of only the `overdue` rows.
+
+		Not a notification queue: the server states the alert and the device schedules it, on
+		§ACC-004's reasoning — the same shape as §REC-004's contraception reminder and §EMG-001's
+		countdown, and for the same reason. `due_iso` is the date the alert is about, so a client
+		never has to recompute it from the age in weeks.
+		"""
+		assert member_ref in self._dob, 'unknown child'
+		dob = self._dob[member_ref]
+		alerts: list[ImmunisationAlert] = []
+		for row in self.schedule(member_ref, today_iso):
+			due_iso = _iso_add_days(dob, _days_from_weeks(row.due_age_weeks))
+			if row.status == 'overdue':
+				late = _days_between(due_iso, today_iso)
+				alerts.append(ImmunisationAlert(
+					member_ref=member_ref, vaccine=row.vaccine, dose_no=row.dose_no, kind='overdue',
+					days_overdue=late, due_iso=due_iso,
+					message=(f'{row.vaccine} dose {row.dose_no} was due on {due_iso}, {late} days ago. '
+					         'Catch-up doses are safe and free — bring the card to any vaccination '
+					         'point and no dose needs restarting.')))
+			elif row.remind_days_before:
+				alerts.append(ImmunisationAlert(
+					member_ref=member_ref, vaccine=row.vaccine, dose_no=row.dose_no, kind='due_soon',
+					days_overdue=0, due_iso=due_iso,
+					message=(f'{row.vaccine} dose {row.dose_no} is due on {due_iso} — '
+					         f'{min(row.remind_days_before)} day(s) from now.')))
+		return sorted(alerts, key=lambda a: (a.kind != 'overdue', a.due_iso, a.vaccine))
+
+	async def publish_campaign(self, notice: CampaignNotice, feed: object) -> CampaignNotice:
+		"""§MON-001's "Campaign notifications (polio, measles)", published into the community feed.
+
+		A campaign is a *service being offered*, not a hazard in a county: its audience is the parents
+		of children in an age band, not everyone inside a boundary. So it carries its own shape and is
+		delivered through §ALT-001's feed under the immunisation category, where the parent who asked
+		for immunisation reminders is the person who receives it — a category with a producer at last,
+		which is what the audit row said was missing.
+
+		`feed` is the `AlertingService`, typed loosely for the reason every cross-module port here is:
+		the two services are wired at the composition root, and neither imports the other's class.
+		"""
+		assert notice.counties, 'a campaign with no county reaches nobody'
+		assert notice.ends_iso > notice.starts_iso, (
+			f'a campaign must end after it begins: {notice.starts_iso} to {notice.ends_iso}')
+		low, high = notice.target_age_months
+		assert 0 <= low < high <= 216, f'{low}-{high} months is not an age band a campaign can have'
+		self._campaigns.append(notice)
+		publish = getattr(feed, 'publish', None)
+		if publish is not None:
+			for county in notice.counties:
+				await publish(FeedItem(
+					item_id=f'{notice.campaign_id}-{county}', category='immunisation', county=county,
+					headline=notice.headline, body=notice.body, source=notice.issued_by,
+					verified=True, published_iso=notice.starts_iso))
+		self._log_info('campaign published', campaign=notice.campaign_id, disease=notice.disease,
+		               counties=len(notice.counties))
+		return notice
+
+	def campaigns(self, county: str, on_iso: str) -> list[CampaignNotice]:
+		"""The campaigns running in a county on a given day — the question a parent actually asks."""
+		return sorted((c for c in self._campaigns
+		               if county in c.counties and c.starts_iso <= on_iso <= c.ends_iso),
+		              key=lambda c: c.starts_iso)
 
 	# --- MON-004 medication reminders ----------------------------------------------------
 

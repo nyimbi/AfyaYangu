@@ -319,7 +319,7 @@ async def test_a_token_cannot_read_another_familys_records() -> None:
 			await c.get('/records/U2/wallet', headers=u1),
 			await c.get('/monitoring/child/KID-2/schedule', headers=u1),
 			await c.get('/monitoring/child/KID-2/catch-up', headers=u1),
-			await c.post('/monitoring/child/KID-2/dose', params={'vaccine': 'BCG', 'dose_no': 1, 'given_iso': '2026-10-01'}, headers=u1),
+			await c.post('/monitoring/child/dose', json={'member_ref': 'KID-2', 'vaccine': 'BCG', 'dose_no': 1, 'given_iso': '2026-10-01'}, headers=u1),
 			await c.post('/records/labs', json={'member_ref': 'KID-2', 'test': 'mRDT', 'value': 'pos',
 			                                    'flag': 'abnormal', 'performed_iso': '2026-10-02'}, headers=u1),
 			await c.post('/records/growth', json={'member_ref': 'KID-2', 'age_months': 12, 'weight_kg': 8.0, 'height_cm': 74.0}, headers=u1),
