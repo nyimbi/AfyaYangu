@@ -453,7 +453,7 @@ async def test_a_medicine_lookup_records_the_drug_it_was_for() -> None:
 	ai: AIService = services['ai']  # type: ignore[assignment]
 	async with client:
 		await client.post('/medicine/dose', json={
-			'drug': 'paracetamol', 'weight_kg': 20, 'mg_per_kg': 15, 'county': 'Kisumu'})
+			'drug': 'paracetamol', 'weight_kg': 20, 'county': 'Kisumu'})
 	recorded = [e for e in ai._signal_events if e.signal == 'medicine_search']
 	assert len(recorded) == 1
 	assert recorded[0].event_ref == 'paracetamol' and recorded[0].county == 'Kisumu'

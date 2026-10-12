@@ -1430,3 +1430,59 @@ the flag it conflated. Only `server_assigned` must not be required, and must not
 Six canaries were run against the corrected gates — the substitution made a no-op, a field renamed
 away from its placeholder, a required field marked server-assigned, a server-assigned field asked to
 fill a path, a mark whose model default was removed, and the flag check blinded — and all six fired.
+
+## §MED-003 — a calculator that asked the caller for the number it exists to look up
+
+**`dose` took `mg_per_kg` from the client.** So the route computed `weight_kg * mg_per_kg` and the
+weight-based lookup — the whole of a dosage calculator — happened on the caller's side. A parent who
+already knew the mg/kg figure for their child's medicine did not need the app; a parent who did not
+could not use it. The answer was a multiplication wearing a clinical feature's name.
+
+**The section asks for a range, and the route returned one number.** "Get dose range" is the
+bullet, and `total_mg` was a single figure derived from a constant the caller chose. Paracetamol is
+10–15 mg/kg, so the honest answer is a spread: `mg_low`/`mg_high` are the source's own, and a
+midpoint would be a number no guideline states that a prescriber has no way to trace.
+
+**`afya.medicine.formulary` is the table, and every figure in it comes from the WHO Pocket Book of
+Hospital Care for Children, 2nd ed.** The five formulations the section names are the five the
+module holds — paracetamol 10–15 mg/kg up to six times a day (Appendix 2, p. 367), amoxicillin
+25 mg/kg generally and 40 mg/kg for pneumonia (p. 357), ORS 50–100 ml per loose stool under two years
+and 100–200 ml from two (p. 136) plus about 5 ml/kg per hour alongside IV fluids (p. 135), zinc 10 mg
+a day under six months and 20 mg from six (p. 134), artemether–lumefantrine by weight band (p. 164).
+The source is archived at `sources/who-pocket-book/` with both checksums and the page references in
+`sources/INDEX.md`.
+
+**Three things the source does *not* say, and the code carries none of them.**
+
+- **No maximum for paracetamol, amoxicillin, ORS or zinc.** The Pocket Book gives paracetamol a
+  *frequency* ceiling and no milligram total, and gives the other three no maximum at all.
+  `max_mg_per_dose` is `None` for all four, and the result says so in words — an empty maximum
+  column reads as "no limit", and the source's silence is neither zero nor infinity. A number
+  invented to fill that column is a limit a prescriber would trust that no guideline set.
+- **No mg/kg figure for artemether–lumefantrine.** It is stated as whole tablets of a fixed-strength
+  combined tablet for a weight band, so that is what the calculator returns. Deriving a milligram
+  dose from a tablet count would be a precision the formulation does not have.
+- **No dose by age for anything but zinc.** Age is a threshold in the source, not a dose axis, so
+  `age_months` is optional in the model and the zinc path refuses without it rather than picking a
+  band — defaulting would dose a six-month-old at the toddler amount or the reverse.
+
+**A syrup is measured and a tablet is counted.** `DoseLine` carries the range in the form's own
+unit, because a person holding a 5 ml spoon should not have to divide a milligram figure by the
+strength printed on the bottle — that division is the calculator's whole job.
+
+**The bug this unit's own first test run found.** pydantic v2 copies a list on validation, so
+`warns.append(...)` on the *local* list after `DoseResult(...)` wrote to a list the model no longer
+held: six warnings vanished silently, and a zinc lookup with no age returned an empty result with no
+explanation at all. An AST pass over `src/` for the shape — a local list passed into a constructor
+and mutated afterwards — found no other instance.
+
+**The gate I wrote first failed open.** Every figure check was wrapped in `if SOURCE.exists():`,
+which means losing the archive would silently stop every check in the file — the one failure it
+exists to prevent. The guard is gone: presence and the recorded checksum are assertions of their own,
+and the canary that proves the rest are live points `SOURCE` at a path that does not exist and
+requires the suite to fail. Seven canaries were run — a figure drifting, an invented maximum, a moved
+age threshold, a lost archive against both the figure check and the integrity gate, the whole-word
+drug match becoming a substring test, and a weight band drifting — and all seven fired.
+
+**Counts: 4 rows left `missing` — 4 to `carried` — 91 → 87.** §MED-003 is 5/5 accounted for.
+493 rows, `carried` 389, `missing` 87, `deferred` 17.

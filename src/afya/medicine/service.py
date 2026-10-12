@@ -4,14 +4,40 @@ from typing import Protocol
 
 from afya.facilities.service import haversine_km
 from afya.logmixin import LogMixin
+from afya.medicine import formulary
 from afya.medicine.views import (
-	BatchRecall, DoseRequest, DoseResult, ProductDisplay, RegistrationStatus, StockAlert,
+	BatchRecall, DoseLine, DoseRequest, DoseResult, ProductDisplay, RegistrationStatus, StockAlert,
 	StockAvailability, StockReport, VerifyRequest, VerifyResult, essential_slug,
 )
 
 
 def _now_iso() -> str:
 	return datetime.now(timezone.utc).isoformat(timespec='seconds')
+
+
+def _dose_line(form: formulary.Formulation, low_mg: float, high_mg: float) -> DoseLine:
+	"""One form's share of a milligram range, in the units that form is actually given in.
+
+	A syrup's strength is printed as "250 mg/5 ml", so the millilitres a person measures are the
+	milligrams divided by the strength and multiplied by the volume the strength is stated per. A
+	tablet's unit is the tablet, and a dose between two whole tablets is reported as the range it
+	is rather than rounded to one of them — rounding a paediatric dose to the nearest tablet is a
+	decision for a prescriber, not for a calculator.
+	"""
+	if form.mg_per_unit and form.ml_per_unit:
+		unit, factor = 'ml', form.ml_per_unit / form.mg_per_unit
+	elif form.mg_per_unit:
+		unit, factor = 'tablet', 1.0 / form.mg_per_unit
+	else:
+		# A form with no fixed milligram content — an ORS sachet. It is dosed by volume, and the
+		# volume is on the model's own fields, so there is no per-unit amount to compute here.
+		return DoseLine(form=form.form, strength=form.strength, unit='unit',
+		                amount_low=0.0, amount_high=0.0)
+	return DoseLine(
+		form=form.form, strength=form.strength, unit=unit,
+		amount_low=round(low_mg * factor, 1), amount_high=round(high_mg * factor, 1),
+		amount_mg_low=low_mg, amount_mg_high=high_mg,
+	)
 
 
 # §MED-004's Anti-gaming clause: "Require location proximity to report." Five kilometres is the
@@ -248,13 +274,124 @@ class MedicineService(LogMixin):
 		return found
 
 	def dose(self, req: DoseRequest) -> DoseResult:
-		total = round(req.weight_kg * req.mg_per_kg, 1)
+		"""§MED-003's calculator: the dose range for this child, from the WHO Pocket Book.
+
+		The range is the source's own. Paracetamol is 10–15 mg/kg, so the answer is a spread and not
+		a midpoint: a midpoint is a number no guideline states, and a prescriber reading one has no
+		way to know which end of the range it came from.
+
+		Refusals are answers here, not exceptions. A name not in the formulary, a weight below the
+		source's own tables, a zinc lookup with no age — each returns a result carrying `unknown` or
+		a warning rather than raising, because a parent who mistyped a medicine name needs to be
+		told so, and a 500 tells them nothing.
+		"""
+		assert req.weight_kg > 0, 'a dose needs a weight'
+		entry = formulary.match(req.drug)
+		if entry is None:
+			self._log_info('dose: unknown drug', drug=req.drug)
+			return DoseResult(
+				drug=req.drug, matched='', mg_per_kg_low=0.0, mg_per_kg_high=0.0,
+				doses_per_day_low=0, doses_per_day_high=0, unknown=True,
+				warns=[f'We do not have a paediatric dose for "{req.drug}". '
+				       'Ask a pharmacist or clinician rather than estimating one.'],
+			)
+
 		warns: list[str] = []
-		if req.weight_kg < 5:
-			warns.append('paediatric low-weight: confirm with clinician')
-		if req.mg_per_kg > 60:
-			warns.append('high mg/kg: verify source guideline')
-		return DoseResult(drug=req.drug, total_mg=total, warns=warns)
+		# The source's own lower bound. Below it the tables do not reach, and extrapolating a
+		# downward dose is where a paediatric error does the most harm.
+		if req.weight_kg < entry.min_kg:
+			warns.append(
+				f'{entry.label} doses in this reference start at {entry.min_kg:g} kg. '
+				'A child below that needs a clinician to dose them.')
+		if req.weight_kg > entry.max_kg:
+			warns.append(
+				f'{entry.label} doses in this reference stop at {entry.max_kg:g} kg, which is the '
+				'range it was written for. An older or heavier patient needs an adult reference.')
+
+		result = DoseResult(
+			drug=req.drug, matched=entry.label,
+			mg_per_kg_low=entry.mg_per_kg_low, mg_per_kg_high=entry.mg_per_kg_high,
+			doses_per_day_low=entry.doses_per_day_low, doses_per_day_high=entry.doses_per_day_high,
+			max_mg_per_dose=entry.max_mg_per_dose, max_mg_per_day=entry.max_mg_per_day,
+			note=entry.note, warns=warns,
+		)
+
+		# Zinc is dosed by age, not weight: the source's rule turns on six months, so a lookup
+		# without an age cannot be answered and says so rather than defaulting to either band.
+		if entry.slug == 'zinc':
+			if req.age_months is None:
+				result.warns.append('Zinc is given by age, so we need the child\'s age to answer this.')
+				return result
+			daily = (formulary.ZINC_MG_UNDER if req.age_months < formulary.ZINC_MONTHS_THRESHOLD
+			         else formulary.ZINC_MG_FROM)
+			result.days_low = formulary.ZINC_DAYS_LOW
+			result.days_high = formulary.ZINC_DAYS_HIGH
+			tab = entry.formulations[0]
+			result.lines = [DoseLine(form=tab.form, strength=tab.strength, unit='tablet',
+			                         amount_low=daily / tab.mg_per_unit if tab.mg_per_unit else 1.0,
+			                         amount_high=daily / tab.mg_per_unit if tab.mg_per_unit else 1.0,
+			                         amount_mg_low=daily, amount_mg_high=daily)]
+			self._log_info('dose', drug=entry.slug, band=f'age {req.age_months}m')
+			return result
+
+		# ORS is a volume, not a milligram dose: after each loose stool, plus a maintenance rate
+		# while the child is rehydrating. Computing mg/kg for it would be a category error.
+		if entry.slug == 'ors':
+			under_two = req.age_months is not None and req.age_months < formulary.ORS_TWO_YEAR_MONTHS
+			result.after_each_stool_ml_low = (formulary.ORS_ML_UNDER_2Y_LOW if under_two
+			                                  else formulary.ORS_ML_FROM_2Y_LOW)
+			result.after_each_stool_ml_high = (formulary.ORS_ML_UNDER_2Y_HIGH if under_two
+			                                   else formulary.ORS_ML_FROM_2Y_HIGH)
+			result.maintenance_ml_per_kg_per_hour = formulary.ORS_ML_PER_KG_MAINTENANCE
+			if req.age_months is None:
+				result.warns.append('Without the child\'s age we cannot say whether this is the under-two '
+				             'or over-two amount, so the larger range is shown.')
+			self._log_info('dose', drug=entry.slug, volume=True)
+			return result
+
+		# A drug the source doses by weight band: the answer is a tablet count, not a milligram
+		# figure, because the formulation is a fixed-strength combined tablet.
+		if entry.bands:
+			band = next((b for b in entry.bands
+			             if req.weight_kg >= b.min_kg and (b.max_kg is None or req.weight_kg < b.max_kg)),
+			            None)
+			if band is None:
+				result.warns.append(f'{entry.label} has no tablet band for {req.weight_kg:g} kg in this '
+				             'reference; ask a clinician.')
+				return result
+			tab = entry.formulations[0]
+			result.lines = [DoseLine(form=tab.form, strength=tab.strength, unit='tablet',
+			                         amount_low=band.units_low, amount_high=band.units_high)]
+			result.days_low = 3
+			result.days_high = 3
+			self._log_info('dose', drug=entry.slug, band=f'{band.min_kg:g}-{band.max_kg}kg')
+			return result
+
+		# The ordinary case: a mg/kg range, rendered in each form the pharmacy stocks.
+		low = round(req.weight_kg * entry.mg_per_kg_low, 1)
+		high = round(req.weight_kg * entry.mg_per_kg_high, 1)
+		result.mg_low = low
+		result.mg_high = high
+
+		if entry.max_mg_per_dose is not None and high > entry.max_mg_per_dose:
+			result.over_max = True
+			result.warns.append(
+				f'The calculated dose ({high:g} mg) is above the maximum this reference states for '
+				f'{entry.label} ({entry.max_mg_per_dose:g} mg per dose). Give the maximum, not the '
+				'calculated figure, and check with a clinician.')
+		if entry.max_mg_per_day is not None and high * entry.doses_per_day_high > entry.max_mg_per_day:
+			result.over_max = True
+			result.warns.append(
+				f'{high * entry.doses_per_day_high:g} mg a day is above the maximum this reference '
+				f'states for {entry.label} ({entry.max_mg_per_day:g} mg a day).')
+		if entry.max_mg_per_dose is None:
+			# Said out loud rather than left blank, because an empty maximum column reads as "no
+			# limit", and the source's silence is neither a limit of zero nor of infinity.
+			result.warns.append(f'This reference states no maximum dose for {entry.label}.')
+
+		result.lines = [_dose_line(f, low, high) for f in entry.formulations]
+		self._log_info('dose', drug=entry.slug, mg_low=low, mg_high=high)
+		return result
 
 	async def report_stock(self, report: StockReport) -> StockAlert | None:
 		"""Record a stock report and raise §MED-004's restock alert on the transition.

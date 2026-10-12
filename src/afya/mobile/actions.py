@@ -371,7 +371,10 @@ def catalogue() -> list[MobileAction]:
 		# Medicine
 		_a('verify_medicine', 'Is my medicine genuine?', 'Medicine', 'POST', '/medicine/verify', [_f('batch_number', 'Batch number (on the box)'), _f('gtin', 'Barcode number')]),
 		_a('drug_interactions', 'Can I take these together?', 'Medicine', 'POST', '/medicine/interactions', [_f('drugs', 'Medicines', 'list')]),
-		_a('dosage', 'How much should I give?', 'Medicine', 'POST', '/medicine/dose', [_f('drug', 'Medicine'), _f('weight_kg', 'Weight in kg', 'decimal'), _f('mg_per_kg', 'mg per kg', 'decimal')]),
+		# `mg_per_kg` was a field here and is gone: it asked a parent for the one constant the
+		# calculator exists to look up, so the action answered a multiplication. `age_months` is the
+		# section's own "Enter weight and age", and it is what zinc's dose turns on.
+		_a('dosage', 'How much should I give?', 'Medicine', 'POST', '/medicine/dose', [_f('drug', 'Medicine', ph='e.g. paracetamol, amoxicillin, zinc'), _f('weight_kg', 'Weight in kg', 'decimal'), _f('age_months', 'Age in months', 'int', ph='optional; needed for zinc')]),
 		_a('report_stock', 'Report whether a medicine is in stock', 'Medicine', 'POST', '/medicine/stock', [_auto('report_id', 'Report number'), _f('facility_id', 'Facility'), _f('drug', 'Medicine'), _f('in_stock', 'In stock?', 'bool'), _f('reporter_geohash', 'Where you are', ph='optional; lets us check you are at the facility')]),
 		_a('find_stock', 'Where can I get this medicine?', 'Medicine', 'GET', '/medicine/stock/search', [_f('q', 'Which medicine?'), _f('limit', 'How many places', 'int', ph='optional')]),
 		_a('stock_availability', 'Is it in stock right now?', 'Medicine', 'GET', '/medicine/stock/availability', [_f('drug', 'Medicine'), _f('facility_id', 'Facility')]),

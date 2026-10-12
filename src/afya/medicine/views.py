@@ -125,20 +125,84 @@ class InteractionPair(BaseModel):
 
 
 class DoseRequest(BaseModel):
+	"""§MED-003's question: how much of this medicine for this child.
+
+	`mg_per_kg` is gone. It was the one constant a person opens a dosing calculator to look up, and
+	asking them for it made the route a multiplication rather than an answer — a caller who knew the
+	figure did not need the app. The calculator now reads the range from the WHO Pocket Book.
+
+	`age_months` is required by §MED-003's "Enter weight and age" and is used where the source doses
+	by age: zinc is 10 mg a day under six months and 20 mg from six months, and nothing else in the
+	source turns on age at all. It is optional in the *model* because the four drugs that ignore it
+	should not be refused for its absence — but a zinc lookup without it is refused by the service,
+	which is the honest place for that rule rather than a schema that would refuse all five.
+	"""
+
 	model_config = MODEL_CONFIG
-	drug: str
-	weight_kg: float = Field(gt=1, le=300)
-	mg_per_kg: float = Field(gt=0, le=100)
+	drug: str = Field(min_length=2, max_length=120)
+	weight_kg: float = Field(gt=0, le=300)
+	age_months: int | None = Field(default=None, ge=0, le=216)
 	# §AI-003 counts medicine searches for a drug by locality; the locality is the caller's, since a
 	# dose lookup carries no geography of its own.
 	county: str | None = None
 
 
+class DoseLine(BaseModel):
+	"""One form of the medicine, with the amount to give — as a range, in that form's own units.
+
+	A tablet is counted and a syrup is measured, so `amount_low`/`amount_high` are in `unit`: a
+	number of tablets, or millilitres. `amount_mg_low`/`amount_mg_high` carry the same range in
+	milligrams for a caller that wants it. Both are here because a person holding a 5 ml spoon
+	should not have to divide a milligram figure by the strength printed on a bottle — that
+	division is the calculator's whole job.
+	"""
+
+	model_config = MODEL_CONFIG
+	form: str
+	strength: str
+	unit: str
+	amount_low: float
+	amount_high: float
+	amount_mg_low: float | None = None
+	amount_mg_high: float | None = None
+
+
 class DoseResult(BaseModel):
+	"""§MED-003's "Get dose range", as a range rather than a single number.
+
+	`total_mg` was one figure computed from a caller-supplied constant, and the section asks for a
+	*range*. `mg_low`/`mg_high` are the source's own spread — paracetamol is 10–15 mg/kg, not 12.5 —
+	and `lines` renders that spread in the forms the pharmacy actually stocks.
+
+	`max_mg_per_dose` is `None` where the source states no ceiling, and a client must render the
+	absence rather than a zero: "no maximum stated" and "maximum zero" are opposite claims, and the
+	second would stop a child's medicine.
+	"""
+
 	model_config = MODEL_CONFIG
 	drug: str
-	total_mg: float
-	warns: list[str]
+	matched: str
+	mg_per_kg_low: float
+	mg_per_kg_high: float
+	doses_per_day_low: int
+	doses_per_day_high: int
+	mg_low: float | None = None
+	mg_high: float | None = None
+	max_mg_per_dose: float | None = None
+	max_mg_per_day: float | None = None
+	over_max: bool = False
+	lines: list[DoseLine] = Field(default_factory=list)
+	# Volume guidance for ORS, which is dosed by the stool rather than on a schedule.
+	after_each_stool_ml_low: float | None = None
+	after_each_stool_ml_high: float | None = None
+	maintenance_ml_per_kg_per_hour: float | None = None
+	days_low: int | None = None
+	days_high: int | None = None
+	note: str = ''
+	warns: list[str] = Field(default_factory=list)
+	# Present only when the name matched nothing in the formulary, so a caller can tell "no dose for
+	# this" from "no such medicine" without reading a warning string.
+	unknown: bool = False
 
 
 class StockReport(BaseModel):

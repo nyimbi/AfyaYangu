@@ -10,6 +10,7 @@ that uses it, with its retrieval URL, date, and checksum.
 | CKD-EPI 2021, KDIGO CKD classification, ILAE status epilepticus, sickle cell and epilepsy guidance | `afya.chronic.conditions` | `clinical-thresholds/` |
 | PHQ-9 and GAD-7 instruments, with the Pfizer instruction manual | `afya.mental.instruments`, `afya.mental.service` — §REC-005's screenings | `phq9-gad7/` |
 | Psychological first aid: guide for field workers (WHO, 2011), English and Kiswahili | `afya.mental.support` — §REC-005's coping strategies and outbreak-specific support | `who-pfa/` |
+| WHO Pocket Book of Hospital Care for Children, 2nd ed. (2013) | `afya.medicine.formulary` — §MED-003's dose ranges, formulations and maximum doses | `who-pocket-book/` |
 
 Every source is stored as the published artefact **and** as layout-preserving text (`pdftotext
 -layout`), with both checksums recorded. The text copy is what a tool reads: an agent given a PDF
@@ -311,3 +312,68 @@ The record page is `https://www.who.int/publications/i/item/9789241548205`.
   psychometrically validated Kiswahili instrument; it is WHO's own translation of WHO's own guidance,
   which is what makes it citable. The instruments' localisation caveat is in the `phq9-gad7/`
   section above and is a separate matter.
+
+---
+
+## WHO Pocket Book of Hospital Care for Children, second edition
+
+The World Health Organization's clinical manual for the care of children under five at first-level
+referral hospitals. §MED-003 is a weight-based dosing calculator "especially paediatric", and a
+calculator has no answer without a table of dose-per-kilogram figures to compute from: the current
+route asked the *caller* to supply `mg_per_kg`, which is the one constant a person opens the app to
+look up. The Pocket Book is where the five formulations the section names are dosed.
+
+**Publisher:** World Health Organization. **Edition:** second, 2013. **ISBN:** 978 92 4 154837 3
+(NLM classification: WS 29).
+**Retrieved:** 2026-10-12.
+**Record page:** `https://iris.who.int/handle/10665/81170`
+
+### Files
+
+| File | Bytes | SHA-256 (first 16) |
+|---|---|---|
+| `who-pocket-book-2nd-ed.pdf` | 3103071 | `e17581cf0829bea6` |
+| `who-pocket-book-2nd-ed.txt` | 1331021 | `e670e643f873b462` |
+
+The PDF is the publisher's own file. The `.txt` is `pdftotext -layout` over it; the appendix's
+"Drug / Dosage / Form / 3–< 6 kg / 6–< 10 kg / …" columns survive the extraction in order, which is
+what makes the table checkable against the code row by row rather than by eye.
+
+**The download path is not the record page.** `iris.who.int/handle/10665/81170` is an Angular
+landing page; the file is behind a UUID bitstream URL that the page's own `<link rel="item"
+type="application/pdf">` tag carries. Fetching the record page and saving it as `.pdf` stores 674 KB
+of HTML — check `file` on anything retrieved this way before computing its checksum.
+
+### What the source supports, and what it does not
+
+- **Dose per kilogram, for five drugs, with the formulation each is dispensed as.** Paracetamol
+  10–15 mg/kg up to six times a day, as a 100-mg tablet and a 500-mg tablet (Appendix 2, p. 367).
+  Amoxicillin 25 mg/kg twice a day generally, 40 mg/kg twice a day for pneumonia, as a 250-mg
+  chewable/dispersible tablet and a 250 mg/5 ml syrup (p. 357). Artemether–lumefantrine 2 mg/kg
+  artemether with 12 mg/kg lumefantrine twice a day, as the 20 mg/120 mg combined tablet, with the
+  weight bands stated as tablets rather than mg/kg (p. 164). Zinc 10 mg/day under 6 months and
+  20 mg/day from 6 months, for 10–14 days (p. 134). ORS 50–100 ml after each loose stool under 2
+  years and 100–200 ml from 2 years (p. 136), plus about 5 ml/kg per hour alongside IV rehydration
+  (p. 135).
+- **The maximum doses the section's last bullet asks for.** Aminophylline loading "5–6 mg/kg
+  (max. 300 mg)", chloramphenicol "max, 1 g per dose" (p. 360), cefotaxime "max single dose, 4 g" (p. 359),
+  chloramphenicol oily "max, 3 g" (p. 360) — the appendix states a ceiling per drug where one
+  exists. Each page reference here was read off the source's own footer marker, not estimated:
+  the footer closes the page it prints on, so a text position maps to the *next* marker at or
+  after it.
+- **What it does *not* give: a numeric ceiling for paracetamol, amoxicillin or zinc.** The Pocket
+  Book states paracetamol's frequency ceiling ("up to six times a day") and not a mg/kg-per-day
+  total, and gives no maximum for amoxicillin or zinc. The code therefore warns on *frequency and
+  weight band*, never on an invented daily milligram ceiling, and `afya.medicine.formulary` records
+  `max_mg_per_dose=None` for those rather than filling the gap. A number invented to fill a table
+  is worse than a table with a gap.
+- **The source's weight bands are for dispensing a tablet, not for computing a milligram dose.**
+  Where the Pocket Book gives "child weighing 5 – < 15 kg: one tablet twice a day", that is a
+  tablet count for a fixed-strength combined tablet and it is what the code returns for
+  artemether–lumefantrine; it is not a mg/kg figure, and the code does not pretend to derive one.
+- **Age is used for a threshold, not for a dose.** The zinc and ORS rules turn on 6 months and 2
+  years. Nothing in the source doses by age alone, so the calculator takes age only to select those
+  bands and refuses to guess when it is absent.
+- **It is a hospital-care manual for children under five.** Adult dosing is out of its scope
+  entirely; the calculator is therefore bounded to a paediatric weight range and says so rather
+  than extrapolating an adult dose from a child's table.

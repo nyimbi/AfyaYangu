@@ -153,11 +153,11 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	('MED-002', 'Features', 'Flag contraindications for pregnancy, children, and common conditions', 'missing', None, '`_INTERACTIONS` is drug-pair rows only; there is no contraindication axis for pregnancy, age or a condition'),
 	('MED-002', 'Features', 'Guidance to consult a pharmacist', 'missing', None, 'the check returns severity strings and no guidance line'),
 	# --- §8.3 MED-003: Dosage Calculator -----------------------------------------------------
-	('MED-003', 'Features', 'Enter weight and age', 'missing', None, '`DoseRequest` carries `weight_kg` and no age'),
-	('MED-003', 'Features', 'Select medicine', 'carried', 'afya.medicine.views:DoseRequest', 'drug'),
-	('MED-003', 'Features', 'Get dose range', 'missing', None, '`dose` returns one `total_mg` computed from a caller-supplied mg/kg; there is no range and the caller supplies the very constant a calculator exists to look up'),
-	('MED-003', 'Features', 'Common paediatric formulations (paracetamol, amoxicillin, ORS, zinc, artemether-lumefantrine)', 'missing', None, 'no formulation table'),
-	('MED-003', 'Features', 'Warning for maximum doses', 'missing', None, '`warns` fires on weight < 5 kg and mg/kg > 60 — neither is a maximum-dose check'),
+	('MED-003', 'Features', 'Enter weight and age', 'carried', 'afya.medicine.views:DoseRequest', 'weight_kg, and age_months which the source only needs for zinc'),
+	('MED-003', 'Features', 'Select medicine', 'carried', 'afya.medicine.views:DoseRequest', 'drug, matched against the formulary rather than free text'),
+	('MED-003', 'Features', 'Get dose range', 'carried', 'afya.medicine.views:DoseResult', 'mg_low/mg_high are the source\'s own spread — paracetamol is 10-15 mg/kg, not a midpoint'),
+	('MED-003', 'Features', 'Common paediatric formulations (paracetamol, amoxicillin, ORS, zinc, artemether-lumefantrine)', 'carried', 'afya.medicine.formulary:PAEDIATRIC_FORMULARY', 'all five, each with the forms the Pocket Book dispenses them as'),
+	('MED-003', 'Features', 'Warning for maximum doses', 'carried', 'afya.medicine.views:DoseResult', 'max_mg_per_dose/over_max where the source states a ceiling, and an explicit "no maximum stated" where it does not'),
 	# --- §8.4 EMG-001: Emergency SOS ---------------------------------------------------------
 	('EMG-001', 'Features', 'Large, hard-to-mistap SOS button', 'deferred', None, 'a button is the client surface; the call it makes is `/emergency/sos`'),
 	('EMG-001', 'Features', 'Sends location and a preset message to up to three emergency contacts', 'missing', None, '`SOSEvent` carries no contacts and `sos` notifies the hotline; the "three emergency contacts" the section names are not on the event'),

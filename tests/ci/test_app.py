@@ -61,8 +61,10 @@ async def test_facility_nearest_and_status(client: httpx.AsyncClient) -> None:
 async def test_medicine_endpoints(client: httpx.AsyncClient) -> None:
 	out = (await client.post('/medicine/interactions', json={'drugs': ['warfarin', 'aspirin']})).json()
 	assert 'MAJOR' in out[0]
-	dose = (await client.post('/medicine/dose', json={'drug': 'paracetamol', 'weight_kg': 20.0, 'mg_per_kg': 15.0})).json()
-	assert dose['total_mg'] == 300.0
+	# §MED-003 asks for a range and the source's spread is 10–15 mg/kg, so 20 kg is 200–300 mg.
+	# The route no longer takes `mg_per_kg`: that was the constant a calculator exists to look up.
+	dose = (await client.post('/medicine/dose', json={'drug': 'paracetamol', 'weight_kg': 20.0})).json()
+	assert (dose['mg_low'], dose['mg_high']) == (200.0, 300.0)
 
 
 async def test_sos_endpoint(client: httpx.AsyncClient) -> None:
