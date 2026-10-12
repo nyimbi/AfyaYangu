@@ -13,6 +13,7 @@ from typing import cast
 
 from afya.brand.service import BRAND, NON_GOALS, PRINCIPLES, VISION, brand_is_clean, brand_violations
 from afya.problem.service import gap_report, lesson_report
+from afya.content_audit.service import content_report
 from afya.config import ServiceConfig
 from afya.persistence.service import SqliteStore
 from afya.channels.cost import ZeroRatingRule, parse_rules, zero_rating_gaps
@@ -644,6 +645,17 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'gaps': gap_report().model_dump(mode='json'),
 			'lessons': lesson_report().model_dump(mode='json'),
 		}
+
+	@app.get('/features/content')
+	async def features_content(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§8–§12's labelled content lists, crossed against what the repo does.
+
+		The registry gate asks whether a feature is *reachable*; this asks whether it does what its
+		section says. Four sections are audited — the ones the section-number survey found named
+		nowhere in the source — and the report carries the thirty-two it has not read, so a list of
+		fifteen gaps cannot be mistaken for a complete audit.
+		"""
+		return content_report().model_dump(mode='json')
 
 	# --- triage ---
 	@app.post('/triage/preliminary', response_model=TriageResult)
