@@ -28,6 +28,8 @@ from typing import Callable, Literal, TypeAlias, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from afya.community.views import FOLLOWUP_DAYS
+from afya.location.views import ALERT_ZONE_RADII_M
 from afya.records.views import WALLET_DOC_KINDS
 from afya.registry.diseases import DISEASES
 
@@ -170,7 +172,8 @@ FEATURE_OF: dict[str, str] = {
 	'activate_outbreak_mode': 'TRI-003',
 	'report_issue': 'COM-005', 'issues_by_county': 'COM-005', 'resolve_issue': 'COM-005',
 	'submit_case': 'COM-101', 'advance_case': 'COM-101', 'ppe_reminder': 'COM-101',
-	'peer_alert': 'COM-102', 'tracing_prompts': 'COM-103', 'save_contacts': 'COM-103', 'add_contact': 'COM-103',
+	'peer_alert': 'COM-102', 'peer_alert_followup': 'COM-102', 'ack_peer_alert': 'COM-102',
+	'tracing_prompts': 'COM-103', 'save_contacts': 'COM-103', 'add_contact': 'COM-103',
 	'flag_misinformation': 'COM-104', 'misinformation_clusters': 'COM-104',
 	'publish_feed_item': 'ALT-001', 'alert_feed': 'ALT-001',
 	'alert_preferences': 'ALT-003', 'set_alert_preference': 'ALT-003',
@@ -257,7 +260,8 @@ DORMANT_SLUGS: frozenset[str] = frozenset({
 	'submit_case', 'advance_case', 'ppe_reminder', 'job_aid', 'chw_cases', 'assign_chw_case',
 	'log_chw_activity', 'chw_activity', 'chw_case_load', 'chw_ppe_reminder',
 	# Peer alerts (COM-102), contact tracing (COM-103), misinformation tracking (COM-104)
-	'peer_alert', 'tracing_prompts', 'save_contacts', 'add_contact',
+	'peer_alert', 'peer_alert_followup', 'ack_peer_alert',
+	'tracing_prompts', 'save_contacts', 'add_contact',
 	'flag_misinformation', 'misinformation_clusters',
 	# Exposure notification (ALT-004)
 	'send_exposure_notice', 'ack_exposure',
@@ -523,7 +527,8 @@ def catalogue() -> list[MobileAction]:
 		_a('submit_case', 'Report a suspected case', 'Community', 'POST', '/community/cases', [_auto('report_id', 'Report number'), _f('chw_ref', 'Health worker'), _f('county', 'County'), _f('community', 'Village or estate'), _f('symptoms', 'Symptoms', 'list'), _f('age_years', 'Age in years', 'int'), _f('sex', 'Sex', 'select', ['male', 'female', 'other']), _f('temperature_c', 'Temperature °C', 'decimal'), _f('exposure_history', 'Who has the patient been near?', 'textarea'), _f('geotagged', 'Attach location?', 'bool'), _f('suspected_disease', 'What do you suspect?', 'select', VECTOR_DISEASES), _f('reported_offline', 'Reported without network?', 'bool')]),
 		_a('advance_case', 'Update a case', 'Community', 'POST', '/community/cases/{report_id}/advance', [_f('report_id', 'Report number', 'path'), _f('status', 'New status', 'select', CASE_STATUSES)]),
 		_a('ppe_reminder', 'Protective equipment reminder', 'Community', 'GET', '/community/ppe-reminder', []),
-		_a('peer_alert', 'Warn people nearby', 'Community', 'POST', '/community/peer-alert', [_f('alert_id', 'Alert number'), _f('county', 'County'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('radius_m', 'How far? (metres)', 'int'), _f('headline', 'Headline'), _f('body', 'Message', 'textarea'), _f('verified_by', 'Verified by', 'select', ['County', 'PHEOC', 'MoH'])]),
+		_a('peer_alert', 'Warn people nearby', 'Community', 'POST', '/community/peer-alert', [_f('alert_id', 'Alert number'), _f('county', 'County'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('radius_m', 'How far? (metres)', 'select', [str(r) for r in ALERT_ZONE_RADII_M]), _f('headline', 'Headline'), _f('location', 'Which place should people avoid?'), _f('issued_iso', 'Issued on', ph='YYYY-MM-DD'), _f('verified_by', 'Verified by', 'select', ['County', 'PHEOC', 'MoH'])]),
+		_a('peer_alert_followup', 'Follow-up prompt for one day', 'Community', 'GET', '/community/peer-alert/{alert_id}/followup/{day}', [_f('alert_id', 'Alert number', 'path'), _f('day', 'Day of the window (' + ', '.join(str(d) for d in FOLLOWUP_DAYS) + ')', 'path')]),
 		_a('tracing_prompts', 'Help me remember who I met', 'Community', 'GET', '/community/tracing-prompts', []),
 		_a('save_contacts', 'Save my contact list', 'Community', 'POST', '/community/contacts', [_s(), _f('entries', 'People', 'list'), _f('share_consent', 'Share with the health team?', 'bool')]),
 		_a('add_contact', 'Add one person I met', 'Community', 'POST', '/community/contacts/{subject_ref}/entry', [_s('path'), _f('description', 'Who was it?'), _f('setting', 'Where?', 'select', CONTACT_SETTINGS), _f('approx_location', 'Roughly where?'), _f('name_unknown', "I don't know their name", 'bool')]),
@@ -540,6 +545,7 @@ def catalogue() -> list[MobileAction]:
 		_a('monitoring_officer', 'Call my monitoring officer', 'Outbreak', 'GET', '/monitoring/contact/{subject_ref}/officer', [_s('path')]),
 		_a('send_exposure_notice', 'Send an exposure notice', 'Outbreak', 'POST', '/alerting/exposure', [_f('subject_ref', 'Person to notify'), _f('case_ref', 'Case reference', ph='optional')]),
 		_a('ack_exposure', 'I have read the notice', 'Outbreak', 'POST', '/alerting/exposure/ack', [_f('notification_id', 'Notice number'), _s(), _f('acknowledged_iso', 'When'), _f('request_callback', 'Ask a health worker to call me', 'bool')]),
+		_a('ack_peer_alert', 'I have read the warning', 'Community', 'POST', '/community/peer-alert/ack', [_f('alert_id', 'Alert number'), _s(), _f('acknowledged_iso', 'When'), _f('concerned', 'I am worried about this', 'bool')]),
 		_a('check_exposure', 'Was I near a case?', 'Outbreak', 'POST', '/location/proximity/check', [_f('own_pets', 'My encounter codes', 'list'), _f('window_days', 'Days to look back', 'int')]),
 		_a('declare_exposure', 'Declare that I tested positive', 'Outbreak', 'POST', '/location/proximity/declare', [_f('declaration_id', 'Declaration number'), _f('pet', 'Encounter code'), _f('declared_at_ms', 'When', 'int'), _f('proxied', 'Send anonymously?', 'bool')]),
 		_a('log_encounter', 'Log someone I passed nearby', 'Outbreak', 'POST', '/location/proximity/encounter', [_f('pet', 'Encounter code'), _f('seen_at_ms', 'When', 'int'), _f('rssi_dbm', 'Signal strength', 'int'), _f('county', 'County')]),

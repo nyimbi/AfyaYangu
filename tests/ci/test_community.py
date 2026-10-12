@@ -83,8 +83,9 @@ async def test_case_status_advances_forward_only() -> None:
 def _alert(alert_id: str = 'PA-1', **kw: object) -> PeerAlert:
 	base: dict[str, object] = {
 		'alert_id': alert_id, 'county': 'Busia', 'lat': -0.5, 'lon': 34.0, 'radius_m': 1000,
-		'headline': 'Boil drinking water in Budalangi',
-		'body': 'Cholera cases confirmed nearby. Boil or treat all drinking water for the next 14 days.',
+		'headline': 'Cholera cases confirmed nearby',
+		'location': 'Budalangi market',
+		'issued_iso': '2026-10-10',
 		'verified_by': 'County',
 	}
 	base.update(kw)
@@ -104,9 +105,13 @@ async def test_peer_alert_requires_county_verification() -> None:
 async def test_peer_alert_rejects_alarmist_tone() -> None:
 	svc = CommunityService()
 	with pytest.raises(AssertionError):
-		await svc.send_peer_alert(_alert(body='Everyone will die unless you act now.'))
+		await svc.send_peer_alert(_alert(headline='Everyone will die unless you act now'))
 	with pytest.raises(AssertionError):
 		await svc.send_peer_alert(_alert('PA-2', headline='Panic: outbreak spreads'))
+	# The location is the only free text left in the body once the sentence is the section's, so it
+	# is the one place a stigmatising alert can still be planted — and the judge still reads it.
+	with pytest.raises(AssertionError):
+		await svc.send_peer_alert(_alert('PA-3', location='An Ebola victim was found at the market'))
 	assert svc.peer_alerts('Busia') == []
 
 

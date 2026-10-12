@@ -1814,3 +1814,86 @@ procedure is not, and the code says so where it is served.
 (if a vaccine is available and deployed)" stays `deferred` — it is conditioned on a fact about the
 world, not on this tree. `case_ref` is a parameter with no caller: nothing in this tree mints a case
 identifier for a triage result, so the notification carries `None` unless a future caller has one.
+
+## §COM-102 — an alert with a body a CHW wrote, and a follow-up list nothing read
+
+§11.4 prints five Features and one Verification clause. Two were implemented — the geofenced zones
+and the tone gate. The four below had no carrier, and the first is the one that could have hurt
+someone.
+
+**The alert body was free text.** `PeerAlert` carried a caller-supplied `headline` and `body`, and
+nothing drafted the section's sentence. A free-text body is a body that can be alarmist, that can
+name a person, and that no reviewer sees before it reaches a whole village — and the section says its
+wording was "tested with community representatives before deployment", which a sentence typed at 3am
+is not. `ALERT_TEMPLATE` is now the section's sentence and `body` is a `computed_field` over it, so a
+free-text body is not representable rather than merely discouraged. The only slot is `location`.
+
+That is also how the second Feature is enforced. "No personally identifiable information about the
+case" was unenforced rather than absent: the template has nowhere to put an identifier, which is a
+property of the type rather than a reviewer's attention. The residual leak is the location itself —
+"House 14, next to Mama Otieno's" is a person — so `model_post_init` refuses identifier shapes
+(dwelling-plus-number, determiner-plus-person-noun). "the case" is deliberately allowed: it names
+nobody, it is the section's own anonymised phrasing, and a rule that banned it would refuse "The Case
+Hotel, Nairobi" and teach a CHW to write around the check rather than use it. A rule people route
+around is worse than the narrow one they keep.
+
+**The zones were a range, not the section's three.** `radius_m` was bounded `ge=500, le=5000`, which
+admits 3000 — a radius the section does not offer and a county cannot configure, since the zones are a
+choice from three and not a slider. The set now lives in `afya.location.views:ALERT_ZONE_RADII_M`,
+which is where §LOC-001's alert radii are too, and `afya.location.service:ALLOWED_RADII_M` re-exports
+it under an identity assert (`is`, not `==`): two tuples that agree today are not one source of truth,
+and the earlier module-constant defect in this very section was a constant nothing read. It is in
+`views` rather than `service` because a *model* validates against it, and a views module importing a
+service module for a constant that is a fact about the spec is the dependency pointing the wrong way.
+
+**Acknowledgement and guidance were the same missing bullet.** "Users acknowledge alerts and receive
+follow-up guidance" — there was no acknowledgement model, no route, and nothing returned after one.
+`PeerAlertAck` is posted to `/community/peer-alert/ack` behind `require_self()`, which *refuses* a
+body naming another person (403) rather than silently rewriting it, and returns `PeerAlertGuidance`:
+the four actions that resolve a concern inside an alert zone, plus one more line for a person who says
+they are worried — the section's Tone clause is "calm, factual, actionable", so a worried person gets
+the action rather than reassurance. The receipt counts *distinct subjects*, because the number a CHW
+reads is "how many people heard this" and a double tap is one person, not two.
+
+**The follow-up list was carried and never read.** `followup_days` defaulted to `[3, 7, 14, 21]` and
+no code path touched it. `followup_prompt` reads it now, on a day passed in rather than read from a
+clock — the scheduler is the deployment's, and a service reading `date.today()` would make every test
+that exercises day 21 depend on when it ran. The day a person is *on* is derived from
+`alert.issued_iso`, not from the client: the window opens when the alert was issued, so a phone with a
+wrong clock cannot read someone the day-21 prompt on day 1, and a late acknowledgement is clamped
+into the window rather than refused — an acknowledgement that arrives late is still an
+acknowledgement. `model_post_init` pins `followup_days` to the section's four, so a caller cannot send
+`[1..21]` and turn four prompts into a daily nag, which is the thing the section avoids precisely by
+naming four.
+
+**Wiring.** Three mobile catalogue actions (`peer_alert`, `peer_alert_followup`, `ack_peer_alert`),
+all three in `DORMANT_SLUGS` because §COM-102 is Tier 4 — an alert network that can wake a whole
+village must not be reachable before PHEOC activates the event. Two existing gates caught two real
+defects during this unit and both were load-bearing rather than decorative:
+`test_every_request_body_tolerates_its_own_derived_fields` refused `PeerAlert` until it mixed in
+`DerivedFields` (a computed field a request carries back would otherwise be a 422), and
+`test_every_tier4_action_is_dormant` refused `ack_peer_alert` while it was live.
+
+Twenty canaries were run against `tests/ci/canary_com102.py` and all twenty fire: the body becoming
+caller-supplied, `DerivedFields` removed, the 21-day window dropped from the sentence, the location
+rule removed, the rule widened to refuse the section's own phrasing, the zone set loosened to a range,
+`followup_days` made settable, a prompt on every day, a prompt on no day, an unknown alert answering
+instead of refusing, the acknowledgement not recorded, the ledger keyed so a double tap counts twice,
+the day ignoring the issue date, a late acknowledgement refused, the guidance emptied, the worried
+line dropped, the receipt carrying a different body than it sent, the route not reading the ledger,
+the ack route not binding the token, and the three actions going live.
+
+One canary is worth naming because its first version passed for the wrong reason. #12 was written
+against `acknowledged_count`'s set comprehension, and mutating it was caught by *nothing* — the
+ledger dict already dedupes on `(alert_id, subject_ref)`, so the set is a second line of defence with
+no independent failure. It was rewritten against the key itself. A canary aimed at the belt when the
+braces are doing the work is a canary that reports a gate it never tested.
+
+**Counts: 4 rows left `missing` — 4 to `carried` — 70 → 66.** 493 rows, `carried` 410, `missing` 66,
+`deferred` 17.
+
+**Sources.** No new archive: the section's 21-day window is the same WHO Ebola disease fact sheet
+already archived under `sources/ebola-transmission/` for §TRI-003, and §COM-102 states no threshold of
+its own. The 500 m / 1 km / 5 km zones are the section's, and the recipient estimate
+(`π r² × 4,000 /km²`) is a stated modelling assumption in the code, not a sourced figure — it is
+labelled as such where it is computed.

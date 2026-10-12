@@ -1,9 +1,11 @@
 """Community models (spec §10.4 COM-005, §11.4 COM-101..104)."""
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from afya.derived import DerivedFields
 from afya.ids import uuid7str
+from afya.location.views import ALERT_ZONE_RADII_M
 
 from afya.registry.diseases import DISEASE_PATTERN
 
@@ -114,17 +116,97 @@ class CaseReportView(BaseModel):
 
 # --- COM-102 peer alert network ----------------------------------------------------------
 
-class PeerAlert(BaseModel):
+# §COM-102's alert body, as a template with two slots rather than as a string a caller writes.
+#
+# The section prints the sentence the alert carries — "A suspected case has been reported in your
+# area. Avoid [specific location]. Monitor for symptoms for 21 days. Call 719 if you feel unwell." —
+# and `PeerAlert` had a caller-supplied `headline`/`body` and nothing that drafted it. A template is
+# the whole point of the bullet: the section's wording is the calm, factual, actionable one it says
+# it tested with community representatives, and a free-text body is a body that can be alarmist,
+# that can name a person, and that cannot be reviewed before it goes to a whole village.
+#
+# `{location}` is the "[specific location]" the section leaves open, and it is the *only* slot.
+# There is no slot for a case reference, a name, a house number or a patient — §COM-102's own "No
+# personally identifiable information about the case" is enforced by there being nowhere to put one,
+# not by a reviewer noticing. `alert_body` refuses a location that looks like an identifier.
+ALERT_TEMPLATE: str = (
+	'A suspected case has been reported in your area. Avoid {location}. '
+	'Monitor for symptoms for 21 days. Call 719 if you feel unwell.'
+)
+
+# What a `location` may not contain. A place name is a place name; a person is not a place. The
+# check is about *identifier shapes* — a dwelling followed by a number, or a determiner followed by a
+# person-noun — because the words a stigmatising alert uses are §6.2.9's business and the tone judge
+# already reads this string. What the judge cannot see is that "House 14, next to Mama Otieno's" is
+# a person, and that is what this refuses.
+#
+# "the case" is deliberately *not* on the list. It names nobody — it is the section's own anonymised
+# phrasing, the one its template uses — and a rule that refused it would refuse "The Case Hotel" and
+# teach a CHW to write around the check rather than to use it.
+_ALERT_LOCATION_FORBIDDEN: tuple[str, ...] = (
+	'the patient', 'the victim', 'the deceased', 'the body',
+	'house ', 'plot ', 'door ', 'apartment ', 'flat ', 'room ',
+)
+
+# §COM-102's follow-up prompts, on the section's own days. Four, and they are a module constant
+# because two features now read them: the alert carries them and §TRI-002's diary escalates on a
+# red flag within the same window. A list written twice is a list that drifts.
+FOLLOWUP_DAYS: tuple[int, ...] = (3, 7, 14, 21)
+
+# §11.2 TRI-003's escalation window, which is also the symptom window §COM-102's alert names. The
+# alert says "monitor for symptoms for 21 days" and the follow-up prompts end on day 21, so the two
+# facts are one fact and the day count is read from the source's range rather than written again.
+ALERT_WINDOW_DAYS: int = 21
+
+
+class PeerAlert(DerivedFields, BaseModel):
+	"""§COM-102's alert. The body is drafted from `ALERT_TEMPLATE`, not supplied.
+
+	`verified_by` is required because the section's Verification clause is "Alerts are only sent
+	after verification by county health authorities"; a model that defaulted it would make the
+	clause a field nobody fills.
+	"""
+
 	model_config = MODEL_CONFIG
 	alert_id: str
 	county: str
 	lat: float = Field(ge=-5, le=6)
 	lon: float = Field(ge=33, le=43)
-	radius_m: int = Field(ge=500, le=5000)
+	# §COM-102's geofenced zones are 500 m, 1 km and 5 km, and §LOC-001's `ALLOWED_RADII_M` is the
+	# same three. `radius_m` was bounded 500–5000, which admits 3000 — a radius the section does not
+	# offer and no county can configure, since the set is the set of zones.
+	radius_m: int
 	headline: str = Field(max_length=120)
-	body: str = Field(max_length=400)
+	# The "[specific location]" slot. Named for what it is: a place, not a case.
+	location: str = Field(min_length=2, max_length=80)
 	verified_by: str
-	followup_days: list[int] = [3, 7, 14, 21]
+	# When the alert was issued, which is when §COM-102's 21-day window opens — not when a recipient
+	# happens to read it. Required rather than defaulted to today: an alert filed after the fact is
+	# filed with the date it was issued, and a server that stamped `now` would silently move the
+	# window for everyone who reads it late.
+	issued_iso: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2}))?$')
+	followup_days: list[int] = Field(default_factory=lambda: list(FOLLOWUP_DAYS))
+
+	def model_post_init(self, _context: object) -> None:
+		assert self.radius_m in ALERT_ZONE_RADII_M, (
+			f'{self.radius_m} m is not a §COM-102 alert zone; '
+			f'the section offers {list(ALERT_ZONE_RADII_M)}'
+		)
+		assert self.followup_days == list(FOLLOWUP_DAYS), (
+			f'§COM-102 prints follow-up prompts on days {list(FOLLOWUP_DAYS)}'
+		)
+		low = self.location.lower()
+		leaked = [w for w in _ALERT_LOCATION_FORBIDDEN if w in low]
+		assert not leaked, (
+			f'the alert location names something that is not a place: {leaked} — §COM-102 forbids '
+			f'personally identifiable information about the case'
+		)
+
+	@computed_field
+	@property
+	def body(self) -> str:
+		"""The section's sentence, with the location in it. Derived, so there is no free-text body."""
+		return ALERT_TEMPLATE.format(location=self.location)
 
 
 class PeerAlertReceipt(BaseModel):
@@ -133,6 +215,41 @@ class PeerAlertReceipt(BaseModel):
 	recipients: int = Field(ge=0)
 	verification: str
 	tone_check: str
+	body: str
+	# The acknowledgement §COM-102's fourth bullet asks for, and the guidance returned with it.
+	# Both are on the receipt rather than on a second model because they are what the sender gets
+	# back: a CHW who dispatched an alert reads whether anyone answered it.
+	acknowledged: int = Field(default=0, ge=0)
+	followup_days: list[int] = Field(default_factory=lambda: list(FOLLOWUP_DAYS))
+
+
+class PeerAlertAck(BaseModel):
+	"""§COM-102's "Users acknowledge alerts and receive follow-up guidance".
+
+	The acknowledgement is a *recipient's* act, so it carries the person who read the alert and the
+	alert they read. No case reference travels with it, for the same reason none travels with the
+	alert.
+	"""
+
+	model_config = MODEL_CONFIG
+	alert_id: str
+	subject_ref: str
+	acknowledged_iso: str
+	# §COM-102's Tone clause is "calm, factual, actionable", so the guidance a person gets back is
+	# the four things to do, not a restatement of the alert.
+	concerned: bool = False
+
+
+class PeerAlertGuidance(BaseModel):
+	"""What an acknowledgement returns. The follow-up prompt for the day it was read, and the steps."""
+
+	model_config = MODEL_CONFIG
+	alert_id: str
+	subject_ref: str
+	day: int = Field(ge=1, le=ALERT_WINDOW_DAYS)
+	guidance: list[str]
+	next_followup_day: int | None = None
+	message: str
 
 
 # --- COM-103 contact tracing assistance --------------------------------------------------

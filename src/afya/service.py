@@ -112,6 +112,7 @@ from afya.intermediaries.views import Incentive, Intermediary, Referral
 from afya.community.service import CommunityService
 from afya.community.views import (
 	CaseReport, CaseStatus, CommunityIssue, ContactEntry, ContactList, MisinfoSubmission, PeerAlert,
+	PeerAlertAck,
 )
 from afya.location.service import LocationService
 from afya.location.views import (
@@ -3096,9 +3097,38 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/community/peer-alert')
 	async def community_peer_alert(alert: PeerAlert, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
 		try:
-			return (await community.send_peer_alert(alert)).model_dump(mode='json')
+			receipt = await community.send_peer_alert(alert)
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		# §COM-102's fourth bullet from the sender's side: the receipt says how many people answered,
+		# so a CHW who dispatched an alert can see whether anyone read it.
+		return receipt.model_copy(update={'acknowledged': community.acknowledged_count(alert.alert_id)}).model_dump(mode='json')
+
+	@app.get('/community/peer-alert/{alert_id}/followup/{day}')
+	async def community_peer_followup(alert_id: str, day: int) -> dict[str, object]:
+		"""§COM-102's follow-up prompt for one day of the window. `prompt` is `None` on a day the
+		section does not name, which is an answer rather than an error — the scheduler asks for every
+		day and sends only what comes back."""
+		try:
+			return {'alert_id': alert_id, 'day': day, 'prompt': community.followup_prompt(alert_id, day)}
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.post('/community/peer-alert/ack')
+	async def community_peer_ack(ack: PeerAlertAck, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§COM-102's "Users acknowledge alerts and receive follow-up guidance", both halves.
+
+		`require_self()` binds the body's `subject_ref` to the token, so a caller who names another
+		person is refused rather than silently overwritten. That matters more here than on most
+		self-bound routes: the acknowledgement is what §COM-102's receipt counts, so a caller who
+		could acknowledge on someone else's behalf could inflate the number a CHW reads as "how many
+		people heard this".
+		"""
+		try:
+			guidance = await community.acknowledge_peer_alert(ack)
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+		return guidance.model_dump(mode='json')
 
 	@app.get('/community/tracing-prompts')
 	async def community_prompts() -> list[str]:

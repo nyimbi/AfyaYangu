@@ -238,21 +238,25 @@ async def test_a_peer_alert_is_refused_on_the_sections_rules_not_a_local_list() 
 	It now runs the same table — and this is the surface that showed the table must apply to a
 	broadcast as well as to reference material, since a peer alert is read by a whole village."""
 	svc = CommunityService()
-	alert = PeerAlert(alert_id='PA-1', headline='Panic: outbreak spreads', body='Act now.', verified_by='PHEOC',
-	                  county='Busia', lat=0.5, lon=34.1, radius_m=1000)
+	alert = PeerAlert(alert_id='PA-1', headline='Panic: outbreak spreads', verified_by='PHEOC',
+	                  county='Busia', lat=0.5, lon=34.1, radius_m=1000, location='Budalangi market',
+	                  issued_iso='2026-10-10')
 	with pytest.raises(AssertionError, match='tone rejected'):
 		await svc.send_peer_alert(alert)
 	# The case the old local list missed. "Panic" was one of its four words; "an Ebola victim" was
 	# not, and a broadcast that names a neighbour that way is the harm §6.2.9 exists to prevent.
-	# A canary that reverted this call site to its own list passed until this text was added.
+	# A canary that reverted this call site to its own list passed until this text was added. The
+	# sentence around it is now the section's own template, so the location is where the words go.
 	stigmatising = PeerAlert(alert_id='PA-3', headline='Ebola in Busia',
-	                         body='An Ebola victim was found at the market. Avoid that area and call 719 if you have fever.',
-	                         verified_by='PHEOC', county='Busia', lat=0.5, lon=34.1, radius_m=1000)
+	                         location='An Ebola victim was found at the market',
+	                         verified_by='PHEOC', county='Busia', lat=0.5, lon=34.1, radius_m=1000,
+	                         issued_iso='2026-10-10')
 	with pytest.raises(AssertionError, match='tone rejected'):
 		await svc.send_peer_alert(stigmatising)
 	# A calm, actionable alert passes, and the section's own prescribed shape is not itself refused.
-	ok = PeerAlert(alert_id='PA-2', headline='Ebola in Busia', body='Boil drinking water and call 719 if you have fever.',
-	               verified_by='PHEOC', county='Busia', lat=0.5, lon=34.1, radius_m=1000)
+	ok = PeerAlert(alert_id='PA-2', headline='Ebola in Busia', location='Busia market',
+	               verified_by='PHEOC', county='Busia', lat=0.5, lon=34.1, radius_m=1000,
+	               issued_iso='2026-10-10')
 	await svc.send_peer_alert(ok)
 	assert len(svc.peer_alerts('Busia')) == 1
 

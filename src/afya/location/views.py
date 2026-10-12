@@ -11,6 +11,13 @@ EBID_ROTATION_MINUTES = 15
 LOCATION_WINDOW_DAYS = 21
 LOCATION_WINDOW_MAX_DAYS = 28
 
+# §COM-102's geofenced alert zones — "500 m, 1 km, 5 km — configurable by county" — and §8.6
+# LOC-001's alert radii, which are the same three numbers. Kept here rather than in the location
+# *service* because the peer-alert model validates against the set: a zone the section does not
+# offer is a radius no county can configure, and a model that imported the service would make a
+# views module depend on a service module for a constant that is a fact about the spec.
+ALERT_ZONE_RADII_M: tuple[int, ...] = (500, 1000, 5000)
+
 
 # --- LOC-002 BLE proximity ---------------------------------------------------------------
 

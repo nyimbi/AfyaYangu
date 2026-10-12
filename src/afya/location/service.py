@@ -7,14 +7,17 @@ Design commitments carried in code, not policy:
   * LOC-005 pairs a pre-travel advisory with the same 21-day window as MON-009.
 """
 from afya.location.views import (
-	EBID_ROTATION_MINUTES, LOCATION_WINDOW_DAYS, BorderPost, CheckIn, CheckInPoint, CheckInReceipt,
-	EncounterToken, EphemeralId, ExposureDeclaration, ExposureMatch, LocationHistory, LocationPoint,
-	LocationReport, TravellerEnrolment, TravelerDeclaration,
+	ALERT_ZONE_RADII_M, EBID_ROTATION_MINUTES, LOCATION_WINDOW_DAYS, BorderPost, CheckIn,
+	CheckInPoint, CheckInReceipt, EncounterToken, EphemeralId, ExposureDeclaration, ExposureMatch,
+	LocationHistory, LocationPoint, LocationReport, TravellerEnrolment, TravelerDeclaration,
 )
 from afya.logmixin import LogMixin
 
-# Geofenced alert zones — county-configurable radii (§COM-102: 500 m, 1 km, 5 km).
-ALLOWED_RADII_M: tuple[int, ...] = (500, 1000, 5000)
+# Geofenced alert zones — county-configurable radii (§COM-102: 500 m, 1 km, 5 km). Re-exported
+# rather than written again: the peer-alert model validates a radius against the same three, and a
+# second tuple is a second answer to "which zones exist" the moment one of them moves.
+ALLOWED_RADII_M: tuple[int, ...] = ALERT_ZONE_RADII_M
+assert ALLOWED_RADII_M is ALERT_ZONE_RADII_M, 'the zone set is one tuple, not two that agree today'
 
 
 def _geohash_cell(geohash: str) -> str:

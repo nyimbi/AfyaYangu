@@ -7,9 +7,10 @@ reported -> investigated -> lab_result -> closed.
 from afya.auth.views import now_ms
 from afya.community.protocol import PROTOCOL, ResponseClock, coverage, response_clock
 from afya.community.views import (
-	ISSUE_ROUTING, CaseReport, CaseReportView, CaseStatus, ClaimAnswer, CommunityIssue, ContactEntry,
-	ContactList, ContactTracingSummary, IssueReceipt, IssueStatus, MisinfoCluster, MisinfoSubmission,
-	PeerAlert, PeerAlertReceipt,
+	ALERT_WINDOW_DAYS, FOLLOWUP_DAYS, ISSUE_ROUTING, CaseReport, CaseReportView, CaseStatus,
+	ClaimAnswer, CommunityIssue, ContactEntry, ContactList, ContactTracingSummary, IssueReceipt,
+	IssueStatus, MisinfoCluster, MisinfoSubmission, PeerAlert, PeerAlertAck, PeerAlertGuidance,
+	PeerAlertReceipt,
 )
 from afya.identity.service import IdentityService
 from afya.info.myths import (
@@ -57,6 +58,35 @@ TRACING_PROMPTS: tuple[str, ...] = (
 	'Any funeral, wedding or gathering you attended?',
 )
 
+# §COM-102's "receive follow-up guidance" — what an acknowledgement returns. The four things a
+# person inside an alert zone is told to do, in the order that resolves a concern fastest. The
+# section's Tone clause is "calm, factual, actionable" and this is the actionable half: an alert
+# that only said "monitor for symptoms" leaves a person watching and waiting with nothing to do.
+ALERT_GUIDANCE: tuple[str, ...] = (
+	'Watch yourself for fever, headache, muscle pain, vomiting or unusual bleeding for 21 days from the day the alert was issued.',
+	'Wash your hands with soap and running water, and keep them away from your face.',
+	'If a fever or any of those symptoms starts, call 719 and say you were in an alert zone. Do not go to a clinic unannounced.',
+	'Do not touch anyone who is sick, and do not wash or touch a body if someone dies. Call 719 for a safe burial team.',
+)
+
+
+def _alert_day(alert: PeerAlert, acknowledged_iso: str) -> int:
+	"""Which day of §COM-102's window an acknowledgement falls on, clamped into it.
+
+	Derived from the alert's own issue date rather than from the acknowledgement alone: the window
+	starts when the alert was issued, not when the person happened to read it, so someone who opens
+	the app on day 5 is on day 5. Clamped to `[1, ALERT_WINDOW_DAYS]` rather than refused — an
+	acknowledgement that arrives late is still an acknowledgement, and a 422 would lose the fact that
+	the person answered at all.
+	"""
+	from datetime import date
+	def _parse(text: str) -> date:
+		return date.fromisoformat(text[:10])
+	issued = _parse(alert.issued_iso)
+	seen = _parse(acknowledged_iso)
+	day = (seen - issued).days + 1
+	return max(1, min(ALERT_WINDOW_DAYS, day))
+
 
 class CommunityService(LogMixin):
 	def __init__(self, identity: IdentityService | None = None) -> None:
@@ -72,6 +102,9 @@ class CommunityService(LogMixin):
 		self._cases: dict[str, CaseReport] = {}
 		self._case_status: dict[str, CaseStatus] = {}
 		self._peer_alerts: list[PeerAlert] = []
+		# (alert_id, subject_ref) -> the acknowledgement. Keyed by the pair so a person who taps the
+		# button twice is one acknowledgement, which is what §COM-102's receipt counts.
+		self._peer_acks: dict[tuple[str, str], PeerAlertAck] = {}
 		self._contacts: dict[str, ContactList] = {}
 		self._misinfo: list[MisinfoSubmission] = []
 		self._detected: dict[str, int] = {}
@@ -196,20 +229,95 @@ class CommunityService(LogMixin):
 		# would not have moved if the section did. It is instruction text — a peer alert tells someone
 		# what to do — so the directive rule applies and the stigma rule does not: the sentence names
 		# the reader, not a group.
+		#
+		# The judged string is `alert.body`, which is *derived* from `ALERT_TEMPLATE` and the location.
+		# That is the point of the template: the section's own sentence is the calm one it says it
+		# tested with community representatives, so a body that failed this judge would be a body the
+		# template could not have produced. The judge still runs, because the location is free text
+		# and a place name can carry a stigma ("the Somali quarter") even when the sentence around it
+		# is the section's.
 		finding = judge(f'peer_alert:{alert.alert_id}', f'{alert.headline} {alert.body}', Subject.content)
 		failures = [v.detail for v in finding.failures()]
 		assert not failures, f'peer alert tone rejected: {failures}'
 		self._peer_alerts.append(alert)
 		# Recipients are counted by the geofence fan-out; this service records the verified alert.
+		# The figure below is a *modelling assumption*, not a sourced number: 4,000 people per km²
+		# is a dense informal-settlement figure, and §COM-102 states no density. It is a receipt
+		# field a CHW reads as an order of magnitude, and it is named here so nobody cites it as
+		# census data.
 		recipients = int(3.14159 * (alert.radius_m / 1000.0) ** 2 * 4000)
 		self._log_warn('peer alert verified and dispatched', county=alert.county, radius_m=alert.radius_m)
 		return PeerAlertReceipt(
 			alert_id=alert.alert_id, recipients=recipients, verification=f'verified by {alert.verified_by}',
 			tone_check='calm, factual, actionable — no case identifiers present',
+			body=alert.body, followup_days=list(alert.followup_days),
 		)
 
 	def peer_alerts(self, county: str) -> list[PeerAlert]:
 		return [a for a in self._peer_alerts if a.county == county]
+
+	def alert(self, alert_id: str) -> PeerAlert:
+		"""One alert by id. `assert` rather than a `None` return: an alert id a client holds and the
+		server does not is a bug on one side, and a caller that has to handle `None` will render an
+		empty screen instead of reporting it."""
+		for a in self._peer_alerts:
+			if a.alert_id == alert_id:
+				return a
+		raise AssertionError(f'unknown alert: {alert_id}')
+
+	def followup_prompt(self, alert_id: str, day: int) -> str | None:
+		"""§COM-102's fourth bullet: "Follow-up prompts on days 3, 7, 14, and 21".
+
+		`None` on a day that is not one of the four, and `None` past the window. A prompt on every
+		day would be the daily nag the section avoids by naming four; a prompt on day 22 would be a
+		prompt about a window that has closed.
+
+		The day is a parameter rather than read from a clock: the scheduler that calls this is the
+		deployment's, and a service that read `date.today()` would make every test that exercises
+		day 21 depend on when it ran.
+		"""
+		assert day >= 0, 'day must not be negative'
+		self.alert(alert_id)
+		if day not in FOLLOWUP_DAYS:
+			return None
+		# Day 21 is the last prompt, so there is nothing after it — and saying "we will check on you
+		# on day 22" is a promise the section does not make.
+		return (
+			f'Day {day} of {ALERT_WINDOW_DAYS}. Are you well? Call 719 straight away if you have a '
+			f'fever, a headache, muscle pain, vomiting or unusual bleeding.'
+		)
+
+	async def acknowledge_peer_alert(self, ack: PeerAlertAck) -> PeerAlertGuidance:
+		"""§COM-102's third bullet, both halves: the acknowledgement, and the guidance it returns.
+
+		The acknowledgement is recorded per person per alert, so acknowledging twice does not count
+		twice — §COM-102's receipt reports how many people answered, and a person who taps the button
+		twice is one person. The day is derived from when the alert was issued rather than sent by the
+		client, because a client's clock decides which follow-up prompt the person reads, and a phone
+		with a wrong clock would read them the day-21 prompt on day 1.
+		"""
+		alert = self.alert(ack.alert_id)
+		assert ack.subject_ref, 'an acknowledgement names the person who read the alert'
+		key = (ack.alert_id, ack.subject_ref)
+		self._peer_acks[key] = ack
+		day = _alert_day(alert, ack.acknowledged_iso)
+		guidance = list(ALERT_GUIDANCE)
+		if ack.concerned:
+			# The section's Tone clause is "calm, factual, actionable", so a person who says they
+			# are worried is given the one action that resolves it rather than reassurance.
+			guidance.append('You said you are worried. Call 719 — it is staffed, and they will tell you what to do.')
+		upcoming = [d for d in FOLLOWUP_DAYS if d > day]
+		self._log_info('peer alert acknowledged', alert=ack.alert_id, day=day)
+		return PeerAlertGuidance(
+			alert_id=ack.alert_id, subject_ref=ack.subject_ref, day=day, guidance=guidance,
+			next_followup_day=upcoming[0] if upcoming else None,
+			message=f'Thank you. You are on day {day} of {ALERT_WINDOW_DAYS}.',
+		)
+
+	def acknowledged_count(self, alert_id: str) -> int:
+		"""How many distinct people answered this alert. The receipt's `acknowledged` field."""
+		self.alert(alert_id)
+		return len({s for (a, s) in self._peer_acks if a == alert_id})
 
 	# --- COM-103 contact tracing assistance ----------------------------------------------
 
