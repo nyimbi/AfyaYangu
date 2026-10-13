@@ -17,7 +17,8 @@ from. This module holds the arithmetic and the classification, which is the part
 import math
 
 from afya.records.growth_standards import (
-	HEIGHT_FOR_AGE, LENGTH_FOR_AGE, SEXES, STANDING_FROM_MONTHS, WEIGHT_FOR_AGE,
+	ARM_CIRCUMFERENCE_FOR_AGE, HEAD_CIRCUMFERENCE_FOR_AGE, HEIGHT_FOR_AGE, LENGTH_FOR_AGE, SEXES,
+	STANDING_FROM_MONTHS, WEIGHT_FOR_AGE,
 )
 
 SEVERE_Z = -3.0
@@ -85,6 +86,32 @@ def height_z(sex: str, age_months: int, height_cm: float) -> float:
 	return zscore(height_cm, l, m, s)
 
 
+def head_circumference_z(sex: str, age_months: int, head_cm: float) -> float:
+	"""Head circumference-for-age z-score, 0-60 months.
+
+	The one measurement a growth tracker takes in the first year, and the one §REC-003's row was
+	written against: `GrowthRecord` carried it and nothing read it. Head circumference is tabulated
+	with `L == 1` on every row, so this reduces to the ordinary standard score — but it is computed
+	through `zscore` rather than by hand so that a change to the standard reaches it the same way it
+	reaches the other three.
+	"""
+	l, m, s = lms(HEAD_CIRCUMFERENCE_FOR_AGE, sex, age_months)
+	return zscore(head_cm, l, m, s)
+
+
+def muac_z(sex: str, age_months: int, muac_cm: float) -> float:
+	"""Arm circumference-for-age z-score, 3-60 months.
+
+	WHO tabulates no arm-circumference standard below three months, so `lms` refuses a younger child
+	rather than interpolating a value the standard does not define. That refusal is the right answer
+	and not a limitation: MUAC is not a valid screening measurement in early infancy, and Kenya's own
+	IMAM guideline routes an infant under six months to its inpatient section on weight-for-length
+	and clinical signs instead of to a MUAC cut-off.
+	"""
+	l, m, s = lms(ARM_CIRCUMFERENCE_FOR_AGE, sex, age_months)
+	return zscore(muac_cm, l, m, s)
+
+
 def weight_reference(sex: str) -> list[dict[str, float]]:
 	"""The lines §REC-003's chart draws: month, median and the -3/-2/+2 SD curves, in kg.
 
@@ -137,6 +164,76 @@ def _value_at(z: float, l: float, m: float, s: float) -> float:
 	if abs(l) < 1e-9:
 		return m * math.exp(s * z)
 	return m * (1 + l * s * z) ** (1 / l)
+
+
+MUAC_SAM_CM = 11.5
+"""Kenya's IMAM cut-off for severe acute malnutrition by MUAC, for a child 6-59 months.
+
+Below this the guideline is unconditional: "Any child older than six months and a MUAC <11.5cm must
+be admitted to the nutrition programme for treatment of severe acute malnutrition". It is a
+centimetre, not a z-score, because a tape measure is what a community health volunteer has.
+"""
+
+MUAC_MAM_CM = 12.5
+"""The upper bound of the moderate band. `11.5` to `<12.5` is MAM; the guideline prints the band as
+`11.5 to 12.4`, which is the same interval written to the tape's own resolution."""
+
+MUAC_AT_RISK_CM = 13.5
+"""The upper bound of the at-risk band, `12.5-13.4` cm. Above it the guideline states no category."""
+
+MUAC_MIN_AGE_MONTHS = 6
+"""The guideline's own floor for a MUAC admission decision: it applies to "children 6 to 59 months",
+and an infant below that is referred to the inpatient section instead — `Table 3.1` admits them on
+weight-for-length and clinical signs. The WHO arm-circumference standard starts at 3 months, so
+between 3 and 6 months a z-score exists while an admission category does not, and the two are
+reported separately rather than one standing in for the other.
+"""
+
+
+def classify_muac(muac_cm: float) -> str:
+	"""Kenya's IMAM category for a MUAC, in the guideline's own four words.
+
+	This is deliberately *not* `classify`. WHO's z-score bands and Kenya's MUAC cut-offs are two
+	different instruments answering two different questions: the z-score says how far from the
+	reference median the child is, and the MUAC cut-off says which programme the child is admitted
+	to. A child can sit at -2.2 z and above 12.5 cm, or at -1.8 z and below 11.5 cm, and a service
+	that collapsed the two would either admit a child the guideline does not or miss one it does.
+	The category is what a health worker acts on, so it is stated in the guideline's vocabulary
+	(`sam`, `mam`, `at_risk`, `normal`) rather than in WHO's.
+	"""
+	assert muac_cm > 0, 'a MUAC is positive'
+	if muac_cm < MUAC_SAM_CM:
+		return 'sam'
+	if muac_cm < MUAC_MAM_CM:
+		return 'mam'
+	if muac_cm < MUAC_AT_RISK_CM:
+		return 'at_risk'
+	return 'normal'
+
+
+MUAC_ALERTS: dict[str, str] = {
+	'sam': (
+		'This arm measurement is below the level at which a child needs treatment for severe acute '
+		'malnutrition. Take the child to a health facility now — do not wait for the next visit. A '
+		'health worker will check for swelling of both feet and start treatment.'
+	),
+	'mam': (
+		'This arm measurement is in the range that needs nutrition support. Take the child to a '
+		'health facility for an assessment and a feeding programme.'
+	),
+	'at_risk': (
+		'This arm measurement is on the low side. Ask a health worker about feeding and bring the '
+		'child back for another measurement.'
+	),
+}
+"""The guideline's admission rule, in the words a parent is given.
+
+`sams`, `mam` and `at_risk` carry an alert because the IMAM guideline acts on each of them: the
+severe band admits unconditionally ("Any child older than six months and a MUAC <11.5cm must be
+admitted"), and the moderate and at-risk bands route to support and to counselling. `normal` is
+absent deliberately — a normal reading is not an alert, and a dictionary with an entry for it would
+be a lookup that returns a message where the honest answer is none.
+"""
 
 
 def classify(z: float) -> str:

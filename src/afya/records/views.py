@@ -86,6 +86,127 @@ class GrowthFlag(BaseModel):
 	member_ref: str
 	flag: str = Field(pattern=r'^(normal|underweight|stunted)$')
 
+
+# §REC-003's "milestone checklists", from Annex 9 of Kenya's National Guideline for Integrated
+# Management of Acute Malnutrition (2020) — archived at `sources/kenya-imam-guidelines/` and
+# checksummed in `sources/INDEX.md`. The guideline prints the checklist as an ASSESS/CLASSIFY chart
+# and the bands are its own, including the fact that they meet at their endpoints: "0-2 MONTHS" and
+# "2-4 MONTHS" both name month 2.
+#
+# (band_label, first_month, last_month, ((slug, label), ...)) — the label is the guideline's wording
+# verbatim, because it is the sentence a caregiver is asked to agree or disagree with. The slug is
+# this deployment's own handle and never reaches a screen.
+MILESTONES: tuple[tuple[str, int, int, tuple[tuple[str, str], ...]], ...] = (
+	('0-2 months', 0, 1, (
+		('social_smile', 'Social smile (baby smiles back)'),
+		('follows_colourful_object', 'Baby follows a colourful object dangled before their eyes'),
+	)),
+	('2-4 months', 2, 3, (
+		('head_upright', 'Holds the head upright'),
+		('follows_object_or_face', 'Follows the object or face with their eyes'),
+		('turns_to_sound', 'Turns the head or responds in any other way to sound'),
+		('smiles_when_spoken_to', 'Smiles when you speak'),
+	)),
+	('4-6 months', 4, 5, (
+		('rolls_over', 'Rolls over'),
+		('reaches_and_grasps', 'Reaches for and grasps objects with hand'),
+		('takes_objects_to_mouth', 'Takes objects to her mouth'),
+		('babbles', 'Babbles (makes sounds)'),
+	)),
+	('6-9 months', 6, 8, (
+		('sits_without_support', 'Sits without support'),
+		('passes_object_hand_to_hand', 'Moves object from one hand to the other'),
+		('repeats_syllables', 'Repeats syllables (bababa, mamama)'),
+		('plays_peekaboo', 'Plays peek-a-boo (hide and seek)'),
+	)),
+	('9-12 months', 9, 11, (
+		('steps_with_support', 'Takes steps with support'),
+		('pincer_grasp', 'Picks up small object or string with 2 fingers'),
+		('says_two_or_three_words', 'Says 2-3 words'),
+		('imitates_gestures', 'Imitates simple gestures (claps hands, bye)'),
+	)),
+	('12-18 months', 12, 17, (
+		('walks_without_support', 'Walks without support'),
+		('drinks_from_cup', 'Drinks from a cup'),
+		('says_seven_to_ten_words', 'Says 7-10 words'),
+		('points_to_body_parts', 'Points to some body parts on request'),
+	)),
+	('18-24 months', 18, 23, (
+		('kicks_ball', 'Kicks a ball'),
+		('builds_tower_of_three', 'Builds tower with 3 blocks or small boxes'),
+		('points_at_pictures', 'Points at pictures on request'),
+		('speaks_in_short_sentences', 'Speaks in short sentences'),
+	)),
+	('24 months and older', 24, 60, (
+		('jumps', 'Jumps'),
+		('dresses_self', 'Undresses and dresses themselves'),
+		('says_first_name', 'Says first name, tells short story'),
+		('plays_with_other_children', 'Interested in playing with other children'),
+	)),
+)
+
+
+class MilestoneCheck(BaseModel):
+	"""What a caregiver reports the child can do, so the guideline's chart can classify it.
+
+	`present` is the milestones observed now and `lost` the ones the child used to do and no longer
+	does. The second is a separate input rather than something inferred from history because the
+	guideline's own DELAY rule names regression as a criterion in its own right — "Regression of
+	milestones" — and regression is precisely the thing a caregiver notices and a series of
+	checklists does not, since an earlier checklist recorded the milestone as present.
+
+	`checked_earlier` says the caller also asked about the bands before this one. Annex 9's DELAY
+	rule needs a gap in an earlier band as well as the current one, and a caller who did not ask
+	cannot supply one — so this defaults to False and the earlier bands are only read when it is set.
+	"""
+
+	model_config = MODEL_CONFIG
+	member_ref: str
+	age_months: int = Field(ge=0, le=60)
+	present: list[str] = Field(default_factory=list)
+	lost: list[str] = Field(default_factory=list)
+	checked_earlier: bool = False
+
+
+class MilestoneReport(BaseModel):
+	"""§REC-003's milestone checklist, classified the way Annex 9 classifies it.
+
+	`status` is the guideline's own three words. `missing_earlier` is reported even when `status` is
+	`normal`, because Annex 9's NORMAL rule reads "All milestones for the current age group are
+	present" and says nothing about earlier groups — a child can lag one skill from an earlier band
+	while having every milestone for their own, and the guideline treats the current band as the
+	operative screen. The gap is served rather than dropped, so the classification and the finding
+	are both visible.
+
+	`earlier_checked` says whether the earlier bands were assessed at all, and it is load-bearing.
+	Annex 9's DELAY rule needs an absence from an *earlier* band as well as the current one, and a
+	caregiver reading a checklist is normally asked about the child's own age group. Reading the
+	earlier bands as absent by default would classify every child who was asked only about their own
+	age as delayed, which is a false positive in the direction that sends families to a clinic. So
+	the earlier gap is only counted when the caller said they checked, and `missing_earlier` is
+	empty otherwise.
+	"""
+
+	model_config = MODEL_CONFIG
+	member_ref: str
+	age_months: int = Field(ge=0, le=60)
+	band: str
+	expected: list[dict[str, str]]
+	expected_earlier: list[dict[str, str]]
+	earlier_checked: bool
+	missing: list[str]
+	missing_earlier: list[str]
+	lost: list[str]
+	# `unanswered` is the read half's status: the checklist served for a caregiver to answer, before
+	# any answer exists. Without it, `milestones_for` classified an empty answer set and returned
+	# `alert` — "one or more skills for this age are not there yet" — for a child nobody had looked
+	# at, which is Annex 9's ALERT read as a finding about the child rather than as the instruction
+	# to go and assess them. It is the same failure `earlier_checked` guards against, one level up:
+	# silence about a child is not evidence about the child, and a screen may not turn the absence
+	# of a measurement into a measurement.
+	status: str = Field(pattern=r'^(unanswered|normal|alert|delay)$')
+	guidance: str
+
 MEDICATION_SCHEDULE: dict[str, list[int]] = {}
 
 
@@ -235,6 +356,19 @@ class GrowthAssessment(BaseModel):
 	height_status: str = Field(pattern=r'^(normal|moderate|severe|above)$')
 	weight_median_kg: float
 	height_median_cm: float
+	# The two measurements §REC-003 names beside weight and height. Each is `None` when the visit
+	# did not take it — a weight-only visit is a real visit — and the z-score and the category are
+	# `None` with it rather than defaulted to a normal reading, which would turn "not measured" into
+	# "measured and fine".
+	head_circumference_z: float | None = None
+	head_circumference_status: str | None = Field(default=None, pattern=r'^(normal|moderate|severe|above)$')
+	muac_z: float | None = None
+	# The IMAM category, in Kenya's own vocabulary rather than WHO's. `muac_category` is a programme
+	# admission decision and `muac_z` is a distance from the reference median; they answer different
+	# questions and one does not stand in for the other. `muac_alert` carries the guideline's
+	# admission rule when the category is one a health worker must act on, and is `None` otherwise.
+	muac_category: str | None = Field(default=None, pattern=r'^(sam|mam|at_risk|normal)$')
+	muac_alert: str | None = None
 	standard: str
 
 

@@ -80,7 +80,7 @@ from afya.privacy.views import _SCOPE, ConsentCategory, ConsentRecord, DPIAInput
 from afya.privacy.service import BLOCKING_TOPICS, DPIA_TOPICS
 from afya.privacy import rbac
 from afya.records.service import RecordsService
-from afya.records.views import GrowthRecord, ImmunisationRecord, LabResult, ShareGrant, WalletDocument, WalletMember
+from afya.records.views import GrowthRecord, ImmunisationRecord, LabResult, MilestoneCheck, ShareGrant, WalletDocument, WalletMember
 from afya.ml.cough import SR as WAV_SR, YamnetCoughEngine
 from afya.registry.activation import TriggerFiring, TriggerScope
 from afya.registry.gate import ActivationService
@@ -1840,12 +1840,42 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.post('/records/growth')
-	async def records_growth(rec: GrowthRecord, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, str]:
+	async def records_growth(rec: GrowthRecord, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, object]:
+		"""§REC-003's verdict, recorded and returned.
+
+		This returned `growth_flag`, the one-word summary, which could not carry the two measurements
+		the section names — head circumference and MUAC — nor the alert a MUAC category raises. The
+		flag is still served inside the assessment's statuses, so a caller holding the word keeps it.
+		"""
 		try:
 			records.assert_owns(_subject, rec.member_ref)
 		except AssertionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
-		return records.growth_flag(rec).model_dump(mode='json')
+		return (await records.record_growth(rec)).model_dump(mode='json')
+
+	@app.post('/records/milestones')
+	async def records_milestones(check: MilestoneCheck, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, object]:
+		"""§REC-003's milestone checklist, classified by Annex 9's ASSESS/CLASSIFY rules."""
+		try:
+			records.assert_owns(_subject, check.member_ref)
+			return records.milestone_check(check).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+	@app.get('/records/{member_ref}/milestones')
+	async def records_milestones_for(member_ref: str, age_months: int = 0,
+	                                 _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> dict[str, object]:
+		"""The checklist itself, for a caregiver to read before answering — nothing is recorded.
+
+		Guarded like every other family route rather than left open: the checklist names the skills a
+		child of a given age should have, and an unauthenticated route keyed on an age is a way to
+		ask after a specific child's development without naming them.
+		"""
+		try:
+			records.assert_owns(_subject, member_ref)
+			return records.milestones_for(age_months).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/records/labs')
 	async def records_add_lab(res: LabResult, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, bool]:

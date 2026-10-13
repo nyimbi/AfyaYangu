@@ -37,16 +37,18 @@ schedule both reference them, so §REC-003's "percentile charts" and "undernutri
 implementation without them.
 
 **Publisher:** World Health Organization, Department of Nutrition for Health and Development.
-**Standards published:** 2006 (length/height-for-age, weight-for-age, weight-for-length, BMI-for-age);
-the 0–5 year z-score tables used here are the current published revision.
-**Retrieved:** 2026-10-12.
+**Standards published:** 2006 (length/height-for-age, weight-for-age, weight-for-length, BMI-for-age,
+head circumference-for-age, arm circumference-for-age); the 0–5 year z-score tables used here are the
+current published revision.
+**Retrieved:** 2026-10-12 for the first six files; 2026-10-13 for the head- and arm-circumference
+tables.
 
 ### Files
 
 Each file is the WHO z-score table as published, a 3-page PDF whose first page carries the header and
 the LMS columns. The `.txt` beside each is the same table extracted with `pdftotext -layout`, which
-reproduces the `Year: Month / Month / L / M / S` columns in order; `growth_standards.py`'s 246 rows
-were checked against it and agree exactly.
+reproduces the `Year: Month / Month / L / M / S` columns in order; `growth_standards.py`'s rows were
+checked against it and agree exactly.
 
 | File | Indicator | Sex | Ages | SHA-256 (first 16) |
 |---|---|---|---|---|
@@ -56,9 +58,45 @@ were checked against it and agree exactly.
 | `lhfa_girls_0_2.pdf` | Length-for-age | Girls | 0–24 months | `a5895dcfacfc6de9` |
 | `hfa_boys_2_5.pdf` | Height-for-age | Boys | 24–60 months | `a8b1093776be24ea` |
 | `hfa_girls_2_5.pdf` | Height-for-age | Girls | 24–60 months | `c6ff83bc671ac6f0` |
+| `hcfa_boys_0_5_zscores.pdf` | Head circumference-for-age | Boys | 0–60 months | `9f1a00bfc1613689` |
+| `hcfa_girls_0_5_zscores.pdf` | Head circumference-for-age | Girls | 0–60 months | `647c885089c95dbc` |
+| `acfa_boys_3_5_zscores.pdf` | Arm circumference-for-age | Boys | **3**–60 months | `2e5cf56f5ed80ea6` |
+| `acfa_girls_3_5_zscores.pdf` | Arm circumference-for-age | Girls | **3**–60 months | `6740a0da96616b4d` |
 
 The text copies, in the same order: `c5aeb7719aae4cc9`, `25e9bf5bde08df59`, `49ee5a7d7a85fa11`,
-`afa057f52fcf39ce`, `34736c0885e3c139`, `4e634fb0cb3be7b9`.
+`afa057f52fcf39ce`, `34736c0885e3c139`, `4e634fb0cb3be7b9`, `0785e8976411b278`, `9a4a7ffcabefef55`,
+`ef86181a77b6986a`, `bf91b80540752954`.
+
+### What the head-circumference and arm-circumference tables do and do not support
+
+Both were added on 2026-10-13 to close §REC-003's two `missing` rows, and both carry limits a reader
+needs before using them.
+
+- **Head circumference runs 0–60 months, 61 rows per sex, and `L` is 1 on every one of them.** The
+  distribution is normal, so the Box-Cox transform reduces to the ordinary standard score. This is
+  the same shape as the length and height tables and unlike weight.
+- **Arm circumference starts at 3 months, not 0.** WHO publishes no arm-circumference-for-age
+  standard below three months, and the tables here begin at row 3 because that is where the source
+  begins. There is no value to interpolate down to and none is invented.
+- **Arm circumference is right-skewed and `L` is never 1** — it is `+0.3928` for boys at 3 months
+  and `−0.3981` by 60, crossing zero in between. An implementation that assumes normality
+  understates the deficit at the low end, which is the direction a malnutrition screen may not fail
+  in.
+- **These are two different instruments from Kenya's IMAM MUAC cut-offs.** The WHO z-score answers
+  "how far is this arm from the reference median"; the IMAM table answers "which programme is this
+  child admitted to". `afya.records.growth` computes both and serves them in separate fields, and
+  neither stands in for the other.
+- **The two age floors do not coincide.** WHO's arm standard begins at 3 months; the IMAM MUAC
+  admission rule begins at 6 (its Table 1.5 is titled "children 6 to 59 months" and refers infants
+  below that to Section 3, the inpatient protocol). Between 3 and 6 months a child therefore has a
+  z-score and no admission category, which is the correct answer and is reported as such.
+- **Neither table is a percentile chart.** WHO's printed z-score columns are the SD lines; a
+  percentile is derived from the z-score by the normal CDF and is not tabulated here.
+
+The extraction was checked against the source rather than read off it: all four tables' L/M/S columns
+were recomputed to WHO's own printed `−3 SD` … `+3 SD` columns, **238 rows, 0 disagreements** at a
+0.05 cm tolerance. `growth_standards.py` now holds 484 rows across the five indicators, and its
+module-level assert loop walks all five.
 
 ### Retrieval URLs
 
@@ -69,11 +107,19 @@ https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standard
 https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/length-height-for-age/lfa_girls_0_2_zscores.pdf
 https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/length-height-for-age/hfa_boys_2_5_zscoresba2ba0820f064f4abf5915abac01e894.pdf
 https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/length-height-for-age/hfa_girls_2_5_zscores.pdf
+https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/head-circumference-for-age/hcfa_boys_0_5_zscores.pdf?sfvrsn=701b4c5f_9
+https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/head-circumference-for-age/hcfa_girls_0_5_zscores.pdf?sfvrsn=85107050_9
+https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/arm-circumference-for-age/acfa_boys_3_5_zscores.pdf?sfvrsn=29b59481_11
+https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/arm-circumference-for-age/acfa_girls_3_5_zscores.pdf?sfvrsn=42dfdbfe_10
 ```
 
 The landing pages, which carry the full table listing and the `sfvrsn` query parameters, are
-`https://www.who.int/tools/child-growth-standards/standards/weight-for-age` and
-`.../standards/length-height-for-age`.
+`https://www.who.int/tools/child-growth-standards/standards/weight-for-age`,
+`.../standards/length-height-for-age`, `.../standards/head-circumference-for-age` and
+`.../standards/arm-circumference-for-age`. The last two are the pages the 2026-10-13 files were
+taken from; the four above are those pages' own download links with their `sfvrsn` revision
+parameters, which the earlier six rows omit because they were fetched before the parameter was
+recorded.
 
 ### The method
 
@@ -90,8 +136,10 @@ z = ln(x / M) / S                       for L == 0
 implementation that assumes normality there understates deficit at the low end — the direction that
 matters for an undernutrition alert.
 
-`afya.records.growth_standards` holds all 246 rows verbatim: 61 months × 2 sexes for weight, 25 × 2
-for length, 37 × 2 for height. `afya.records.growth` computes with them.
+`afya.records.growth_standards` holds all 484 rows verbatim across the five indicators: 61 months ×
+2 sexes for weight, 25 × 2 for length, 37 × 2 for height, 61 × 2 for head circumference, and 58 × 2
+for arm circumference (which starts at month 3, where WHO's table does). `afya.records.growth`
+computes with them.
 
 ### Why the tables are reproduced in source rather than read at runtime
 
@@ -114,6 +162,9 @@ for length, 37 × 2 for height. `afya.records.growth` computes with them.
   circumference and MUAC against "WHO standards" without specifying which indicator, and wasting is
   the indicator for weight-for-length. It is not implemented here; the gap is recorded rather than
   papered over with a normal-approximation substitute.
+- **The arm-circumference z-score as an admission criterion.** Kenya's guideline admits on the
+  absolute MUAC, not on the z-score, so the z-score is served as a measurement and never as a
+  category. The two are separate fields for that reason.
 
 ---
 
@@ -1284,6 +1335,31 @@ the treatment-flow tables in reading order.
   each definition so a parent can see which door is which.
 - **That the programmes are not interchangeable**, which is why the definitions travel with every
   site rather than a per-site claim.
+- **The MUAC admission cut-offs, which §REC-003 now reads.** Table 1.5, "MUAC cut-offs for children
+  6 to 59 months": `MUAC < 11.5cm` is severe acute malnutrition, `11.5 to 12.4cm` moderate acute
+  malnutrition, `12.5 to 13.4cm` at risk. The table's own footnote is "*Anthropometric criteria
+  based on WHO Child Growth Standards (2006)" — the cut-offs are Kenya's, the reference population
+  behind them is WHO's, which is why `classify_muac` and the WHO z-score are two fields and not one.
+  Body text states the severe rule unconditionally: "Any child older than six months and a MUAC
+  <11.5cm must be admitted to the nutrition programme for treatment of severe acute malnutrition."
+  `afya.records.growth.MUAC_ALERTS` carries that rule in the words a caregiver is given, and the
+  category is computed only at and above six months because the table's own scope is 6–59 and the
+  guideline refers an infant below it to Section 3.
+- **Section 3, the under-six-month protocol**, which is what a child below the MUAC table's floor
+  is routed to instead: "Infants less than six months who are malnourished are always treated in an
+  in-patient unit." Table 3.1 admits on weight-for-length or weight-for-age below −3 z-scores,
+  bilateral pitting oedema, being too weak to suckle, or recent weight loss. This is why the arm
+  z-score and the MUAC category have different age floors rather than one being extended to cover
+  the other.
+- **Annex 9, the developmental milestone checklist** (§REC-003's last bullet). Eight age bands and
+  30 milestones, listed under ASSESS with a three-outcome CLASSIFY chart: **DELAY** is absence from
+  the current group *and* absence from an earlier one, or a regression; **ALERT** is absence from the
+  current group alone; **NORMAL** is every current-band milestone present. `MILESTONES` reproduces
+  the bands and the milestone wording verbatim — the label is the sentence a caregiver is read — and
+  `RecordsService.milestone_check` applies the three-way rule. Two properties of the annex are worth
+  recording because they are easy to get wrong: the bands **meet at their endpoints** (0–2 and 2–4
+  both name month 2), and the 0–2 month band lists **only two** milestones where every other band
+  lists four, so a count of 32 is a miscount of the annex rather than of the extraction.
 
 ### What the source does not support
 
@@ -1294,6 +1370,10 @@ the treatment-flow tables in reading order.
   that per row would be the registry telling a parent something nobody filed.
 - **It supplies no geographic data**, so the finder's distances come from §FND-001's registry, not
   from this source.
+- **It is not a growth standard.** The MUAC cut-offs and Annex 9's checklist are Kenya's clinical
+  rules; the LMS parameters behind the z-scores are WHO's. Neither substitutes for the other, and
+  the annex states no threshold for *how far* behind a child may be — it classifies presence and
+  absence only, so no severity grade is invented for a missing milestone.
 
 ## WHO/UNICEF/WFP/SC joint statement on community-based management of SAM
 

@@ -5,14 +5,16 @@ from datetime import date, datetime, timezone
 
 from afya.logmixin import LogMixin
 from afya.records.growth import (
-	MODERATE_Z, SEVERE_Z, classify, height_reference, height_z, weight_reference, weight_z,
+	MAX_AGE_MONTHS, MODERATE_Z, MUAC_ALERTS, MUAC_MIN_AGE_MONTHS, SEVERE_Z, classify,
+	classify_muac, head_circumference_z, height_reference, height_z, muac_z, weight_reference,
+	weight_z,
 )
 from afya.records.growth_standards import WEIGHT_FOR_AGE, HEIGHT_FOR_AGE, LENGTH_FOR_AGE, STANDING_FROM_MONTHS
 from afya.records.views import (
-	EPI_SCHEDULE, BackupEnvelope, ExportDocument, GrowthAssessment, GrowthChart, GrowthFlag,
-	GrowthRecord, ImmunisationRecord, LabResult, MedReminder, Prescription, ShareGrant, ShareView,
-	TimelineEntry, VaccinationCertificate, WALLET_DOC_KINDS, WalletContentsReport, WalletDocument,
-	WalletItem, WalletMember,
+	EPI_SCHEDULE, MILESTONES, BackupEnvelope, ExportDocument, GrowthAssessment, GrowthChart,
+	GrowthFlag, GrowthRecord, ImmunisationRecord, LabResult, MedReminder, MilestoneCheck,
+	MilestoneReport, Prescription, ShareGrant, ShareView, TimelineEntry, VaccinationCertificate,
+	WALLET_DOC_KINDS, WalletContentsReport, WalletDocument, WalletItem, WalletMember,
 )
 
 MAJORITY_YEARS = 18
@@ -21,6 +23,39 @@ and a guardian controls their records; at 18 control transfers to the individual
 
 MAX_WALLET_PROFILES = 10
 """§9.2 REC-001: "Multiple profiles (up to 10)". A number in the section, enforced at enrolment."""
+
+MILESTONE_GUIDANCE: dict[str, str] = {
+	'delay': (
+		'Some of the skills a child this age usually has are not there yet, or the child has '
+		'stopped doing something they used to do. Take the child to a health facility for a '
+		'developmental check. Do not wait to see if it passes — the earlier a delay is found, the '
+		'more that can be done.'
+	),
+	'alert': (
+		'One or more skills for this age are not there yet. This is common and often passes, but it '
+		'should be checked. Keep playing and talking with the child, and ask a health worker at the '
+		'next visit.'
+	),
+	'normal': (
+		'The child is doing what is expected for this age. Keep playing, talking and reading with '
+		'them, and bring them back for their next growth check.'
+	),
+	'unanswered': (
+		'Read each skill and answer whether the child can do it. Nothing has been checked yet, so '
+		'there is no result here — the list below is the checklist itself.'
+	),
+}
+"""Annex 9's three CLASSIFY outcomes, as the sentence a caregiver is given.
+
+The guideline pairs each classification with actions (counsel, refer, screen, praise, advise) and
+those are what these say. The delay wording names regression explicitly because the guideline's own
+delay criterion does, and because it is the one finding where a caregiver's instinct — wait and see
+— is the wrong response.
+
+`unanswered` is not one of the guideline's three. It is what the read half says before a caregiver
+has replied, and it exists because serving `alert` there would report a finding about a child nobody
+had assessed — see `milestones_for`.
+"""
 
 # §9.2 REC-001's "Contents:" bullets, in the section's order, each paired with the model that
 # carries it. The section names eight documents a wallet holds; a wallet is what a person opens when
@@ -273,12 +308,131 @@ class RecordsService(LogMixin):
 		weight_median = {row[0]: row[2] for row in WEIGHT_FOR_AGE[rec.sex]}[rec.age_months]
 		height_table = LENGTH_FOR_AGE if rec.age_months < STANDING_FROM_MONTHS else HEIGHT_FOR_AGE
 		height_median = {row[0]: row[2] for row in height_table[rec.sex]}[rec.age_months]
+
+		# §REC-003's head circumference and MUAC. Both are optional on the record, and an absent one
+		# stays absent here: a `None` that became a z-score of 0 would report an unmeasured child as
+		# exactly average, which is the one reading a screening field must never invent.
+		head_z = (head_circumference_z(rec.sex, rec.age_months, rec.head_circumference_cm)
+		          if rec.head_circumference_cm is not None else None)
+		# MUAC is carried in millimetres on the record because that is the resolution a tape is read
+		# to, and the standard and the guideline are both in centimetres.
+		muac_cm = rec.muac_mm / 10 if rec.muac_mm is not None else None
+		muac_z_score = (muac_z(rec.sex, rec.age_months, muac_cm)
+		                if muac_cm is not None else None)
+		# The IMAM admission categories start at six months, so a MUAC taken between three and six
+		# months has a z-score and no category — the two are reported separately rather than one
+		# standing in for the other.
+		muac_category = (classify_muac(muac_cm)
+		                 if muac_cm is not None and rec.age_months >= MUAC_MIN_AGE_MONTHS else None)
+		muac_alert = MUAC_ALERTS.get(muac_category) if muac_category else None
+
 		return GrowthAssessment(
 			member_ref=rec.member_ref, age_months=rec.age_months, sex=rec.sex,
 			weight_z=round(weight_z_score, 3), height_z=round(height_z_score, 3),
 			weight_status=classify(weight_z_score), height_status=classify(height_z_score),
 			weight_median_kg=weight_median, height_median_cm=height_median,
+			head_circumference_z=None if head_z is None else round(head_z, 3),
+			head_circumference_status=None if head_z is None else classify(head_z),
+			muac_z=None if muac_z_score is None else round(muac_z_score, 3),
+			muac_category=muac_category, muac_alert=muac_alert,
 			standard='WHO Child Growth Standards (2006), LMS parameters',
+		)
+
+	def milestones_for(self, age_months: int, member_ref: str = '') -> MilestoneReport:
+		"""The checklist for an age, with nothing reported present — what a caregiver reads first.
+
+		Annex 9 prints the checklist as an ASSESS chart: the caregiver is read the milestones and
+		answers. This is the read half, and it is the same table `milestone_check` classifies
+		against, so the list a parent is shown and the list their answers are scored against cannot
+		diverge. It is a call to the same classifier rather than a second rendering of `MILESTONES`,
+		which is the only way the two stay equal as the table changes.
+
+		The status is **`unanswered`, not `alert`**. Classifying an empty answer set returned "one or
+		more skills for this age are not there yet" for a child nobody had looked at — Annex 9's
+		ALERT served as a finding about the child rather than as the instruction to go and assess
+		them. It is `earlier_checked`'s failure one level up: silence about a child is not evidence
+		about the child. The missing list is still served, because it is the checklist.
+		"""
+		return self._classify_milestones(member_ref, age_months, [], [], answered=False)
+
+	def milestone_check(self, check: MilestoneCheck) -> MilestoneReport:
+		"""§REC-003's milestone checklist, classified by Annex 9's own rules.
+
+		The guideline prints the chart as ASSESS (what to look for) and CLASSIFY (what the answers
+		mean), and the classification is three-valued with a precedence between its branches that is
+		easy to collapse and wrong to collapse:
+
+		* **DELAY** — one or more milestones absent from the current band *and* one or more absent
+		from an earlier band, **or** any milestone lost. The two absences together are the criterion;
+		either alone is not, which is what makes this rule different from the next.
+		* **ALERT** — one or more absent from the current band, with no earlier gap and no regression.
+		* **NORMAL** — every milestone for the current band is present.
+
+		Reading it as "any missing milestone is a delay" would refer a child who is merely late on
+		one skill, and reading regression as an alert would miss the one presentation the guideline
+		singles out for referral. Both readings are one line away from the correct one, which is why
+		the branch order is asserted rather than trusted.
+		"""
+		assert check.member_ref in self._members, 'unknown member'
+		return self._classify_milestones(
+			check.member_ref, check.age_months, check.present, check.lost, check.checked_earlier)
+
+	def _classify_milestones(self, member_ref: str, age_months: int, present_slugs: list[str],
+	                         lost_slugs: list[str], checked_earlier: bool = False,
+	                         answered: bool = True) -> MilestoneReport:
+		"""The ASSESS/CLASSIFY chart itself, shared by the read route and the recorded check.
+
+		`member_ref` is carried through rather than asserted here, so `milestones_for` can render the
+		checklist for an age before anyone has said which child it is about. The membership assertion
+		belongs to `milestone_check`, which is the half that files something against a child.
+
+		`answered` is False for the read half, where no caregiver has replied and therefore no
+		classification exists. It is the same argument `checked_earlier` makes, applied to the whole
+		chart rather than to its earlier bands.
+		"""
+		assert 0 <= age_months <= MAX_AGE_MONTHS, 'the checklist covers 0-60 months'
+		bands = [(label, lo, hi, items) for label, lo, hi, items in MILESTONES
+		         if lo <= age_months <= hi]
+		assert bands, f'no milestone band covers {age_months} months'
+		# The bands meet at their endpoints — Annex 9 prints "0-2 MONTHS" and "2-4 MONTHS" — so a
+		# month on a seam belongs to both. The current band is the later one, which is the one whose
+		# milestones the child is expected to have acquired by now; the earlier band's items remain
+		# in scope for the DELAY rule below.
+		label, band_lo, _band_hi, items = bands[-1]
+		known = {slug for _lab, _a, _b, its in MILESTONES for slug, _t in its}
+		unknown = sorted((set(present_slugs) | set(lost_slugs)) - known)
+		assert not unknown, f'{unknown} is not a milestone this checklist knows'
+
+		present = set(present_slugs)
+		expected = [{'slug': slug, 'label': lab} for slug, lab in items]
+		missing = [slug for slug, _lab in items if slug not in present]
+		# Bands that closed before this one opened. The bands meet at their endpoints, so the test
+		# is on the band's last month rather than on its label.
+		earlier_items = [(slug, lab) for earlier_label, _a, earlier_hi, its in MILESTONES
+		                 if earlier_label != label and earlier_hi < band_lo for slug, lab in its]
+		expected_earlier = [{'slug': slug, 'label': lab} for slug, lab in earlier_items]
+		# Only counted when the caller said the earlier bands were assessed. Annex 9's DELAY rule
+		# needs a gap in an earlier band, and a caller who asked only about the child's own age
+		# group supplied no evidence of one — reading their silence as absence would classify every
+		# such child as delayed, which is a false positive that sends a family to a clinic.
+		missing_earlier = ([slug for slug, _lab in earlier_items if slug not in present]
+		                   if checked_earlier else [])
+		lost = sorted(set(lost_slugs))
+
+		if not answered:
+			status = 'unanswered'
+		elif (missing and missing_earlier) or lost:
+			status = 'delay'
+		elif missing:
+			status = 'alert'
+		else:
+			status = 'normal'
+		return MilestoneReport(
+			member_ref=member_ref, age_months=age_months, band=label,
+			expected=expected, expected_earlier=expected_earlier, earlier_checked=checked_earlier,
+			missing=missing,
+			missing_earlier=missing_earlier, lost=lost,
+			status=status, guidance=MILESTONE_GUIDANCE[status],
 		)
 
 	def growth_chart(self, member_ref: str, sex: str) -> GrowthChart:
@@ -299,11 +453,24 @@ class RecordsService(LogMixin):
 		)
 
 	async def record_growth(self, rec: GrowthRecord) -> GrowthAssessment:
-		"""Store the measurement and return the verdict. A chart needs a series, not one reading."""
+		"""Store the measurement and return the verdict. A chart needs a series, not one reading.
+
+		The wallet document's id carries a sequence rather than the age alone. It used to be
+		`growth-{member}-{age}`, and `add_document` asserts a `doc_id` unique — correctly, because a
+		wallet that overwrote a document on a repeated id would lose the earlier one at the moment a
+		retry happened. But a re-weigh at the same age is not a retry: a child weighed at twelve
+		months who comes back a fortnight later is still twelve months, and the second measurement
+		was a 500 at the front door with the first one already stored. Nothing reached it before
+		because the route called `growth_flag`, which is pure; it started calling this and the
+		collision became reachable. The sequence counts this member's earlier growth documents, so
+		two visits at one age are two documents and the chart's series is what it always was.
+		"""
 		assert rec.member_ref in self._members, 'unknown member'
 		self._growth.append(rec)
+		visit = sum(1 for d in self._documents
+		            if d.member_ref == rec.member_ref and d.doc_id.startswith(f'growth-{rec.member_ref}-'))
 		await self.add_document(WalletDocument(
-			doc_id=f'growth-{rec.member_ref}-{rec.age_months}', member_ref=rec.member_ref,
+			doc_id=f'growth-{rec.member_ref}-{rec.age_months}-{visit}', member_ref=rec.member_ref,
 			kind='appointment', title=f'Growth check at {rec.age_months} months',
 			occurred_iso=date.today().isoformat(),
 			detail=f'{rec.weight_kg} kg, {rec.height_cm} cm',

@@ -3145,3 +3145,155 @@ accepted; the two food lists merged; the finder filtering on the wrong facility 
 ordering by distance; the county filter dropped; the limit ignored; an empty county raising instead
 of answering; the programme vocabulary collapsed to a per-site claim; the site label emptied to the
 bare slug; and the nutrition route dropping the month.
+
+## §REC-003 — two fields nobody read, and a checklist that was an annex
+
+§REC-003 prints eight Features, and the audit read them as four: the last five are written with a
+semicolon, and the parser split prose lists on the comma alone. So "MUAC; percentile charts;
+undernutrition alerts; feeding guidance by age; milestone checklists" was **one bullet**, and four of
+the eight things the section asks for sat inside a cell named after the first of them. That is the
+finding underneath the finding — the audit reported four bullets and carried four of eight, and the
+one row it raised named a run of five clauses in a single cell, which is a row nobody can act on.
+
+The parser now splits on `[;,]`, and the claim that makes that safe is a test rather than a comment:
+`test_the_only_semicolon_list_in_the_spec_is_the_one_that_was_read` asserts §REC-003 is the only
+prose list in the spec written with a semicolon, and that the eight items come back with none of them
+still carrying one. A separator added to a parser is a change to every section the parser reads, so
+its jurisdiction is asserted; canaries #15 and #16 watch it fail in both directions — the split
+reverted to the comma, and the split widened past the prose branch into the bullets, where §LOC-002's
+"Opt-in only; can be disabled at any time" is one privacy property and its rationale and would become
+two bullets the section does not print.
+
+### The two genuine gaps were the same shape
+
+**Head circumference** and **MUAC** were both `missing`, and both were the shape §REC-006's `urgency`
+field was: `GrowthRecord` carried `head_circumference_cm` and `muac_mm`, they were written, and
+nothing read them. The audit note had rotted in the other direction — it claimed no head-circumference
+field existed — which is why the rows were re-derived from the code rather than from the note.
+
+Both now score against WHO tables archived for the purpose: head circumference-for-age (0–60 months,
+`L == 1` on every row, so the ordinary standard score) and arm circumference-for-age (**3**–60
+months, `L` never 1 and crossing zero, so the Box-Cox form is required). The extraction was checked
+against the source rather than read off it: all four tables' L/M/S columns were recomputed to WHO's
+own printed −3 SD … +3 SD columns, **238 rows, 0 disagreements** at 0.05 cm. `growth_standards.py`
+now holds 484 rows across five indicators and its assert loop walks all five.
+
+Three things came out of the sources that are decisions rather than code:
+
+- **Two vocabularies, not one.** WHO's z-score answers *how far is this arm from the reference
+  median*; Kenya's IMAM Table 1.5 answers *which programme is this child admitted to*. `classify_muac`
+  is deliberately not `classify`, and the two are served in separate fields. The IMAM table's own
+  footnote says where its cut-offs come from — "*Anthropometric criteria based on WHO Child Growth
+  Standards (2006)" — which is exactly the reason they must not be collapsed: the numbers are
+  Kenya's, the reference population behind them is WHO's, and one is not the other.
+- **Two age floors that do not coincide.** WHO's arm standard starts at 3 months; IMAM's MUAC
+  admission rule starts at 6 (Table 1.5 is scoped "children 6 to 59 months" and the guideline refers
+  an infant below that to Section 3, its inpatient protocol). Between them a child has a z-score and
+  no category. That is the correct answer and it is reported as such rather than one standing in for
+  the other. Canary #4 applies the admission rule where the guideline refers the infant elsewhere.
+- **`None` is not 0.0.** An absent head measurement stays `None`; defaulting it to a z-score of 0
+  would report an unmeasured child as exactly average, which for a screening field is the dangerous
+  direction. Canary #3 is that one line.
+
+`MUAC_ALERTS` carries the guideline's admission rule in the words a caregiver is given, and it has
+**no `normal` entry on purpose**: a lookup that returns a message for a healthy child turns the
+absence of a finding into a finding. Canary #6 softens the severe alert to advice to watch, which is
+the one direction it may not fail in.
+
+### Milestone checklists were an annex, and the annex has a rule that is easy to collapse
+
+The last bullet had no carrier because there was no milestone table anywhere in the tree. There is
+one in the archived IMAM guideline: **Annex 9**, eight age bands and 30 milestones under ASSESS, with
+a three-outcome CLASSIFY chart. `MILESTONES` reproduces the bands and the milestone wording verbatim —
+the label is the sentence a caregiver is read — and `RecordsService.milestone_check` applies the rule:
+
+- **DELAY** — absence from the current band *and* absence from an earlier one, **or** a regression.
+- **ALERT** — absence from the current band alone.
+- **NORMAL** — every current-band milestone present.
+
+The precedence is the part that collapses silently. Canary #9 makes every current-band gap a delay,
+which refers a child who is merely late on one skill; canary #10 drops regression from the rule,
+which is the criterion a series of checklists cannot catch and the one the guideline names in its own
+right.
+
+Two properties of the annex are recorded because both are miscounts waiting to happen: the bands
+**meet at their endpoints** (0–2 and 2–4 both name month 2), and the 0–2 month band lists **only two**
+milestones where every other band lists four. I asserted 32 on the first pass; the annex says 30 and
+the annex was right.
+
+**`checked_earlier` is a design decision the source forced.** Annex 9's DELAY rule needs a gap in an
+earlier band, and a caregiver asked only about the child's own age group supplied no evidence about
+the others. Reading that silence as absence classifies *every* child as delayed — a false positive in
+the direction that sends families to a clinic — so the earlier bands are counted only when the caller
+says they were checked, and `earlier_checked` travels on the report so the answer says what it did
+and did not look at. Canary #11 counts them unasked.
+
+### What the live probe found, which no test had
+
+Both defects came from `curl` against a dev server, and neither was reachable by a unit test over
+the service — which is the argument for probing the front door rather than reasoning about it.
+
+**A re-weigh at the same age was a 500.** `record_growth` files a wallet document and `add_document`
+asserts its `doc_id` unique — correctly, because a wallet that overwrote a document on a repeated id
+would lose the earlier one at the moment a retry happened. The id was `growth-{member}-{age}`, so a
+child weighed at twelve months who comes back a fortnight later, still twelve months, was an
+`AssertionError` at the front door with the first visit already stored. It was unreachable until this
+work, because the route called `growth_flag`, which files nothing; the moment it started calling
+`record_growth` the collision became the ordinary path. A re-weigh is not a retry — a retry sends the
+same measurement, and this sends a different one the chart has to plot — so the id carries a
+per-member visit sequence. Canary #18.
+
+**The checklist read as a finding about a child nobody had assessed.** The read half serves the list
+a caregiver answers against, and it classified an empty answer set through the same classifier, so
+every current-band milestone came back missing and the status was `alert` — "One or more skills for
+this age are not there yet." That sentence, served before anyone has looked at the child, is Annex
+9's ALERT read as a result rather than as the instruction to go and assess. It is exactly the failure
+`checked_earlier` guards against, one level up: silence about a child is not evidence about the
+child. `status` gained a fourth value, `unanswered`, and the guidance with it; the missing list is
+still served, because the list *is* the checklist. Canary #17.
+
+### What the canaries found
+
+Three MISSED on the first run, all three a defect in the test rather than in the canary:
+
+- **#8, the arm z-score read with the normal form** — the test only asserted the table's `L` values,
+  so forcing `L = 1.0` at the call site passed it. The fix computes the Box-Cox and normal results at
+  11 cm / 12 months, asserts they differ by more than 0.01, and asserts `muac_z` matches the first and
+  not the second. A test that reads a constant is not a test that the constant is used.
+- **#11, the earlier bands counted unasked** — the test drove only the checked case and never
+  asserted the negative. The fix asserts `report.missing_earlier == []` on the unchecked report. This
+  is the same shape as §MON-008's label canary: an assertion about a field's presence where the
+  finding is about its content.
+- **#13, the guidance collapsed to one sentence** — the test compared the `MILESTONE_GUIDANCE` dict
+  with itself, so patching the *report* to always serve `'normal'` passed it. The fix drives all three
+  classifications and asserts the served guidance equals the dict entry for the status that came back.
+
+The pattern across all three is one line: **assert the value that was served, not the constant it was
+served from.** A constant compared with itself agrees whatever the code does with it.
+
+The canary harness itself gained a guard this round: a nonexistent node id makes pytest exit non-zero
+on a *collection* error, which reads as CAUGHT, so the script now collects both test files first and
+asserts every canary names a test that exists.
+
+### Counts
+
+**§REC-003 2 `missing` → 0**, all eight bullets `carried` with refs that resolve through
+`afya.refs.py`. Across the repo **453 → 459 `carried`, 23 → 21 `missing`**, 497 rows, `deferred` 17
+unchanged.
+
+Four WHO table files archived with both checksums in `sources/INDEX.md`, and the growth-standards
+section now records what the two new tables do and do not support — the arm table's 3-month floor,
+the `L == 1` property of head circumference, that neither is a percentile chart, and that the IMAM
+cut-offs are a different instrument with a different age floor. The IMAM section gained the Table 1.5
+cut-offs, Section 3's under-six-month protocol, and Annex 9 with its two easy miscounts, plus one new
+line under "what the source does not support": the annex states **no threshold** for how far behind a
+child may be, so no severity grade is invented for a missing milestone.
+
+**Canaries: 18/18 fired.** The head circumference not read; the MUAC read in millimetres; an
+unmeasured child scored as average; the IMAM category applied below six months; the moderate band off
+by a tenth; the severe alert softened; the head z-score computed from the arm table; the arm z-score
+read with the normal form; every current-band gap a delay; regression dropped; the earlier bands
+counted unasked; an unknown milestone counted as absent; the guidance collapsed to one sentence; the
+growth route reverted to the one-word flag; the semicolon list read as one bullet; the semicolon
+split reaching the bullets; the unchecked checklist reading as an alert; and a re-weigh at the same
+age filing a duplicate document.

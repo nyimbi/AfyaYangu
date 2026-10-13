@@ -155,6 +155,8 @@ FEATURE_OF: dict[str, str] = {
 	'vaccination_certificate': 'REC-002',
 	# The chart is §REC-003's "percentile charts", which is the growth section rather than the wallet.
 	'growth_chart': 'REC-003',
+	# §REC-003's "milestone checklists", in Annex 9's two halves: the list, and the report against it.
+	'milestone_checklist': 'REC-003', 'milestone_check': 'REC-003',
 	'add_lab': 'REC-007', 'view_labs': 'REC-007', 'register_donor': 'REC-004', 'find_donors': 'REC-004',
 	'donor_alerts': 'REC-004', 'donation_centres': 'REC-004',
 	'wellbeing_check': 'REC-005', 'counselling_lines': 'REC-005', 'mood_screen': 'REC-005',
@@ -470,7 +472,10 @@ def catalogue() -> list[MobileAction]:
 		# Records & wallet
 		_a('immunisation_gaps', 'Which vaccines are missing?', 'Records', 'GET', '/records/{member_ref}/immunisation-gaps', [_f('member_ref', 'Family member', 'path')]),
 		_a('family_wallet', 'Family health wallet', 'Records', 'GET', '/records/{guardian_ref}/wallet', [_f('guardian_ref', 'Guardian', 'path')]),
-		_a('growth_flag', 'Is my child growing well?', 'Records', 'POST', '/records/growth', [_f('member_ref', 'Family member'), _f('age_months', 'Age in months', 'int'), _f('weight_kg', 'Weight in kg', 'decimal'), _f('height_cm', 'Height in cm', 'decimal')]),
+		_a('growth_flag', 'Is my child growing well?', 'Records', 'POST', '/records/growth', [_f('member_ref', 'Family member'), _f('age_months', 'Age in months', 'int'), _f('weight_kg', 'Weight in kg', 'decimal'), _f('height_cm', 'Height in cm', 'decimal'), _f('sex', 'Boy or girl?', 'select', ['boy', 'girl']), _f('head_circumference_cm', 'Head size in cm', 'decimal', ph='optional'), _f('muac_mm', 'Mid-upper arm in mm', 'decimal', ph='optional')]),
+		# §REC-003's milestone checklist, in Annex 9's two halves: read the list, then report it.
+		_a('milestone_checklist', 'What should my child be doing?', 'Records', 'GET', '/records/{member_ref}/milestones', [_f('member_ref', 'Family member', 'path'), _f('age_months', 'Age in months', 'int')]),
+		_a('milestone_check', 'Milestones my child has reached', 'Records', 'POST', '/records/milestones', [_f('member_ref', 'Family member'), _f('age_months', 'Age in months', 'int'), _f('present', 'Skills the child can do', 'list', ph='from the checklist'), _f('lost', 'Skills the child has stopped doing', 'list', ph='leave empty if none'), _f('checked_earlier', 'Were the earlier age groups also checked?', 'bool', ph='only if you asked about them')]),
 		_a('add_lab', 'Add a lab result', 'Records', 'POST', '/records/labs', [_f('member_ref', 'Family member'), _f('test', 'Test', 'select', ['mRDT', 'widal', 'hba1c', 'fbc', 'viral_load', 'glucose_f', 'bp', 'other']), _f('value', 'Result'), _f('unit', 'Unit', ph='optional'), _f('flag', 'Is it normal?', 'select', ['normal', 'abnormal', 'critical', 'unknown']), _f('performed_iso', 'Date of test')]),
 		_a('view_labs', 'My lab results', 'Records', 'GET', '/records/{ref}/labs', [_f('ref', 'Family member', 'path')]),
 		# §9.2 REC-001 and §10.1 REC-002: the wallet's documents, and the operations over them.
@@ -825,6 +830,8 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'export_record': ('Export a health record', 'A PDF or a file for school, travel or work'),
 	'backup_wallet': ('Back up the wallet', 'Keep an encrypted copy so nothing is lost'),
 	'growth_chart': ('My child growth chart', 'Weight and height against the healthy range'),
+	'milestone_checklist': ('What should my child be doing?', 'The skills expected at this age'),
+	'milestone_check': ('Milestones my child has reached', 'Check the skills and get advice'),
 	'vaccination_certificate': ('Vaccination certificate', 'Proof of doses for travel, school or work'),
 	'child_schedule': ('My child vaccine schedule', 'Every dose due, and the ones that were missed'),
 	'add_medication': ('Remind me to take my medicine', 'Never miss a dose or a refill'),

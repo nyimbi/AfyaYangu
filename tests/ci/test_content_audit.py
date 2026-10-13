@@ -58,7 +58,16 @@ def _spec_bullets(feature_id: str, label: str) -> list[str]:
 		return numbered
 	prose = segment.strip().lstrip('- ').strip()
 	assert prose, f'{feature_id} has a {label} label with nothing after it'
-	items = [item.strip() for item in prose.rstrip('.').split(',')]
+	# The fifth shape: a semicolon. §REC-003's Features is "Weight, height, head circumference,
+	# MUAC; percentile charts; undernutrition alerts; feeding guidance by age; milestone
+	# checklists." — five clauses, four of them written with the same separator the sentence uses
+	# between items. Splitting on the comma alone read the whole run as one bullet named
+	# "MUAC; percentile charts; …", so four of the eight things the section asks for had no row
+	# and the audit reported a section covered by a cell it could not act on. A semicolon in a
+	# content list separates items exactly as a comma does; REC-003 is the only section in the
+	# spec that writes one, and `test_the_only_semicolon_list_in_the_spec_is_the_one_that_was_read`
+	# pins that so this split cannot quietly change another section's bullets.
+	items = [item.strip() for item in re.split(r'[;,]', prose.rstrip('.'))]
 	# The fourth shape: a sequence of directives. §MED-004's Anti-gaming clause is written "Require
 	# location proximity to report. Weight reports by reporter reliability. Show report age
 	# clearly." — three separate controls, and the comma split read them as one item, which is how a
@@ -175,6 +184,38 @@ def test_every_audited_bullet_is_the_sections_bullet_in_its_own_words() -> None:
 			spec = _spec_bullets(feature_id, label)
 			mine = [b for f, l, b, _, _, _ in FEATURE_CONTENT if f == feature_id and l == label]
 			assert mine == spec, f'{feature_id} {label}: {mine} != {spec}'
+
+
+def test_the_only_semicolon_list_in_the_spec_is_the_one_that_was_read() -> None:
+	"""The semicolon split is scoped to its jurisdiction, asserted rather than assumed.
+
+	A separator added to a parser is a change to every section the parser reads, so the claim the
+	split rests on — that §REC-003 is the only prose list in the spec written with a semicolon —
+	is a test and not a comment. If a later section writes one, this fails and the new section's
+	bullets get read deliberately instead of silently.
+
+	The second half checks the split *fired*, on the section it exists for: eight clauses, none of
+	them still carrying a separator. A semicolon inside a bullet is a different thing and is left
+	alone — §LOC-002's "Opt-in only; can be disabled at any time" is one privacy property and its
+	rationale, and splitting it would invent a bullet the section does not print. That is why the
+	split lives in the prose branch and not in the parser as a whole.
+	"""
+	from afya.content_audit.service import _LABELS
+	found = []
+	for fid in _spec_feature_ids():
+		body = _spec_section(fid)
+		for label in _LABELS:
+			if f'**{label}:**' not in body:
+				continue
+			segment = re.split(r'\n\*\*|\n####|\n###', body.split(f'**{label}:**', 1)[1])[0]
+			if segment.strip().startswith('- ') or re.match(r'^\s*\d+\.\s', segment.strip()):
+				continue
+			if ';' in segment:
+				found.append((fid, label))
+	assert found == [('REC-003', 'Features')], f'the semicolon lists are {found}'
+	items = _spec_bullets('REC-003', 'Features')
+	assert len(items) == 8, f'§REC-003 Features reads as {len(items)} items: {items}'
+	assert not [item for item in items if ';' in item], 'a clause still reads as one bullet'
 
 
 def test_the_audited_sections_are_the_ones_the_survey_found_uncited() -> None:
@@ -299,7 +340,6 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§LOC-001': 1,
 		'§LOC-002': 1,
 		'§LOC-004': 1,
-		'§REC-003': 2,
 		'§SEC-001': 2,
 		'§SEC-002': 1,
 		'§SEC-004': 1,
