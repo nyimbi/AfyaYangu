@@ -93,7 +93,18 @@ class ChwTask(BaseModel):
 
 
 class PushPayload(BaseModel):
+	"""One notification on its way to a person.
+
+	`subject_ref` is the person it is *for*, and it is required because a notification without one
+	is a notification nobody receives: §11.4 COM-104's correction is addressed to the person who
+	flagged the rumour, and a payload that named no recipient could be "sent" for a year while no
+	one was ever told anything. `category` is §ALT-003's own preference vocabulary, so the
+	subscription check has a value to read rather than a route to guess at — a category absent from
+	the catalogue would make the toggle a decoration.
+	"""
 	model_config = MODEL_CONFIG
+	subject_ref: str = Field(min_length=1)
 	title: str
 	body: str
+	category: str = 'community_alerts'
 	tier_feature: str | None = None

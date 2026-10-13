@@ -208,6 +208,7 @@ FEATURE_OF: dict[str, str] = {
 	'tracing_prompts': 'COM-103', 'save_contacts': 'COM-103', 'add_contact': 'COM-103',
 	'share_contacts': 'COM-103', 'contact_shares': 'COM-103', 'withdraw_contact_shares': 'COM-103',
 	'flag_misinformation': 'COM-104', 'misinformation_clusters': 'COM-104',
+	'misinformation_notices': 'COM-104',
 	'publish_feed_item': 'ALT-001', 'alert_feed': 'ALT-001',
 	'alert_preferences': 'ALT-003', 'set_alert_preference': 'ALT-003',
 	'link_family': 'ALT-002', 'family_check_in': 'ALT-002', 'family_board': 'ALT-002', 'my_checkins': 'ALT-002',
@@ -312,7 +313,7 @@ DORMANT_SLUGS: frozenset[str] = frozenset({
 	'peer_alert', 'peer_alert_followup', 'ack_peer_alert',
 	'tracing_prompts', 'save_contacts', 'add_contact',
 	'share_contacts', 'contact_shares', 'withdraw_contact_shares',
-	'flag_misinformation', 'misinformation_clusters',
+	'flag_misinformation', 'misinformation_clusters', 'misinformation_notices',
 	# Exposure notification (ALT-004)
 	'send_exposure_notice', 'ack_exposure',
 	# Proximity log (LOC-002), location history (LOC-003), check-in points (LOC-004), border (LOC-005)
@@ -615,8 +616,9 @@ def catalogue() -> list[MobileAction]:
 		_a('share_contacts', 'Share my contact list with the health team', 'Community', 'POST', '/community/contacts/{subject_ref}/share', [_s('path'), _f('with_who', 'Who should get it?', ph='optional')]),
 		_a('contact_shares', 'What I have shared', 'Community', 'GET', '/community/contacts/{subject_ref}/shares', [_s('path')]),
 		_a('withdraw_contact_shares', 'Take my contact list back', 'Community', 'DELETE', '/community/contacts/{subject_ref}/shares', [_s('path')]),
-		_a('flag_misinformation', 'Report something I heard', 'Community', 'POST', '/community/misinformation', [_auto('submission_id', 'Report number'), _f('claim', 'What did you hear?', 'textarea'), _f('county', 'County'), _f('medium', 'How did you get it?', 'select', MISINFO_MEDIA), _f('topic', 'Topic', ph='optional')]),
+		_a('flag_misinformation', 'Report something I heard', 'Community', 'POST', '/community/misinformation', [_auto('submission_id', 'Report number'), _f('claim', 'What did you hear?', 'textarea'), _f('county', 'County'), _f('medium', 'How did you get it?', 'select', MISINFO_MEDIA), _f('topic', 'Topic', ph='optional'), _f('evidence_ref', 'The recording or picture', 'file', ph='voice note or screenshot'), _f('transcript', 'What the voice note said', 'textarea', ph='type it if you have no recording'), _f('evidence_consent', 'Share the recording or picture with the health team', 'bool'), _f('flagger_ref', 'Tell me when this is answered', ph='your number or reference')]),
 		_a('misinformation_clusters', 'Rumours going around', 'Community', 'GET', '/community/misinformation/clusters', []),
+		_a('misinformation_notices', 'Answers to what I reported', 'Community', 'GET', '/community/misinformation/notices/{subject_ref}', [_s('path')]),
 		# Outbreak mode
 		_a('enrol_monitoring', 'Start my 21-day check-in', 'Outbreak', 'POST', '/monitoring/contact/enrol', [_s(), _f('officer', 'Monitoring officer', ph='optional'), _f('officer_number', 'Their phone number', ph='optional')]),
 		_a('monitoring_day', 'Log today (21-day check-in)', 'Outbreak', 'POST', '/monitoring/contact/day', [_auto('entry_id', 'Entry number'), _s(), _f('day', 'Day (1-21)', 'int'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('symptoms', 'Symptoms', 'list'), _f('household_member', 'Family member', ph='optional'), _f('slot', 'Morning or evening', 'select', ['morning', 'evening']), _f('location_logged', 'Share where I am today', 'bool')]),

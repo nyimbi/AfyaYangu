@@ -87,7 +87,11 @@ class ChannelService(LogMixin):
 		self._access = access
 		self._ussd_state: dict[str, int] = {}
 		self._chw_tasks: list[ChwTask] = []
-		assert self._ussd_state == {} and self._chw_tasks == []
+		# Every payload handed to `push`. Held rather than fired and forgotten for §16.1's reason:
+		# the delivery path is a transport, and what the deployment owes a person must be readable
+		# after the transport has had its say.
+		self._pushes: list[PushPayload] = []
+		assert self._ussd_state == {} and self._chw_tasks == [] and self._pushes == []
 
 	async def zero_rating_rules(self) -> list[ZeroRatingRule] | None:
 		"""§18.8's rules, or None when they have not been pulled.
@@ -340,6 +344,22 @@ class ChannelService(LogMixin):
 				return t
 		raise KeyError(task_id)
 
-	def push(self, payload: PushPayload) -> PushPayload:
+	async def push(self, payload: PushPayload) -> PushPayload:
+		"""Hand one notification to the delivery path, and record that it went.
+
+		`sent` is a fact about this method, not about the person's handset: the transport here is the
+		service's own outbox, and a deployment that wires FCM or APNs behind it is what turns the
+		entry into a delivery. That distinction is the point — the predecessor returned the payload
+		unchanged and had no call sites, so §11.4's correction was drafted, addressed and never
+		handed to anything. A caller that needs to know whether the *person* was reached reads
+		`sent`; a caller that needs to know whether the notice is owed reads the payload back.
+		"""
 		assert payload.title and payload.body, 'title/body required'
+		assert payload.subject_ref, 'a notification without a recipient reaches nobody'
+		self._pushes.append(payload)
+		self._log_info('push queued', subject=payload.subject_ref, category=payload.category)
 		return payload
+
+	def pushes(self, subject_ref: str | None = None) -> list[PushPayload]:
+		"""What this deployment has handed to the delivery path, newest last."""
+		return [p for p in self._pushes if subject_ref is None or p.subject_ref == subject_ref]

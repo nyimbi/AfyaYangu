@@ -186,6 +186,7 @@ async def test_misinfo_cluster_velocity_thresholds() -> None:
 		await svc.flag_misinfo(MisinfoSubmission(
 			submission_id=f'MIS-ABCD{i:04d}', claim='Drinking salt water cures Ebola', county='Busia',
 			medium='whatsapp_forward', topic='cure_claim',
+			transcript='Drinking salt water cures Ebola',
 		))
 	rising = svc.clusters()[0]
 	assert rising.velocity == 'rising'
@@ -195,6 +196,7 @@ async def test_misinfo_cluster_velocity_thresholds() -> None:
 		await svc.flag_misinfo(MisinfoSubmission(
 			submission_id=f'MIS-ABCD{i:04d}', claim='Drinking salt water cures Ebola', county='Busia',
 			medium='voice', topic='cure_claim',
+			transcript='Drinking salt water cures Ebola',
 		))
 	spiking = svc.clusters()[0]
 	assert spiking.velocity == 'spiking'

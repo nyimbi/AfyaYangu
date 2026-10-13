@@ -346,13 +346,58 @@ class ContactShareReceipt(BaseModel):
 # --- COM-104 misinformation tracker ------------------------------------------------------
 
 class MisinfoSubmission(BaseModel):
+	"""§COM-104's report, in whichever medium the person has it.
+
+	`medium` said `voice` or `screenshot` and carried no payload for either, so a person who had the
+	rumour as a voice note had to retype it as a claim — and the two media that cannot be retyped
+	are exactly the two a WhatsApp forward arrives in. `evidence_ref` is where the recording or the
+	image lives: §SEC-002's own rule for this data is "Photos encrypted and only shared with
+	explicit per-item consent", so the *bytes* never enter this model. What travels is a reference to
+	an envelope the caller sealed, which is the same division `WalletDocument.media_ref` draws.
+
+	`transcript` is the text path out of a voice note: §ACC-002's recogniser runs on the device and
+	the words come up, which is what makes a spoken rumour findable by `classify()` at all. A voice
+	report with neither a transcript nor an `evidence_ref` is refused, because it is a claim with no
+	content in any medium — the audit row's own gap, wearing a `medium` value that looks filled in.
+	"""
 	model_config = MODEL_CONFIG
 	submission_id: str = Field(default_factory=lambda: 'MIS-' + uuid7str().replace('-', '').upper()[:8])
 	claim: str = Field(min_length=5, max_length=500)
 	county: str
 	medium: str = Field(pattern=r'^(text|voice|screenshot|whatsapp_forward)$')
 	topic: str | None = None
+	# §SEC-001: who to tell when the rumour they reported is addressed. Read by `notices_for`,
+	# which is what makes §11.4's last bullet reachable at all.
 	flagger_ref: str | None = None
+	# A reference to the sealed recording or image, never the bytes. Sealed under §SEC-003's
+	# application-layer key by the caller, for the reason §COM-103's contact list is: the operator
+	# holding the at-rest key is not the audience for a rumour someone forwarded them.
+	evidence_ref: str | None = Field(default=None, max_length=200)
+	# What a voice note said, recognised on the device by §ACC-002's engine. Never a server-side
+	# transcription of uploaded audio: §SEC-002 says audio is not transmitted.
+	transcript: str | None = Field(default=None, max_length=500)
+	# §SEC-002's "explicit per-item consent" for the photograph itself, given per report rather
+	# than once at install. Defaults False: a submission that says nothing shares nothing.
+	evidence_consent: bool = False
+
+	@model_validator(mode='after')
+	def _payload_matches_medium(self) -> 'MisinfoSubmission':
+		"""A medium that names a recording or an image must carry one.
+
+		Without this the four-value `medium` pattern was the whole feature: a `screenshot` submission
+		with no image is indistinguishable from a `text` one, and PHEOC reading the cluster counts
+		would see "12 screenshots" and have nothing to look at.
+		"""
+		if self.medium in ('voice', 'screenshot', 'whatsapp_forward') and not (
+				self.evidence_ref or self.transcript):
+			raise ValueError(
+				f'a {self.medium} report must carry the recording, the image or its transcript — '
+				'otherwise it is a text report with a different label')
+		if self.evidence_ref and not self.evidence_consent:
+			raise ValueError(
+				'the recording or image is shared only with explicit per-item consent, and none '
+				'was given for this report')
+		return self
 
 
 class MisinfoCluster(BaseModel):
@@ -409,3 +454,29 @@ class ClaimAnswer(BaseModel):
 	recognised: bool
 	# §6.2.3: an undated correction about a live rumour is one nobody can weigh.
 	drafted_on_iso: str = Field(min_length=10)
+
+
+class CorrectionNotice(BaseModel):
+	"""§11.4's last bullet: the correction, addressed to the person who flagged the rumour.
+
+	The flow is explicit — "Flag → aggregated → verified → correction drafted → published on all
+	channels → flagger notified" — and the last arrow was the one with nothing behind it.
+	`correction_for` drafted the text and `flagger_ref` was written on every submission and read
+	nowhere, so the person who reported a rumour was never told it had been answered. `sent` is the
+	fact the audit row was missing: the notice exists *and* it was handed to a delivery path.
+
+	`withheld` says why a notice that exists was not handed over — the person switched community
+	alerts off, or gave no `flagger_ref` to address it to. A refusal is an answer, as everywhere
+	else in this module: a notice silently dropped reads the same as a person who was never told.
+	"""
+	model_config = MODEL_CONFIG
+	topic: str
+	subject_ref: str
+	title: str = Field(min_length=1)
+	body: str = Field(min_length=1)
+	correction: str = Field(min_length=1)
+	source: str = ''
+	sent: bool
+	withheld: str | None = None
+	category: str = Field(default='community_alerts', min_length=1)
+	issued_at_ms: int

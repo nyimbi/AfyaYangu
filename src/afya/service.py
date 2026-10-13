@@ -430,7 +430,12 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# and §16.3 already carried a `case_reports` rule with nothing writing to it.
 		'monitoring': monitoring_svc,
 		'identity': identity_svc,
-		'community': CommunityService(identity_svc, sync_svc, crypto_svc, adam_svc),
+		# §11.4's last bullet needs both halves of the join: `channels_svc` carries the notice and
+		# `alerting_svc` holds §ALT-003's subscriptions, which decide whether the notice is owed. They
+		# are separate parameters because a deployment with the transport and no ledger must not push
+		# to someone who switched community alerts off, and a deployment with neither must still be
+		# able to say which of the two is missing rather than reporting a notice sent to nobody.
+		'community': CommunityService(identity_svc, sync_svc, crypto_svc, adam_svc, channels_svc, alerting_svc),
 		'alerting': alerting_svc,
 		'realtime': RealtimeService(),
 		# §INF-005's two collaborators. `info_svc.dashboard` is the county risk read and
@@ -3693,7 +3698,39 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/community/misinformation')
 	async def community_misinfo(submission: MisinfoSubmission) -> dict[str, object]:
-		return (await community.flag_misinfo(submission)).model_dump(mode='json')
+		"""§COM-104's flag, and the flagger notification §11.4's flow ends on.
+
+		The flag is recorded first and the notice is composed second, in that order, because the
+		flow's own order is "aggregated → verified → correction drafted → published → flagger
+		notified": a report that triggered a push before it was counted would tell the reporter
+		something the deployment had not yet decided. `notices` carries what was sent and what was
+		withheld with the reason, so a caller can tell "no correction drafted yet" from "you switched
+		community alerts off" — two different facts the predecessor reported as neither, since it
+		reported nothing at all.
+
+		The notice does not fail the flag. A transport that is down is this route's normal case, and
+		a 500 here would lose a report from someone who did the right thing.
+		"""
+		cluster = await community.flag_misinfo(submission)
+		out = cluster.model_dump(mode='json')
+		try:
+			notices = await community.notify_flaggers(cluster.topic)
+		except AssertionError:
+			notices = []
+		out['notices'] = [n.model_dump(mode='json') for n in notices]
+		return out
+
+	@app.get('/community/misinformation/notices/{subject_ref}')
+	async def community_misinfo_notices(subject_ref: str,
+	                                    _subject: str = Depends(require_self())) -> list[dict[str, object]]:
+		"""What this person has been told about the rumours they reported, sent or withheld.
+
+		`self`-scoped for the reason every personal-data route is: the notices name the rumour the
+		person reported and the correction they were owed, which is a fact about them and not about
+		the outbreak. A person whose push was withheld reads the same correction here, which is what
+		makes switching community alerts off a preference rather than a way to lose an answer.
+		"""
+		return [n.model_dump(mode='json') for n in community.notices_for(subject_ref)]
 
 	@app.post('/info/myths/ask')
 	async def info_myths_ask(claim: str, lang: str = 'en') -> dict[str, object]:

@@ -243,7 +243,8 @@ async def test_chw_task_and_push() -> None:
 	assert svc.open_tasks('CHW1') == [t]
 	await svc.complete_task('T1')
 	assert svc.open_tasks('CHW1') == []
-	assert svc.push(PushPayload(title='t', body='b')).title == 't'
+	assert (await svc.push(PushPayload(subject_ref='s1', title='t', body='b'))).title == 't'
+	assert len(svc.pushes('s1')) == 1
 
 
 async def test_radio_bulletin() -> None:

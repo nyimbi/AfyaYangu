@@ -3849,3 +3849,122 @@ world. §COM-103's window is the 21 days §COM-102 already carries, read from `A
 rather than typed again; §SEC-003's standard is the specification's own and already archived with the
 section it comes from. No external document states how a Kenyan county receives a contact list, and
 inventing one to fill the citation slot would be worse than the gap.
+
+---
+
+## §COM-104 — a pattern that named three media and carried none of them
+
+§11.4's tracker had four of its five bullets. The button posted, the clusters aggregated by topic and
+county, and §19.4's dashboard read the velocity. The two that were `missing` failed in the two shapes
+this codebase keeps finding — and, as with §COM-103, in the same section as the previous unit.
+
+### The medium that was a pattern and nothing else
+
+`MisinfoSubmission.medium` accepted `text|voice|screenshot|whatsapp_forward` and carried no payload
+for any of them. A person holding the rumour as a WhatsApp voice note had to retype it as a claim,
+and the two media that cannot be retyped are exactly the two a forward arrives in. The cluster counts
+read "12 screenshots" and PHEOC had nothing to look at — a `screenshot` report was byte-for-byte
+indistinguishable from a `text` one.
+
+Two fields close it, and the division between them is §SEC-002's:
+
+| | |
+|---|---|
+| `evidence_ref` | A reference to the recording or the image — **never the bytes** |
+| `transcript` | What a voice note said, recognised on the device by §ACC-002's engine |
+
+§SEC-002's own line for this data is *"Photos encrypted and only shared with explicit per-item
+consent"*, so `evidence_consent` is given **per report** rather than once at install, and a
+submission that says nothing shares nothing. The bytes stay out of the model for the reason
+`WalletDocument.media_ref` keeps them out of the wallet: a model that could hold the image would put
+a rumour someone forwarded into every log line and every cluster payload that carries the submission.
+
+A `model_validator` refuses a `screenshot`, `voice` or `whatsapp_forward` report carrying neither —
+otherwise the four-value pattern is the whole feature and the label is the only difference. `text` is
+still complete without one, because demanding a payload there would break the button that already
+worked.
+
+### The last arrow of §11.4's flow
+
+> Flag → aggregated → verified → correction drafted → published on all channels → **flagger notified**
+
+`correction_for` drafted the text. `flagger_ref` was written on every submission and read nowhere.
+`ChannelService.push` existed with no call sites anywhere in the repo. Every part present, the join
+absent — §COM-103's shape, one section over.
+
+`notify_flaggers` resolves the people who reported the rumour (`flaggers_for`, deduplicated in order
+of first report) and hands each the correction the protocol already drafted. Three refusals are
+**reported rather than dropped**, because a notice silently dropped reads exactly like a person who
+was never told:
+
+| Refusal | Why it is the answer |
+|---|---|
+| Undrafted topic | The flow's own order puts "correction drafted" before "flagger notified". Pushing *"under verification"* to the person who reported the rumour tells them nothing they did not already know — they are the one who reported it. |
+| No `flagger_ref` | Nobody to address. A notice reported as sent to nobody is worse than one reported as unsendable. |
+| Community alerts off | §ALT-003's own toggle, read through `AlertingService.should_deliver`. The correction is still kept for them to read: switching a category off is a preference about being interrupted, not a way to lose the answer. |
+
+The fallback topic is excluded from "drafted" and that is the case that matters most: a report filed
+with no topic resolves to `unknown`, which *has* a library entry — so the naive
+`topic in CORRECTION_LIBRARY` test pushes the one answer the tracker gives when it has nothing to say.
+
+Notices are keyed on `(topic, subject_ref)`. Twenty people who reported one rumour are twenty notices;
+one person who reported it twice is one. A topic-keyed store would tell exactly one of the twenty.
+
+### A dict where a model belonged, found by the transport
+
+The first version handed `ChannelService.push` a **dict** through a `NotificationPort` typed
+`push(payload: Any)`. It raised `'dict' object has no attribute 'title'` — inside the method's own
+`except Exception`, which is where the one place a caller cannot see it lives. Every notice came back
+`sent: false` with `withheld: null`, and the only reason it surfaced is that the route test asserted
+`sent is True` rather than that the call returned.
+
+Two fixes, both worth keeping. The port's payload is `PushPayload`, not `Any`, so a mismatch is a
+type error rather than a transport failure. And the except branch now sets `withheld` to
+`NOTICE_WITHHELD_TRANSPORT_FAILED` — *"a transport that failed"* and *"a deployment with no
+transport"* are different facts, and a reader acting on the wrong one chases the wrong fault.
+
+### Canaries
+
+**11/11 fired.** A medium that names a payload carries none; the per-item consent gate dropped;
+`flagger_ref` not read again; an undrafted rumour answered with the fallback; the fallback topic
+counted as drafted; the alert subscription not consulted; `sent` set with no transport; a failed
+transport reported as sent; the notice keyed on the topic alone; a re-flag pushing the correction
+again; the push payload losing its category.
+
+No canary missed. Canary #8 — a failed transport reported as sent — is the shape the dict-payload bug
+actually produced, so the canary was written against a defect that had already happened once in this
+unit.
+
+### Live probe
+
+Through `uvicorn --factory afya.service:create_app --port 8733`:
+
+- a `text` report with a flagger → cluster `cure_claim`, `velocity: slow`, one notice, **`sent: true`**
+- a `screenshot` with no image → **422**
+- an `evidence_ref` with no consent → **422** *"the recording or image is shared only with explicit
+  per-item consent"*
+- a `voice` report with a transcript → **200**
+- a report with no topic → cluster `unknown`, notice **withheld** *"still being verified"* — the
+  fallback correctly *not* pushed
+- `community_alerts` switched off → notice withheld *"You have community alerts switched off"*, and
+  `/community/misinformation/notices/probe-9` still serves the correction
+- a second flag from the same person → `notices` has one row, not two
+- `/community/misinformation/notices/someone-else` → **403** (the `require_self` binding)
+- `misinformation_notices` absent from a citizen's catalogue, dormant with Tier 4
+- no `COM-10\d` string in any served cluster payload
+
+**§COM-104 2 `missing` → 0.** Across the repo **464 → 466 `carried`, 16 → 14 `missing`**, 497 rows,
+`deferred` 17 unchanged, `unresolved == []`.
+
+**No new source directory.** §SEC-002 supplies the consent rule and §ALT-003 the toggle; both are
+archived with their sections. §11.4's flow supplies the order of the notification. No source states
+how a Kenyan county receives a voice note, and inventing one to fill the citation slot would be worse
+than the gap.
+
+### One pre-existing abort, not this unit's
+
+`tests/ci/test_ui_vocabulary.py` exits **134** with `recursive_mutex lock failed` *after* all 22 tests
+pass, on roughly three runs in four. Verified pre-existing against a clean `HEAD` worktree (2 of 4
+runs aborted there with the same message and the same all-passed summary), so it is an
+interpreter-shutdown fault in a dependency, not a regression here. Noted rather than fixed, because
+the fix belongs to whatever holds the mutex.

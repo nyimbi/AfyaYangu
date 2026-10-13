@@ -9,12 +9,13 @@ import json
 from typing import Any, Protocol
 
 from afya.auth.views import now_ms
+from afya.channels.views import PushPayload
 from afya.community.protocol import PROTOCOL, ResponseClock, coverage, response_clock
 from afya.community.views import (
 	ALERT_WINDOW_DAYS, FOLLOWUP_DAYS, ISSUE_ROUTING, CaseReport, CaseReportView, CaseStatus,
 	ClaimAnswer, CommunityIssue, ContactEntry, ContactList, ContactShare, ContactShareReceipt,
-	ContactTracingSummary, IssueReceipt, IssueStatus, MisinfoCluster, MisinfoSubmission, PeerAlert,
-	PeerAlertAck, PeerAlertGuidance, PeerAlertReceipt,
+	ContactTracingSummary, CorrectionNotice, IssueReceipt, IssueStatus, MisinfoCluster,
+	MisinfoSubmission, PeerAlert, PeerAlertAck, PeerAlertGuidance, PeerAlertReceipt,
 )
 from afya.crypto.service import CryptoService
 from afya.identity.service import IdentityService
@@ -93,6 +94,25 @@ class HealthAuthorityPort(Protocol):
 	async def share_contact_list(self, envelope: dict[str, Any]) -> str: ...
 
 
+class NotificationPort(Protocol):
+	"""§11.4's last arrow — "flagger notified" — as the community service sees it.
+
+	One method and no state: the service composes the notice and hands it over, and what delivers it
+	(native push, SMS, a WhatsApp template) is the deployment's business for the same reason
+	`HealthAuthorityPort`'s transport is. §ALT-003's own preference vocabulary travels with the
+	payload as its `category`, so the subscription check happens in the layer that holds the
+	subscriptions rather than being re-derived here from a second copy of the toggle list.
+
+	The payload type is `PushPayload` rather than a dict, and that is deliberate: the first version
+	passed a dict and `ChannelService.push` — which takes the model — raised `'dict' object has no
+	attribute 'title'` inside the transport's own `except Exception`, so every notice was recorded as
+	unsent with no reason a reader could act on. A structural port whose payload is `Any` moves the
+	mismatch from the type checker to the one place it is invisible.
+	"""
+
+	async def push(self, payload: PushPayload) -> PushPayload: ...
+
+
 # §COM-103's data handling: "Deleted after the contact-tracing window closes." The window is the
 # same 21 days §COM-102's follow-up prompts and §MON-009's diary run on, and it is read from the
 # constant rather than typed again — three features that each wrote their own 21 would be three
@@ -108,6 +128,37 @@ CONTACT_SHARE_MESSAGE = (
 	'Encrypted and sent to the county disease surveillance team. It is kept for 21 days — the '
 	'tracing window — and then deleted. You can withdraw it sooner by deleting your contact list.'
 )
+
+# §11.4's "Push notification with corrections when a rumour the user flagged is addressed". The
+# category is §ALT-003's own "Community alerts" — the option a person switches off when they do not
+# want to hear about what is circulating where they live. A new toggle for this would be a twelfth
+# switch §ALT-003 never listed, and a category outside `TOGGLEABLE` is one nobody can decline.
+CORRECTION_NOTICE_CATEGORY = 'community_alerts'
+
+# Why a notice that exists was not handed to a delivery path. Both are answers rather than errors,
+# because a notice dropped in silence reads exactly like a person who was never told.
+NOTICE_WITHHELD_NO_FLAGGER = (
+	'This report named nobody to tell. A report can carry the phone number or reference of the '
+	'person who heard the rumour, and the correction goes to them when it is ready.'
+)
+NOTICE_WITHHELD_UNSUBSCRIBED = (
+	'You have community alerts switched off, so this was not pushed to your phone. It is here for '
+	'you to read, and you can turn them back on in your alert settings.'
+)
+NOTICE_WITHHELD_UNDRAFTED = (
+	'This rumour is still being verified, so there is no correction to send yet. You will be told '
+	'when there is one.'
+)
+NOTICE_WITHHELD_NO_TRANSPORT = (
+	'No notification channel is configured on this deployment, so nothing was pushed. The correction '
+	'is here for you to read.'
+)
+NOTICE_WITHHELD_TRANSPORT_FAILED = (
+	'Your phone could not be reached when this was ready. The correction is here for you to read, and '
+	'it is the same one that would have been pushed.'
+)
+
+CORRECTION_NOTICE_TITLE = 'That rumour you reported — here is the answer'
 
 
 def _alert_day(alert: PeerAlert, acknowledged_iso: str) -> int:
@@ -131,7 +182,9 @@ def _alert_day(alert: PeerAlert, acknowledged_iso: str) -> int:
 class CommunityService(LogMixin):
 	def __init__(self, identity: IdentityService | None = None, sync: SyncQueue | None = None,
 	             crypto: CryptoService | None = None,
-	             authority: HealthAuthorityPort | None = None) -> None:
+	             authority: HealthAuthorityPort | None = None,
+	             notifier: NotificationPort | None = None,
+	             alerts: Any | None = None) -> None:
 		"""`identity` is §5.4's single identity model, injected rather than constructed here because the
 		index it holds is shared with the channel layer — two instances would resolve the same phone to
 		two subjects and the deduplication would find nothing. Optional only so a unit test can build
@@ -153,6 +206,15 @@ class CommunityService(LogMixin):
 		would be the audit row's "a flag and nothing transmits" replaced by something worse.
 		`authority` supplies the transport; with none, a consented share is sealed, stored and
 		reported as held rather than silently reported as delivered.
+
+		`notifier` and `alerts` are §11.4's last bullet, and they are two parameters because they
+		answer two different questions. `notifier` is the delivery path — the `ChannelService`, typed
+		loosely for the reason every cross-module port here is. `alerts` is §ALT-003's subscription
+		ledger, and it decides whether the notice is *owed* to this person before any transport is
+		consulted. A deployment with neither still composes the notice and says it was withheld, which
+		is the honest state: the audit row's defect was a correction drafted for a flagger nobody
+		could identify, and a notice reported as sent with nothing wired would be the same defect
+		wearing §COM-103's ending.
 		"""
 		self._issues: dict[str, CommunityIssue] = {}
 		self._issue_status: dict[str, IssueStatus] = {}
@@ -175,6 +237,13 @@ class CommunityService(LogMixin):
 		self._crypto = crypto
 		self._authority: HealthAuthorityPort | None = authority
 		self._shares: dict[str, ContactShare] = {}
+		# §11.4's flagger notification. `_notices` is keyed on `(topic, subject_ref)` rather than on
+		# the topic alone, because a rumour twenty people reported owes twenty notices and one entry
+		# per topic would tell exactly one of them. Keyed on the pair so a second call for the same
+		# person and rumour is one notice, which is what makes the publish step idempotent.
+		self._notifier: NotificationPort | None = notifier
+		self._alerts = alerts
+		self._notices: dict[tuple[str, str], CorrectionNotice] = {}
 		# dedup key -> the report already open under it. §5.4 says reports are deduplicated, and the
 		# key is the resolved subject rather than the raw number so a USSD report and an app report
 		# by the same person collide.
@@ -615,6 +684,117 @@ class CommunityService(LogMixin):
 		texts = CORRECTION_LIBRARY.get(topic, CORRECTION_LIBRARY[FALLBACK_TOPIC])
 		served = answerable(lang)
 		return texts.get(served) or texts['en']
+
+	# --- §11.4's last arrow: the flagger is told -----------------------------------------------
+
+	def flaggers_for(self, topic: str) -> list[str]:
+		"""Everyone who reported this rumour and left a way to reach them.
+
+		`flagger_ref` was written on every submission and read nowhere, which is why the section's
+		flow ended at "published on all channels" with no arrow back to the person who started it.
+		Deduplicated in order of first report, because one person who reported the same rumour three
+		times is one person owed one correction.
+		"""
+		out: list[str] = []
+		for s in self._misinfo:
+			if (s.topic or 'unknown') != topic or not s.flagger_ref:
+				continue
+			if s.flagger_ref not in out:
+				out.append(s.flagger_ref)
+		return out
+
+	async def notify_flaggers(self, topic: str, lang: str = 'en',
+	                          at_ms: int | None = None) -> list[CorrectionNotice]:
+		"""§11.4's "Push notification with corrections when a rumour the user flagged is addressed".
+
+		One notice per person who reported the rumour, composed from the correction the protocol has
+		already drafted, addressed through `flagger_ref`. Three things are checked before anything
+		leaves, and each failure is *reported* rather than dropped:
+
+		* a topic with no correction drafted yet is not addressed at all. The flow's own order is
+		  "verified → correction drafted → published → flagger notified", and notifying before the
+		  correction exists would push "under verification" to someone who already knows it is under
+		  verification — they are the one who reported it.
+		* a report with no `flagger_ref` cannot be addressed, and says so. §COM-103's lesson applies
+		  here: a notification reported as sent to nobody is worse than one reported as unsendable.
+		* a person who switched §ALT-003's community alerts off is not pushed to, and the notice is
+		  kept for them to read. `should_deliver` is the ledger's own answer, so the toggle decides
+		  rather than a second copy of the rule.
+
+		Keyed on `(topic, subject_ref)` in `_notices`, so calling this after every new report — which
+		is what the flag route does — re-notifies nobody who has already been told.
+		"""
+		assert topic, 'a notice needs the rumour it is about'
+		assert topic in self._detected, f'no rumour detected for {topic!r}'
+		issued = at_ms if at_ms is not None else now_ms()
+		text = self.correction_for(topic, lang)
+		served = answerable(lang)
+		myth = myth_for(topic, served)
+		source = myth.source if myth else ''
+		# The correction, not the fallback: `correction_for` answers an undrafted topic with "under
+		# verification", and pushing that to the person who reported the rumour tells them nothing
+		# they did not already know. The notice is owed only once there is something to say. The
+		# fallback topic is excluded for the same reason and it is the case that matters most — a
+		# report filed with no topic resolves to `unknown`, which *has* a library entry, so without
+		# this the person who reported a rumour the tracker could not classify would be pushed the
+		# one answer the tracker gives when it has nothing to say.
+		drafted = topic in CORRECTION_LIBRARY and topic != FALLBACK_TOPIC
+		out: list[CorrectionNotice] = []
+		for flagger in self.flaggers_for(topic):
+			if not drafted:
+				out.append(CorrectionNotice(
+					topic=topic, subject_ref=flagger, title=CORRECTION_NOTICE_TITLE,
+					body=self.correction_for(topic, lang), correction=text, source=source,
+					sent=False, withheld=NOTICE_WITHHELD_UNDRAFTED,
+					category=CORRECTION_NOTICE_CATEGORY, issued_at_ms=issued))
+				continue
+			notice = self._notices.get((topic, flagger))
+			if notice is not None:
+				out.append(notice)
+				continue
+			subscribed = True
+			if self._alerts is not None:
+				subscribed = bool(self._alerts.should_deliver(flagger, CORRECTION_NOTICE_CATEGORY))
+			notice = CorrectionNotice(
+				topic=topic, subject_ref=flagger, title=CORRECTION_NOTICE_TITLE,
+				body=f'{text} Source: {source}.' if source else text,
+				correction=text, source=source, sent=False,
+				withheld=(None if (subscribed and self._notifier is not None)
+				          else NOTICE_WITHHELD_UNSUBSCRIBED if not subscribed
+				          else NOTICE_WITHHELD_NO_TRANSPORT),
+				category=CORRECTION_NOTICE_CATEGORY, issued_at_ms=issued)
+			if subscribed and self._notifier is not None:
+				try:
+					await self._notifier.push(PushPayload(
+						subject_ref=flagger, title=notice.title, body=notice.body,
+						category=CORRECTION_NOTICE_CATEGORY,
+						# The section this notice comes from, so a client can resolve the control
+						# that owns it without matching on the title.
+						tier_feature='COM-104'))
+					notice.sent = True
+				except Exception as exc:  # noqa: BLE001
+					# A transport that fails is this section's normal case, not its edge case: the
+					# correction is composed and kept either way, and the person is told it is here.
+					# `withheld` says the transport failed rather than that none is configured —
+					# the two are different facts and a reader acting on the wrong one chases the
+					# wrong fault.
+					notice.withheld = NOTICE_WITHHELD_TRANSPORT_FAILED
+					self._log_warn('correction notice could not be pushed', subject=flagger,
+					               topic=topic, error=str(exc)[:120])
+			self._notices[(topic, flagger)] = notice
+			out.append(notice)
+		if out:
+			self._log_info('correction notices for flaggers', topic=topic,
+			               flaggers=len(out), sent=sum(1 for n in out if n.sent))
+		return out
+
+	def notices_for(self, subject_ref: str) -> list[CorrectionNotice]:
+		"""§SEC-001's "audit log visible to the user", for this section: what this person was told.
+
+		Readable whether or not the push went out, because the notice a person can open in the app is
+		the same correction the push carried — and the one that was withheld says why.
+		"""
+		return [n for n in self._notices.values() if n.subject_ref == subject_ref]
 
 	def answer_claim(self, claim: str, lang: str = 'en') -> ClaimAnswer:
 		"""§INF-004's "Ask about a rumour" — a claim submitted for verification, answered to the asker.

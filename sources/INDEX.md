@@ -683,6 +683,26 @@ ADaM leg reuses §18.1's integration point, which is archived with its section. 
 absence of a new source directory is not read as a missing citation — the same note §LOC-001,
 §ALT-002 and §COM-101 carry.
 
+**Where §COM-104's media payload and flagger notification come from, and where they do not.** The
+first bullet is carried by `afya.community.views:MisinfoSubmission`, and the one thing in it that is
+cited rather than chosen is the consent gate: §SEC-002's own line for this data — "Photos encrypted
+and only shared with explicit per-item consent" — is why `evidence_consent` is per *report* and not a
+setting, and why the model carries a reference instead of bytes. The second is carried by
+`afya.community.service:CommunityService.notify_flaggers`, and §ALT-003's Options list is what makes
+`community_alerts` the category: it is the section's own "community alerts" toggle, so no twelfth
+switch is invented and the notice is one a person can decline. §11.4's flow supplies the order
+("aggregated → verified → correction drafted → published → flagger notified"), which is why an
+undrafted rumour produces no notice.
+
+Nothing else here is a claim about the world. No source states how a Kenyan county receives a voice
+note or a screenshot, what a person must be told when a correction is ready, or whether a rumour
+reporter is notified by push rather than SMS. The transport is §COM-103's own answer to the same
+question and is reused deliberately: a transport that fails degrades to *held*, and the correction is
+readable in the app either way (§16.1 principle 5). The correction text and its authority come from
+the myth corpus archived with §INF-004, not from a new document. Recorded so the absence of a new
+source directory is not read as a missing citation — the same note §LOC-001, §ALT-002, §COM-101 and
+§COM-103 carry.
+
 ---
 
 ## Helpline directory — §INF-006's GBV and child helplines
