@@ -9,9 +9,12 @@ Design commitments carried in code, not policy:
 from afya.location.views import (
 	ALERT_ZONE_RADII_M, EBID_ROTATION_MINUTES, LOCATION_WINDOW_DAYS, BorderPost, CheckIn,
 	CheckInPoint, CheckInReceipt, EncounterToken, EphemeralId, ExposureDeclaration, ExposureMatch,
-	LocationHistory, LocationPoint, LocationReport, TravellerEnrolment, TravelerDeclaration,
+	LocationHistory, LocationPoint, LocationReport, PostArrivalReport, PostArrivalVerdict,
+	TravellerEnrolment, TravelerDeclaration,
 )
 from afya.logmixin import LogMixin
+from afya.monitoring.service import MONITORING_ALERT_SYMPTOMS
+from afya.strings import traveller
 
 # Geofenced alert zones — county-configurable radii (§COM-102: 500 m, 1 km, 5 km). Re-exported
 # rather than written again: the peer-alert model validates a radius against the same three, and a
@@ -35,6 +38,7 @@ class LocationService(LogMixin):
 		self._checkins: list[CheckIn] = []
 		self._borders: dict[str, BorderPost] = {}
 		self._enrolled: dict[str, TravellerEnrolment] = {}
+		self._reports: list[PostArrivalReport] = []
 		assert self._tokens == [] and self._checkins == []
 
 	# --- LOC-002 proximity ----------------------------------------------------------------
@@ -156,29 +160,77 @@ class LocationService(LogMixin):
 		self._borders[post.post_id] = post
 		return post
 
-	def border_status(self, post_id: str) -> BorderPost:
-		assert post_id in self._borders, 'unknown border post'
-		return self._borders[post_id]
+	def advisory(self, destination: str, origin_country: str, lang: str = 'en') -> str:
+		"""Pre-travel advisory (§INF-005 links here), in the traveller's own language.
 
-	def advisory(self, destination: str, origin_country: str) -> str:
-		"""Pre-travel advisory (§INF-005 links here). Unverified specifics are flagged, not asserted."""
-		return (
-			f'Travel to {destination} from {origin_country}: check the current MoH/PHEOC advisory before you go. '
-			'Screening may apply at the border. If you feel unwell after arrival, call 719 and say where you travelled. '
-			'Health advisories change — confirm with official channels.'
-		)
+		§LOC-005's "multi-language support for cross-border travellers": the string was an English
+		literal and the route took no language, so a traveller crossing at Busia who reads Kiswahili
+		was served English on the one screen where getting it wrong means arriving unwell and not
+		knowing to call 719. The strings live in `afya.strings` beside the triage tables so the
+		fallback rule is `answerable` and not a second one that agrees today.
+		"""
+		return traveller(lang, 'advisory', destination=destination, origin_country=origin_country)
 
 	async def self_declare(self, decl: TravelerDeclaration) -> TravellerEnrolment:
 		assert decl.arrival_iso, 'arrival date required'
 		enrolment = TravellerEnrolment(
 			subject_ref=decl.subject_ref, monitoring_days=21, enrolled=True,
 			report_schedule=[1, 3, 7, 14, 21],
-			message=(
-				'Declaration recorded. You are enrolled for 21 days of self-monitoring — '
-				'we will ask how you feel on days 1, 3, 7, 14 and 21. Call 719 sooner if you develop fever.'
-			),
+			message=traveller(decl.lang, 'enrolled'), lang=decl.lang,
 		)
 		self._enrolled[decl.subject_ref] = enrolment
 		if decl.symptoms:
 			self._log_warn('traveller declared symptoms on arrival', sub=decl.subject_ref)
 		return enrolment
+
+	def enrolment(self, subject_ref: str) -> TravellerEnrolment:
+		"""The traveller's own enrolment, or a refusal. A report is filed against a window that has to
+		exist: accepting one from a person who never declared would enrol them by the back door and
+		give them a schedule nobody recorded."""
+		enrolment = self._enrolled.get(subject_ref)
+		assert enrolment is not None, f'{subject_ref} is not enrolled for post-arrival monitoring'
+		return enrolment
+
+	async def report_arrival_day(self, report: PostArrivalReport) -> PostArrivalVerdict:
+		"""§LOC-005's "post-arrival symptom reporting": one day of the 21-day window, answered.
+
+		The escalation rule is §MON-009's own — fever at 38.0, or a warning sign — and it is read off
+		`MONITORING_ALERT_SYMPTOMS` rather than written again, because a traveller and a contact are
+		the same person under the same criteria and two lists would drift apart on the day one of
+		them was edited. The day must be one the schedule actually asks about: a report on day 5 is a
+		day nobody will read, and accepting it would tell the traveller they had been checked on.
+		"""
+		enrolment = self.enrolment(report.subject_ref)
+		assert report.day in enrolment.report_schedule, (
+			f'day {report.day} is not one of the days this traveller is asked about '
+			f'({enrolment.report_schedule})'
+		)
+		flagged = sorted(set(report.symptoms) & MONITORING_ALERT_SYMPTOMS)
+		fever = report.temperature_c is not None and report.temperature_c >= 38.0
+		escalate = fever or bool(flagged)
+		remaining = max(0, enrolment.monitoring_days - report.day)
+		if escalate:
+			reason = 'fever' if fever else ', '.join(flagged)
+			message = traveller(enrolment.lang, 'warned', day=report.day, reason=reason)
+			self._log_warn('traveller reported warning signs', sub=report.subject_ref, day=report.day)
+		else:
+			message = traveller(enrolment.lang, 'well', day=report.day, remaining=remaining)
+		self._reports.append(report)
+		return PostArrivalVerdict(
+			subject_ref=report.subject_ref, day=report.day, days_remaining=remaining,
+			escalate=escalate, notify_border_health=escalate, message=message, lang=enrolment.lang,
+		)
+
+	def arrival_prompt(self, subject_ref: str, day: int) -> str:
+		"""What the traveller is asked on a scheduled day, in their own language. The client has no
+		other source for it: the enrolment names the schedule and this names the question."""
+		enrolment = self.enrolment(subject_ref)
+		assert day in enrolment.report_schedule, f'day {day} is not a scheduled report day'
+		return traveller(enrolment.lang, 'prompt', day=day)
+
+	def reports_for(self, subject_ref: str) -> list[PostArrivalReport]:
+		return [r for r in self._reports if r.subject_ref == subject_ref]
+
+	def border_status(self, post_id: str) -> BorderPost:
+		assert post_id in self._borders, 'unknown border post'
+		return self._borders[post_id]

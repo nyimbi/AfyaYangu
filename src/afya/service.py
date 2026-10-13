@@ -118,7 +118,7 @@ from afya.community.views import (
 from afya.location.service import LocationService
 from afya.location.views import (
 	BorderPost, CheckIn, CheckInPoint, EncounterToken, ExposureDeclaration, LocationPoint,
-	TravelerDeclaration,
+	PostArrivalReport, TravelerDeclaration,
 )
 from afya.monitoring.service import MonitoringService
 from afya.monitoring.views import (
@@ -3638,12 +3638,46 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.get('/location/travel-advisory')
-	async def location_advisory(destination: str, origin_country: str) -> dict[str, str]:
-		return {'advisory': location.advisory(destination, origin_country)}
+	async def location_advisory(destination: str, origin_country: str, lang: str = 'en') -> dict[str, str]:
+		"""§LOC-005's pre-travel advisory, in the traveller's language.
+
+		`lang` defaults to English and any language without a string table is served English and told
+		so through `TravellerEnrolment.lang`/the advisory's own text — §ACC-002's `answerable` rule,
+		not a second one. The route is public on the reasoning §INF-005 already used: a person asks
+		whether it is safe to travel before deciding to tell anyone who they are.
+		"""
+		return {'advisory': location.advisory(destination, origin_country, lang), 'lang': lang}
 
 	@app.post('/location/traveller/declare')
 	async def location_declare_traveller(decl: TravelerDeclaration, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return (await location.self_declare(decl)).model_dump(mode='json')
+
+	@app.get('/location/traveller/{subject_ref}/prompt')
+	async def location_traveller_prompt(subject_ref: str, day: int, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""What the traveller is asked on a scheduled day, in the language they declared in.
+
+		The enrolment names the schedule; without this the client would have to write the question
+		itself, and a question written on the handset is one that never gets the traveller's language.
+		"""
+		try:
+			enrolment = location.enrolment(subject_ref)
+			return {'day': day, 'lang': enrolment.lang, 'prompt': location.arrival_prompt(subject_ref, day)}
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/location/traveller/report')
+	async def location_traveller_report(report: PostArrivalReport, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§LOC-005's "post-arrival symptom reporting" — the other end of the 21-day schedule.
+
+		Guarded because the report is a person's own symptoms: it is filed against their own subject
+		and `require_self` is what makes the `subject_ref` in the body the token's and not whoever
+		the caller typed. A 422 rather than a 500 for a day outside the schedule, because the caller
+		sent the day and the server can say which days it accepts.
+		"""
+		try:
+			return (await location.report_arrival_day(report)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	# --- §19.4 public-health dashboards --------------------------------------------------------
 	# Nine dashboards the spec names for PHEOC, county health teams and MoH. Every row is a count

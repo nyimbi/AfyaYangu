@@ -887,3 +887,42 @@ Standards, Research Triangle Park, NC; December 2018 (supersedes EPA-454/B-06-00
 - **No hourly forecasting.** The document describes reporting a daily AQI. The hourly window is built
   from readings the caller supplies, never from a curve the service invents; with no series the window
   is empty and says so.
+
+## Border and point-of-entry — §LOC-005's traveller language tables
+
+§11.5 LOC-005's sixth Feature is "multi-language support for cross-border travellers" and it had no
+carrier: `TravelerDeclaration.lang` was accepted and never read, so every acknowledgement went out
+in English whatever the traveller said they read. Writing it meant deciding *which* languages this
+path answers in, and that is a decision about sources, so it is recorded here.
+
+**No new document is archived for this section, deliberately.** The strings are the repo's own, and
+the reasoning is the same as §MON-006's mask text: no source states a Kenyan border advisory in
+Dholuo, and inventing a citation for a translation would be worse than the gap. What *is* sourced is
+the set of languages, and it comes from two places already in the tree:
+
+- **§ACC-002's priority order**, carried as `LANGUAGE_MATRIX` in `src/afya/access/views.py` — tier 1
+  is Kiswahili, English, Dholuo, Luhya (Bukusu) and Kikuyu, tier 2 the rest.
+- **§ACC-002's own language list for voice-guided symptom reporting** — Swahili, Dholuo, Luhya,
+  Kalenjin, Kikuyu and English.
+
+**What the code does with them, and what it refuses to claim.** `SUPPORTED_LANGS` in
+`src/afya/strings.py` is `{'en', 'sw'}` — the languages with a *hand-written string table* — and it
+is deliberately narrow. `TRAVELLER_STRINGS` therefore has two entries, and `traveller()` falls back
+through `answerable()` for the rest. Three consequences are asserted rather than left implicit:
+
+- **A language with no table is served English and told so.** The payload carries the language the
+  traveller *declared* (`TravellerEnrolment.lang`, `PostArrivalVerdict.lang`) alongside the message
+  they actually got, so a Dholuo speaker reads English knowing it is English rather than believing
+  it is Dholuo. A wrong instruction at a point of entry is worse than an honest English one.
+- **The mobile catalogue offers only the languages the path can answer in.** `TRAVELLER_LANGS` is
+  `sorted(SUPPORTED_LANGS)`, not `LANGUAGE_MATRIX`'s key set: a dropdown offering Dholuo on this
+  path would promise a language the path answers in English. This is the deliberate difference from
+  §ACC-002, which requires six languages for *voice triage* and is a separate, still-open gap.
+- **A missing key raises rather than returning a placeholder.** A silent empty string is a screen
+  that renders blank where an instruction should be, and nothing reports it.
+
+**What the strings are not.** They are not clinically reviewed translations, not back-translated, and
+not community-validated — §6.5's workflow governs published health *content*, and these are UI
+strings. A Dholuo, Luhya or Kikuyu table added later should go through that workflow; a
+machine-translated table would report this gap as closed, which is the failure the whole file is
+written to avoid.

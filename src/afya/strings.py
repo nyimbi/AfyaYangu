@@ -69,6 +69,77 @@ def rec(lang: str, risk: str) -> str:
 	return TRIAGE_RECS[answerable(lang)][risk]
 
 
+# --- §11.5 LOC-005's cross-border traveller strings ---------------------------------------------
+#
+# §LOC-005's sixth Feature is "multi-language support for cross-border travellers" and the reason it
+# is a *traveller* bullet and not a restatement of §ACC-002 is that a border is where the language
+# mix is widest and the person is least able to ask again: a Kenyan returning from Kampala may read
+# Dholuo, a Ugandan trader crossing at Busia reads English or Kiswahili, and a Somali speaker at
+# Mandera reads neither.
+#
+# These are **hand-written** strings for the two languages the repo already carries a table for, and
+# they are the *whole* of what a traveller reads on this path — the advisory, the arrival
+# acknowledgement and the post-arrival prompt. A language without a table is served English and told
+# so, on the same reasoning as `answerable`: a wrong instruction at a point of entry is worse than
+# an honest English one, and a machine-translated table would report the gap as closed.
+TRAVELLER_STRINGS: dict[str, dict[str, str]] = {
+	'en': {
+		'advisory': (
+			'Travel to {destination} from {origin_country}: check the current MoH/PHEOC advisory '
+			'before you go. Screening may apply at the border. If you feel unwell after arrival, '
+			'call 719 and say where you travelled. Health advisories change — confirm with official '
+			'channels.'
+		),
+		'enrolled': (
+			'Declaration recorded. You are enrolled for 21 days of self-monitoring — we will ask how '
+			'you feel on days 1, 3, 7, 14 and 21. Call 719 sooner if you develop fever.'
+		),
+		'prompt': (
+			'Day {day} of 21: how do you feel? Reply 1 if you have fever, 2 if you have any other '
+			'symptom, 3 if you are well. Call 719 at once if you have bleeding or difficulty '
+			'breathing.'
+		),
+		'well': 'Day {day} of 21 recorded, no warning signs. {remaining} days to go.',
+		'warned': (
+			'Day {day} of 21: {reason} recorded. Call 719 now and await instructions — do not travel '
+			'by public transport.'
+		),
+	},
+	'sw': {
+		'advisory': (
+			'Safari kwenda {destination} kutoka {origin_country}: angalia tangazo la sasa la Wizara '
+			'ya Afya kabla ya kusafiri. Uchunguzi unaweza kufanyika mpakani. Kama unajihisi mgonjwa '
+			'baada ya kufika, piga 719 na useme uliposafiri. Matangazo ya afya hubadilika — thibitisha '
+			'kwa njia rasmi.'
+		),
+		'enrolled': (
+			'Tamko limehifadhiwa. Umeandikishwa kwa siku 21 za kujiangalia — tutakuuliza hali yako '
+			'siku 1, 3, 7, 14 na 21. Piga 719 mapema zaidi ukipata homa.'
+		),
+		'prompt': (
+			'Siku {day} kati ya 21: unajihisi vipi? Jibu 1 kama una homa, 2 kama una dalili nyingine, '
+			'3 kama uko mzima. Piga 719 mara moja kama unatoka damu au unashindwa kupumua.'
+		),
+		'well': 'Siku {day} kati ya 21 imeandikwa, hakuna dalili za hatari. Siku {remaining} zimesalia.',
+		'warned': (
+			'Siku {day} kati ya 21: {reason} imeandikwa. Piga 719 sasa hivi na subiri maelekezo — '
+			'usisafiri kwa usafiri wa umma.'
+		),
+	},
+}
+
+
+def traveller(lang: str, key: str, **fields: object) -> str:
+	"""A §LOC-005 traveller string in `lang`, or in English where there is no table for it.
+
+	`answerable` decides which, so the fallback rule is one function and not two that agree today.
+	An unknown key raises rather than returning a placeholder: a missing string is a defect to fix,
+	and a silent empty string is a screen that renders blank where an instruction should be.
+	"""
+	assert key in TRAVELLER_STRINGS['en'], f'unknown traveller string {key}'
+	return TRAVELLER_STRINGS[answerable(lang)][key].format(**fields)
+
+
 # §CHAN-2's USSD menu as a structure rather than as a one-line string.
 #
 # The section draws a five-item tree — "1. Report symptoms" with a five-way submenu, "2. Find a

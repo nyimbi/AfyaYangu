@@ -32,6 +32,7 @@ from afya.community.views import FOLLOWUP_DAYS
 from afya.location.views import ALERT_ZONE_RADII_M
 from afya.records.views import WALLET_DOC_KINDS
 from afya.registry.diseases import DISEASES
+from afya.strings import SUPPORTED_LANGS
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -87,6 +88,11 @@ CHECKIN_METHODS = ['qr', 'nfc', 'manual']
 VECTOR_DISEASES = list(DISEASES)
 ADHERENCE_ACTIONS = ['taken', 'skipped', 'snoozed']
 INTENSITIES = ['low', 'balanced', 'maximum']
+# §LOC-005's "multi-language support for cross-border travellers", as the set a traveller path can
+# actually answer in. `SUPPORTED_LANGS` is the languages with a string table, and it is the honest
+# list to offer: §ACC-002 names six for voice and §LOC-005 asks for cross-border support, but a
+# dropdown that offered Dholuo here would be offering a language this path answers in English.
+TRAVELLER_LANGS = sorted(SUPPORTED_LANGS)
 OUTPUT_KINDS = ['triage', 'risk_score', 'hotspot', 'exposure', 'tier4_activation']
 # §6.5's content workflow, in order. The server refuses a jump, so the control offers the steps.
 CONTENT_STAGES = ['draft', 'clinical_review', 'translation', 'back_translation', 'community_validation', 'published', 'archived']
@@ -186,6 +192,7 @@ FEATURE_OF: dict[str, str] = {
 	'enable_location_history': 'LOC-003', 'log_location': 'LOC-003', 'location_report': 'LOC-003', 'purge_location': 'LOC-003',
 	'register_checkin_point': 'LOC-004', 'check_in': 'LOC-004', 'checkin_points': 'LOC-004', 'checkin_list': 'LOC-004',
 	'register_border': 'LOC-005', 'border_status': 'LOC-005', 'travel_advisory': 'INF-005', 'traveller_declare': 'LOC-005',
+	'traveller_prompt': 'LOC-005', 'traveller_report': 'LOC-005',
 	'hotspots': 'AI-001', 'risk_score': 'AI-002', 'early_warning': 'AI-003',
 	'signal_scan': 'AI-003', 'signal_report': 'AI-003',
 	'model_cards': 'AI-004', 'fairness_audit': 'AI-004', 'file_redress': 'AI-005',
@@ -282,7 +289,7 @@ DORMANT_SLUGS: frozenset[str] = frozenset({
 	'rotate_ebid', 'log_encounter', 'declare_exposure', 'check_exposure',
 	'enable_location_history', 'log_location', 'location_report', 'purge_location',
 	'register_checkin_point', 'check_in', 'checkin_points', 'checkin_list',
-	'register_border', 'border_status', 'traveller_declare',
+	'register_border', 'border_status', 'traveller_declare', 'traveller_prompt', 'traveller_report',
 	# Outbreak AI (AI-001..003)
 	'hotspots', 'risk_score', 'early_warning', 'signal_scan', 'signal_report',
 	# Outbreak-mode sensors: acoustic cough (SENS-002), camera symptom capture (SENS-004)
@@ -580,10 +587,12 @@ def catalogue() -> list[MobileAction]:
 		_a('checkin_list', 'Where I checked in', 'Outbreak', 'GET', '/location/checkin/{subject_ref}', [_s('path')]),
 		_a('register_checkin_point', 'Set up a check-in point', 'Outbreak', 'POST', '/location/checkin/point', [_f('point_id', 'Point number'), _f('kind', 'What kind of place?', 'select', CHECKIN_KINDS), _f('label', 'Name'), _f('county', 'County'), _f('token', 'Check-in code')]),
 		_a('check_in', 'Check in here', 'Outbreak', 'POST', '/location/checkin', [_f('checkin_id', 'Check-in number'), _f('point_token', 'Check-in code'), _s(), _f('method', 'How?', 'select', CHECKIN_METHODS), _f('at_iso', 'When'), _f('share_with_authority', 'Share with the health team?', 'bool')]),
-		_a('register_border', 'Set up a border post', 'Outbreak', 'POST', '/location/border', [_f('post_id', 'Post number'), _f('name', 'Name'), _f('county', 'County'), _f('country_pair', 'Between which countries?'), _f('queue_minutes', 'Queue in minutes', 'int'), _f('screening_required', 'Screening required?', 'bool')]),
+		_a('register_border', 'Set up a border post', 'Outbreak', 'POST', '/location/border', [_f('post_id', 'Post number'), _f('name', 'Name'), _f('county', 'County'), _f('country_pair', 'Between which countries?'), _f('queue_minutes', 'Queue in minutes', 'int'), _f('screening_required', 'Screening required?', 'bool'), _f('mobile_lab', 'Is there a mobile lab here?', 'bool'), _f('lab_turnaround_hours', 'Results in how many hours?', 'int'), _f('lab_tests', 'Which tests can it run?', 'list', ph='e.g. mRDT, Ebola PCR')]),
 		_a('border_status', 'Border queue', 'Outbreak', 'GET', '/location/border/{post_id}', [_f('post_id', 'Post number', 'path')]),
-		_a('travel_advisory', 'Should I travel?', 'Outbreak', 'GET', '/location/travel-advisory', [_f('destination', 'Where to?'), _f('origin_country', 'Coming from')]),
-		_a('traveller_declare', 'Declare my arrival', 'Outbreak', 'POST', '/location/traveller/declare', [_f('declaration_id', 'Declaration number'), _s(), _f('destination', 'Where are you going?'), _f('arrival_iso', 'Arrival date'), _f('origin_country', 'Coming from'), _f('symptoms', 'Any symptoms?', 'list')]),
+		_a('travel_advisory', 'Should I travel?', 'Outbreak', 'GET', '/location/travel-advisory', [_f('destination', 'Where to?'), _f('origin_country', 'Coming from'), _f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
+		_a('traveller_declare', 'Declare my arrival', 'Outbreak', 'POST', '/location/traveller/declare', [_f('declaration_id', 'Declaration number'), _s(), _f('destination', 'Where are you going?'), _f('arrival_iso', 'Arrival date'), _f('origin_country', 'Coming from'), _f('symptoms', 'Any symptoms?', 'list'), _f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
+		_a('traveller_prompt', 'What am I asked today?', 'Outbreak', 'GET', '/location/traveller/{subject_ref}/prompt', [_s('path'), _f('day', 'Which day of the 21?', 'int')]),
+		_a('traveller_report', 'Report how I feel today', 'Outbreak', 'POST', '/location/traveller/report', [_s(), _f('day', 'Which day of the 21?', 'int'), _f('symptoms', 'Any symptoms?', 'list'), _f('temperature_c', 'Temperature °C', 'decimal')]),
 		_a('hotspots', 'Where might cases appear next?', 'Outbreak', 'POST', '/ai/hotspots', [_f('cells', 'Area data', 'list')]),
 		_a('risk_score', 'What is my personal risk?', 'Outbreak', 'POST', '/ai/risk-score', [_f('symptoms', 'Symptoms', 'list'), _f('exposure_contact', 'Contact with a case?', 'bool'), _f('travel_affected_area', 'Travelled to an affected area?', 'bool'), _f('geofence_entry', 'Entered a risk area?', 'bool'), _f('proximity_encounters', 'Nearby encounters', 'int'), _f('vaccinated', 'Vaccinated?', 'bool')]),
 		_a('early_warning', 'Is something unusual happening?', 'Outbreak', 'POST', '/ai/early-warning', [_f('county', 'County'), _f('disease', 'Disease'), _f('signals', 'Signals', 'list')]),
@@ -706,6 +715,8 @@ def available(
 
 # slug -> (screen-visible title, one-line human description). No spec codes anywhere.
 FRIENDLY_COPY: dict[str, tuple[str, str]] = {
+	'traveller_prompt': ('What am I asked today?', 'The question for this day of your 21-day check, in your own language'),
+	'traveller_report': ('Report how I feel today', 'Send how you feel on a scheduled day of your 21-day check'),
 	'county_risk': ('How is my county doing?', 'Official risk status and guidance where you live'),
 	'signal_scan': ('How is my county this week?', 'The six outbreak signals, counted and compared with recent weeks'),
 	'signal_report': ('Report a signal', 'Log one occurrence of an outbreak signal for your county'),

@@ -2500,3 +2500,67 @@ source asserted with no evidence; the mask text losing what a mask does not do; 
 a second wording; the window ceasing to say when no hour is clean; the route dropping its required
 location; the route dropping the hourly series; a window carrying an index with no hours; an unnamed
 source passing the list check; and a day with no readings getting a window instead of a refusal.
+
+## §LOC-005 — a schedule with nothing on the other end, and a language nobody read
+
+§11.5 LOC-005 lists seven Features for the border and point-of-entry module. Four were carried. The
+three that were not share a shape, and it is the shape worth naming: the module described a **plan**
+and had no other end of it.
+
+**The enrolment stated a schedule and no route accepted a report against it.** `TravellerEnrolment`
+carried `report_schedule = [1, 3, 7, 14, 21]` and a message telling the traveller "we will ask how
+you feel on days 1, 3, 7, 14 and 21" — and nothing in the tree accepted an answer. The schedule was a
+notification plan with nothing behind it, which is worse than no schedule: it tells a person they
+will be checked on. `LocationService.report_arrival_day` is the other end, and it enforces the two
+things that make the promise real — the day must be one the schedule names, and the person must have
+declared. A report on day 5 is refused rather than accepted, because accepting it tells a traveller
+they were checked on a day nobody reads, and day 5 of a 21-day Ebola window is not a day to be
+casual about.
+
+The escalation rule is §MON-009's own, read off `MONITORING_ALERT_SYMPTOMS` rather than written a
+second time: a traveller and a contact are the same person under the same criteria, and two lists
+would drift on the day one of them was edited. `test_a_warning_sign_without_fever_escalates_too` is
+the one that matters — a thermometer is not the only way into this, and it is the one a traveller
+without one does not have.
+
+**`TravelerDeclaration.lang` was accepted and never read.** The field was a claim: the advisory was
+an English literal and the enrolment acknowledgement was an English literal, so a traveller crossing
+at Busia who reads Kiswahili was served English on the one screen where getting it wrong means
+arriving unwell and not knowing to call 719. The strings now live in `afya.strings` beside the triage
+tables — the advisory, the enrolment acknowledgement, the daily prompt and both report outcomes —
+and they fall back through §ACC-002's `answerable()` rather than through a second rule that agrees
+today.
+
+**The language set is the honest one, and that is the decision.** §ACC-002 requires six languages for
+*voice-guided symptom reporting*; §LOC-005 asks for multi-language support for *cross-border
+travellers*. Those are different requirements and this section does not close the other one.
+`SUPPORTED_LANGS` is `{'en', 'sw'}` and stays there — `test_personas.py` pins Dholuo's absence as a
+finding, and widening the set to make a count look better is exactly the failure mode that test
+exists to prevent. So the traveller path has hand-written English and Kiswahili strings, serves
+English to everything else **and says which language it got**, and its own catalogue offers only the
+two it can answer in rather than a dropdown that promises Dholuo and delivers English.
+`sources/INDEX.md` records this, including that the strings are not clinically reviewed or
+back-translated.
+
+**`BorderPost` described a queue and nothing about testing.** A post either has a mobile lab on site
+or sends its samples onward, and a screen that could not say which is a traveller sent to a post that
+cannot test them. `mobile_lab`, `lab_turnaround_hours` and `lab_tests` describe it, and a validator
+makes the three move together: a turnaround with no lab is a promise from a post that cannot keep it,
+and a test list with no lab is a menu for a service that is not there. The national *result* still
+reaches a person through §REC-001's `LabResult` wallet document — the border screen is the entry to
+that, not a second copy of it, which is why this is three fields on the post and not a result store.
+
+**Counts: 3 rows left `missing` — 3 to `carried` — 42 → 39.** 493 rows, `carried` 437, `missing` 39,
+`deferred` 17.
+
+**Sources.** No new document is archived for this section, deliberately, and `sources/INDEX.md` says
+why: the strings are the repo's own and no source states a Kenyan border advisory in Dholuo. What is
+sourced is the language *set*, which comes from §ACC-002's `LANGUAGE_MATRIX` and its own six-language
+list, both already in the tree.
+
+**Canaries: 14/14 fired.** Any day accepted as a scheduled day; a report from an unenrolled person
+accepted; a warning sign ceasing to escalate; the advisory ignoring its language; the enrolment
+acknowledgement ignoring the declared language; the daily prompt ignoring it; the prompt answering
+for any day; a lab turnaround allowed with no lab; tests allowed with no lab; the report route losing
+its guard; the report route ceasing to refuse a bad day; a Kiswahili string losing its placeholders;
+an unknown key returning a placeholder; and the fallback ceasing to go through `answerable`.

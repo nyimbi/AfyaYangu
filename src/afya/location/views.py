@@ -3,7 +3,9 @@
 Everything here is Tier 4 except LOC-001's static advisory zones. Raw location never crosses
 this boundary: LOC-003 accepts geohashes, never coordinates.
 """
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Self
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -120,6 +122,26 @@ class BorderPost(BaseModel):
 	country_pair: str
 	queue_minutes: int = Field(ge=0, le=1440)
 	screening_required: bool
+	# §LOC-005's "integration with mobile laboratory results at border points". A mobile lab is a
+	# *capability of the post*, not a result: a post either has one on site or sends its samples
+	# onward, and a screen that could not say which is a traveller sent to a post that cannot test
+	# them. Absent means the post does not report a lab, which is not the same as reporting none.
+	mobile_lab: bool = False
+	lab_turnaround_hours: int | None = Field(default=None, ge=1, le=168)
+	lab_tests: list[str] = Field(default_factory=list)
+
+	@model_validator(mode='after')
+	def _a_lab_is_described_or_absent(self) -> Self:
+		"""A turnaround with no lab behind it is a promise from a post that cannot keep it, and a
+		test list with no lab is a menu for a service that is not there. The three fields move
+		together or none of them is set."""
+		assert self.mobile_lab == (self.lab_turnaround_hours is not None), (
+			'a lab turnaround was stated for a post that reports no lab, or a lab with no turnaround'
+		)
+		assert self.mobile_lab == bool(self.lab_tests), (
+			'a post reports a lab but names no test, or names tests with no lab behind them'
+		)
+		return self
 
 
 class TravelerDeclaration(BaseModel):
@@ -130,7 +152,36 @@ class TravelerDeclaration(BaseModel):
 	arrival_iso: str
 	origin_country: str
 	symptoms: list[str] = Field(default_factory=list)
+	# §LOC-005's "multi-language support for cross-border travellers". The declaration already carried
+	# this and nothing read it, so the field was a claim: every acknowledgement went out in English
+	# whatever the traveller said they read.
 	lang: str = 'en'
+
+
+class PostArrivalReport(BaseModel):
+	"""§LOC-005's "post-arrival symptom reporting": what a traveller sends on one of the 21 days.
+
+	The enrolment stated a schedule — days 1, 3, 7, 14 and 21 — and no route accepted a report
+	against it, so the schedule was a notification plan with nothing on the other end. `day` is the
+	day of the window and not a date, because that is what the schedule names and what the traveller
+	is being asked about.
+	"""
+	model_config = MODEL_CONFIG
+	subject_ref: str
+	day: int = Field(ge=1, le=28)
+	symptoms: list[str] = Field(default_factory=list)
+	temperature_c: float | None = Field(default=None, ge=30.0, le=45.0)
+
+
+class PostArrivalVerdict(BaseModel):
+	model_config = MODEL_CONFIG
+	subject_ref: str
+	day: int
+	days_remaining: int
+	escalate: bool
+	notify_border_health: bool
+	message: str
+	lang: str
 
 
 class TravellerEnrolment(BaseModel):
@@ -140,3 +191,4 @@ class TravellerEnrolment(BaseModel):
 	enrolled: bool
 	report_schedule: list[int]
 	message: str
+	lang: str = 'en'
