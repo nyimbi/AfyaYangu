@@ -3644,3 +3644,90 @@ feature, the button and the SMS channel, and prints none of the sentences — an
 is a property of the SMS standard rather than of a document. The reasoning is recorded in
 `sources/INDEX.md` beside §LOC-001's, for the same reason: so the absence of a citation is not read
 as an omission.
+
+---
+
+## §COM-101 — a rule for a dataset nothing wrote
+
+§COM-101's **"Offline report queue"** was `missing`, and it failed in the quietest way this codebase
+has: every part of the feature existed except the join between them. `SyncService` had carried a
+`case_reports` row in §16.3's matrix since the matrix was written — server-authoritative, "clinical
+accuracy critical" — and `CaseReport` had carried a `reported_offline` flag, and the mobile catalogue
+had carried the field on its form. Nothing put a report in the queue. A rule with no producer is a
+rule for a dataset nothing writes, and a flag nothing reads is a field that looks implemented on
+every screen that renders the form.
+
+The audit row said so in as many words: *"no code path enqueues a case report: the mobile
+`submit_case` action is a plain POST"*.
+
+### The user this is for
+
+§COM-101 is the CHW's module. The person filing these reports is standing in a village, and a report
+is most likely to be filed exactly where there is no signal — §16.1 principle 1's "local write always
+succeeds" is about that moment, and principle 5's "every queued write survives app restart" was a
+promise about a write that was never queued.
+
+### The gate that matters, and it is the narrow direction
+
+`reported_offline` gates the enqueue, and queueing *every* report would have been the easier shape.
+It is the wrong one, and §5.4's dedup cannot catch the difference: the key `_dedup_key` builds is the
+phone number, and a CHW logging offline carries no MSISDN — so `key is None`, the service reports
+"cannot be deduplicated" rather than "is a duplicate", and two replays of one report become two cases
+in the count PHEOC reads. The flag is the only thing that distinguishes an arrival the server already
+holds from one it does not.
+
+### The whole report travels
+
+§COM-101's "reports stored locally" means the report, not a note that something happened. A payload
+carrying only `report_id` would leave the fields on a handset that crashed, and the officer would
+receive a case with no symptoms, no village and no temperature.
+
+Each field is encoded separately, `None` included, rather than one serialised blob. Two reasons, and
+both are load-bearing: §16.4's delta is computed field by field, so an omitted key reads as
+"unchanged" and a field that went from a value to nothing can never travel; and a single blob would
+make every edit resend every field, which is §16.4's delta sync as a claim rather than a behaviour.
+
+### Two lessons the codebase has learned before
+
+**The op id comes from the tail of the UUID7.** Its leading bytes are the millisecond timestamp, so a
+prefix collides for two ids minted in the same millisecond — and the queue is keyed on `op_id`, so
+the second silently overwrites the first. A CHW replaying a day of reports after an outage files them
+in a burst, which is exactly when the collisions cluster. This is §MON-004's dose-queue defect, in a
+second service, and the fix is the same one.
+
+**One contract, declared once.** `SyncQueue` was a `Protocol` inside `monitoring/service.py`, and
+`CommunityService` needed the identical one-method contract. Two declarations of one contract drift,
+so it moved to `sync/views.py` beside the `SyncOp` it takes — the module both services already import
+from — and `MonitoringService` now imports it rather than restating it.
+
+### Where the enqueue goes, and why not one line lower
+
+Beside the *recording*, not beside the alert. Both paths record the report and only one of them
+alerts, and the dedup docstring promises the duplicate is kept: dropping it would lose the channel it
+arrived on, which is what §5.4's cross-channel journeys are made of. Queueing beside the alert would
+have dropped exactly the second report that promise is about.
+
+### Canaries
+
+**9/9 fired.** The report recorded and never queued; every report queued rather than only the offline
+ones; the dataset one §16.3 has no rule for; the payload carrying a reference instead of the report;
+the nulls dropped from the payload; the op id taken from the timestamp end of the UUID7; the
+composition root handing the service no queue; the queue written before the consent refusal; and the
+duplicate open case dropped instead of stored.
+
+Canary #3 was **MISSED** on the first run, and the miss was the *test's* fault rather than the
+canary's — the same shape as §LOC-001's. `test_the_dataset_is_the_one_the_spec_writes_the_rule_for`
+asserted `STRATEGY_MATRIX` and built a `SyncOp` by hand; it never called the service, so it passed
+against a service queueing under any name at all. It checked the table and never the string the code
+writes into it. The test now reads the dataset off the op the service actually queued.
+
+### Counts
+
+**§COM-101 1 `missing` → 0.** Across the repo **462 → 463 `carried`, 18 → 17 `missing`**, 497 rows,
+`deferred` 17 unchanged.
+
+**No new source directory.** The bullet is a behaviour, not a claim about the world: §16.3's matrix is
+the specification's own table and is already archived with the section it comes from, and no external
+document states how long an offline case report may wait or what it must carry. Nothing here is
+sourced from a publication, and saying so is better than pointing a citation at the spec section that
+was being implemented.

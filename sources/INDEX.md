@@ -653,6 +653,18 @@ Kiswahili speaker says "not safe", and inventing a citation for them would be wo
 that they are ours. They are listed here for the same reason the strings are — so a later reader can
 see that the absence of a citation is a decision and not an omission.
 
+**Where §COM-101's offline report queue comes from, and where it does not.** The bullet is carried by
+`afya.community.service:CommunityService._queue_case`, and what it writes is a `SyncOp` under the
+dataset `case_reports`. That name and its strategy are **§16.3's own table**, which is part of the
+specification this repository implements and is archived with the section it comes from — so the
+matrix is cited by section rather than by a new archive directory.
+
+Nothing else here is sourced from a publication, and the unit introduced no new external fact. No
+source states how long an offline case report may wait before it must reach the server, what it must
+carry, or how a replayed report is deduplicated; the answers in the code are §16.1's five principles,
+§16.2's flow and §16.4's delta, all from the specification. Recorded so the absence of a new source
+directory is not read as a missing citation — the same note §LOC-001 and §ALT-002 carry.
+
 ---
 
 ## Helpline directory — §INF-006's GBV and child helplines

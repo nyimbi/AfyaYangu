@@ -1,6 +1,6 @@
 """Offline-first sync models (spec §16)."""
 from enum import Enum
-from typing import Self
+from typing import Protocol, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -184,6 +184,21 @@ class SyncOp(BaseModel):
 	def due(self, now_ms: int) -> bool:
 		"""Whether the backoff window has elapsed. An op that has never failed is always due."""
 		return self.retry_at_ms is None or now_ms >= self.retry_at_ms
+
+
+class SyncQueue(Protocol):
+	"""The one method a feature needs from the sync layer to be offline-capable.
+
+	Declared here rather than in each service that takes one, because two declarations of one
+	contract drift: `MonitoringService` and `CommunityService` both need exactly this, and a
+	`Protocol` that lives beside the model it takes cannot disagree with it about the shape.
+
+	Structural rather than an import of `SyncService` for two reasons. The dependency then runs one
+	way — `sync` imports neither service, so neither can form a cycle through it — and a test can
+	pass a queue that records what it was handed instead of standing up the whole sync service.
+	"""
+
+	async def enqueue(self, op: SyncOp) -> SyncOp: ...
 
 
 class SyncBatch(BaseModel):

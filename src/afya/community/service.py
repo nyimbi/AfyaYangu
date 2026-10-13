@@ -4,6 +4,8 @@ COM-101 case reports are server-authoritative (§16.3) and mirror AVADAR: submis
 automatic alert to the disease surveillance officer, and the report moves through
 reported -> investigated -> lab_result -> closed.
 """
+import json
+
 from afya.auth.views import now_ms
 from afya.community.protocol import PROTOCOL, ResponseClock, coverage, response_clock
 from afya.community.views import (
@@ -13,12 +15,14 @@ from afya.community.views import (
 	PeerAlertReceipt,
 )
 from afya.identity.service import IdentityService
+from afya.ids import uuid7str
 from afya.info.myths import (
 	DRAFTED_ON_ISO, FALLBACK_CORRECTION, FALLBACK_TOPIC, classify, correction_library, myth_for,
 )
 from afya.info.principles import Subject, judge
 from afya.logmixin import LogMixin
 from afya.strings import answerable
+from afya.sync.views import SyncOp, SyncQueue
 
 # Misinformation topics with a pre-drafted, source-attributed correction (§6.4 response protocol).
 #
@@ -89,13 +93,19 @@ def _alert_day(alert: PeerAlert, acknowledged_iso: str) -> int:
 
 
 class CommunityService(LogMixin):
-	def __init__(self, identity: IdentityService | None = None) -> None:
+	def __init__(self, identity: IdentityService | None = None, sync: SyncQueue | None = None) -> None:
 		"""`identity` is §5.4's single identity model, injected rather than constructed here because the
 		index it holds is shared with the channel layer — two instances would resolve the same phone to
 		two subjects and the deduplication would find nothing. Optional only so a unit test can build
 		the community service alone; `_dedup_key` refuses rather than falling back to the raw number,
 		because a key built on the MSISDN alone silently fails to match a report the same person filed
 		from the app, which is the cross-channel case §5.4 is about.
+
+		`sync` is §COM-101's "Offline report queue". A CHW in the field is the one user this section
+		describes whose reports are most likely to be filed with no bars, and §16.3 already carries a
+		`case_reports` rule with nothing queueing a report through it — a rule for a dataset nothing
+		writes. Optional for the same reason `identity` is: a unit test that only wants the dedup must
+		not have to stand up a queue.
 		"""
 		self._issues: dict[str, CommunityIssue] = {}
 		self._issue_status: dict[str, IssueStatus] = {}
@@ -109,6 +119,9 @@ class CommunityService(LogMixin):
 		self._misinfo: list[MisinfoSubmission] = []
 		self._detected: dict[str, int] = {}
 		self._identity = identity
+		# §COM-101's offline report queue. Absent when the service is built without one, and a report
+		# is then recorded locally and not queued — the same two-state shape §MON-004's tracker has.
+		self._sync: SyncQueue | None = sync
 		# dedup key -> the report already open under it. §5.4 says reports are deduplicated, and the
 		# key is the resolved subject rather than the raw number so a USSD report and an app report
 		# by the same person collide.
@@ -179,6 +192,18 @@ class CommunityService(LogMixin):
 		assert report.symptoms, 'symptom checklist required'
 		if report.photo_sha256 is not None:
 			assert report.geotagged, 'photo evidence requires geotag consent (§COM-101)'
+		# §COM-101's "Offline report queue". Queued here, with the *recording*, rather than with the
+		# alert below — both paths record the report and only one of them alerts, and a duplicate
+		# that arrived offline is still a report the server does not have. Queueing it beside the
+		# alert would drop exactly the second report the dedup docstring promises is kept.
+		#
+		# Gated on the CHW's own declaration rather than queued unconditionally, and that gate is the
+		# difference between a queue and a duplicate factory: a report that arrived over a network is
+		# one the server already holds, and §5.4's dedup cannot catch a replayed copy because the CHW
+		# logging offline carries no MSISDN for the key to be built on. `reported_offline` says which
+		# of the two happened, and it was a field nothing read until now.
+		if report.reported_offline and self._sync is not None:
+			await self._queue_case(report)
 		officer = f'{report.county} disease surveillance officer'
 		key = self._dedup_key(report)
 		existing = self._open_by_reporter.get(key) if key is not None else None
@@ -203,6 +228,38 @@ class CommunityService(LogMixin):
 			alerts_sent=1,
 			next_step='Officer alerted automatically. Keep the patient isolated; log PPE use; await investigation instructions.',
 		)
+
+	async def _queue_case(self, report: CaseReport) -> None:
+		"""Hand an offline report to the sync queue, under §16.3's own `case_reports` rule.
+
+		The dataset name is the one `CONFLICT_RULES` already carries for this data, so the strategy
+		applied on replay is the spec's own — server-authoritative, "clinical accuracy critical" —
+		rather than one chosen here. A rule with no producer is a rule for a dataset nothing writes.
+
+		**The whole report travels, not a reference to it.** §COM-101's bullet is that the report is
+		*stored locally* until there is a signal, and the store this deployment has is the queue: a
+		payload carrying only an id would leave the fields on a handset that crashed, and the officer
+		would receive a case with no symptoms, no village and no temperature. Every field is encoded,
+		`None` included, because §16.4's delta is computed field by field — an omitted key reads as
+		"unchanged" and a key that went from a value to `null` is a change, so the two must be
+		distinguishable on the wire. JSON per value rather than one blob for the same reason: a
+		single serialised string would make every edit resend every field and §16.4's delta sync a
+		claim rather than a behaviour.
+		"""
+		assert self._sync is not None, 'a queue is required to queue a report'
+		# The *tail* of the id, not the head. A UUID7's leading bytes are its millisecond timestamp,
+		# so a prefix collides for two reports filed in the same millisecond and the queue — keyed on
+		# `op_id` — keeps the last and drops the first. A CHW replaying a day of reports after an
+		# outage files them in a burst, which is exactly when a collision costs the most; §MON-004's
+		# dose queue takes its suffix for the same reason.
+		op = SyncOp(
+			op_id='OP-' + uuid7str().replace('-', '').upper()[-8:],
+			dataset='case_reports',
+			client_ts=now_ms(),
+			payload={name: json.dumps(value) for name, value in report.model_dump(mode='json').items()},
+		)
+		await self._sync.enqueue(op)
+		self._log_info('offline case report queued for sync', report=report.report_id)
 
 	async def advance_case(self, report_id: str, status: CaseStatus) -> CaseStatus:
 		assert report_id in self._cases, 'unknown case report'

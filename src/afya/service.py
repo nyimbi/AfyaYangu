@@ -419,9 +419,13 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# §MON-004's "Works with no data connection": a dose taken with no signal has to reach the
 		# sync queue, so the tracker is handed the queue rather than the route doing it separately —
 		# a caller that forgot would lose the dose while the screen said it was recorded.
+		# §MON-004's "Works with no data connection" and §COM-101's "Offline report queue" both need a
+		# queue the sync routes and the feature's own service enqueue into, so it is built here and
+		# shared rather than constructed twice. §COM-101's CHW is the field user the section describes,
+		# and §16.3 already carried a `case_reports` rule with nothing writing to it.
 		'monitoring': monitoring_svc,
 		'identity': identity_svc,
-		'community': CommunityService(identity_svc),
+		'community': CommunityService(identity_svc, sync_svc),
 		'alerting': alerting_svc,
 		'realtime': RealtimeService(),
 		# §INF-005's two collaborators. `info_svc.dashboard` is the county risk read and

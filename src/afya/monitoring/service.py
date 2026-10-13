@@ -24,7 +24,7 @@ from afya.monitoring.views import (
 from afya.alerting.views import FeedItem
 from afya.records.service import RecordsService
 from afya.records.views import ImmunisationRecord
-from afya.sync.views import SyncOp
+from afya.sync.views import SyncOp, SyncQueue
 
 # Danger symptoms for a monitored contact (MON-009): any of these, or fever, escalates.
 MONITORING_ALERT_SYMPTOMS: frozenset[str] = frozenset(
@@ -87,18 +87,6 @@ def _days_between(iso_a: str, iso_b: str) -> int:
 	a = date(*(int(p) for p in iso_a[:10].split('-')))
 	b = date(*(int(p) for p in iso_b[:10].split('-')))
 	return (b - a).days
-
-
-class SyncQueue(Protocol):
-	"""The one method this service needs from the sync layer.
-
-	A `Protocol` rather than an import of `SyncService`, for the reason the dependency runs one way:
-	`sync` imports nothing from `monitoring`, and a direct reference would make that a cycle. The
-	structural type also keeps a test free to pass a queue that records what it was handed instead of
-	standing up the whole sync service.
-	"""
-
-	async def enqueue(self, op: SyncOp) -> SyncOp: ...
 
 
 class MonitoringService(LogMixin):
