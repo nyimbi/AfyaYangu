@@ -421,3 +421,67 @@ WHATSAPP_WELCOME: dict[str, str] = {
 	'en': 'Welcome to Afya Yangu. Options: symptoms, facility, hotline.',
 	'sw': 'Karibu Afya Yangu. Chaguo: dalili, kituo cha afya, mstari wa dharura.',
 }
+
+# §ALT-002's "Works over SMS when data is unavailable", as the strings a reply is made of.
+#
+# These are the only strings in the product that must survive a gateway that refuses anything outside
+# GSM7, so they carry no em dash, no curly quote and no degree sign — `segment_sms` and §5.3's
+# zero-rating both turn on the alphabet, and a reply refused at the gateway is a person who pressed
+# "I'm safe" and heard nothing back. `test_alt002.py` asserts the alphabet rather than trusting it.
+#
+# The reply names **who is accounted for and who is not**, because a check-in that answered only
+# "recorded" would leave the person unable to tell whether their family had heard anything. It never
+# names the members' subjects: an SMS lands on a handset that may be shared, and §17.2's personal
+# data does not belong in a plain-text message to a number the server has not verified belongs to the
+# person who asked.
+SMS_FAMILY_SAFE: dict[str, str] = {
+	'en': 'Afya: you are marked safe. {board}',
+	'sw': 'Afya: umewekwa salama. {board}',
+}
+SMS_FAMILY_BOARD: dict[str, str] = {
+	'en': '{safe} of {total} checked in safe.',
+	'sw': '{safe} kati ya {total} wamejisalimisha salama.',
+}
+SMS_FAMILY_BOARD_ALL: dict[str, str] = {
+	'en': 'Everyone in your group has checked in safe ({total}).',
+	'sw': 'Kila mtu katika kikundi chako amejisalimisha salama ({total}).',
+}
+SMS_FAMILY_NO_GROUP: dict[str, str] = {
+	'en': (
+		'Afya: your number is not linked to a family group yet. Ask a family member to add you, '
+		'or call 719.'
+	),
+	'sw': (
+		'Afya: namba yako haijaunganishwa na kikundi cha familia bado. Omba mwanafamilia akuongeze, '
+		'au piga 719.'
+	),
+}
+SMS_FAMILY_MANY_GROUPS: dict[str, str] = {
+	'en': 'Afya: you are in more than one family group. Reply SAFE and the group name.',
+	'sw': 'Afya: uko katika vikundi zaidi ya kimoja vya familia. Jibu SAFE na jina la kikundi.',
+}
+# A message that mentions safety but is not the sender's own check-in. Answered rather than filed:
+# "my brother is safe" would otherwise mark the *sender* safe, and a keyword list cannot tell a
+# relayed message from a first-person one — so the product asks instead of guessing.
+SMS_FAMILY_THIRD_PARTY: dict[str, str] = {
+	'en': 'Afya: reply SAFE if you are safe yourself. To report someone else, call 719.',
+	'sw': 'Afya: jibu SALAMA ikiwa wewe mwenyewe uko salama. Kuripoti mtu mwingine, piga 719.',
+}
+# A message that says the opposite of safe. The live probe found this: "I am not safe" matched no
+# keyword, fell through to §CHAN-3's map, and was answered with the welcome menu — a person saying
+# they are in danger, handed a list of options. The reply names the line that can actually help.
+SMS_FAMILY_NOT_SAFE: dict[str, str] = {
+	'en': 'Afya: if you are in danger, call 719 now, free and 24/7. Reply SAFE when you are safe.',
+	'sw': 'Afya: ikiwa uko hatarini, piga 719 sasa, bure na saa 24. Jibu SALAMA ukiwa salama.',
+}
+SMS_FAMILY_UNKNOWN_GROUP: dict[str, str] = {
+	'en': 'Afya: we could not find that family group. Check the name and reply again, or call 719.',
+	'sw': 'Afya: hatukupata kikundi hicho cha familia. Angalia jina na ujibu tena, au piga 719.',
+}
+
+# The words that make an inbound SMS a check-in. "safe" is the button's own word and "salama" is its
+# Kiswahili, which is what a person on a feature phone would actually type; a keyword list of one
+# English word would refuse the reply of the person the SMS path exists for.
+# `nikosalama` is there because a feature phone's keyboard is where the space goes missing, and a
+# check-in refused for a typo is a person told their family was not notified.
+SMS_SAFE_KEYWORDS: tuple[str, ...] = ('safe', 'salama', 'niko salama', 'nikosalama')

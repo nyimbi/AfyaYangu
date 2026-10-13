@@ -628,6 +628,31 @@ unit introduced no new external fact — the incubation window was already archi
 alert's wording is the specification's. Said plainly so the absence of a new source directory is not
 read as a missing citation.
 
+**Where §ALT-002's SMS check-in comes from, and where it does not.** The family safety check-in's
+"works over SMS when data is unavailable" is carried by `afya.alerting.service:AlertingService.check_in`
+(the fan-out) and `:check_in_by_msisdn` (the inbound message), and the strings it prints are
+`afya.strings:SMS_FAMILY_*`. Every one of those strings is **this deployment's own copy**, written
+here rather than reproduced from a source: the specification names the feature, the button and the
+SMS channel, and prints none of the sentences. The **719 line** is the deployment's, as everywhere
+else. No new archive directory was added for §ALT-002 because the unit introduced no new external
+fact.
+
+Two constraints the strings do carry, and neither is from a source in this tree:
+
+- **The GSM7 alphabet.** §5.3's zero-rating and `afya.channels.service:segment_sms` both turn on the
+  character set, and an em dash, a curly quote or a degree sign is refused at the gateway. That is a
+  property of the SMS standard, not of a document archived here, so `tests/ci/test_alt002.py` asserts
+  the alphabet over every table and every language rather than citing one.
+- **What the message may name.** The reply carries counts and never the members' subject references,
+  because an SMS lands on a handset that may be shared. The reason is §17.2's, from the
+  specification, not from a source here.
+
+The negation and third-party vocabularies (`afya.alerting.service:_NEGATIONS`, `_THIRD_PARTY`,
+`_NEG_PREFIXES`) are likewise this deployment's own: no archived source enumerates the ways a
+Kiswahili speaker says "not safe", and inventing a citation for them would be worse than recording
+that they are ours. They are listed here for the same reason the strings are — so a later reader can
+see that the absence of a citation is a decision and not an omission.
+
 ---
 
 ## Helpline directory — §INF-006's GBV and child helplines

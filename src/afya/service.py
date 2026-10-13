@@ -25,7 +25,7 @@ from afya.channels.cost import ZeroRatingRule, parse_rules, zero_rating_gaps
 from afya.channels.attention import attention_report
 from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import ChwTask, SmsOut, UssdRequest, WhatsAppIn
-from afya.emergency.service import EmergencyService, FacilityAmbulancePort, Inline719Port
+from afya.emergency.service import EmergencyService, FacilityAmbulancePort, Inline719Port, _sms_dialable
 from afya.identity.service import IdentityService
 from afya.identity.views import IdentityLink, PhoneConsent
 from afya.emergency.views import EmergencyCard, IMUSample, SOSAlert, SOSEvent
@@ -107,7 +107,7 @@ from afya.analytics.views import DASHBOARDS, DashboardId
 from afya.metrics.service import MetricsService
 from afya.metrics.views import MetricFamily
 from afya.ai.views import AggregateCell, FairnessAuditRequest, RedressRequest, RiskInputs, SignalEvent, WarningSignal
-from afya.alerting.service import AlertingService
+from afya.alerting.service import AlertingService, safe_intent
 from afya.alerting.views import ExposureAck, FeedItem, FeedPage, FamilyStatus
 from afya.auth.service import AuthService
 from afya.auth.views import PKCEStart, PKCETokenRequest, StaffProvision, TokenRequest
@@ -344,7 +344,22 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	# through §5.3's channel service so the zero-rating claim is resolved where every other message's
 	# is; the ambulance leg is §FND-001's own registry rather than a second list of bases; and the
 	# countdown is a parameter the section does not state, so it is passed rather than inlined.
+	def _dialable(number: str | None) -> str | None:
+		return _sms_dialable(number) if number else None
+
 	channels_svc = ChannelService(sms_port, telco_rules, triage_svc, identity_svc, privacy_svc, access_svc)
+	# §ALT-002's two legs, wired here because they point in opposite directions and neither service
+	# may import the other: the check-in texts the family through §5.3's channel service, which is
+	# where §18.8's zero-rating is resolved — so a check-in message is free by the same rule as every
+	# other message — and the inbound SMS resolves a number to a subject through §5.4's identity
+	# model. Both are passed as callables rather than as services, so `afya.alerting` holds no import
+	# of either and the cycle cannot form.
+	# The identity model hands back whatever spelling the link recorded, and a landline is a number
+	# that cannot receive a text at all. §EMG-001's fan-out refuses those through `_sms_dialable`, and
+	# §ALT-002's goes to the same families, so it refuses them the same way rather than sending to a
+	# number the gateway will drop — which would report a family told that never was.
+	alerting_svc = AlertingService(
+		channels_svc.send_sms, lambda ref: _dialable(identity_svc.msisdn_for(ref)))
 	emergency_svc = EmergencyService(
 		Inline719Port(), channels_svc, FacilityAmbulancePort(facilities_svc))
 	# §MON-001's tracker reads and writes the wallet's dose log, so the wallet is built first and
@@ -407,7 +422,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'monitoring': monitoring_svc,
 		'identity': identity_svc,
 		'community': CommunityService(identity_svc),
-		'alerting': AlertingService(),
+		'alerting': alerting_svc,
 		'realtime': RealtimeService(),
 		# §INF-005's two collaborators. `info_svc.dashboard` is the county risk read and
 		# `monitoring_svc` is the diary the traveller enrolment has to reach — the audit row's
@@ -3758,11 +3773,31 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return alerting.link_family(family_ref, members).model_dump(mode='json')
 
 	@app.post('/alerting/family/check-in')
-	async def alerting_check_in(subject_ref: str, family_ref: str, at_iso: str, _subject: str = Depends(require_self())) -> dict[str, object]:
+	async def alerting_check_in(subject_ref: str, family_ref: str, at_iso: str | None = None,
+			channel: str = 'native', note: str | None = None,
+			_subject: str = Depends(require_self())) -> dict[str, object]:
+		# `at_iso` is optional and defaults to the server clock, because the field exists so a queued
+		# check-in can carry the instant it was actually made — not so every person has to have one.
+		# The mobile catalogue marked it required, which meant a person pressing "I'm safe" had to be
+		# asked *when*, and a question the server can answer itself is a question that loses a
+		# check-in. §MON-004's offline queue still sends its own instant and is still honoured.
 		try:
-			return (await alerting.check_in(subject_ref, family_ref, at_iso)).model_dump(mode='json')
+			return (await alerting.check_in(
+				subject_ref, family_ref,
+				at_iso or datetime.now(timezone.utc).isoformat(timespec='seconds'),
+				channel=channel, note=note,
+			)).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/alerting/family/check-ins/{subject_ref}')
+	async def alerting_checkins(subject_ref: str, _subject: str = Depends(require_self())) -> list[dict[str, object]]:
+		"""The person's own check-ins, as §ALT-002's record of the feature working without data.
+
+		Self-scoped and filtered to the caller: a check-in carries a subject and an instant, and a
+		route that served every subject's would be a log of who is where for anyone who asked.
+		"""
+		return [c.model_dump(mode='json') for c in alerting.checkins() if c.subject_ref == subject_ref]
 
 	@app.get('/alerting/family/{family_ref}')
 	async def alerting_family(family_ref: str, _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
@@ -4874,6 +4909,20 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=f'an inbound SMS needs a Kenyan sender number: {exc}') from exc
 		msisdn = identity.msisdn_for(subject)
 		assert msisdn is not None, 'a resolved subject has a phone'
+		# §ALT-002's "Works over SMS when data is unavailable": the family check-in has no app to
+		# press a button in, so the message *is* the button and this is where it lands. Branching
+		# here rather than inside `route_whatsapp` because that router is §CHAN-3's WhatsApp keyword
+		# map and is synchronous — the check-in records a state and texts the family, which is I/O,
+		# and a sync router cannot await it. A body that is not a safe word falls through to the
+		# keyword map unchanged, so the triage and facility intents are reached exactly as before.
+		if safe_intent(body) != 'none':
+			reply = await alerting.check_in_by_msisdn(
+				msisdn, body, datetime.now(timezone.utc).isoformat(timespec='seconds'), lang)
+			# `intent` is named rather than left for the reply to imply: a carrier-side log and a
+			# person reading the response both need to tell a check-in from a triage answer, and the
+			# reply text alone does not say which branch produced it.
+			return {'reply': reply, 'source': 'sms', 'intent': 'family-check-in',
+			        'linked': identity.is_linked(subject)}
 		out = channels.route_whatsapp(WhatsAppIn(from_msisdn=msisdn, body=body), lang)
 		return {'reply': out.reply, 'source': 'sms', 'linked': identity.is_linked(subject)}
 

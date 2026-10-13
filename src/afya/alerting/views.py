@@ -128,6 +128,15 @@ class FamilyStatus(BaseModel):
 	members_unknown: list[str]
 	last_checkin_iso: str | None = None
 	board: str
+	# §ALT-002's "Works over SMS when data is unavailable", as what the sending side reports. `sent`
+	# is how many messages actually left and `unreachable` is who could not be reached — the split
+	# §EMG-001's SOS dispatch already draws, because "told your family" for two deliveries out of
+	# four is the failure that split exists to prevent.
+	sms_sent: int = 0
+	sms_unreachable: list[str] = Field(default_factory=list)
+	# The message itself, so the client can show what was sent rather than describe it. Empty when
+	# the check-in arrived over SMS, because there the reply *is* the message.
+	sms_body: str = ''
 
 
 # --- ALT-004 exposure notification -------------------------------------------------------

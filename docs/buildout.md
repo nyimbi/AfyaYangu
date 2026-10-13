@@ -3530,3 +3530,117 @@ days"), the alert's wording is the specification's own, and the 719 line is this
 is everywhere else. The reasoning is recorded in `sources/INDEX.md` under that section so the absence
 of a new directory is not read as a missing citation — a source left unarchived and a source that was
 never needed look identical from the outside.
+
+## §ALT-002 — a button that only worked in the app
+
+`docs/spec.md:1382-1391` (Tier 3). One row was `missing`, and the feature it names is the one that
+matters most in the week the network is what broke.
+
+### "Works over SMS when data is unavailable"
+
+The audit row said it precisely: `/alerting/family/check-in` was HTTP only, `SafetyCheckIn.channel`
+accepted `sms`, and **nothing in the product ever sent or received one**. So the failure was not a
+missing screen. Every screen looked right — the button existed, the board existed, the model had a
+field for the channel — and the half of the feature that exists for the outage had no carrier at all.
+`SafetyCheckIn` was a model with no writer anywhere in the repo, which is the same shape as
+`InteractionPair` and the §LOC-001 `privacy_note`: a type the design anticipated and the
+implementation never reached.
+
+Both directions were built, and they fail differently.
+
+**Outbound.** `AlertingService.check_in` now texts every member who has not answered, through §5.3's
+channel service, so §18.8's zero-rating is resolved at the moment a check-in message is sent by the
+same rule as every other message. Three properties are load-bearing:
+
+- **The check-in is written before the fan-out.** A carrier that refuses everything still leaves the
+  board correct: the person *is* safe whatever the gateway did with the text, and a check-in lost
+  because an SMS failed would be the button failing at the moment it matters.
+- **A member who cannot be reached is named, not counted.** `sms_sent` and `sms_unreachable` are the
+  split §EMG-001's SOS dispatch already draws, and it is the same reason: "told your family" for two
+  deliveries out of four is the failure the split exists to prevent. The deployment routes the
+  identity model's answer through `_sms_dialable`, so a Nairobi landline lands in `unreachable`
+  rather than being handed to a gateway that will drop it.
+- **`notify=False` still composes the message.** `sms_body` is the message, not the receipt —
+  `sms_sent` is what says whether it went — so a board that carried an empty string whenever nothing
+  was sent would leave a client rendering a blank line where the confirmation belongs.
+
+**Inbound.** `/integrations/telco/sms/inbound` routes a body carrying a safe word to
+`check_in_by_msisdn`, which resolves the sender's number to a subject through §5.4's identity model
+and files the check-in against their group. It is a branch in the route rather than in
+`route_whatsapp` because that router is §CHAN-3's WhatsApp keyword map and is **synchronous** — a
+check-in records state and texts the family, which is I/O, and a sync router cannot await it.
+
+### Three answers, not a boolean
+
+The first shape was `any(k in body.lower() for k in SMS_SAFE_KEYWORDS)`, and it had a defect the
+tests did not catch until one was written for it: **"I am not safe" contains "safe"**, so a substring
+test files it as a check-in — telling a family their relative is accounted for on the strength of a
+message that says the opposite. That is the one error here worse than silence.
+
+`afya.alerting.service:safe_intent` returns `check-in`, `negated`, `third-party` or `none`, and each
+of the three non-check-in answers is a different reply rather than a silent drop:
+
+- **A negation is not a check-in, and it is not nothing either.** The live probe found what the
+  fall-through did: "I am not safe" matched no keyword, went to §CHAN-3's map, and was answered with
+  **the welcome menu** — a person saying they are in danger, handed a list of options. It now gets
+  the 719 line. The word before the keyword is read, and a glued negation is read too, because
+  Kiswahili puts the negative inside the verb (`hatuko salama`, `hatusalama`) and English does it in
+  one word (`unsafe`).
+- **A message about somebody else is not the sender's check-in.** "My brother is safe" marks the
+  *sender* safe under any keyword test, and no keyword list can tell a relayed message from a
+  first-person one — so it is answered with a question instead of being filed. The same error as the
+  negation, one step removed.
+- **An unlinked number is told it is unlinked.** An SMS that gets no answer is indistinguishable
+  from a network that dropped it, so every branch answers.
+
+Two more that the first shape got wrong, both caught by a test written for the purpose:
+
+- **A group named that is not the sender's** was filed against their own. `SAFE NAIROBI` from a
+  person in one group landed in that group — two families told the wrong thing at once. The name is
+  now checked against every group on record, which is the difference between "named nothing" and
+  "named a stranger's".
+- **A person in two groups** was guessed into whichever sorted first. They are asked which.
+
+The check-in record is now the model that anticipated it: `SafetyCheckIn` is written on every
+check-in, with `channel` recording `sms` or `native`. That is what makes the SMS leg auditable after
+the fact — a deployment asked to show the feature works without data can show which check-ins arrived
+that way, and a board storing only a timestamp could not. The id is derived from subject and instant,
+so a gateway retry or a queued resend is one check-in and not two on a board whose whole purpose is
+counting who is accounted for.
+
+`at_iso` on the route is now optional and defaults to the server clock. The field exists so a queued
+check-in can carry the instant it was actually made, **not** so every person has to have one — the
+mobile catalogue marked it required, which meant a question the server can answer itself standing
+between a person and the button.
+
+### Gates
+
+`tests/ci/test_self_scope.py` and `tests/ci/test_mobile_catalogue.py` each caught a real defect in
+the first shape, and both were the same mistake seen from two sides: the check-ins route carried a
+`subject_ref` that was not compared to the token. The route is now self-bound and filtered to the
+caller — a check-in carries a subject and an instant, which together are a log of who is where.
+
+**20/20 fired.** A member who cannot be reached counted as told; a landline texted; one dead leg
+silencing the rest; the check-in lost when the text fails; `notify=False` emptying the message;
+the message naming the members; the reply speaking the asked-for language; a negation read as a
+check-in; a negation falling through to the welcome menu; a third-party message filed as the
+sender's; an unlinked number silently ignored; a stranger's group name filed as their own; a
+two-group sender guessed into one; a retried message becoming two check-ins; the SMS check-in
+stopping reaching the fan-out; the route dropping the check-in branch; the route claiming the triage
+intents; the check-in record losing its channel; and the two routes each stopping binding the token.
+
+Two canaries were **MISSED** on the first run and both were the canary's fault, not the gate's: one
+patched a string that had moved, and one named the wrong node — the `notify=False` mutation is caught
+by the *body* assertion, which the named test did not make until it was strengthened. Same lesson as
+§LOC-001's canary #10: a canary that passes is a bug in the canary.
+
+### Counts
+
+**§ALT-002 1 `missing` → 0.** Across the repo **461 → 462 `carried`, 19 → 18 `missing`**, 497 rows,
+`deferred` 17 unchanged.
+
+**No new source directory.** The strings are this deployment's own copy — the specification names the
+feature, the button and the SMS channel, and prints none of the sentences — and the GSM7 constraint
+is a property of the SMS standard rather than of a document. The reasoning is recorded in
+`sources/INDEX.md` beside §LOC-001's, for the same reason: so the absence of a citation is not read
+as an omission.

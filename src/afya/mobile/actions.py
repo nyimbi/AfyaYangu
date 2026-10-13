@@ -209,7 +209,7 @@ FEATURE_OF: dict[str, str] = {
 	'flag_misinformation': 'COM-104', 'misinformation_clusters': 'COM-104',
 	'publish_feed_item': 'ALT-001', 'alert_feed': 'ALT-001',
 	'alert_preferences': 'ALT-003', 'set_alert_preference': 'ALT-003',
-	'link_family': 'ALT-002', 'family_check_in': 'ALT-002', 'family_board': 'ALT-002',
+	'link_family': 'ALT-002', 'family_check_in': 'ALT-002', 'family_board': 'ALT-002', 'my_checkins': 'ALT-002',
 	'send_exposure_notice': 'ALT-004', 'ack_exposure': 'ALT-004',
 	'rotate_ebid': 'LOC-002', 'log_encounter': 'LOC-002', 'declare_exposure': 'LOC-002', 'check_exposure': 'LOC-002',
 	'enable_location_history': 'LOC-003', 'log_location': 'LOC-003', 'location_report': 'LOC-003', 'purge_location': 'LOC-003',
@@ -595,7 +595,8 @@ def catalogue() -> list[MobileAction]:
 		_a('set_alert_preference', 'Choose which alerts I get', 'Alerts', 'POST', '/alerting/preferences', [_s(), _f('category', 'Alert type'), _f('enabled', 'Turn on?', 'bool')]),
 		_a('alert_preferences', 'My alert settings', 'Alerts', 'GET', '/alerting/preferences/{subject_ref}', [_s('path')]),
 		_a('link_family', 'Link my family', 'Alerts', 'POST', '/alerting/family/link', [_f('family_ref', 'Family group'), _f('members', 'Family members', 'list')]),
-		_a('family_check_in', "I'm safe", 'Alerts', 'POST', '/alerting/family/check-in', [_s(), _f('family_ref', 'Family group'), _f('at_iso', 'When')]),
+		_a('family_check_in', "I'm safe", 'Alerts', 'POST', '/alerting/family/check-in', [_s(), _f('family_ref', 'Family group'), _f('at_iso', 'When', ph='optional'), _f('channel', 'How did you check in?', 'select', ['native', 'sms'], ph='optional'), _f('note', 'Anything to add?', ph='optional')]),
+		_a('my_checkins', 'My safety check-ins', 'Alerts', 'GET', '/alerting/family/check-ins/{subject_ref}', [_s('path')]),
 		_a('family_board', 'Is my family safe?', 'Alerts', 'GET', '/alerting/family/{family_ref}', [_f('family_ref', 'Family group', 'path')]),
 		# Community
 		_a('report_issue', 'Report a problem in my area', 'Community', 'POST', '/community/issues', [_auto('issue_id', 'Report number'), _f('kind', 'What is the problem?', 'select', ISSUE_KINDS), _f('county', 'County'), _f('description', 'Describe it', 'textarea'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal')]),
