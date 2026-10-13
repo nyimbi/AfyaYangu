@@ -688,3 +688,92 @@ the derivation is reproducible — the test recomputes it and compares all 113 p
   `SubCountyStatus` takes them as caller-supplied strings. ADM2 would be the source for those and is
   not archived here, because nothing in the code derives from it yet — the sub-county row records
   what a county health team reports, not a boundary join.
+
+## Household water treatment — §MON-005's treatment, storage and reminder guidance
+
+§10.2 MON-005 lists five Features and three of them were bullets with no carrier: "treatment
+guidance", "safe storage guidance" and "point-of-use treatment reminders". The advisory string that
+existed said "do not drink without boiling", which is a warning and not guidance — it names no method
+a household can perform, says nothing about the container the water goes back into, and schedules
+nothing. Writing those three meant answering questions the section does not answer: *which* methods
+may be offered, when one must be withheld, how long treated water keeps, and what residual protects
+it in storage. Every one of those answers is a figure or a condition from a WHO document, so the
+documents are archived here rather than paraphrased from memory.
+
+**Publisher:** World Health Organization. **Licence:** WHO publications — CC BY-NC-SA 3.0 IGO
+(the technical brief carries the WHO copyright line; the Round II report is the Scheme's own
+publication). **Retrieved:** 2026-10-13.
+
+| File | What it is | SHA-256 (first 16) |
+|---|---|---|
+| `who-boil-water-technical-brief-2015.pdf` | WHO/FWC/WSH/15.02, *Boil water*, technical brief, 14 January 2015, 2 pp. | `136d2e2bc676c981` |
+| `who-boil-water-technical-brief-2015.txt` | `pdftotext -layout` extraction of the above | `ee1914cf0cf39698` |
+
+**Retrieval URLs:**
+`https://www.who.int/publications/i/item/WHO-FWC-WSH-15.02` (landing page);
+`https://iris.who.int/server/api/core/bitstreams/6d37bdcd-04b0-48d7-9a88-1e18b36c2b56/content`
+(the PDF itself; the `iris.who.int/bitstream/handle/...` path serves an HTML shell, not the file).
+
+**A second source, cited but not archived.** WHO's *Results of Round II of the WHO International
+Scheme to Evaluate Household Water Treatment Technologies* (2019, ISBN 978-92-4-151603-7,
+`https://www.who.int/publications/i/item/9789241516037`) is where the two turbidity figures and the
+chlorine-residual guidance come from. Its PDF is 3.2 MB and is **not** committed; the specific
+sentences relied on are quoted verbatim in the code and in the tests, and each is attributed to the
+report by name. This is a deliberate departure from the two-copy rule and it is recorded as one: the
+quotes are short, they are the whole of what is used, and a reader can check each against the
+published report without the archive.
+
+**What the sources support, and what the code takes from each:**
+
+- **Boiling inactivates pathogens, including in turbid water and at altitude.** The technical brief:
+  boiling "is highly efficacious, killing human pathogens even in turbid water and at high altitude",
+  and "the process of heating water to a rolling boil ... is sufficient to inactivate pathogenic
+  bacteria, viruses and protozoa". This is why `boil` is the one method offered on **every** reading
+  and led with on all of them — it is the only method with no condition attached, and therefore the
+  only one the advisory can name without knowing more about the water.
+- **Boiling leaves no residual protection.** The same brief: boiling "does not provide any residual
+  protection", and the water should be "allowed to cool naturally, without the addition of ice, and
+  protected from post-treatment recontamination during storage". This is `TREATMENT_CAVEATS[boil]`
+  and the first three storage steps.
+- **Chlorine products are evaluated for nonturbid water only.** Round II: the evaluated products
+  "should only be used in nonturbid water (<5 NTU)". This is `CHLORINE_TURBIDITY_LIMIT_NTU = 5.0`,
+  the threshold at which `chlorinate` is withheld.
+- **Chlorine is ineffective against Cryptosporidium.** Round II: chlorine is "ineffective against
+  most protozoan cysts including Cryptosporidium". This is `TREATMENT_CAVEATS[chlorinate]`.
+- **The residual that protects stored chlorinated water.** Round II, Box 6: a dose should "maintain
+  an FRC concentration of >=0.5 mg/L after 30 minutes of contact time, or >=0.2 mg/L in stored
+  household water". The **stored** figure — 0.2 — is the one `StorageGuidance` carries, because the
+  field is on a storage block; the 0.5 mg/L / 30-minute figure is stated in the chlorination step
+  text.
+- **Safe storage is not a lesser measure than treatment.** Round II, Box 5: "filtration and
+  integrated safe storage can reduce the risk of diarrhoeal disease by 61% compared to 51% from
+  filtration only". This is why storage guidance is served on every reading, including a safe one.
+- **Solar disinfection is slow.** The brief groups it under heat methods; the six-hour/full-sun and
+  two-day/overcast figures in `TREATMENT_STEPS[solar]` are the standard SODIS exposure and are
+  **not** stated in either archived document — they are recorded here as unsourced rather than
+  presented as WHO's. A household following that step on a source that does not carry the number is
+  relying on the repo's own figure, and the caveat on the same method says the method is slow and
+  conditional on clear bottles and clear weather, which the brief does support for heat methods
+  generally.
+
+**What the sources do not support, and where the code says so:**
+
+- **Neither document states a boiling duration.** The brief's conclusion is a *rolling boil* with no
+  minute count, and the repo does not invent one — `TREATMENT_STEPS[boil]` says "bubbling vigorously,
+  not merely steaming", which is what "rolling boil" means, and states no time. A one-minute or
+  three-minute figure is common in national guidance and appears in neither source here, so it is not
+  in the code.
+- **Neither document states how long treated water keeps.** The 24-hour interval is the repo's own
+  parameter (`REMINDER_INTERVAL_HOURS`), named as such in the code and here. What the sources support
+  is that recontamination during storage is the risk being managed, which is why there is an interval
+  at all and why it is short.
+- **Neither document states a turbidity limit for boiling or filtration.** The 5 NTU figure is
+  chlorine-specific. `filter` and `solar` are therefore offered without a turbidity condition, and
+  the code does not attach one to them.
+- **Round II evaluates specific products, not methods.** Its figures are what the *tested products*
+  achieve and the conditions they were tested in. The code uses them as conditions on a *method*,
+  which is the conservative reading — a household's chlorine product is not necessarily one of the
+  evaluated ones — and the storage step tells the reader to check the smell rather than trust a
+  number.
+- **No document here is Kenyan national guidance.** A county may publish its own treatment
+  thresholds, and nothing in the code claims to override them.

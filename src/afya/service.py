@@ -2484,8 +2484,26 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return [a.model_dump(mode='json') for a in alerts.by_county(county)]
 
 	@app.post('/environment/water')
-	async def environment_water(w: WaterQuality) -> dict[str, str]:
-		return {'advisory': alerts.water_alert(w)}
+	async def environment_water(w: WaterQuality, treated_at_iso: str | None = None) -> dict[str, object]:
+		"""§MON-005's water safety, whole: the advisory and the three things to do about it.
+
+		Public, and on the same reasoning as the advisory it already served: asking whether the water
+		is safe is a question a person asks before they have decided to tell anyone who they are, and
+		a reading that required a token would be unavailable during the flood it is about.
+
+		`treated_at_iso` is a query parameter rather than a field of `WaterQuality` because it is not
+		part of the reading — it is when *this household* last treated water, and putting it in the
+		reading's model would make the county's post and the household's schedule one object. When
+		it is absent there is no reminder, which is the honest answer: the server does not know when
+		this person treats water.
+
+		A time the server cannot read is answered 422 rather than left to the service's assertion: it
+		is the caller's input that is wrong, and a 500 would tell them the server broke.
+		"""
+		try:
+			return alerts.water_safety(w, treated_at_iso).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/environment/air')
 	async def environment_air(a: AirQuality) -> dict[str, str]:

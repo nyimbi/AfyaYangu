@@ -1,0 +1,174 @@
+TECHNICAL BRIEF
+                                                                                                        WHO/FWC/WSH/15.02
+
+
+
+
+                  BOIL WATER
+
+Introduction
+There are a number of circumstances in which it may be necessary to treat water at the point of use to remove or inactivate
+microbial pathogens. These include:
+   • failure of control measures, including lack of or improper disinfection and unsafe handling and storage;
+   • emergencies and disasters leading to inadequate sanitation, hygiene and protection of water sources; and
+   • uncertain quality of water sources when travelling.
+
+A number of proven water treatment methods exist for the removal or inactivation of microbial pathogens, including chemical
+disinfection, filtration, flocculation/disinfection and heat. Boiling is one heat method. It is highly efficacious, killing human pathogens
+even in turbid water and at high altitude. However, boiling involves the high-cost use of carbon-based fuel sources and does not
+provide any residual protection.
+
+
+
+Scientific basis for the efficacy of boiling
+Enteric bacteria, protozoa and viruses in liquids are sensitive to inactivation at temperatures below 100 °C. Thermal inactivation
+has been examined in water, sewage, milk and other liquids at temperatures close to those used for pasteurization (e.g. 63 °C for
+30 minutes, 72 °C for 15 seconds) and in hot water (about 60 °C). Only a few studies have examined thermal inactivation in liquids
+at temperatures approaching 100 °C.
+
+The results of these investigations, which are summarized in Table 1, show that bacteria are particularly sensitive to heat, and rapid
+kills – less than 1 minute per log (90%) reduction – are achieved at temperatures above 65 °C. Viruses are inactivated at temperatures
+between 60 °C and 65 °C, but more slowly than bacteria. However, as shown for poliovirus and hepatitis A, as temperatures increase
+above 70 °C, a greater than 5 log inactivation (99.999% reduction) is achieved in less than 1 minute. Cryptosporidium parvum oocysts
+are inactivated in less than 1 minute once temperatures exceed 70 °C. The data for Giardia cysts are more limited, but inactivation
+at temperatures ranging from 50 °C to 70 °C has been reported.
+
+
+
+Conclusions
+Based on these results, it is considered that the process of heating water to a rolling boil, as
+recommended in the WHO Guidelines for Drinking-water Quality (WHO, 2011), is sufficient to
+inactivate pathogenic bacteria, viruses and protozoa. After the water has reached a rolling boil,
+it should be removed from the heat, allowed to cool naturally, without the addition of ice, and
+protected from post-treatment recontamination during storage. If turbid water needs to be clarified
+for aesthetic reasons, this should be done before boiling.
+                                                                                                                                              100
+
+
+                                                                                                                                              95
+
+
+                                                                                                                                              75
+
+
+
+
+                                                                                                                                              25
+
+
+                                                                                                                                              5
+
+
+                                                                                                                                              0
+
+
+
+
+http://www.who.int//water_sanitation_health/publications/2011/dwq_guidelines/en/
+                                                                 Table 1. Thermal inactivation of bacteria, viruses and protozoa
+
+                                                                                                  Temperature          Inactivation            Log10
+                                                                     Organism                        (°C)                time(s)             reduction            Reference
+                                                                     BACTERIA                                                                                                                          References
+                                                                                                        60                  300               3.9 log             D’Aoust et al. (1988)
+                                                                                                                                                                                                       Bidawid S, Farber J, Sattar S, Hayward S (2000). Heat
+                                                                                                        63                  300               > 5 log             D’Aoust et al. (1988)                inactivation of hepatitis A virus in dairy foods. J Food
+                                                                     Campylobacter spp.
+                                                                                                        60                  8.2               Per log             Sörqvist (2003)                      Prot. 63(4):522–8.
+                                                                                                        62                   15              3.5–5 log            Juffs & Deeth (2007)                 D’Aoust J, Park C, Szabo R, Todd E (1988). Thermal
+                                                                     Coxiella burnetii                 79.4                  25             No survivors          Juffs & Deeth (2007)                 inactivation of Campylobacter species, Yersinia
+                                                                                                                                                                                                       enterocolitica, and haemorrhagic Escherichia coli. J
+                                                                                                        60                 1 800               6 log              Moce-Llivina et al. (2003)
+                                                                                                                                                                                                       Dairy Sci. 71:3230–6.
+                                                                     Escherichia coli                   65                  <2                Per log             Spinks et al. (2006)
+                                                                                                                                                                                                       Dennis PJ, Green D, Jones BP (1984). A note on the
+                                                                                                        72                  0.4               Per log             Sörqvist et al. (2003)               temperature tolerance of Legionella. J Appl Bacteriol.
+                                                                                                        60                  300               1.5 log             D’Aoust et al. (1988)                56:349–50.
+                                                                                                       64.5                 300               > 5 log             D’Aoust et al. (1988)                Fayer R (1994). Effect of high temperature on
+                                                                     Escherichia coli O157                                                                                                             infectivity of Cryptosporidium parvum oocysts in
+                                                                                                        65                   3                Per log             Spinks et al. (2006)
+                                                                                                                                                                                                       water. Appl Environ Microbiol. 60:2732–5.
+                                                                                                        62                   15              < 1–5 log            Juffs & Deeth (2007)
+                                                                                                                                                                                                       Harp J, Fayer R, Pesch B, Jackson G (1996). Effect
+                                                                     Enterococcus faecalis              65                 7–19               Per log             Spinks et al. (2006)                 of pasteurisation on infectivity of Cryptosporidium
+                                                                                                        72                   23               Per log             Sörqvist (2003)                      parvum oocysts in water and milk. Appl Environ
+                                                                     Klebsiella pneumoniae
+                                                                                                        65                  <2                Per log             Spinks et al. (2006)                 Microbiol. 62:2866–8.
+                                                                     Legionella pneumophila             58                  360               Per log             Dennis, Green & Jones (1984)         Johnston MD, Brown MH (2002). An investigation into
+                                                                     Legionella spp.                    80                 18–42              Per log             Stout, Best & Yu (1986)              the changed physiological state of Vibrio bacteria in
+                                                                                                                                                                                                       response to cold temperatures and studies on their
+                                                                     Mycobacterium                                                                                                                     sensitivity to heating and freezing. J Appl Microbiol.
+                                                                                                        72                   15                > 4 log            Juffs & Deeth (2007)
+                                                                     paratuberculosis                                                                                                                  92:1066–77.
+                                                                     Pseudomonas                                                                                                                       Juffs H, Deeth H (2007). Scientific evaluation of
+                                                                                                        65                    5                Per log            Spinks et al. (2006)
+                                                                     aeruginosa                                                                                                                        pasteurisation for pathogen reduction in milk and
+                                                                     Salmonella typhimurium             65                  <2                 Per log            Spinks et al. (2006)                 milk products. Canberra and Wellington: Food
+                                                                     Salmonella                                                                                                                        Standards Australia New Zealand (http://www.
+                                                                                                        60                  300                Per logb           Moce-Llivina et al. (2003)           foodstandards.gov.au/code/proposals/documents/
+                                                                     choleraesuisa
+                                                                     Salmonella spp. except
+                                                                                                                                                                                                       Scientific%20Evaluation.pdf, accessed 28 July 2014).
+                                                                                                        72                   0.1               Per log            Sörqvist (2003)                      Maheshwari G, Jannat R, McCormick L, Hsu D (2004).
+                                                                     Salmonella seftenberg
+                                                                     Salmonella seftenberg              60                  340                Per log            Sörqvist (2003)                      Thermal inactivation of adenovirus type 5. J Virol
+                                                                                                                                                                                                       Methods. 118:141–5.
+                                                                     Serratia marcescens                65                  <2                 Per log            Spinks et al. (2006)
+                                                                                                                                                                                                       Moce-Llivina L, Muniesa M, Pimenta-Vale H, Lucena
+                                                                     Shigella sonnei                    65                   3                 Per log            Spinks et al. (2006)                 F, Jofre J (2003). Survival of bacterial indicator
+                                                                                                        55                  22.5               Per log            Johnston & Brown (2002)              species and bacteriophages after thermal treatment
+                                                                     Vibrio cholerae
+                                                                                                        70                  120                > 7 log            Johnston & Brown (2002)              of sludge and sewage. Appl Environ Microbiol.
+                                                                                                                                                                                                       69(3):1452–6.
+                                                                                                       64.5                 300                > 5 log            D’Aoust et al. (1988)
+                                                                     Yersinia enterocolitica                                                                                                           Ongerth J, Johnson R, MacDonald S, Frost F, Stibbs
+                                                                                                        72                  0.5                Per log            Sörqvist (2003)
+                                                                                                                                                                                                       H (1989). Backcountry water treatment to prevent
+                                                                     VIRUSES                                                                                                                           giardiasis. Am J Public Health. 79(12):1633–7.
+                                                                     Adenovirus 5                       70                 1 260               > 8 log            Maheshwari et al. (2004)             Parry J, Mortimer P (1984). The heat sensitivity
+                                                                     Coxsackievirus B4                  60                 1 800               5.1 log            Moce-Llivina et al. (2003)           of hepatitis A virus determined by a simple tissue
+                                                                                                                                                                                                       culture method. J Med Virol. 14(3):277–83.
+                                                                     Coxsackievirus B5                  60                 1 800               4.8 log            Moce-Llivina et al. (2003)
+                                                                                                                                                                                                       Sauch JF, Flanigan D, Galvin ML, Berman D,
+                                                                     Echovirus 6                        60                 1 800               4.3 log            Moce-Llivina et al. (2003)
+                                                                                                                                                                                                       Jakubowski W (1991). Propidium iodide as an
+                                                                     Enteroviruses                      60                 1 800               4.3 log            Moce-Llivina et al. (2003)           indicator of Giardia cyst viability. Appl Environ
+                                                                                                        65                  120                 2 log             Parry & Mortimer (1984)              Microbiol. 57(11):3243–7.
+                                                                                                        65                 1 320                3 log             Bidawid et al. (2000)                Sörqvist S (2003). Heat resistance in liquids
+                                                                                                        75                   30                 5 log             Parry & Mortimer (1984)              of Enterococcus spp., Listeria spp., Escherichia
+                                                                     Hepatitis A                                                                                                                       coli, Yersinia enterocolitica, Salmonella spp. and
+                                                                                                        80                   5                  5 log             Parry & Mortimer (1984)              Campylobacter spp. Acta Vet Scand. 44(1–2):1–19.
+                                                                                                        85                 < 30                 5 log             Bidawid et al. (2000)
+
+
+
+
+©World Health Organization 2015. Last updated in January 2015.
+                                                                                                                                                                                                       Spinks A, Dunstan H, Harrison T, Coombes P, Kuczera
+                                                                                                        85                  <1                  5 log             Parry & Mortimer (1984)              G (2006). Thermal inactivation of water-borne
+                                                                                                        60                 1 800               5.4 log            Moce-Llivina et al. (2003)           pathogenic and indicator bacteria at sub-boiling
+                                                                                                        62                 1 800               > 5 log            Strazynski, Kramer & Becker (2002)
+                                                                                                                                                                                                       temperatures. Water Res. 40:1326–32.
+                                                                     Poliovirus 1                                                                                                                      Stout J, Best M, Yu V (1986). Susceptibility of
+                                                                                                        72                   30                > 5 log            Strazynski, Kramer & Becker (2002)
+                                                                                                                                                                                                       members of the family Legionellaceae to thermal
+                                                                                                        95                   15                > 5 log            Strazynski, Kramer & Becker (2002)   stress: implications for heat eradication methods in
+                                                                     PROTOZOA                                                                                                                          water distribution systems. Appl Environ Microbiol.
+                                                                                                                                                                                                       52:396–9.
+                                                                                                        60                  300               3.4 log             Fayer (1994)
+                                                                     Cryptosporidium                                                                                                                   Strazynski M, Kramer J, Becker B (2002). Thermal
+                                                                                                        72                   60               3.7 log             Fayer (1994)
+                                                                     parvum                                                                                                                            inactivation of poliovirus type 1 in water, milk and
+                                                                                                        72                 5–15               > 3 log             Harp et al. (1996)                   yoghurt. Int J Food Microbiol. 74:73–8.
+                                                                                                        56                  600               > 2 logc            Sauch et al. (1991)                  WHO (2011). Guidelines for drinking-water quality,
+                                                                     Giardia
+                                                                                                        70                  600               > 2 logd            Ongerth et al. (1989)                fourth edition. Geneva: World Health Organization
+                                                                 a
+                                                                   Now known as Salmonella enterica.                                                                                                   (http://www.who.int/water_sanitation_health/
+                                                                 b
+                                                                   The log reductions were calculated from the results presented in Moce-Llivina et al. (2003).                                        publications/2011/dwq_guidelines/en/, accessed 28
+                                                                 c
+                                                                   The log reductions were calculated from the results presented in Sauch et al. (1991).                                               July 2014).
+                                                                 d
+                                                                   The log reductions were calculated from the results presented in Ongerth et al. (1989).
+

@@ -1,7 +1,8 @@
 """Environment & community-alert layer: water quality, air quality, flood→cholera risk, school closures, multi-disease outbreak alerts."""
 from enum import Enum
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from afya.ids import uuid7str
 
@@ -68,6 +69,164 @@ class WaterQuality(BaseModel):
 	@property
 	def unsafe(self) -> bool:
 		return self.ecoli_detected or self.turbidity_ntu > 5.0
+
+
+# --- §MON-005: treatment and safe storage ------------------------------------------------
+
+class TreatmentMethod(str, Enum):
+	"""The methods WHO's household-water-treatment brief names, as the closed set a notice offers.
+
+	Boiling is the one the section's own bullet is about, and it is the one WHO calls "highly
+	efficacious, killing human pathogens even in turbid water and at high altitude". The other three
+	are the brief's own list — "chemical disinfection, filtration, flocculation/disinfection and
+	heat" — because a notice that offered only boiling would send a household with no fuel to a
+	method it cannot perform, and the brief's first limitation of boiling is exactly that: "high-cost
+	use of carbon-based fuel sources".
+	"""
+	boil = 'boil'
+	chlorinate = 'chlorinate'
+	filter = 'filter'
+	solar = 'solar'
+
+
+# What each method requires, and what it does not achieve. The caveats are not decoration: WHO's
+# brief states that boiling "does not provide any residual protection", and its Round II evaluation
+# states that chlorine is "ineffective against most protozoan cysts including Cryptosporidium" and
+# that chlorine disinfection needs an FRC of ">=0.5 mg/L after 30 minutes of contact time". A
+# guidance string that named a method without its limit is the one a household follows into a
+# treated-water supply that is still infectious.
+TREATMENT_STEPS: dict[TreatmentMethod, tuple[str, ...]] = {
+	TreatmentMethod.boil: (
+		'Bring the water to a rolling boil — bubbling vigorously, not merely steaming.',
+		'Take it off the heat and let it cool on its own; do not add ice.',
+		'Pour it into a clean container with a lid and keep it covered.',
+	),
+	TreatmentMethod.chlorinate: (
+		'Let the water settle, then pour off the clear water; chlorine works poorly in cloudy water.',
+		'Add the dose your product states and stir.',
+		'Wait 30 minutes before drinking.',
+		'If the water is still cloudy after 30 minutes, the dose was not enough — treat it again.',
+	),
+	TreatmentMethod.filter: (
+		'Pour the water through the filter and collect what comes out.',
+		'Clean the filter on the schedule its maker states; a clogged filter stops working.',
+	),
+	TreatmentMethod.solar: (
+		'Fill clear plastic bottles and lay them in full sun.',
+		'Leave them for at least six hours in bright sun, or two days if the sky is overcast.',
+	),
+}
+
+# What each method leaves behind. Read by the advisory rather than restated there, so a method
+# cannot be recommended in one place and limited in another.
+TREATMENT_CAVEATS: dict[TreatmentMethod, str] = {
+	TreatmentMethod.boil: 'Boiling leaves no protection behind: water that is boiled and then stored badly is unsafe again.',
+	TreatmentMethod.chlorinate: 'Chlorine does not kill the parasite that causes cryptosporidiosis. If diarrhoea is going round, boil as well.',
+	TreatmentMethod.filter: 'A filter that is not cleaned stops working, and a cracked ceramic filter lets everything through.',
+	TreatmentMethod.solar: 'Sunlight only works in clear bottles and clear weather, and it works slowly.',
+}
+
+# The turbidity above which a disinfectant needs the water clarifying first. WHO's Round II
+# evaluation states the tested products "should only be used in nonturbid water (<5 NTU)" and that
+# waters of higher turbidity need pretreatment "e.g. > 30 NTU ... by filtration or flocculation".
+# Five rather than thirty: the products' own limit is 5, and the higher figure is the point at which
+# WHO says pretreatment is required regardless of the product. The lower number is the one that
+# keeps a notice from recommending a method outside the conditions it was tested in.
+CHLORINE_TURBIDITY_LIMIT_NTU = 5.0
+
+
+class TreatmentGuidance(BaseModel):
+	"""§MON-005's "treatment guidance": how to make this water safe, given what is in it.
+
+	Guidance and not a method name, because the choice is not free: chlorine is the wrong advice for
+	cloudy water (WHO's Round II evaluation: products "should only be used in nonturbid water
+	(<5 NTU)"), and it is the wrong advice where diarrhoea is going round, because it does not touch
+	Cryptosporidium. So the model computes which methods the reading permits and returns those with
+	their steps, rather than leaving a client to pick from a list of four.
+	"""
+	model_config = MODEL_CONFIG
+	county: str
+	methods: list[TreatmentMethod] = Field(min_length=1)
+	steps: list[str] = Field(min_length=1)
+	caveats: list[str] = Field(default_factory=list)
+
+	@model_validator(mode='after')
+	def _steps_match_the_methods(self) -> Self:
+		"""The steps are the methods', in the methods' order, and a mismatch is a notice that names
+		one method and describes another."""
+		expected = [step for m in self.methods for step in TREATMENT_STEPS[m]]
+		assert self.steps == expected, 'the steps do not belong to the methods being offered'
+		return self
+
+
+class StorageGuidance(BaseModel):
+	"""§MON-005's "safe storage guidance": what to do with treated water before it is drunk.
+
+	WHO's Round II evaluation is explicit that this is not a lesser bullet than treatment: a
+	meta-analysis it cites found "filtration and integrated safe storage can reduce the risk of
+	diarrhoeal disease by 61% compared to 51% from filtration only". Treated water that is poured
+	back into the dirty container is untreated water, and the last step of the boiling brief is
+	"protected from post-treatment recontamination during storage".
+	"""
+	model_config = MODEL_CONFIG
+	county: str
+	steps: list[str] = Field(min_length=1)
+	# WHO's brief states the residual that protects stored household water: "an FRC concentration of
+	# >=0.5 mg/L after 30 minutes of contact time, or >=0.2 mg/L in stored household water". It is
+	# carried as the figure the notice is built from, and it is `None` when the notice is not about
+	# chlorinated water — a number with no method behind it is a number a reader cannot act on.
+	residual_chlorine_mg_l: float | None = Field(default=None, ge=0, le=5)
+
+
+class TreatmentReminder(BaseModel):
+	"""§MON-005's "point-of-use treatment reminders", as the instant the device schedules one for.
+
+	The same shape as §MON-001's missed-dose alert and §FND-006's appointment reminder, on §ACC-004's
+	reasoning: the server states *when* and the device holds it, so the reminder fires with no
+	network. A reminder the server had to send would stop arriving exactly when the water went bad,
+	which is during a flood.
+	"""
+	model_config = MODEL_CONFIG
+	county: str
+	due_iso: str
+	method: TreatmentMethod
+	message: str
+
+
+class WaterSafety(BaseModel):
+	"""§MON-005's reading, its advisory, and the three things to do about it — in one answer.
+
+	The section's five Features are one decision for the household: is the water safe, and if not,
+	how do I make it safe, how do I keep it safe, and when do I do it again. Serving the advisory
+	alone was the state that left three of the five bullets with no carrier — a person was told the
+	water was unsafe and given nothing to do next.
+	"""
+	model_config = MODEL_CONFIG
+	county: str
+	unsafe: bool
+	advisory: str
+	treatment: TreatmentGuidance
+	# One per permitted method, in the same order as `treatment.methods`. A single storage block
+	# would have to be the lead method's, and then the chlorine residual — the one figure only a
+	# chlorinated supply can have — would be unreachable in every served payload, because the lead
+	# method is always boiling. A field nothing can populate is not a feature.
+	storage: list[StorageGuidance] = Field(min_length=1)
+	# The reminder is about what *this household* does, so it is bound to one method: the lead. The
+	# others are offered, not scheduled.
+	reminder: TreatmentReminder | None = None
+
+	@model_validator(mode='after')
+	def _storage_matches_the_methods(self) -> Self:
+		"""A storage block with no method behind it is advice a household cannot place, and the
+		order is what tells a reader which block goes with which method."""
+		assert len(self.storage) == len(self.treatment.methods), (
+			f'{len(self.treatment.methods)} methods were offered with {len(self.storage)} storage '
+			'blocks — a reader cannot tell which belongs to which'
+		)
+		assert all(sg.county == self.county for sg in self.storage), (
+			'a storage block names another county'
+		)
+		return self
 
 
 class AirQuality(BaseModel):

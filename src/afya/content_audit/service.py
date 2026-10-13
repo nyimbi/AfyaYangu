@@ -367,9 +367,9 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	# --- §10.2 MON-005: Water Quality Alerts -------------------------------------------------
 	('MON-005', 'Features', 'Boil-water notices', 'carried', 'afya.alerts.service:AlertsService.water_alert', '`WaterQuality.unsafe` decides it and the advisory reads "do not drink without boiling"'),
 	('MON-005', 'Features', 'contamination reports', 'carried', 'afya.alerts.views:WaterQuality', '`ecoli_detected` and `turbidity_ntu` are the two contaminants; the reading is an input the county posts and no user report reaches the model'),
-	('MON-005', 'Features', 'treatment guidance', 'missing', None, 'the advisory names boiling and no treatment steps; nothing carries how to treat water at home'),
-	('MON-005', 'Features', 'safe storage guidance', 'missing', None, 'no storage guidance string exists anywhere in the tree'),
-	('MON-005', 'Features', 'point-of-use treatment reminders', 'missing', None, 'nothing schedules a reminder; `MedSchedule` is a medication course and the alert preferences carry a `water_quality` toggle, which gates alerts rather than reminding anyone to treat water'),
+	('MON-005', 'Features', 'treatment guidance', 'carried', 'afya.alerts.service:AlertsService.treatment_guidance', 'the methods the reading permits, each with its steps and its stated limit; chlorine is withheld above the turbidity its own evaluation allows'),
+	('MON-005', 'Features', 'safe storage guidance', 'carried', 'afya.alerts.views:StorageGuidance', 'one block per permitted method, with the residual that protects stored chlorinated water and none for boiled water'),
+	('MON-005', 'Features', 'point-of-use treatment reminders', 'carried', 'afya.alerts.service:AlertsService.treatment_reminder', 'derived from the time the household treats water, on the storage guidance\'s own one-day interval; absent when the household has not said when'),
 	# --- §10.2 MON-006: Air Quality Index ----------------------------------------------------
 	('MON-006', 'Features', "AQI for user's location", 'missing', None, '`AlertsService.air_alert` reads a single `AirQuality.pm25` the caller supplies and computes no AQI; nothing derives one from a location, and `AirQuality` carries no location'),
 	('MON-006', 'Features', 'health advisories for sensitive groups', 'carried', 'afya.alerts.service:AlertsService.air_alert', 'the watch and alert branches address "sensitive groups"; `AirQuality.band` fixes the three bands'),

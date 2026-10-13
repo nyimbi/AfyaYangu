@@ -302,7 +302,6 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§LOC-005': 3,
 		'§MED-002': 2,
 		'§MON-004': 2,
-		'§MON-005': 3,
 		'§MON-006': 3,
 		'§MON-007': 2,
 		'§MON-008': 2,

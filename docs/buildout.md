@@ -2315,3 +2315,109 @@ an object to itself is a canary's blind spot wearing the test's clothes.
 **Sources.** None. §9.4 states no threshold, no interval and no lead time; `REMINDER_LEAD_HOURS = 24`
 is the repo's own parameter, named as a constant beside its reasoning rather than presented as a
 sourced figure.
+
+## §MON-005 — a warning that named no method, and a container nobody mentioned
+
+§10.2 prints five Features. Two were carried and three were not, and the three were the part a
+household acts on. What existed was `water_alert`, which reads "do not drink without boiling" — a
+**warning**, not guidance. It names no method a person can perform, says nothing about the container
+the water goes back into, and schedules nothing. A household told its water is unsafe and given
+nothing to do next has been told to stop drinking.
+
+Writing the three missing bullets meant answering four questions the section does not: *which*
+methods may be offered, when one must be withheld, how long treated water keeps, and what residual
+protects it in storage. Every answer is a figure or a condition out of a WHO document, so two are
+archived under `sources/water-treatment/` and the third is cited by name — and the ones the sources
+do **not** state are recorded as the repo's own parameters rather than dressed as WHO's.
+
+### Chlorine is withheld from water it was never evaluated in
+
+The load-bearing decision, and the one that is silent when it is wrong. WHO's Round II evaluation
+states the tested products "should only be used in nonturbid water (<5 NTU)". A household that doses
+cloudy water, waits half an hour and drinks it has drunk water the turbidity never let the chlorine
+reach — no visible failure, no symptom that points at the cause.
+
+Two figures sit in that source and they mean different things: **5 NTU** is the limit the products
+are evaluated to, and **30 NTU** is where WHO says pretreatment is required whatever the product.
+`CHLORINE_TURBIDITY_LIMIT_NTU` is 5.0, and canary #3 moves it onto the 30 so the offer *looks*
+justified by the source while sitting 25 NTU outside the condition the products were tested in.
+
+Boiling is the one method offered on every reading and led with on all of them, because the brief
+calls it "highly efficacious, killing human pathogens even in turbid water and at high altitude" — no
+condition attached, which is exactly why the advisory can name it without knowing more about the
+water. That is also why the notice leads with it and the storage block and reminder are built from
+the lead.
+
+### Every method carries its limit, and the limits are the reason the bullets exist
+
+`TREATMENT_CAVEATS` is not decoration. The same brief says boiling "does not provide any residual
+protection"; Round II says chlorine is "ineffective against most protozoan cysts including
+Cryptosporidium". A method named without its limit is the one a household follows into water that is
+still infectious, so the caveats are asserted to be as long as the method list.
+
+### The residual belongs to a method, so storage is one block per method
+
+WHO's Round II gives the figure that protects stored chlorinated water — ">=0.5 mg/L after 30 minutes
+of contact time, or >=0.2 mg/L in stored household water" — and it is the one number in the answer
+that only chlorine can produce.
+
+This is where the first draft was wrong, and the test caught it: `WaterSafety` carried a *single*
+`storage` block. The block has to be the lead method's, and the lead is always boiling, so
+`residual_chlorine_mg_l` was **unreachable in every served payload** — a field nothing could populate,
+carried as though it were a feature. Storage is now one block per permitted method, in the same order,
+so a clear reading offers chlorination with its 0.2 mg/L and a cloudy one offers none. Canary #6 puts
+the residual back on every method, which is boiled water being served a figure a reader cannot act on.
+
+Storage is served on *every* reading, including a safe one, because the source says it is not the
+lesser bullet: Round II cites a meta-analysis finding "filtration and integrated safe storage can
+reduce the risk of diarrhoeal disease by 61% compared to 51% from filtration only".
+
+### The reminder is told when, and the interval is the storage advice's own
+
+A household that boils in the morning and one that boils at night need different reminders, so the
+route is *told* the time rather than picking one. `treated_at_iso` is a query parameter and not a
+field of `WaterQuality`, because it is not part of the reading — it is when this household last
+treated water, and putting it in the reading's model would make the county's post and the household's
+schedule one object.
+
+`REMINDER_INTERVAL_HOURS = 24` is the repo's own figure, and it is the storage guidance's own "drink
+it within a day": a reminder on a longer interval would remind a household to drink water that has
+stood too long, which is the failure the storage step exists to prevent. Neither archived source
+states how long treated water keeps, and the INDEX says so.
+
+When the household has not said when, there is **no reminder** — the honest answer, and the same
+defect §FND-006's derived reminder exists to avoid. Canary #8 invents one from a default.
+
+### One decision, one payload
+
+The five Features are one household decision, so `WaterSafety` carries them together: the reading,
+the advisory, the permitted methods with their steps and limits, a storage block per method, and the
+reminder. The advisory is `water_alert`'s own string rather than a second wording — one fact on two
+surfaces, and the copy that drifts is the one the mobile catalogue does not point at. Canary #10
+makes it a second wording.
+
+### Canaries
+
+Fourteen canaries run against `tests/ci/canary_mon005.py` and all fourteen fire: boiling no longer led
+with; chlorine offered on turbid water; the threshold moved onto the pretreatment figure; a method
+offered with no stated limit; the steps ceasing to belong to the methods; the residual carried for
+every method; the reminder losing its method; a reminder invented from a default; a method offered
+with no storage advice; the advisory becoming a second wording; an unreadable time accepted; the
+route ceasing to refuse one; a storage block naming another county; and a method left with an empty
+step list.
+
+**One canary was written wrong and fixed before it was trusted.** #14 first replaced the solar step
+tuple with an empty one *and* introduced a name that does not exist, so the module failed at import
+and the canary fired for a reason that had nothing to do with the assertion it was aimed at — a
+mutation that breaks the import is a canary that never reached the test. It now leaves the enum
+intact and empties only the table.
+
+**Counts: 3 rows left `missing` — 3 to `carried` — 48 → 45.** 493 rows, `carried` 431, `missing` 45,
+`deferred` 17.
+
+**Sources.** `sources/water-treatment/` — WHO/FWC/WSH/15.02 *Boil water* (technical brief, 2015),
+archived with its `pdftotext -layout` copy and both checksums; and WHO's *Results of Round II of the
+WHO International Scheme to Evaluate Household Water Treatment Technologies* (2019), cited by name
+and quoted verbatim in the code but **not** archived, which is recorded as a deliberate departure
+from the two-copy rule in `sources/INDEX.md`. The boiling duration, the storage interval and the
+SODIS exposure times are the repo's own and are named as such there rather than presented as WHO's.

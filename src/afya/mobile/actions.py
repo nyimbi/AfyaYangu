@@ -526,7 +526,7 @@ def catalogue() -> list[MobileAction]:
 		_a('food_alerts', 'Food safety alerts', 'Environment', 'GET', '/monitoring/food-alerts/{county}', [_f('county', 'County', 'path')]),
 		_a('nutrition', 'What should my child eat?', 'Environment', 'GET', '/monitoring/nutrition/{age_months}', [_f('age_months', 'Age in months', 'path')]),
 		_a('vaccination_campaigns', 'Any vaccination campaign near me?', 'Children', 'GET', '/monitoring/campaigns', [_f('county', 'County'), _f('on_iso', 'Which day', ph='optional')]),
-		_a('water_advisory', 'Is the water safe?', 'Environment', 'POST', '/environment/water', [_f('county', 'County'), _f('ecoli_detected', 'E. coli detected?', 'bool'), _f('turbidity_ntu', 'Turbidity NTU', 'decimal')]),
+		_a('water_advisory', 'Is the water safe?', 'Environment', 'POST', '/environment/water', [_f('county', 'County'), _f('ecoli_detected', 'E. coli detected?', 'bool'), _f('turbidity_ntu', 'Turbidity NTU', 'decimal'), _f('treated_at_iso', 'When you last treated water', ph='YYYY-MM-DDTHH:MM+03:00')]),
 		_a('air_advisory', 'How is the air?', 'Environment', 'POST', '/environment/air', [_f('county', 'County'), _f('pm25', 'PM2.5 µg/m³', 'decimal')]),
 		_a('flood_risk', 'Flood and cholera risk', 'Environment', 'POST', '/environment/flood', [_f('county', 'County'), _f('rainfall_mm_72h', 'Rainfall mm in 3 days', 'decimal'), _f('population_at_risk', 'People at risk', 'int')]),
 		# Alerts
@@ -813,7 +813,7 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'submit_case': ('Report a suspected case', 'Structured report that alerts the officer for you'),
 	'report_issue': ('Report a problem in my area', 'Sewage, dumping, broken water points'),
 	'flag_misinformation': ('Report something I heard', 'Help stop a rumour before it spreads'),
-	'water_advisory': ('Is the water safe?', 'Boil-water advisories for your area'),
+	'water_advisory': ('Is the water safe?', 'Boil-water advisories for your area, and how to make it safe'),
 	'air_advisory': ('How is the air?', 'Air quality alerts where you live'),
 	'vector_risk': ('Mosquito and vector risk', 'Seasonal risk from the rain you just had'),
 	'nutrition': ('What should my child eat?', 'Age-appropriate feeding and local foods'),
