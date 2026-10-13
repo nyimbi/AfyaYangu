@@ -147,6 +147,118 @@ def traveller(lang: str, key: str, **fields: object) -> str:
 	return TRAVELLER_STRINGS[answerable(lang)][key].format(**fields)
 
 
+# §LOC-001's **Alert content** is printed in the spec as one exact sentence and it had no home: the
+# geofence route emitted a near-verbatim line built inline, nothing resolved to it, and the section's
+# own `[specific location]` placeholder was replaced by the words "the named location" — so the one
+# thing the alert is for, telling a person *which* place to avoid, was the part the string dropped.
+#
+# `{place}` is therefore the zone's own label and not a stand-in. The fallback is deliberately the
+# section's own words rather than a second sentence: a zone registered without a label says so,
+# instead of naming a location it does not have.
+GEOFENCE_ALERT_STRINGS: dict[str, dict[str, str]] = {
+	'en': {
+		'alert': (
+			'You have entered an area where a case was reported. Avoid {place}. Monitor for symptoms '
+			'for 21 days. Call 719 if you feel unwell.'
+		),
+		# The fallback when a zone has no label, and it names the county rather than a placeholder:
+		# §LOC-001's Alert content is "Avoid [specific location]" and the bracket is the one part of
+		# the sentence a person acts on, so "avoid the named location" tells someone to avoid a thing
+		# the alert declined to name — the defect the audit row records, reproduced as the fallback.
+		'no_place': 'the area covered by this alert',
+		'no_place_county': 'the area this alert covers in {county} County',
+		# The entry/exit half of the Tier 4 behaviour, and the two directions are not the same news:
+		# an exit is not "you are safe", it is that the zone's boundary was crossed and the 21-day
+		# window that started on entry is still running.
+		# The alert already opens with "You have entered an area where a case was reported", so an
+		# entry template that says it again prints the section's sentence twice. The alert *is* the
+		# entry message; the key stays so a client-side prefix has somewhere to go without editing the
+		# section's own words.
+		'entry': '{alert}',
+		'exit': (
+			'You have left {place}. The 21-day symptom watch that started when you entered is still '
+			'running — keep monitoring and call 719 if you feel unwell.'
+		),
+		# §LOC-001's Privacy line — "Only entry/exit events logged, and only with consent" — said to
+		# the person rather than only checkable in the payload. A person who turned alerts off is owed
+		# the fact that nothing was kept, and a person who left them on is owed the fact that
+		# something was: both are answers to "what do you know about where I have been".
+		'not_logged': (
+			'Your entry was not recorded. Alerts are off, so nothing about where you go is kept on '
+			'this phone or sent anywhere.'
+		),
+		'logged': 'Your entry was recorded on this phone so the 21-day window can be followed up.',
+	},
+	'sw': {
+		'alert': (
+			'Umeingia eneo ambalo kesi iliripotiwa. Epuka {place}. Fuatilia dalili kwa siku 21. Piga '
+			'719 kama unajihisi mgonjwa.'
+		),
+		'no_place': 'eneo linalohusika na tahadhari hii',
+		'no_place_county': 'eneo linalohusika na tahadhari hii katika Kaunti ya {county}',
+		'entry': '{alert}',
+		'exit': (
+			'Umetoka {place}. Kipindi cha siku 21 cha kufuatilia dalili kilichoanza ulipoingia '
+			'kinaendelea — endelea kujiangalia na piga 719 kama unajihisi mgonjwa.'
+		),
+		'not_logged': (
+			'Kuingia kwako hakukurekodiwa. Tahadhari zimezimwa, hivyo hakuna kinachohifadhiwa '
+			'kuhusu unakoenda kwenye simu hii wala kutumwa popote.'
+		),
+		'logged': 'Kuingia kwako kulirekodiwa kwenye simu hii ili kipindi cha siku 21 kifuatiliwe.',
+	},
+}
+
+
+def zone_place(lang: str, place_label: str | None = None, county: str = '') -> str:
+	"""What §LOC-001's `[specific location]` resolves to for one zone.
+
+	The section's bracket is the load-bearing part of the sentence: the one action it asks for is to
+	avoid a particular place, and an alert that answered "the named location" asks a person to avoid
+	something it did not name. So the label is used when the county health authority set one, and
+	when it did not the alert narrows as far as the registry actually knows — the county — rather
+	than to a phrase that names nothing. A zone with neither gets the section's own words said
+	plainly, and `Geofence.place_label` being optional is what makes that reachable.
+	"""
+	assert isinstance(lang, str) and lang, 'lang required'
+	table = GEOFENCE_ALERT_STRINGS[answerable(lang)]
+	label = place_label.strip() if place_label and place_label.strip() else ''
+	if label:
+		return label
+	return table['no_place_county'].format(county=county) if county else table['no_place']
+
+
+def geofence_alert(lang: str, place_label: str | None = None, county: str = '') -> str:
+	"""§LOC-001's Alert content, verbatim from the section, with the place resolved."""
+	assert isinstance(lang, str) and lang, 'lang required'
+	table = GEOFENCE_ALERT_STRINGS[answerable(lang)]
+	return table['alert'].format(place=zone_place(lang, place_label, county))
+
+
+def zone_privacy_note(lang: str, logged: bool) -> str:
+	"""§LOC-001's Privacy line, addressed to the person rather than to a reader of the payload.
+
+	Both answers are owed. A person who turned alerts off is told nothing was kept, and a person who
+	left them on is told something was — a feature that said only the reassuring half would be
+	describing the switch as a preference when it is a consent decision."""
+	assert isinstance(lang, str) and lang, 'lang required'
+	table = GEOFENCE_ALERT_STRINGS[answerable(lang)]
+	return table['logged'] if logged else table['not_logged']
+
+
+def zone_transition(lang: str, event: str, place_label: str | None = None,
+                    alert: str | None = None, county: str = '') -> str:
+	"""The sentence served on a zone entry or exit. §LOC-001's Tier 4 behaviour is "alert on entry
+	*and exit*", and the exit is the one a client is likeliest to render as an all-clear: leaving a
+	zone is not the same news as never having been in it, because the 21-day watch has started."""
+	assert event in ('entry', 'exit'), f'unknown zone event {event}'
+	table = GEOFENCE_ALERT_STRINGS[answerable(lang)]
+	place = zone_place(lang, place_label, county)
+	if event == 'entry':
+		return table['entry'].format(alert=alert or geofence_alert(lang, place_label, county))
+	return table['exit'].format(place=place)
+
+
 # §CHAN-2's USSD menu as a structure rather than as a one-line string.
 #
 # The section draws a five-item tree — "1. Report symptoms" with a five-way submenu, "2. Find a

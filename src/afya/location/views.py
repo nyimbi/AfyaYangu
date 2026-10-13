@@ -286,3 +286,64 @@ class TravelAdvisoryReport(BaseModel):
 	not_assessed_caveat: str
 	lang: str = 'en'
 	source: str
+
+
+# --- §8.6 LOC-001 zone entry/exit, and the privacy switch over it -------------------------
+#
+# §LOC-001's Tier 1 behaviour is "static advisory zones ... with opt-in alerts", its Tier 4 behaviour
+# is "alert on entry **and exit**", and its Privacy line is "Location processed on-device. Only
+# entry/exit events logged, and only with consent." Three facts, and the repo carried one of them:
+# `Geofence` existed and nothing derived an entry or an exit from a position, so the "dynamic
+# geofences ... alert on entry and exit" half of the section had no carrier at all.
+#
+# The switch is a *stored decision* and not a request parameter, for §MON-009's reason: a client that
+# sent `log_entries=true` would be asserting the person's consent on their behalf, and the one thing
+# a consent flag may never be is a value the caller chooses. `alerts_enabled` is what a person set,
+# and `log_entries` is what the code may therefore do — derived, never accepted.
+
+class ZoneWatch(BaseModel):
+	"""One person's geofence state: whether alerts are on, and the zones they were last seen inside.
+
+	`inside` is what makes an entry an *event* rather than a reading. Without it every position inside
+	a zone is an entry, so a person walking across a 5 km zone is alerted on every GPS fix — which is
+	how an alert becomes something people turn off.
+	"""
+	model_config = MODEL_CONFIG
+	subject_ref: str
+	alerts_enabled: bool = False
+	# The zones the last check found this person inside. Coordinates are not kept: §LOC-001's Privacy
+	# line is that location is processed on-device, so what is stored is *which zones* were crossed
+	# and not where the person was when they crossed them.
+	inside: list[str] = Field(default_factory=list)
+
+
+class ZoneEvent(BaseModel):
+	"""An entry or an exit, and the sentence the client shows for it.
+
+	§LOC-001's Alert content is served as `alert` — the section's own sentence with the specific
+	location named — and `message` is the entry/exit frame around it. Both are strings rather than a
+	structured alert for §5.4's reason: this answer reaches USSD and SMS as well as the app, and two
+	of the three cannot render a structure.
+
+	`logged` is the Privacy line made checkable. `False` means nothing about the crossing was written
+	down, which is what a person who turned alerts off is owed; a client that showed "your entry was
+	recorded" on a `False` would be telling them the opposite of what the code did.
+	"""
+	model_config = MODEL_CONFIG
+	event: str = Field(pattern=r'^(entry|exit)$')
+	geofence_id: str
+	place_label: str = ''
+	county: str = ''
+	risk_type: str = Field(pattern=r'^(general|outbreak)$')
+	alert_level: str = Field(pattern=r'^(low|medium|high)$')
+	alert: str
+	message: str
+	# §LOC-001's Privacy line said to the person. `logged` is the fact and this is the sentence: a
+	# client that only had the boolean would write the explanation itself, and the explanation is the
+	# part a person reads.
+	privacy_note: str
+	logged: bool
+	lang: str = 'en'
+	# §LOC-001's 21-day window, named on the exit as well as the entry: the sentence the spec prints
+	# asks for 21 days of symptom monitoring, and leaving the zone is not the end of that window.
+	symptom_watch_days: int = Field(default=21, ge=1, le=28)

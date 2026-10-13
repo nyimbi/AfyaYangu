@@ -48,3 +48,14 @@ class Geofence(BaseModel):
 	radius_m: int = Field(gt=50, le=50_000)
 	risk_type: str = Field(pattern=r'^(general|outbreak)$')
 	alert_level: str = Field(pattern=r'^(low|medium|high)$')
+	# §LOC-001's Alert content is "Avoid [specific location]", and the section's own bracket is the
+	# load-bearing part: an alert that tells a person to avoid "the named location" names nothing, so
+	# the one action it asks for is the one it does not make possible. The label is the county or
+	# place the county health authority drew the zone around, and it is optional because a zone may
+	# be registered before anyone has named it — in which case the alert says so rather than
+	# inventing a place name a person would act on.
+	place_label: str | None = Field(default=None, max_length=80)
+	# §LOC-001's Tier 4 behaviour is "alert on entry **and exit**", and the two need telling apart:
+	# a client that renders the same sentence for both has told someone leaving a zone the same thing
+	# it told them entering, and the 21-day watch that started on entry is still running.
+	county: str = ''

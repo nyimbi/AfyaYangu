@@ -3413,3 +3413,120 @@ The `sources/INDEX.md` table gained the five directories that had a `##` section
 The sections were all present and the table, which is the list a reader checks against `ls sources/`,
 under-reported the archive by five. It is the internal-link checker's defect in a different file: a
 table that enumerates some of the ways a source is recorded reports a gap as closed.
+
+---
+
+## §LOC-001 — a bracket that named nothing, and an exit that did not exist
+
+`docs/spec.md:1026-1040` (Tier 1 / Tier 4). One row was `missing` and one half of the feature had no
+carrier at all.
+
+### The Alert content: `[specific location]`
+
+The row was not missing because the sentence was absent. `/surveillance/geofences-at` emitted a
+near-verbatim line inline, so the sentence existed — and the section's own bracket, `Avoid [specific
+location]`, was served as **"avoid the named location"**. That is the one action the sentence asks a
+person to take, asked of a place the sentence declined to name. It is the same shape as a gate that
+passes on a known-bad input: the output looked right, and the one field that carried the meaning was
+the one nobody had.
+
+The sentence now lives in `afya.strings.GEOFENCE_ALERT_STRINGS` and `[specific location]` resolves
+through `zone_place`, in three steps, because a zone can be registered before anyone has named it:
+
+1. the zone's own `place_label`, when the county health authority set one;
+2. the zone's `county`, when it did not — `Geofence.place_label` is optional, and a registry row
+   that knows only its county should narrow to the county rather than to a phrase that names nothing;
+3. the section's own words, said plainly, when the registry knows neither.
+
+`Geofence` gained both `place_label` and `county`. The second is what makes the fallback a place
+rather than a placeholder, and it is the field the alert narrows to.
+
+### The half that did not exist: entry *and* exit
+
+Tier 4 asks the system to "alert on entry **and exit**". Nothing derived a crossing from a position:
+`geofences_at` answered which zones contain a point, and every caller was left to diff that against
+its own last answer. Two things were missing, and the second is the one that makes the feature
+usable:
+
+- **A zone is an event, not a reading.** `ZoneWatch.inside` records which zones the last check found
+  the person in, so someone crossing a 5 km zone is told once on the way in and once on the way out
+  rather than on every GPS fix. An alert that fires per fix is one people turn off, and a turned-off
+  alert is the whole feature gone.
+- **An exit is not an all-clear.** The exit line names the place that was left and says the 21-day
+  watch that started on entry is still running. A client that rendered one sentence for both
+  directions has told someone leaving an outbreak zone the same thing it told them entering.
+
+**The exit can name a zone the registry no longer returns**, and this is why `_seen_fences` exists:
+a zone is left by walking out of it, so the registry's answer for the current point does not contain
+it. An exit built from that answer alone could not say *which* place was left. The device keeps the
+fence it announced — the zone, never the coordinates — so a departure and a county lifting the zone
+are both reported to the person who was told about it.
+
+### "Fully disableable" does not mean blind
+
+The Privacy line is "Only entry/exit events logged, and only with consent", and the switch is what
+makes it checkable rather than asserted. With alerts off the crossing is **still reported** — the
+person standing in a zone is owed that warning — and `logged` is `False` and `inside` is not written.
+Serving nothing at all would make the privacy control cost the person the one warning the feature
+exists to give, which is the shape a privacy-minded implementation ships and nobody reports as a bug.
+
+The switch is a **stored decision**, not a request parameter: `POST /location/zone-alerts/{subject}`
+sets it and the route reads it. A client that sent `enabled=true` with each position fix would be
+asserting the person's consent on their behalf.
+
+### What the route gate found
+
+The unit first shipped a single route, `/surveillance/geofences-at`, taking an optional
+`subject_ref`. `tests/ci/test_self_scope.py` refused it: a `subject_ref` on a route that does not
+compare it to the token is an IDOR, and the gate reported `GET /surveillance/geofences-at (None)` as
+a personal-data route without a subject-binding guard. The gate was right and the route was split:
+
+| Route | Guard | Subject |
+|---|---|---|
+| `GET /surveillance/geofences-at` | open | none, by design — nothing about the caller is recorded |
+| `GET /location/zones/{subject_ref}` | `require_self` | the token's own, and the answer depends on their consent |
+| `GET`/`POST /location/zone-alerts/{subject_ref}` | `require_self` | the switch itself |
+
+`test_mobile_catalogue.py`'s client-supplied check caught the second half of the same mistake: the
+mobile action marked its `subject_ref` `client_supplied=True` on a route that no longer bound one.
+The catalogue now carries two actions, one per route, which is the honest shape — they are two routes
+with two guards.
+
+### What the canaries found
+
+Nothing missed, and the first run's 13/14 was a defect in a test rather than in a canary. **Canary #10
+("the switch is read from the request")** replaced `logging = watch.alerts_enabled` with
+`logging = watch is not None`, and the test passed — because its subject had **no watch at all**, so
+"the person opted out" and "this subject has never been heard of" were the same branch. The test now
+creates the watch and turns it *off* before checking. It is the §REC-003 shape again, and the same
+lesson: a fixture that cannot distinguish two states cannot test the difference between them.
+
+The live probe then found one no unit test had: **the entry message printed the section's sentence
+twice**, because the `entry` template restated the clause the alert already opens with. A unit test
+over `alert` cannot see it — the field was correct and the composed message was not. `message` is now
+asserted to equal `alert` on entry.
+
+`logged`/`not_logged` were in the string table and served by nothing, which is the defect this repo's
+audit hunts in code. They are now `ZoneEvent.privacy_note` — the Privacy line addressed to the
+person rather than only checkable in a payload, with both answers served, because a feature that said
+only the reassuring half would be describing a consent decision as a preference.
+
+**18/18 fired.** The place collapsed to the placeholder; the county fallback naming nothing; a blank
+label counting as a label; the exit dropping the place it left; an exit reading as an all-clear; the
+alert emitted per position fix; the crossing recorded with alerts off; alerts off going blind; the
+anonymous caller remembered; the switch read from the request; the alert served in the asked-for
+language; the window retyped on the client; the route reverted to the zone list; the open route
+growing an unbound subject; the guarded route and the switch route each stopping binding the token;
+the entry message saying it twice; and the privacy note going one way.
+
+### Counts
+
+**§LOC-001 1 `missing` → 0.** Across the repo **460 → 461 `carried`, 20 → 19 `missing`**, 497 rows,
+`deferred` 17 unchanged.
+
+**No new source directory.** The unit introduced no new external fact: the 21-day window is the WHO
+fact sheet's incubation range already archived under `ebola-transmission/` ("varies from 2 to 21
+days"), the alert's wording is the specification's own, and the 719 line is this deployment's as it
+is everywhere else. The reasoning is recorded in `sources/INDEX.md` under that section so the absence
+of a new directory is not read as a missing citation — a source left unarchived and a source that was
+never needed look identical from the outside.

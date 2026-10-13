@@ -617,6 +617,17 @@ latrine" is the standard Ebola treatment-unit arrangement, not a sentence either
 carried as guidance with that provenance recorded here rather than attributed to a page that does not
 say it.
 
+**Where §LOC-001's 21-day sentence comes from, and where it does not.** The zone alert says
+"Monitor for symptoms for 21 days. Call 719 if you feel unwell." The **window** is the WHO fact
+sheet's incubation range above — "varies from 2 to 21 days" — and §MON-009, §COM-102 and the travel
+advisory's five steps all rest on the same number. The **sentence** is the spec's own: §8.6 prints
+its Alert content in full, and `afya.strings:zone_transition` reproduces it with `[specific
+location]` resolved. The **719 line** is this deployment's, as it is everywhere else in the product:
+neither source names a Kenyan hotline. No new archive directory was added for §LOC-001 because the
+unit introduced no new external fact — the incubation window was already archived here, and the
+alert's wording is the specification's. Said plainly so the absence of a new source directory is not
+read as a missing citation.
+
 ---
 
 ## Helpline directory — §INF-006's GBV and child helplines

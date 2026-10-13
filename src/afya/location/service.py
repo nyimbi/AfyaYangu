@@ -15,6 +15,11 @@ from afya.info.recency import UNDATED_MS, instant_iso
 # return type at class-creation time; it is safe because `afya.info.service` reaches nothing in
 # `afya.location` (asserted in `test_inf005.py`), so the edge is one-way and always will be.
 from afya.info.views import CountyRisk
+# §LOC-001's entry/exit reads §11.1's zone registry rather than keeping its own list of zones — the
+# copy that goes stale the first time a county health authority draws a new one. Plain import for the
+# same class-creation reason as `CountyRisk` above, and safe for the same reason: `afya.surveillance`
+# reaches nothing in `afya.location` (asserted in `test_loc001.py`), so the edge is one-way.
+from afya.surveillance.views import Geofence
 from afya.location.advisories import (
 	ASSESSED_ON_ISO, BAND_LABELS, NOT_ASSESSED_CAVEAT, SOURCE_LABEL, STEP_SOURCES,
 	TRAVELLER_RISK_NOTE, WHO_BORDER_NOTE, WHO_CONFIDENCE, WHO_RISK_TABLE, WHO_TRAVEL_ADVICE,
@@ -25,11 +30,11 @@ from afya.location.views import (
 	CheckInPoint, CheckInReceipt, EncounterToken, EphemeralId, ExposureDeclaration, ExposureMatch,
 	LocationHistory, LocationPoint, LocationReport, PlaceAdvisory, PostArrivalReport,
 	PostArrivalVerdict, PostTravelStep, RiskBand, TravellerEnrolment, TravelerDeclaration,
-	TravelAdvisoryReport,
+	TravelAdvisoryReport, ZoneEvent, ZoneWatch,
 )
 from afya.logmixin import LogMixin
 from afya.monitoring.service import MONITORING_ALERT_SYMPTOMS
-from afya.strings import traveller
+from afya.strings import answerable, geofence_alert, traveller, zone_privacy_note, zone_transition
 
 
 # Geofenced alert zones — county-configurable radii (§COM-102: 500 m, 1 km, 5 km). Re-exported
@@ -76,14 +81,28 @@ class CountyRiskRead(Protocol):
 	def __call__(self, county: str) -> CountyRisk: ...
 
 
+class ZoneRead(Protocol):
+	"""The one thing §LOC-001's entry/exit needs from §11.1's surveillance registry: the zones
+	covering a point.
+
+	`SurveillanceService.geofences_at` already answers exactly this and is the only place a zone is
+	stored, so the entry/exit derivation reads it rather than keeping a second list of zones — the
+	copy that goes stale the first time a county health authority draws a new one.
+	"""
+	def __call__(self, lat: float, lon: float) -> list[Geofence]: ...
+
+
 class LocationService(LogMixin):
 	def __init__(self, county_risk: CountyRiskRead | None = None,
-	             monitoring: DiaryLink | None = None) -> None:
-		# §INF-005's county half is §INF-001's dashboard read, and the traveller enrolment's diary
-		# is §MON-009's. Both are collaborators rather than imports, so this service owns no second
-		# copy of a risk table or a 21-day window — and so a test can construct it with neither.
+	             monitoring: DiaryLink | None = None,
+	             zones: ZoneRead | None = None) -> None:
+		# §INF-005's county half is §INF-001's dashboard read, the traveller enrolment's diary is
+		# §MON-009's, and §LOC-001's entry/exit is §11.1's zone registry. All three are collaborators
+		# rather than imports, so this service owns no second copy of a risk table, a 21-day window
+		# or a list of zones — and so a test can construct it with none of them.
 		self._county_risk = county_risk
 		self._monitoring = monitoring
+		self._zones = zones
 		self._tokens: list[EncounterToken] = []
 		self._declarations: list[ExposureDeclaration] = []
 		self._histories: dict[str, LocationHistory] = {}
@@ -92,6 +111,16 @@ class LocationService(LogMixin):
 		self._borders: dict[str, BorderPost] = {}
 		self._enrolled: dict[str, TravellerEnrolment] = {}
 		self._reports: list[PostArrivalReport] = []
+		# §LOC-001's opt-in switch and the zones each person was last seen inside. Per-subject, and
+		# never coordinates: the Privacy line is that location is processed on-device, so what is
+		# stored is which zones were crossed and not where the person was when they crossed them.
+		self._watches: dict[str, ZoneWatch] = {}
+		# The fences this device has announced, by id, so that leaving one can name it. `inside` holds
+		# ids because that is all a crossing is; an exit event has to say *which* place was left, and
+		# a zone the person has walked out of is by definition not in the registry's answer for the
+		# current point. What is kept is the zone the device itself showed, never the position it was
+		# at when it showed it.
+		self._seen_fences: dict[str, Geofence] = {}
 		assert self._tokens == [] and self._checkins == []
 
 	# --- LOC-002 proximity ----------------------------------------------------------------
@@ -406,3 +435,94 @@ class LocationService(LogMixin):
 	def border_status(self, post_id: str) -> BorderPost:
 		assert post_id in self._borders, 'unknown border post'
 		return self._borders[post_id]
+
+	# --- §8.6 LOC-001 zone entry and exit -------------------------------------------------------
+
+	def set_zone_alerts(self, subject_ref: str, enabled: bool) -> ZoneWatch:
+		"""The opt-in §LOC-001's Tier 1 behaviour names, stored rather than passed per request.
+
+		"Static advisory zones ... with opt-in alerts" and "Fully disableable" are two statements about
+		one switch, and a switch a caller sends with each request is not one: the client would be
+		choosing on the person's behalf, which is the failure §MON-009's location consent names.
+		Turning alerts off does not erase the zones already crossed — `inside` is kept so that turning
+		them back on does not re-announce a zone the person is standing in.
+		"""
+		assert isinstance(subject_ref, str) and subject_ref, 'a subject is required'
+		watch = self._watches.get(subject_ref) or ZoneWatch(subject_ref=subject_ref)
+		watch = watch.model_copy(update={'alerts_enabled': enabled})
+		self._watches[subject_ref] = watch
+		self._log_info('zone alerts set', sub=subject_ref, enabled=enabled)
+		return watch
+
+	def zone_watch(self, subject_ref: str) -> ZoneWatch:
+		"""The person's own switch and zone set, defaulted off. Absent means off, not unknown: an
+		alerts-on default would alert every device in Kenya the first time a zone was drawn."""
+		assert isinstance(subject_ref, str) and subject_ref, 'a subject is required'
+		return self._watches.get(subject_ref) or ZoneWatch(subject_ref=subject_ref)
+
+	def zones_at(self, lat: float, lon: float, subject_ref: str | None = None,
+	             lang: str = 'en') -> list[ZoneEvent]:
+		"""§LOC-001's entry and exit, derived from the position and the person's own switch.
+
+		**A zone is an event, not a reading.** `inside` records which zones the last check found this
+		person in, so a person walking across a 5 km zone is told once on the way in and once on the
+		way out rather than on every GPS fix — which is how an alert becomes something people turn
+		off, and a turned-off alert is the whole feature gone.
+
+		`logged` is the Privacy line — "Only entry/exit events logged, and only with consent" — made
+		checkable rather than asserted in a docstring: with alerts off, `inside` is not written and the
+		events are served with `logged=False`. The **crossing is still reported**, because a person who
+		turned alerts off still benefits from knowing they are in a zone; what they are not owed is a
+		record of it. Serving nothing at all would make "fully disableable" mean "blind", and a person
+		who disabled alerts to protect their privacy would lose the one warning the feature exists for.
+
+		An anonymous caller is treated as a person who has never opted in: every zone is an entry,
+		nothing is remembered, and `logged` is False. Nothing about the caller is recorded, which is
+		§LOC-001's Privacy line and the reason this route is open.
+		"""
+		assert isinstance(lat, (int, float)) and isinstance(lon, (int, float)), 'a position is required'
+		assert isinstance(lang, str) and lang, 'lang required'
+		watch = self._watches.get(subject_ref) if subject_ref else None
+		now_inside = self._fences_at(lat, lon)
+		now_ids = {f.geofence_id for f in now_inside}
+		for fence in now_inside:
+			self._seen_fences[fence.geofence_id] = fence
+		was_inside = set(watch.inside) if watch is not None else set()
+		logging = bool(watch is not None and watch.alerts_enabled)
+		events: list[ZoneEvent] = []
+		for fence in now_inside:
+			if fence.geofence_id not in was_inside:
+				events.append(self._zone_event(fence, 'entry', logging, lang))
+		for fence_id in sorted(was_inside - now_ids):
+			left = self._seen_fences.get(fence_id)
+			if left is not None:
+				events.append(self._zone_event(left, 'exit', logging, lang))
+		if logging and watch is not None:
+			self._watches[watch.subject_ref] = watch.model_copy(
+				update={'inside': sorted(f.geofence_id for f in now_inside)})
+		return events
+
+	@staticmethod
+	def _zone_event(fence: Geofence, event: str, logging: bool, lang: str) -> ZoneEvent:
+		# `county` is passed to both string calls, not just the alert: an exit names the place it left
+		# too, and a zone whose label nobody set has only its county to be named by.
+		# `lang` on the event is the language the sentence was actually composed in, not the one that
+		# was asked for: §ACC-002's rule is that a caller answered in English *knows* it was English,
+		# and an event carrying `luo` beside an English alert tells the person the opposite.
+		alert = geofence_alert(lang, fence.place_label, fence.county)
+		return ZoneEvent(
+			event=event, geofence_id=fence.geofence_id, place_label=fence.place_label or '',
+			county=fence.county, risk_type=fence.risk_type, alert_level=fence.alert_level,
+			alert=alert, message=zone_transition(lang, event, fence.place_label, alert, fence.county),
+			privacy_note=zone_privacy_note(lang, logging),
+			logged=logging, lang=answerable(lang),
+		)
+
+	def _fences_at(self, lat: float, lon: float) -> list[Geofence]:
+		"""§LOC-001's zones covering a point, read from the surveillance registry.
+
+		A protocol and not `SurveillanceService`, so this module depends on one method rather than on
+		a service — the same shape as `CountyRiskRead`. `[]` when no read is wired, because a
+		deployment with no zone registry has no zones and that is not an error.
+		"""
+		return self._zones(lat, lon) if self._zones is not None else []

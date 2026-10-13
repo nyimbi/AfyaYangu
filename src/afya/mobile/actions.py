@@ -136,6 +136,7 @@ FEATURE_OF: dict[str, str] = {
 	'cancel_appointment': 'FND-006', 'publish_slot': 'FND-006',
 	'testing_sites': 'FND-003', 'vaccination_points': 'FND-005',
 	'service_status': 'INF-007', 'risk_zones_near_me': 'LOC-001',
+	'zone_alerts_setting': 'LOC-001', 'set_zone_alerts': 'LOC-001', 'my_zone_events': 'LOC-001',
 	'verify_medicine': 'MED-001', 'drug_interactions': 'MED-002', 'dosage': 'MED-003', 'report_stock': 'MED-004',
 	'find_stock': 'MED-004', 'stock_availability': 'MED-004', 'essential_medicines': 'MED-004',
 	'restock_alerts': 'MED-004',
@@ -415,7 +416,16 @@ def catalogue() -> list[MobileAction]:
 			_f('age_months', 'Age in months', 'int', ph='for a child; leave blank for an adult'),
 			_f('max_cost_kes', 'Most I can pay (KES)', 'int'),
 			_f('walk_in_only', 'Walk-in only', 'bool', ph='yes if you cannot book ahead')]),
-		_a('risk_zones_near_me', 'Have I entered a risk area?', 'Alerts', 'GET', '/surveillance/geofences-at', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal')]),
+		# §LOC-001's two paths, and they are two actions because they are two routes with different
+		# guards. `risk_zones_near_me` asks which zones cover a point and is open: nothing about the
+		# caller is recorded, so it carries no `subject_ref` at all — the route refuses one rather
+		# than comparing it, because an unbound subject on an open route is an IDOR. `my_zone_events`
+		# is the opted-in half: entry and exit against the person's own switch, guarded by
+		# `require_self`, and that is why its `subject_ref` is `client_supplied`.
+		_a('risk_zones_near_me', 'Have I entered a risk area?', 'Alerts', 'GET', '/surveillance/geofences-at', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('lang', 'Language', 'select', TRAVELLER_LANGS)]),
+		_a('my_zone_events', 'Which zone did I enter or leave?', 'Alerts', 'GET', '/location/zones/{subject_ref}', [_f('subject_ref', 'Me', 'path', client_supplied=True), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('lang', 'Language', 'select', TRAVELLER_LANGS)]),
+		_a('zone_alerts_setting', 'Am I getting zone alerts?', 'Alerts', 'GET', '/location/zone-alerts/{subject_ref}', [_f('subject_ref', 'Me', 'path', client_supplied=True)]),
+		_a('set_zone_alerts', 'Turn zone alerts on or off', 'Alerts', 'POST', '/location/zone-alerts/{subject_ref}', [_f('subject_ref', 'Me', 'path', client_supplied=True), _f('enabled', 'Alerts on', 'bool')]),
 		_a('publish_content', 'Draft health information', 'Information', 'POST', '/info/content', [_f('item_id', 'Reference'), _f('title', 'Title'), _f('body', 'Text', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw', 'sheng']), _f('harmony_tag', 'Official source tag'), _f('slug', 'Short name'), _f('owner', 'Who owns this'), _f('reviewer', 'Who reviewed it'), _f('reviewed_on_iso', 'Review date', ph='YYYY-MM-DD'), _f('version', 'Version', 'int'), _f('stage', 'Stage', 'select', CONTENT_STAGES)]),
 		_a('advance_content', 'Move a draft forward', 'Information', 'POST', '/info/content/{item_id}/advance', [_f('item_id', 'Reference', 'path'), _f('to', 'Next stage', 'select', CONTENT_STAGES)]),
 		_a('content_governance', 'Who reviewed this?', 'Information', 'GET', '/info/content/governance', [_f('today_iso', 'As at', ph='YYYY-MM-DD'), _f('regime', 'Review cycle', 'select', ['steady', 'outbreak'])]),

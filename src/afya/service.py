@@ -360,6 +360,10 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	# `services['info']` from inside would depend on the order the dict happened to be written in.
 	info_svc = InfoService()
 	monitoring_svc = MonitoringService(records_svc, sync_svc)
+	# §LOC-001's third collaborator: the entry/exit half reads §11.1's zone registry. A local for the
+	# same reason as the two above — the dict is one expression, so `location` cannot reach the
+	# `surveillance` entry beside it.
+	surveillance_svc = SurveillanceService(registry, privacy_svc)
 
 	return {
 		'registry': registry,
@@ -372,7 +376,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# §24.7: the Tier-4 gate reads the DPO's DPIA, so the two services are wired, not independent.
 		'privacy': privacy_svc,
 		'triage': triage_svc,
-		'surveillance': SurveillanceService(registry, privacy_svc),
+		'surveillance': surveillance_svc,
 		'sensors': SensorService(registry),
 		'medicine': MedicineService(PPBClient(cfg.ppb_url, client, '')),
 		'facilities': facilities_svc,
@@ -408,8 +412,10 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# §INF-005's two collaborators. `info_svc.dashboard` is the county risk read and
 		# `monitoring_svc` is the diary the traveller enrolment has to reach — the audit row's
 		# "the link is a message string, so the enrolment does not reach `MonitoringService.enrol`
-		# and the diary stays empty".
-		'location': LocationService(info_svc.dashboard, monitoring_svc),
+		# and the diary stays empty". §LOC-001's third is the zone registry: `geofences_at` is one
+		# method of the surveillance service, handed over as a callable so this module depends on a
+		# read and not on a service.
+		'location': LocationService(info_svc.dashboard, monitoring_svc, surveillance_svc.geofences_at),
 		'ai': AIService(),
 		'analytics': AnalyticsService(),
 		'metrics': MetricsService(),
@@ -3080,19 +3086,59 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return surveillance.weekly_signal(history).model_dump(mode='json')
 
 	@app.get('/surveillance/geofences-at')
-	async def surveillance_geofences_at(lat: float, lon: float) -> list[dict[str, object]]:
-		"""LOC-001: the advisory zones covering a point. Read-only and open, like every other
-		location-agnostic information route — the coordinates are where the *caller* is, and nothing
-		about the caller is recorded. The alert text is what the client shows on entry; whether the
-		entry is logged is a separate opt-in (§LOC-001 privacy).
+	async def surveillance_geofences_at(lat: float, lon: float, lang: str = 'en') -> list[dict[str, object]]:
+		"""§LOC-001's zones at a point, for a caller who has not said who they are.
+
+		Read-only and open, like every other location-agnostic information route: the coordinates are
+		where the *caller* is, and nothing about the caller is recorded. An anonymous caller is treated
+		as someone who never opted in — every zone reads as an entry and every event carries
+		`logged=False` — which is the honest answer for a device that has not identified itself and the
+		only one that cannot be turned into a movement record from an open route.
+
+		A `subject_ref` is deliberately **not** a parameter here. It would have to be compared to the
+		token to mean anything, and a route that took one without that comparison is an IDOR: the
+		scope check passes for every citizen while the subject is whatever the caller typed. The
+		opted-in path is `/location/zones/{subject_ref}`, which is guarded.
 		"""
-		return [
-			{'geofence_id': f.geofence_id, 'risk_type': f.risk_type, 'alert_level': f.alert_level,
-			 'radius_m': f.radius_m, 'lat': f.lat, 'lon': f.lon,
-			 'advice': ('You have entered an area where a case was reported. Avoid the named location, '
-			            'monitor for symptoms for 21 days, and call 719 if you feel unwell.')}
-			for f in surveillance.geofences_at(lat, lon)
-		]
+		return [e.model_dump(mode='json') for e in location.zones_at(lat, lon, None, lang)]
+
+	@app.get('/location/zones/{subject_ref}')
+	async def location_zones(subject_ref: str, lat: float, lon: float, lang: str = 'en',
+	                          _subject: str = Depends(require_self())) -> list[dict[str, object]]:
+		"""§LOC-001's entry and exit for a person, derived from the position and their own switch.
+
+		Guarded because the answer depends on whether this person consented to have crossings
+		recorded, and because `inside` is a record of where they have been. `require_self` binds the
+		path's subject to the token, so the subject cannot be someone else's.
+
+		`alert` is the section's own sentence with the place named, `message` is the entry or exit
+		line, and the two differ: a client that rendered one sentence for both has told someone
+		leaving a zone the same thing it told them entering, while the 21-day watch that started on
+		entry is still running.
+		"""
+		return [e.model_dump(mode='json') for e in location.zones_at(lat, lon, subject_ref, lang)]
+
+	@app.get('/location/zone-alerts/{subject_ref}')
+	async def location_zone_alerts(subject_ref: str, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""The person's own opt-in switch, and the zones they were last seen inside.
+
+		Guarded by `require_self` because the switch is a consent decision: reading it is reading
+		whether this person agreed to have their crossings recorded.
+		"""
+		return location.zone_watch(subject_ref).model_dump(mode='json')
+
+	@app.post('/location/zone-alerts/{subject_ref}')
+	async def location_set_zone_alerts(subject_ref: str, enabled: bool,
+	                                   _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§LOC-001's "Fully disableable" — the switch itself, stored against the subject.
+
+		A stored decision rather than a per-request flag: a client that sent `enabled=true` with each
+		position fix would be choosing on the person's behalf, and the section's Privacy line is that
+		only entry/exit events are logged *and only with consent*. Turning it off does not forget the
+		zones already crossed, so turning it back on does not re-announce the zone someone is
+		standing in.
+		"""
+		return location.set_zone_alerts(subject_ref, enabled).model_dump(mode='json')
 
 	@app.get('/mobile/features')
 	async def mobile_features() -> list[dict[str, object]]:
