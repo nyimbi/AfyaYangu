@@ -20,6 +20,20 @@ that uses it, with its retrieval URL, date, and checksum.
 | FEWS NET Kenya seasonal calendar, 2024 | `afya.monitoring.views.SEASONAL_FOODS` — the cross-check on the FAO harvest windows | `fews-net-kenya-seasonal-calendar/` |
 | Kenya National Guideline for Integrated Management of Acute Malnutrition (IMAM), 2020 | `afya.monitoring.views.IMAM_PROGRAMMES`, `afya.facilities.views.FacilityKind` — §MON-008's therapeutic feeding programme locations | `kenya-imam-guidelines/` |
 | WHO/UNICEF/WFP/SC, *Community-based management of severe acute malnutrition — a joint statement* (2007) | `afya.monitoring.views.THERAPEUTIC_FEEDING_LABEL` — §MON-008's community-based treatment vocabulary | `who-cmam-joint-statement/` |
+| WHO Disease Outbreak News (DON613, DON619) and AFRO Kenya, plus the *Rapid risk assessment, Ebola disease caused by Bundibugyo virus, DRC, v4* (14 August 2026) | `afya.location.advisories` — §INF-005's country risk bands, the WHO travel advice, the border note and the post-travel steps | `who-ebola-outbreak-news/` |
+
+Five directories below carry a section of their own but were missing from this table, which is the
+list a reader checks against `ls sources/` before trusting it. A table that enumerates four of the
+five ways to spell a source is the same defect as the internal-link checker that read only
+`href="/…"`: the sections were all present and the index still under-reported the archive.
+
+| Source | Used by | Archived |
+|---|---|---|
+| WHO Global air quality guidelines (2021) and the US EPA AQI technical assistance document | `afya.alerts.views.PM25_BREAKPOINTS`, `afya.alerts.service.AlertsService.air_alert` — §MON-006's AQI breakpoints, categories and outdoor-activity window | `air-quality/` |
+| geoBoundaries `gbOpen` Kenya ADM1 (2020), boundary source RCMRD GeoPortal | `afya.info.counties.ADJACENCY` — §INF-001's "and neighbouring counties" | `county-adjacency/` |
+| WHO fact sheet, Ebola disease (24 April 2025); CDC, About Ebola Disease | `afya.triage` — §11.2 TRI-003's exposure routes and the 21-day incubation window | `ebola-transmission/` |
+| Befrienders Kenya, UN Women and the operators' own pages for the GBV and child helplines | `afya.info.service.HOTLINES` — §INF-006's helpline rows | `helpline-directory/` |
+| WHO household water treatment guidance and the Round II report of the International Scheme to Evaluate Household Water Treatment Technologies | `afya.alerts.service.AlertsService.water_safety`, `afya.alerts.views.TreatmentMethod` — §MON-005's treatment, storage and reminder guidance | `water-treatment/` |
 
 Every source is stored as the published artefact **and** as layout-preserving text (`pdftotext
 -layout`), with both checksums recorded. The text copy is what a tool reads: an agent given a PDF
@@ -985,6 +999,102 @@ not community-validated — §6.5's workflow governs published health *content*,
 strings. A Dholuo, Luhya or Kikuyu table added later should go through that workflow; a
 machine-translated table would report this gap as closed, which is the failure the whole file is
 written to avoid.
+
+---
+
+## Travel advisory — §INF-005's country risk bands and post-travel steps
+
+§INF-005's first Feature is "Country and county advisories" and the country half was a constant:
+`LocationService.advisory(destination, origin_country)` interpolated its two arguments into one
+fixed paragraph, so Kampala, Kinshasa and Kinshasa-from-Nairobi were answered identically. Making it
+a table meant answering *which countries, at what band, on whose authority* — and the authority
+publishes a band per **group** of countries, not a row per country. That distinction is the whole
+reason this section exists, because the tempting shortcut (read every country's band off the group
+it sits in) answers "low" about Kenya.
+
+**Publisher:** World Health Organization. **Licence:** WHO publications — CC BY-NC-SA 3.0 IGO.
+**Retrieved:** 2026-10-13.
+
+| File | What it is | SHA-256 (first 16) |
+|---|---|---|
+| `who-rapid-risk-assessment-bvd-drc-v4-2026-08-14.pdf` | *Rapid risk assessment — Ebola disease caused by Bundibugyo virus, Democratic Republic of the Congo*, v4, 14 August 2026 | `662eed758b9c8393` |
+| `who-rapid-risk-assessment-bvd-drc-v4-2026-08-14.txt` | `pdftotext -layout` extraction of the above | `72914f78710e6faf` |
+| `who-don-2026-DON619.html` | WHO Disease Outbreak News 619, 8 October 2026 — the notice carrying the Kenya case and the current risk assessment | `500f4ad32beafa0b` |
+| `who-don-2026-DON613.html` | WHO Disease Outbreak News 613 — the earlier notice, where the land-border band was first stated | `b8fed0ee11761e6e` |
+| `who-afro-kenya-first-imported-bvd-case.html` | WHO AFRO, *Kenya confirms first imported Bundibugyo virus disease case* | `d2d919f3993b6dcf` |
+
+URLs: `https://cdn.who.int/media/docs/default-source/_sage-2026/web_20260814_ebola-bundibugyo-virus-disease--democratic-republic-of-the-congo_v4.pdf?sfvrsn=b0081e9d_3&download=true`,
+`https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON619`,
+`https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON613`,
+`https://afro.who.int/countries/kenya/news/kenya-confirms-first-imported-bundibugyo-virus-disease-case-who-supports-control-efforts`.
+
+### What the sources support, quoted
+
+- **The four-row risk table, verbatim.** DON619: "the risk in the Democratic Republic of the Congo
+  was assessed as very high, the risk for countries sharing land borders with the Democratic Republic
+  of the Congo was assessed as high, and the risks for the rest of the African region and at the
+  global level was again assessed as low." `WHO_RISK_TABLE` is these four rows in this order, and
+  `WHO_CONFIDENCE` carries the assessment's own confidence beside each (the DRC and land-border rows
+  are "Moderate"; only "Global" is "High").
+- **Three countries named inside the high band.** v4: "Countries sharing land borders with the
+  Democratic Republic of the Congo remain at risk because of frequent cross-border population
+  movement. Uganda, the Central African Republic and South Sudan are of particular concern for
+  importation given their proximity, high population mobility and connectivity with areas of the
+  Democratic Republic of the Congo currently experiencing intense transmission." Each of the three
+  rows carries this sentence, and for the CAR and South Sudan the source adds: "these risks are
+  further compounded by high humanitarian needs, population displacement, insecurity and underlying
+  limitations in health-system capacity."
+- **WHO's advice on travel restrictions, verbatim, and it is not a per-country verdict.** DON619:
+  "Based on the currently available information, WHO advises against any restriction of travel to, or
+  trade with, affected countries." The source does not say "do not travel to X". `WHO_TRAVEL_ADVICE`
+  is this sentence, served unchanged.
+- **Why the advice is not a licence to ignore the outbreak.** v4: "Entry and exit health screening
+  and surveillance measures are in place at airports, ports and official land border crossings;
+  however, movement through informal border crossing routes may occur, presenting an ongoing risk of
+  virus exportation, importation and onward transmission." This is `WHO_BORDER_NOTE`.
+- **The counterweight, and it is served because the bands alone imply its opposite.** CDC's About
+  Ebola Disease page: the viruses that cause Ebola disease "pose little risk to travelers or the
+  general public", a person is contagious only once symptomatic, and the disease does not spread
+  through the air. `TRAVELLER_RISK_NOTE`.
+- **The post-travel steps.** "Monitor your health for 21 days after you return from an area with an
+  ongoing Ebola outbreak" and "Seek medical care immediately if you develop symptoms" are CDC's; the
+  symptom set ("fever, fatigue, malaise, muscle pain, headache and sore throat, followed by vomiting,
+  diarrhoea, abdominal pain, rash, and symptoms of impaired kidney and liver functions") is the WHO
+  fact sheet's. Both are archived under `ebola-transmission/` above, and `STEP_SOURCES` names them.
+
+### What the sources do NOT support
+
+- **They do not enumerate the DRC's land-border countries.** WHO names three "of particular concern"
+  and stops. **Burundi shares a land border with the Democratic Republic of the Congo and has no row
+  in either source**, and the same is true of Rwanda, Tanzania and Zambia. `COUNTRIES` therefore
+  carries exactly seven rows, and `tests/ci/test_inf005.py` asserts that Burundi, Rwanda and Tanzania
+  resolve to *nothing* rather than to the regional band. A `low` for Burundi read off "rest of the
+  African Region" would be the single most consequential invented number in this file — the regional
+  band is about the Region, and the land-border band is where Burundi actually sits.
+- **They do not assess Kenya.** DON619: "A detailed rapid risk assessment is currently ongoing to
+  assess the risk in Kenya and will be reported once available." Kenya's row is `not_assessed` with
+  that sentence, and `BAND_LABELS` renders `not_assessed` and `unknown` alike as "not assessed" — a
+  refusal to answer, never `low`. Kenya is inside the "rest of the African Region" band and the
+  tempting read is precisely the wrong one.
+- **They state no county-level advisory.** §INF-005 asks for "country **and county** advisories" and
+  no WHO document has a Kenyan county row. The county half therefore reads §INF-001's own dashboard
+  (`CountyRisk`, archived under `county-adjacency/` and the county-office feeds) rather than a second
+  table here, and `PlaceAdvisory.kind` records which of the two tables a row came from because the
+  two use **different vocabularies** — a country carries WHO's `very_high|high|low|not_assessed`, a
+  county carries `low|moderate|high`. They overlap on `high` and `low`, and that overlap is why
+  `kind` is load-bearing rather than decorative.
+- **They state no threshold for anything.** There is no figure in §INF-005 to get wrong, which is
+  itself worth recording: the section is bands and sentences, and a number invented to fill a table
+  would have no source to check it against.
+- **The 719 line and the arrival declaration are not in either source.** They are this deployment's
+  operating rule, and `STEP_SOURCES` says so in the served payload — "not stated by either source" —
+  so a reader can tell the authority's instruction from the product's.
+
+**The band moves.** WHO reassessed on 14 August 2026 (v4) and published DON619 on 8 October; the
+country rows carry `assessed_on_iso = 2026-08-14` and not the serve date, because a risk band is a
+statement about a moment and a payload stamped at serve time would present an August assessment as
+this morning's. Re-check `sources/INDEX.md`'s table against `afya/location/advisories.py` when the
+next assessment is published.
 
 ---
 

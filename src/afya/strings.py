@@ -84,9 +84,16 @@ def rec(lang: str, risk: str) -> str:
 # an honest English one, and a machine-translated table would report the gap as closed.
 TRAVELLER_STRINGS: dict[str, dict[str, str]] = {
 	'en': {
+		# §INF-005's first Feature is two advisories and the string was one sentence for every
+		# pair of places — the audit row's "the country half is a constant rather than a table".
+		# `{band}` and `{stated}` are the destination's own row from `afya.location.advisories`,
+		# so the same question about two countries returns two answers. `{stated}` is the
+		# authority's own words and is English in both tables: WHO publishes in English, and
+		# translating a risk statement on the traveller's behalf is the machine-translation failure
+		# this file's docstring refuses. The frame around it is localised.
 		'advisory': (
-			'Travel to {destination} from {origin_country}: check the current MoH/PHEOC advisory '
-			'before you go. Screening may apply at the border. If you feel unwell after arrival, '
+			'Travel to {destination} from {origin_country}. Outbreak risk for {destination}: '
+			'{band}. {stated} Screening may apply at the border. If you feel unwell after arrival, '
 			'call 719 and say where you travelled. Health advisories change — confirm with official '
 			'channels.'
 		),
@@ -107,10 +114,10 @@ TRAVELLER_STRINGS: dict[str, dict[str, str]] = {
 	},
 	'sw': {
 		'advisory': (
-			'Safari kwenda {destination} kutoka {origin_country}: angalia tangazo la sasa la Wizara '
-			'ya Afya kabla ya kusafiri. Uchunguzi unaweza kufanyika mpakani. Kama unajihisi mgonjwa '
-			'baada ya kufika, piga 719 na useme uliposafiri. Matangazo ya afya hubadilika — thibitisha '
-			'kwa njia rasmi.'
+			'Safari kwenda {destination} kutoka {origin_country}. Hatari ya mlipuko kwa {destination}: '
+			'{band}. {stated} Uchunguzi unaweza kufanyika mpakani. Kama unajihisi mgonjwa baada ya '
+			'kufika, piga 719 na useme uliposafiri. Matangazo ya afya hubadilika — thibitisha kwa '
+			'njia rasmi.'
 		),
 		'enrolled': (
 			'Tamko limehifadhiwa. Umeandikishwa kwa siku 21 za kujiangalia — tutakuuliza hali yako '

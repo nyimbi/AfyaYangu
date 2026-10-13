@@ -60,8 +60,8 @@ CANARIES = [
 	# 4. The advisory stops taking a language, so a Kiswahili-reading traveller is served English on
 	#    the one screen where getting it wrong means arriving unwell and not knowing to call 719.
 	('the advisory ignores the language it is given', S,
-	 "		return traveller(lang, 'advisory', destination=destination, origin_country=origin_country)",
-	 "		return traveller('en', 'advisory', destination=destination, origin_country=origin_country)",
+	 "		return traveller(lang, 'advisory', destination=destination, origin_country=origin_country,\n		                 band=BAND_LABELS[row.band], stated=row.stated)",
+	 "		return traveller('en', 'advisory', destination=destination, origin_country=origin_country,\n		                 band=BAND_LABELS[row.band], stated=row.stated)",
 	 'test_the_advisory_is_served_in_the_language_the_traveller_asks_for'),
 
 	# 5. The enrolment acknowledgement is served in English whatever the traveller declared in — the
@@ -116,8 +116,8 @@ CANARIES = [
 	# 12. A Kiswahili string loses its placeholders, so the advisory names no destination and the
 	#     traveller cannot tell which country's rules they are being told about.
 	('a Kiswahili string loses its placeholders', T,
-	 "			'Safari kwenda {destination} kutoka {origin_country}: angalia tangazo la sasa la Wizara '",
-	 "			'Safari: angalia tangazo la sasa la Wizara '",
+	 "			'Safari kwenda {destination} kutoka {origin_country}. Hatari ya mlipuko kwa {destination}: '",
+	 "			'Safari: hatari ya mlipuko: '",
 	 'test_the_advisory_is_served_in_the_language_the_traveller_asks_for'),
 
 	# 13. An unknown key returns a placeholder instead of raising, so a screen renders blank where an

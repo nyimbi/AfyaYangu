@@ -1,0 +1,1231 @@
+Rapid risk assessment, acute event of potential public health concern
+
+
+ Ebola Bundibugyo virus disease, Democratic Republic of the Congo
+     Date and version of current assessment:               14 August 2026, v4
+     Date(s) and version(s) of previous assessment(s):     15 May 2026, V1; 22 May 2026,V2; 06 June 2026, V3
+
+ Overall risk and confidence1
+                                                           Overall risk
+        Democratic
+                                 Countries sharing land borders with the
+       Republic of the                                                               Rest of the               Global
+                                   Democratic Republic of the Congo
+          Congo                                                                     African Region
+         Very High                                  High                                 Low                     Low
+
+
+
+                                             Confidence in available information
+        Democratic
+                                 Countries sharing land borders with the
+       Republic of the                                                               Rest of the               Global
+                                   Democratic Republic of the Congo
+          Congo                                                                     African Region
+         Moderate                                Moderate                             Moderate                  High
+
+
+
+
+ Risk statement
+     Since first detected in May 2026, the Bundibugyo virus disease (BVD) outbreak has rapidly evolved into a large and
+     geographically expanding epidemic in the Democratic Republic of the Congo, with sustained transmission, high
+     mortality and an increasing risk of further international spread. The current outbreak is the second documented
+     Bundibugyo virus disease outbreak in the country, after the 2012 outbreak, the largest Ebola disease outbreak ever
+     recorded in the Democratic Republic of the Congo, irrespective of Ebola virus species.
+     Following laboratory confirmation of Bundibugyo virus on 15 May 2026, with 13 laboratory-confirmed cases from 20
+     tested specimens, retrospective investigations conducted by the provincial field team identified 246 suspected cases
+     and 65 deaths (CFR: 26.4%) across three health zones in Ituri (Mongbwalu, Rwampara and Bunia) occurring between
+     15 April and 13 May 2026.
+     By 13 August 2026, the outbreak had spread to six of the country’s 26 provinces (Bas-Uélé, Haut-Uélé, Ituri, North Kivu,
+     South Kivu and Tshopo) encompassing 54 health zones, with 4566 laboratory-confirmed cases and 2128 deaths (see
+     map in the Annex). Since the beginning of the outbreak, 155 healthcare workers have been infected. Positively, 918
+     patients have recovered and been discharged from treatment centres. These figures demonstrate a substantial increase
+     in the scale and geographic extent of the outbreak over the past three months.
+     Ituri Province remains the epicentre of the outbreak, accounting for 3912 confirmed cases (86%) and 1701 deaths (80%)
+     as of 13 August. The outbreak was initially detected as a cluster in Mongbwalu Health Zone, a rural gold-mining area
+     characterised by high population mobility linked to mining, trade and movement between communities. Spread to
+     additional health zones within Ituri and subsequently to other provinces occurred with population movement and
+     connections between affected communities. Healthcare facilities also contributed to the establishment of new
+     transmission chains, with Bas-Uélé being identified as the most recently affected province on 12 August. This
+     geographic spread has increased the complexity of the response, requiring sustained surveillance, contact tracing and
+     infection prevention and control measures across an increasing number of affected areas. Ituri Province also has strong
+     cross-border connectivity with Uganda and South Sudan, highlighting the continued risk of exportation.
+     The crude case fatality ratio (CFR) to date is 47%, underscoring the severity of the outbreak and ongoing challenges
+     related to timely case detection, access to and quality of clinical care, and effective interruption of viral transmission.
+     Delays in recognising cases increase the likelihood of onward transmission within households, communities and
+     healthcare facilities.
+     Contact tracing and follow-up have increased significantly since the start of the outbreak, but documentation and
+     registration remain incomplete, limiting data accuracy. As of 13 August, 18811 contacts had been identified and
+     documented in a line list with detailed contact information, while the number of contacts reported as being under
+     follow-up is significantly higher, but many contacts lack detailed information. This limits the ability to fully assess
+
+ 1
+  Confidence refers to the level of confidence in the data/information or the quality of the evidence available at the time
+ the RRA is conducted. Poor quality information may increase the overall perceived risk due to the incertitude in the
+ assessment.
+                                                                                                                Page 1 of 21
+                                                                                                                 Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+  epidemiological links, exposure histories and transmission patterns among all contacts under follow-up and indicate
+  gaps in contact investigation and documentation.
+  The outbreak has also demonstrated a clear potential for cross-border spread. The first international spread was
+  identified in Uganda in May 2026, when a symptomatic patient from the Democratic Republic of the Congo travelled
+  to Kampala and was subsequently confirmed with Bundibugyo virus disease. Additional cases were subsequently
+  identified in Uganda, demonstrating that population movement across the border can result in onward local
+  transmission.
+  In response to the expanding outbreak and increasing risk of international spread, on the 17 May 2026, the WHO
+  Director-General determined the outbreak in the Democratic Republic of the Congo and Uganda a public health
+  emergency of international concern (PHEIC). On 22 May, an International Health Regulation (IHR) Emergency
+  Committee was convened. Considering the advice of the IHR Emergency Committee, The Director-General of WHO
+  issued temporary recommendations to all States Parties, including to strengthen surveillance, preparedness and
+  response in countries with documented BVD, and those sharing land borders with affected countriesat highest risk of
+  importation.
+
+  Since the start of the outbreak and as of 13 August, cases have been detected and/or treated outside of the Democratic
+  Republic of Congo. Uganda reported 20 confirmed BVD cases during the outbreak (from 15 May 2026). The last
+  imported case was reported on 21 June and discharged on 16 July; the 42-day enhanced monitoring period, as per
+  international guidance, will therefore finish on 27 August. All 836 identified contacts completed the required 21-day
+  follow-up period; during this period, six contacts, including four healthcare workers, developed BVD and were treated.
+  France reported a single imported BVD case on 24 June 2026, with no secondary transmission. The case was discharged
+  on 4 July, and all five identified flight contacts completed the required 21-day follow-up period without developing
+  symptoms. The 42-day enhanced monitoring period comes to an end on 15 August.
+  Germany reported two BVD cases diagnosed in the Democratic Republic of the Congo and subsequently medically
+  evacuated to Germany for treatment. Both patients recovered and were discharged on 6 June and 28 July, respectively.
+  The cases were managed under strict infection prevention and control measures, and no secondary transmission was
+  reported, therefore, no contacts were identified.
+  Although these events demonstrate that imported cases can be detected and transmission interrupted, the continuing
+  intensity of transmission in the Democratic Republic of the Congo means that the risk of further exportation remains.
+  Entry and exit health screening and surveillance measures are in place at airports, ports and official land border
+  crossings; however, movement through informal border crossing routes may occur, presenting an ongoing risk of virus
+  exportation, importation and onward transmission.
+  Countries sharing land borders with the Democratic Republic of the Congo remain at risk because of frequent cross-
+  border population movement. Uganda, the Central African Republic and South Sudan are of particular concern for
+  importation given their proximity, high population mobility and connectivity with areas of the Democratic Republic of
+  the Congo currently experiencing intense transmission. For the Central African Republic and South Sudan, these risks
+  are further compounded by high humanitarian needs, population displacement, insecurity and underlying limitations
+  in health-system capacity.
+
+  The risk in the Democratic Republic of the Congo remains assessed as very high, reflecting the current intensity and
+  breadth of the outbreak, sustained transmission across multiple provinces and health zones, and the continued
+  presence of epidemiological and operational factors that facilitate further transmission. The main considerations
+  supporting this assessment are:
+      •   The outbreak has increased substantially since the previous risk assessment. As of 6 June 2026, 515 confirmed
+          cases and 91 confirmed deaths had been reported in the Democratic Republic of the Congo. By 13 August 2026,
+          the number of cumulative confirmed cases had increased nearly nine-fold, from 515 to 4566, while the number
+          of cumulative deaths had increased more than twenty-three-fold, from 91 to 2128. The CFR increased from
+          18% on 6 June to 47% on 13 August. Although the CFR reported on 6 June was noted at the time to likely be an
+          underestimate of the true fatality ratio, the substantial increase in the CFR nevertheless highlights the severity
+          of the outbreak and continued challenges in timely detection, referral and clinical management of cases.
+      •   The reported CFR may increase further as additional deaths are investigated and outcomes are established
+          More than 100 probable deaths that occurred before the outbreak was declared have been investigated and
+          are awaiting Ministry of Health (MoH) validation; this inclusion could increase the reported CFR.
+          Additionally, as of 10 August, more than 700 confirmed cases had no final outcome, excluding reported deaths,
+          recoveries, and patients in designated isolation centres. This incomplete outcome ascertainment should be
+          considered when interpreting the current CFR.
+      •   The geographic extent of the outbreak has expanded considerably since the previous risk assessment. The
+          number of affected health zones has increased from 25 to 54 (116%) with transmission now report ed across
+          five provinces, compared with three provinces on 6 June.
+      •   Ituri has the highest number of affected health zones, (28/36), followed by North Kivu (12/34), Haut-Uélé
+          (6/13), Tshopo (6/23), South Kivu (1/34), and Bas-Uélé ( 1/11), confirming the continued geographic spread of
+          the disease. Furthermore, 45 of the 54 affected health zones have reported confirmed cases within the past
+          21 days, indicating ongoing active transmission across a large geographic area.
+
+
+                                                                                                        Page 2 of 21
+                                                                                                         Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+      •   Ituri remains the principal focus of transmission and shows substantial evidence of ongoing, undetected
+          transmission. The province, which borders both Uganda and South Sudan, accounts for 86% (3912/ 4566)
+          confirmed cases and 80% (1701/ 2128) reported deaths in the Democratic Republic of Congo. Transmission
+          continues in both densely populated urban areas and rural settings. More than 80% of new infections in the
+          province are detected outside known contact lists, indicating that many transmission chains remain
+          unidentified, while retrospective investigation indicates that approximately 40% of new cases have a known
+          epidemiological link to a previous case. Approximately two-thirds of deaths occur outside designated Ebola
+          Treatment Centres (ETCs), suggesting delayed healthcare-seeking, late detection and continued community
+          transmission. Although safe and dignified burial (SDB) teams are being scaled up, gaps remain in alert
+          management, notification and investigation of deaths, systematic swabbing, contact identification and tracing,
+          decontamination and timely implementation of SDB measures. The continued intensity of transmission in Ituri,
+          together with its proximity to international borders and spread to additional provinces, increases the potential
+          for further transmission within the Democratic Republic of the Congo and across borders.
+      •   Transmission among healthcare workers and capacity constraints in health-care settings remain a concern.
+          The number of confirmed infections among healthcare workers increased nearly tenfold since 6 June, from 16
+          to 155, including 45 deaths. This continued occurrence of infections highlights possible occupational exposure
+          risks and gaps in infection prevention and control (IPC) implementation in healthcare facilities, which may
+          contribute to further transmission. However, good-quality data are not currently available to determine
+          whether exposures occurred during healthcare duties or in community settings, as only eight of the 54 affected
+          health zones have received training to conduct surveillance activities, including detailed case investigations. At
+          the same time, limited health-care infrastructure, insufficient Ebola treatment and isolation capacity, and
+          inadequate ambulance availability constrain timely isolation, referral and clinical management of suspected
+          and confirmed cases. These gaps may increase the risk of health-care-associated transmission and delayed
+          access to care, while contributing to frustration among affected families, undermining community confidence
+          in the response and potentially delaying care-seeking.
+      •   Contact tracing and follow-up have increased substantially but available documentation remains incomplete.
+          Although contact tracing activities have expanded substantially, more than 80% of newly reported infections
+          continue to be detected outside known contact lists, indicating that many transmission chains remain
+          unidentified. As of 12 August, 18811 contacts had been identified and documented with detailed information.
+          However, the number reported as under follow-up is considerably higher, with complete line-list data not yet
+          available for all contacts. This limits assessment of epidemiological links, exposure histories and transmission
+          patterns. The scale of contact tracing needed, insufficient human resources, ongoing strikes among MoH
+          responders and community health workers, and persistent pockets of community mistrust and population
+          movement continue to challenge timely and complete contact tracing.
+      •   Ongoing conflict and insecurity in Ituri and North Kivu provinces continue to constrain response operations.
+          Insecurity restricts the movement of surveillance and Rapid Response Teams, limits the secure transport of
+          laboratory specimens, and hinders contact tracing, SDB activities and community engagement. These access
+          constraints may delay detection and investigation of cases and deaths and limit the timely implementation of
+          response measures. In addition, insecurity may discourage individuals from seeking healthcare.
+      •   Laboratory capacity and testing supply constraints continue to affect timely confirmation and response.
+          Delays in sample transportation and, in some locations, communication of laboratory test results can delay
+          confirmation, affect timely isolation, clinical management, contact identification and implementation of other
+          public health measures, while also contributing to community frustration.
+      •   No licensed vaccine or specific antiviral treatment is currently available for Bundibugyo virus disease.
+          Although a randomized clinical trial for Ervebo is currently being initiated as well as the PARTNERS trial for effective
+          treatments, the response currently relies on community engagement and early detection and isolation of all
+          cases, intensive supportive clinical care, infection prevention and control, contact tracing, safe and dignified
+          burials, and other public health and social measures, placing substantial operational demands on the response.
+      •   Community protection and engagement capacities have been strengthened but remain insufficient relative
+          to the scale of the outbreak. More targeted and in-depth engagement of local leadership, trusted local
+          networks, training of community health workers (CHWs) and establishment of community brigades in high-
+          transmission areas have strengthened community-level response capacity. Efforts to provide at-risk
+          communities with timely and accurate information have also increased. However, available resources and
+          capacity remain inadequate relative to the increasing scale of the outbreak compounded by persistent
+          community mistrust and delays in scaling up essential response services, contributing to delays in referral and
+          care-seeking, underreporting and reduced uptake of response measures.
+      •   Funding gaps threaten the continuity and scale of the response. Insufficient and unpredictable funding limit
+          the ability to sustain essential surveillance, laboratory, clinical care, infection prevention and control, contact
+          tracing, community engagement and other response activities, particularly in areas affected by insecurity and
+          limited access.
+      •   The potential for national spread remains significant. The outbreak has expanded across six provinces and 54
+          health zones, including Kisangani, a major port city on the Congo River and a key link to the capital, Kinshasa.
+          Sustained transmission, extensive population movement and major transport and trade routes linking affected
+          and unaffected areas increase the likelihood of further geographic expansion within the Democratic Republic
+          of the Congo.
+  The risk for countries sharing land borders with the Democratic Republic of the Congo remains assessed as high,
+  reflecting the ongoing transmission and geographic expansion of the outbreak, and particularly for countries with
+
+                                                                                                             Page 3 of 21
+                                                                                                              Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+  sustained cross-border population movement and close social and economic links with affected areas. The key factors
+  supporting this assessment include:
+      •   High population mobility across formal and informal routes. Cross-border movement associated with trade,
+          mining, pastoral activities, family visits, seeking health care, displacement and insecurity remain frequent
+          across the region. Movement through both official and informal crossing points, particularly between border
+          communities and affected areas, creates opportunities for infected individuals to cross borders before
+          detection.
+      •   Risk of undetected importation and onward transmission. The high proportion of infections identified outside
+          known contact lists indicates that transmission chains remain undetected in affected communities. Cases or
+          contacts crossing international borders or being lost to follow-up may therefore result in delayed detection and
+          onward transmission in neighbouring countries. Cross-border movement to access health services may be
+          particularly relevant where health-care capacity is limited in affected areas of the Democratic Republic of the
+          Congo.
+      •   Variable surveillance, preparedness and response capacities. Differences in BVD surveillance and case
+          detection, sample transportation and laboratory capacity, clinical management, infection prevention and
+          control, contact tracing and outbreak response capabilities across neighbouring countries may affect their
+          ability to rapidly identify and contain imported cases.
+      •   Operational, humanitarian and access constraints may hinder preparedness and response. Insecurity,
+          population displacement, limited access to health services and challenging operating environments in border
+          areas may constrain surveillance, contact tracing, laboratory investigation, community engagements, and other
+          preparedness and response activities in neighbouring countries.
+      •   Gaps in cross-border information sharing and community preparedness may delay detection and response.
+          Delays in sharing information on cases and contacts who cross borders, including through IHR mechanisms and
+          direct coordination between WHO and partner response teams, may hinder timely follow-up. Limited
+          resources and uneven capacities to train, equip and support CHWs for community-based surveillance and RCCE,
+          generate and use timely community evidence and engage trusted local leaders and community networks may
+          further delay care-seeking and detection and constrain rapid response following an imported case.
+  The risk for the rest of the African Region and at the global level remains assessed as low, based on the available
+  epidemiological evidence and the absence of widespread or sustained transmission beyond the main affected areas.
+  The key considerations supporting this assessment include:
+      •   Transmission remains concentrated in the Democratic Republic of the Congo. The majority of reported cases
+          and deaths remain concentrated in the Democratic Republic of the Congo, however, transmission has also been
+          documented in Uganda, and a travel-associated case was detected in France. These events demonstrate that
+          the virus can cross international borders through population movement and underscore the importance of
+          strengthened surveillance, early detection, laboratory capacity, infection prevention and control, and response
+          readiness in countries with epidemiological and population-mobility links to affected areas. Accordingly,
+          regional and global preparedness has been increased.
+      •   There is currently no evidence of sustained transmission beyond the Democratic Republic of the Congo. The
+          continued outbreak in the Democratic Republic of the Congo presents a risk of further exportation, particularly
+          to countries with strong population and travel links, but available evidence does not indicate ongoing
+          international transmission.
+      •   International exportation remains possible. Individuals infected in the Democratic Republic of the Congo may
+          travel during the incubation period before symptoms develop, and cases could therefore be detected in other
+          countries. However, in the absence of evidence of sustained transmission outside the affected areas both in
+          this outbreak and historically in previous Ebola outbreaks, this possibility does not currently warrant an increase
+          in the overall regional or global risk assessment. Despite the risk of wider regional and global spread remaining
+          limited, continued vigilance is required for surveillance, rapid detection and investigation of suspected cases,
+          and appropriate preparedness in countries with travel and population links to the Democratic Republic of the
+          Congo to ensure that any exported cases are promptly identified and contained.
+
+
+
+ Risk questions
+                                                Assessment
+              Risk question                                               Risk                        Rationale
+                                         Likelihood      Consequences
+                       Democratic                                                   The risk to human health in the Democratic
+  Potential risk for
+                       Republic of the   Highly likely   Major          Very high   Republic of the Congo is assessed as very high,
+  human health?
+                       Congo                                                        given the evidence of sustained transmission,
+
+
+
+
+                                                                                                               Page 4 of 21
+                                                                                                                Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+                                                                              rapid increases in the number of cases and deaths,
+                                                                              as well as in the number of infections occurring
+                                                                              among healthcare workers. The highest
+                                                                              proportion of deaths is reported among children
+                                                                              below ten years of age. Cases have also been
+                                                                              reported among vulnerable populations, including
+                      Countries                                               in camps for internally displaced persons located
+                     sharing land                                             in Ituri.
+                     borders with
+                                       Likely          Moderate   High        Based on analysis of 139 genomic sequences from
+                     Democratic
+                     Republic of the                                          BDBV samples collected between May and June
+                     Congo                                                    2026, it is estimated that transmission began
+                                                                              several months before the outbreak was detected,
+                                                                              resulting in more undiagnosed infections and
+                                                                              exposed contacts. Ongoing delays in detection,
+                                                                              challenges in infection prevention and control,
+                                                                              and difficulties in ensuring safe and dignified
+                                                                              burials may further increase the likelihood of
+                                                                              human-to-human transmission. The absence of a
+                                                                              licensed vaccine and specific therapeutics for
+                                                                              Bundibugyo virus also increases the potential
+                                                                              health impact of infection.
+                     Rest of African                                          The risk to human health in neighbouring
+                                       Unlikely        Minor      Low
+                     Region                                                   countries sharing land borders is considered high,
+                                                                              as evidenced by imported infection followed by
+                                                                              local transmission in Uganda. Continued
+                                                                              population movement from affected areas creates
+                                                                              opportunities for additional infections, while
+                                                                              delayed recognition of imported cases could allow
+                                                                              onward transmission before appropriate isolation
+                                                                              and control measures are implemented.
+                                                                              For the remainder of the African Region and
+                     Global            Unlikely        Minor      Low
+                                                                              globally, the risk to human health is assessed as
+                                                                              low. Although imported cases cannot be excluded,
+                                                                              there is currently no evidence of sustained
+                                                                              transmission outside the affected areas.
+                                                                              The risk of further spread within the Democratic
+                                                                              Republic of the Congo remains very high. Since the
+                     Democratic                                               outbreak was first detected in May 2026,
+                     Republic of the   Highly likely   Major      Very high   transmission has spread to 54 health zones across
+                     Congo                                                    six provinces; of which 45 health zones have
+                                                                              reported confirmed cases during the preceding 21
+                                                                              days, indicating that transmission remains active
+                                                                              across a wide geographical area. More than 80%
+                      Countries                                               of new infections are being identified outside
+                     sharing land                                             known contact lists, and 60% remain unlinked
+                     borders with                                             even after investigation, indicating that a
+                                       Likely          Moderate   High
+                     Democratic                                               substantial proportion of transmission chains
+                     Republic of the                                          continue to go undetected,increasing the
+                     Congo                                                    likelihood of continued spread.
+  Risk of event                                                               The potential for further geographic expansion is
+  spreading?                                                                  reinforced by the concentration of transmission in
+                                                                              Ituri, which accounts for 85.7% of confirmed
+                                                                              cases, while transmission has also been reported
+                                                                              in North Kivu, South Kivu, Haut-Uele and Tshopo.
+                                                                              High population mobility, including movement
+                     Rest of African                                          related to trade, mining, displacement and
+                                       Unlikely        Minor      Low
+                     Region                                                   insecurity, provides additional opportunities for
+                                                                              transmission between affected and unaffected
+                                                                              areas.    Operational      constraints,     including
+                                                                              insecurity, limited access, difficulties with contact
+                                                                              tracing and laboratory capacity, and insufficient
+                                                                              isolation and treatment capacity, may further
+                                                                              delay identifying and interrupting transmission
+                                                                              chains.
+                     Global            Unlikely        Minimal    Low
+
+
+                                                                                                            Page 5 of 21
+                                                                                                             Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+                                                                               The risk of further spread to neighbouring
+                                                                               countries sharing land borders is assessed as high.
+                                                                               The geographical expansion of the outbreak,
+                                                                               including in provinces bordering other countries,
+                                                                               combined       with    substantial    cross-border
+                                                                               population movement through formal and
+                                                                               informal routes, creates continued opportunities
+                                                                               for exportation. Undetected transmission chains
+                                                                               in the Democratic Republic of the Congo further
+                                                                               increase the likelihood that infected individuals
+                                                                               may cross borders before detection. Differences in
+                                                                               surveillance, laboratory, contact-tracing, and
+                                                                               response capacities among neighbouring
+                                                                               countries could also affect how quickly imported
+                                                                               cases are identified and contained. Uganda, the
+                                                                               Central African Republic and South Sudan are of
+                                                                               particular concern for (re-)importation, given their
+                                                                               geographic proximity (direct border), high
+                                                                               population mobility and cross-border connectivity
+                                                                               with areas of the Democratic Republic of the
+                                                                               Congo       currently     experiencing      intense
+                                                                               transmission. The risk of wider spread across the
+                                                                               African Region and globally remains low. Although
+                                                                               international exportation during the incubation
+                                                                               period remains possible, there is currently no
+                                                                               evidence of sustained transmission outside the
+                                                                               Democratic Republic of the Congo. Previous
+                                                                               exported cases have not resulted in sustained
+                                                                               international transmission, supporting the current
+                                                                               low assessment. Continued surveillance and rapid
+                                                                               investigation of suspected imported cases remain
+                                                                               important to prevent isolated introductions from
+                                                                               developing into onward transmission.
+
+                                                                               The risk associated with insufficient outbreak
+                                                                               control capacity in the Democratic Republic of the
+                                                                               Congo is assessed as very high. The current
+                                                                               response is being implemented amid substantial
+                                                                               operational constraints, including shortages of
+                                                                               PPE, challenges in contact tracing, delays in
+                                                                               accessing laboratory confirmation and results,
+  Risk of insufficient                                                         insufficient healthcare and isolation capacity,
+                         Democratic
+  control capacities                                                           difficulties maintaining surveillance and response
+                         Republic of the   Highly likely   Major   Very high
+  with available                                                               activities in affected areas, and underfunding.
+                         Congo
+  resources                                                                    Funding gaps and unpredictable resources may
+                                                                               also affect the continuity and scale of essential
+                                                                               surveillance, laboratory, clinical, IPC, contact-
+                                                                               tracing and community-engagement activities.
+                                                                                Contact tracing is ongoing, but registration and
+                                                                               reporting remain incomplete, limiting data
+                                                                               accuracy.
+
+
+
+
+                                                                                                             Page 6 of 21
+                                                                                                              Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+                                                                               The high proportion of infections detected outside
+                                                                               known contact lists indicates gaps in contact
+                                                                               tracing, case finding and the capacity to identify
+                                                                               and interrupt transmission chains promptly.
+                                                                               Response capacity is further constrained by
+                                                                               insecurity, population displacement and restricted
+                                                                               access to affected areas, particularly in Ituri and
+                                                                               North Kivu. These conditions can limit the
+                       Countries                                               deployment of surveillance and rapid response
+                      sharing land                                             teams, hinder specimen transport and laboratory
+                      borders with                                             investigation, and complicate contact tracing and
+                                        Likely       Minor         High
+                      Democratic                                               safe and dignified burials. Limited healthcare
+                      Republic of the                                          infrastructure and insufficient isolation and
+                      Congo                                                    treatment capacity may also compromise timely
+                                                                               case management and infection prevention and
+                                                                               control. In addition, shortages of trained
+                                                                               healthcare workers and competing health
+                                                                               emergencies, including malaria, cholera and
+                                                                               mpox, place additional pressure on an already
+                                                                               constrained health system.
+                                                                               Health workers involved in the Bundibugyo virus
+                                                                               response have undertaken strikes in affected
+                                                                               areas in response to delays in salary and outbreak-
+                                                                               response allowance payments, alongside difficult
+                      Rest of African                                          working conditions and significant occupational
+                                        Likely       Moderate      Moderate
+                      Region                                                   and logistical challenges. These strikes have
+                                                                               disrupted treatment and response activities and
+                                                                               may further constrain clinical care, surveillance,
+                                                                               contact tracing, community engagement and safe
+                                                                               burial activities.
+                                                                               Community-level challenges may further reduce
+                                                                               the effectiveness of available response resources.
+                                                                               Gaps in community engagement, social listening,
+                                                                               rumour management and trust in response
+                                                                               activities may contribute to delayed care-seeking,
+                                                                               underreporting and reduced acceptance of public
+                                                                               health interventions.
+                                                                               For countries sharing land borders with the
+                                                                               Democratic Republic of the Congo, the risk
+                                                                               associated with insufficient outbreak control
+                                                                               capacity is assessed as high. Countries in the
+                                                                               region have strengthened preparedness and
+                                                                               readiness      measures,    including     enhanced
+                                                                               surveillance at points of entry (PoEs) and
+                      Global            Unlikely     Minimal       Low
+                                                                               activation of contingency plans. However,
+                                                                               continued population movement across porous
+                                                                               borders requires sustained surveillance and rapid
+                                                                               response capacity. Differences in laboratory,
+                                                                               healthcare, surveillance, and outbreak-response
+                                                                               capacities may delay detection, investigation, and
+                                                                               containment of imported cases, particularly in
+                                                                               settings with limited resources.
+                                                                               At the regional and global levels, the risk
+                                                                               associated with insufficient outbreak control
+                                                                               capacity remains low, as there is currently no
+                                                                               evidence of sustained transmission beyond the
+                                                                               Democratic Republic of the Congo requiring large-
+                                                                               scale     international     response       capacities.
+                                                                               Nevertheless, continued preparedness and the
+                                                                               availability of resources for rapid investigation and
+                                                                               containment of any exported cases remain
+                                                                               important.
+
+ Major actions recommended by the risk assessment team
+        Action                                                                                                      Timeframe
+   ☒    Refer the event for review by IHR Emergency Committee for consideration as a PHEIC by DG (Art 12, IHR)      Immediate
+
+                                                                                                              Page 7 of 21
+                                                                                                               Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+   ☐       Immediate activation of ERF response mechanism (IMS) as urgent public health response is required        Not applicable
+   ☐       Recommend setting up of grading call (funding can be accessed before grading completed)                  Not applicable
+   ☐       Immediate support to response, but within limit of CFE (no grading recommended at this point in time)    Not applicable
+   ☐       Rapidly seek further information and repeat RRA (including field risk assessment)                        Not applicable
+   ☒       Support Member State to undertake preparedness measures                                                  Continuous
+   ☒       Continue to closely monitor                                                                              Continuous
+   ☐       No further risk assessment required for this event, return to routine activities                         Choose an item.
+
+
+ Immediate actions
+
+       •    Substantially scale up the deployment of multidisciplinary surge support teams to the newly affected Bas-
+            Uélé province, as well as to Mongbwalu, Rwampara, Bunia, Lita, Nizi, and other affected health zones
+            across Ituri and other affected provinces
+       •    Initiate and maintain comprehensive epidemiological investigation (including support of genomic
+            sequencing where feasible and if needed) to clarify chains of transmission and guide timely interventions.
+       •    Implement robust contact identification, exhaustive contact listing and consistent follow-up in all affected
+            areas.
+       •    Strengthen surveillance and alert management (including community-based surveillance and screening at
+            all PoEs), including in neighboring countries not currently affected but at high risk for importation.
+       •    Improve digitization of alerts, case line listing, contact listing/tracing, and laboratory data to support
+            timely data flows for decision making by response teams.
+       •    Strengthen community protection as a core response pillar, by scaling up RCCE, social listening,
+            community feedback systems, infodemic management, community-based surveillance, safe and dignified
+            burial engagement, and CHW mobilization.
+       •    Establish and scale-up RCCE activities within affected and at-risk communities, including engagement of
+            local leaders, faith-based organizations, civil society organizations, internally displaced populations,
+            mining communities, mobile populations, and cross-border communities.
+       •    Strengthen the collection, analysis and operational use of community insights through social listening,
+            community feedback mechanisms and community-based surveillance. Integrate these into Emergency
+            Operations Centre (EOC) and Incident Management System (IMS) decision-making processes.
+       •    Reinforce IPC standards and triage in health facilities in affected and high-risk areas, including isolation
+            capacities, safe and dignified burials, and PPE for health workers, in addition to promotion of basic IPC
+            practices at the community level.
+       •    Support rapid establishment and/or scaling of Ebola treatment units and isolation facilities in priority
+            locations, ensuring referral pathways and safe transport.
+       •    Preposition and distribute essential supplies (PPE, sample collection materials, reagents, essential
+            medicines, WASH kits, safe-burial kits) to strategic locations and healthcare facilities in affected and at-
+            risk areas.
+       • Expand access to BVD diagnostic testing by continuing the decentralization and strengthening BDBV
+            RT-PCR capacity, ensuring adequate and sustained supply of compatible reagents and consumables,
+            functional and rapid sample transport, and timely reporting from national and sub-national laboratories.
+       •    Scale up readiness support in neighbouring countries, including community protection, RCCE, CHW
+            preparedness, community-based surveillance, social listening, cross-border engagement and readiness
+            training packages.
+
+
+
+
+                                                                                                               Page 8 of 21
+                                                                                                                Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+
+
+ Supporting information
+ Hazard assessment
+
+ Bundibugyo virus disease (BVD), a form of Ebola disease, is a severe viral haemorrhagic disease caused by
+ Bundibugyo virus (BDBV), a member of the Orthoebolavirus genus in the Filoviridae family. Six virus species are
+ currently recognized within the genus, including Ebola virus, Sudan virus and Bundibugyo virus, which have caused
+ major Ebola disease outbreaks in Africa. BDBV was first identified during an outbreak in western Uganda in 2007,
+ followed by a second documented outbreak in the Democratic Republic of the Congo in 2012. The current event
+ is the third documented BDBV outbreak. The previous BVD outbreaks reported CFR of approximately 30%
+
+ BDBV is considered a zoonotic pathogen, although its natural reservoir has not been conclusively established.
+ Several bat species are considered possible natural hosts of orthoebolaviruses, while non-human primates,
+ including monkeys, gorillas and chimpanzees, can develop severe disease following infection. Human infection
+ may occur through contact with the blood or other body fluids of infected animals, followed by human-to-human
+ transmission through direct contact with the blood or body fluids of infected persons, or with contaminated
+ materials and surfaces. Contact with the bodies of deceased infected persons can also result in transmission,
+ particularly during unsafe burial practices. For other filoviruses, rare instances of transmission have been linked
+ to viral persistence in body fluids of survivors (e.g. semen). There is currently no data on Bundibugyo virus
+ persistence in recovered individuals, but similar persistence is likely.
+
+ The incubation period ranges from 2 to 21 days. BVD typically begins with non-specific symptoms including fever,
+ fatigue, muscle aches, headache and sore throat. These may be followed by vomiting, diarrhoea and rash, with
+ severe disease potentially involving impaired kidney and liver function and internal or external bleeding. The non-
+ specific nature of the initial symptoms may make early clinical recognition difficult, particularly where other febrile
+ infectious diseases are circulating.
+
+ Laboratory confirmation is required to verify BDBV infection. Diagnosis relies primarily on molecular methods,
+ including reverse transcription polymerase chain reaction (RT-PCR) assays to detect viral RNA. There are currently
+ no validated rapid diagnostic tests available for BDBV infection. Timely access to appropriate laboratory capacity
+ is therefore important to differentiate BDBV infection from other causes of viral haemorrhagic fever and other
+ infections.
+
+ Currently, there is no licensed vaccine for the prevention of BVD and no specific treatment approved for BDBV
+ infection. However, BDBV-specific vaccine candidates are under development, including rVSV-Bundibugyo and
+ ChAdOx1-Bundibugyo, which are being prioritized for clinical evaluation. Clinical management is thus supportive,
+ and early access to appropriate medical care can improve the likelihood of survival. The absence of licensed
+ preventive and specific therapeutic options increases the potential public health impact of an outbreak.
+
+ The combination of efficient human-to-human transmission through contact with infected body fluids, a relatively
+ long incubation period of up to 21 days, non-specific early symptoms, a potentially severe clinical disease, limited
+ availability of specific medical countermeasures and the absence of a conclusively identified animal reservoir
+ contributes to the public health significance of BDBV.
+
+ Exposure assessment
+
+ Since the initial detection, the size of the population with potential exposure to BDBV has increased substantially
+ as the outbreak has expanded geographically and transmission has remained active. Exposure is currently highest
+ in affected communities in the Democratic Republic of the Congo, particularly in Ituri Province, which accounts
+ for the majority of reported cases. The population at greatest risk of exposure is concentrated in communities
+ living in and moving through areas with active transmission.
+
+ Exposure is of particularly concern among household members and other close contacts of cases, caregivers,
+ people providing care outside formal health facilities, and persons involved in the preparation and burial of
+
+                                                                                                          Page 9 of 21
+                                                                                                           Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+ deceased individuals. Exposure risk may also be increased in settings affected by population displacement,
+ overcrowding and limited access to healthcare and essential services: the outbreak is occurring in a complex
+ humanitarian and conflict-affected environment, with limited access to healthcare, water, food, shelter and
+ protection, including overcrowded sites for internally displaced persons. These conditions may increase
+ opportunities for close contact and make timely identification and isolation of suspected cases more difficult.
+
+ Healthcare worker infections remained a major concern, with 155 infections, including 45 deaths, reported among
+ frontline healthcare workers since the start of the outbreak. Healthcare workers represent approximately 3.5%
+ of all confirmed cases. Infections among healthcare workers indicate ongoing occupational exposure and
+ challenges in maintaining adequate infection prevention and control measures in healthcare facilities. Exposure
+ may occur through direct patient care, contact with body fluids or contaminated materials, and during procedures
+ or management of patients before BDBV is recognized. Healthcare workers may also be exposed as members of
+ affected communities.
+
+ The number of persons requiring contact monitoring has also increased substantially as the outbreak has
+ expanded. As of 13 August, 18811 contacts had been identified and documented in a line list with detailed contact
+ information, while the number of contacts reported as being under follow-up is significantly higher but many
+ contacts lack detailed information. The large number of contacts reflects the scale of potential exposure within
+ affected communities. Insecurity, attacks on health facilities, population displacement, and restricted access to
+ affected areas may limit response teams' ability to identify and follow all potentially exposed individuals, creating
+ the possibility of continued exposure before cases are detected. Furthermore, a lack of training among a large
+ proportion of case investigators and contact tracers may lead to inadequate contact listing and follow-up,
+ respectively.
+
+ Population mobility represents an additional pathway for exposure and spread. Movement associated with
+ mining, trade, displacement, family visits, pastoral activities, seeking health care and other routine travel between
+ communities and across international borders may allow infected individuals to move between affected and
+ unaffected areas before detection and diagnosis. Movement through both formal and informal crossing points
+ may facilitate the introduction of infection into neighbouring communities and countries.
+
+ Exposure outside the Democratic Republic of the Congo remains possible through undetected exportation,
+ particularly to neighbouring countries with established population and cross-border movement links. Uganda,
+ which shares a border with affected areas of the Democratic Republic of the Congo, previously reported imported
+ BDBV cases, with subsequent local transmission. The last imported case was discharged on 16 July 2026.
+ Nevertheless, Uganda and other neighbouring countries remain at risk of imported cases and (re-)introduction
+ because transmission is ongoing in bordering areas of the Democratic Republic of the Congo and population
+ movement continues.
+
+ At the international level, exposure through infected travellers remains possible. However, because individuals
+ are not considered infectious during the 2–21-day incubation period before symptoms develop, travel that occurs
+ during this window does not put others at risk. While an infected traveller was identified in France, this incidence
+ is isolated and there is currently no evidence of sustained transmission outside the Democratic Republic of the
+ Congo. Therefore the likelihood of significant ongoing exposure in other countries remains low.
+
+ Context assessment
+
+ The current outbreak represents an unprecedented event for Ebola disease, in terms of both the number of cases
+ reported in a single country over a short period and the speed of its expansion. It is now substantially larger than
+ both of the previous BVD outbreaks. Within approximately three months, 4566 confirmed cases have been
+ reported, already exceeding the total number of cases recorded during the 2018–2020 Ebola virus disease
+ outbreak in the Democratic Republic of the Congo, which lasted almost two years.
+
+ Comparison of current outbreak to the previous BVD outbreaks and the largest Ebola disease outbreaks
+
+
+  Outbreak               Virus                   Cases                          Deaths      and Approx.
+                                                                                (crude CFR)     duration
+                                                                                                       Page 10 of 21
+                                                                                                         Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+  BVD, Democratic
+  Republic of the       Bundibugyo virus        4,566 confirmed              2128 (47%)         ~3 months so far
+  Congo, 2026
+                                                                                42 (28%)
+  BVD, Uganda,          Bundibugyo virus        149 total (131 confirmed     (37 confirmed      ~5–6 months
+  2007–2008                                     and 18 suspected)            and 5
+                                                                             suspected)
+  BVD, Democratic
+  Republic of the       Bundibugyo virus        56 confirmed                     17 (30%)       ~3 months
+  Congo, 2012
+  SVD, Uganda,          Sudan virus             425 confirmed                   224 (53%)       ~5 months
+  2000–2001
+  SVD, Uganda,                                  164 total (142 confirmed,
+  2022–2023             Sudan virus             22 probable)                     77 (47%)       ~2 months
+  EVD, Democratic
+  Republic of the       Ebola virus             3,481 confirmed                2 299 (66%)      ~23 months
+  Congo, 2018–2020
+  EVD, West Africa,
+                        Ebola virus             More than 28,600 infected    11 325 (≈ 40%)     ~27 months
+  2014–2016
+
+
+ The outbreak is occurring in eastern Democratic Republic of the Congo, an area with a recurrent history of Ebola
+ disease outbreaks and strong epidemiological and population links with western Uganda and southern South
+ Sudan. This ecological and population corridor has demonstrated vulnerability to filovirus emergence and
+ transmission, creating a potential pathway for cross-border spread. Retrospective investigations suggest that
+ transmission may have begun several months before the outbreak was officially recognized, with suspected viral
+ haemorrhagic fever cases dating back to January 2026. This potential extended period of unreported transmission,
+ together with the continued detection of cases and expansion into additional health zones, suggests that the
+ reported figures may not yet capture the full extent of the outbreak and that substantial ongoing transmission
+ may remain undetected.
+
+ Epidemiological expansion and acceleration
+
+ The outbreak has expanded substantially and now affects 54 of 140 health zones across six provinces: Ituri (28/36
+ health zones), North Kivu (12/34), Haut-Uélé (6/13), Tshopo (6/23), South Kivu (1/34), and Bas-Uélé (1/11).
+ Transmission remains active in 45 of the 54 affected health zones, defined as health zones that have reported at
+ least one case within the past 21 days. Ituri remains the principal epicentre, accounting for almost 86% of all
+ confirmed cases (3912) and 80% of reported deaths (1701/2128) nationally. Within Ituri, the highest numbers of
+ confirmed cases have been reported in Bunia (27%), Rwampara (21%), Mongbwalu (15%), and Nizi (13%) health
+ zones. Bunia and Rwampara are located relatively close to the border with Uganda, highlighting the potential for
+ cross-border spread along this major transmission corridor.
+
+ Trend of cumulative confirmed cases and deaths, as of 11 August 2026
+
+
+
+
+                                                                                                    Page 11 of 21
+                                                                                                      Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+
+
+ The outbreak showed a marked acceleration from late May through early August 2026, with the number of
+ confirmed cases increasing from 106 on 25 May to 4566 by 11 August, while the number of confirmed deaths
+ increased from 12 to 2128 (see Annex for epi curve). The estimated weekly incidence of confirmed cases rose
+ from approximately 246 cases per week in early June to 700 cases per week by early August, before declining
+ slightly to 606 cases per week in the most recent reporting period. Similarly, the estimated weekly increase in
+ deaths rose from 52 deaths per week in early June to 376 deaths per week by early August, remaining high at 330
+ deaths per week through 11 August. Although part of this increase likely reflects expanded surveillance, enhanced
+ laboratory testing, improved diagnostic capacity, and periodic backlog reconciliation, the sustained rise in number
+ of cases and deaths indicates continued transmission and substantial outbreak expansion.
+
+ The acceleration was particularly pronounced between 6 July and 3 August, when the number of confirmed cases
+ increased from 1708 to 3874 (+2,166; +127%), while the number of confirmed deaths increased from 580 to 1751
+ (+1,171; +202%). During the most recent reporting period, the number of cases increased further to 4566 and
+ deaths to 2128, indicating that transmission remained intense despite ongoing response efforts. By 11 August,
+ 918 patients had recovered.
+
+ Population mobility and regional connectivity
+ Population movement linked to mining, informal trade, displacement and routine travel creates pathways for
+ transmission within the Democratic Republic of the Congo and across international borders, including through
+ informal crossing points. Bunia is a major commercial, transport and health-care referral hub connecting affected
+ communities with other parts of the country and neighbouring countries. Kisangani, an affected port city on the
+ Congo River, is linked by transport and trade routes to Kinshasa. These connections increase the likelihood that
+ infected people may travel before diagnosis and introduce the virus into new communities, including the capital.
+
+ Humanitarian and security context
+ The outbreak is unfolding in a conflict-affected humanitarian context marked by insecurity, armed violence and
+ large-scale displacement. More than 26 million people face acute food insecurity, and an estimated one million
+ internally displaced people live in Ituri Province alone. Insecurity and displacement disrupt access to health care
+ and essential services, restrict access for response teams, and impede surveillance, case investigation and contact
+ follow-up.
+
+ Overcrowding, limited water, sanitation and hygiene services, and restricted access to health care in mining
+ communities, informal settlements and sites for internally displaced people further hinder early detection and
+ infection prevention. These conditions also make it harder to implement response measures consistently and to
+ reach affected populations.
+
+ Health-system and response capacity
+
+
+
+                                                                                                      Page 12 of 21
+                                                                                                        Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+ Health-system and response capacity remains under severe pressure from workforce shortages, operational
+ constraints and insecurity. Delayed payment of response personnel, uneven trust in response activities and
+ restricted access have disrupted key interventions. Although contact follow-up has improved, it remains below
+ the 95% operational target, limiting the rapid identification and interruption of transmission chains.
+
+ Transmission continues in communities and health-care settings. Frequent community deaths and delayed case
+ detection indicate that some infections are identified late or remain undetected. Infections among health-care
+ workers also point to persistent gaps in infection prevention and control.
+
+ Outbreak control is further constrained by gaps in active case finding, case investigation, contact tracing,
+ community engagement and continuity of care. Laboratory capacity has expanded but remains under pressure as
+ case numbers rise, while treatment and isolation services remain insufficient. The health system is also managing
+ concurrent threats, including malaria, measles, cholera and mpox.
+
+ Security incidents affecting health facilities have restricted access and disrupted surveillance and other control
+ activities. Funding shortfalls, logistical constraints and health-worker strikes linked to delayed remuneration have
+ also affected contact tracing, infection prevention and control, community engagement, and safe and dignified
+ burials. Together, these constraints delay case detection, leave transmission chains unidentified and undermine
+ the continuity of essential response operations.
+
+ The identification of Bundibugyo virus creates additional challenges for outbreak control compared to Ebola virus
+ outbreaks. Vaccines and therapeutics currently available for Ebola virus disease are not approved for Bundibugyo
+ virus disease. Evidence on Bundibugyo virus disease also remains limited because only three outbreaks, including
+ the current event, have been recognized. This constrains clinical guidance, preparedness and the selection of
+ control measures.
+
+ Cross-border preparedness and response capacity
+ The risk of further cross-border transmission remains significant. Uganda previously reported 20 outbreak-related
+ cases—15 imported and five secondary infections among contacts and health-care workers—demonstrating that
+ an imported case can lead to local transmission. No new cases have been reported in Uganda; the last confirmed
+ patient was discharged on 16 July 2026, and all identified contacts completed follow-up. However, continued
+ movement through formal and informal border routes sustains the possibility of further importation, particularly
+ to South Sudan and the Central African Republic, which have close population links with affected areas.
+
+ Preparedness and response capacity varies among countries sharing land borders with the Democratic Republic
+ of the Congo. Countries with previous Ebola outbreak experience generally have stronger surveillance, laboratory,
+ infection prevention and control, and response systems. Other neighbouring countries have strengthened
+ readiness, including travel-related measures such as entry screening for travellers from the Democratic Republic
+ of the Congo, but subnational capacity remains uneven.
+
+ In France, a responder returning from the outbreak area reported symptoms to airport authorities, was
+ immediately isolated and was subsequently confirmed with Bundibugyo virus disease. No secondary transmission
+ occurred. This event illustrates the value of early reporting by symptomatic travellers, rapid isolation and
+ implementation of the Emergency Committee’s temporary recommendations on border health and international
+ travel.
+
+ Overall risk considerations
+ Overall, transmission across 54 of 140 health zones (38.6%), 4,566 confirmed cases and 2,128 deaths, continued
+ infections among health-care workers, extensive contact-tracing demands, high population mobility, insecurity,
+ displacement and restricted access make the outbreak difficult to control. These factors support a very high risk
+ of continued spread within the Democratic Republic of the Congo.
+
+                                                                                                       Page 13 of 21
+                                                                                                         Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+ The risk remains high for countries sharing land borders with the Democratic Republic of the Congo because
+ population movement continues and importation has already resulted in local transmission. The risk for the rest
+ of the African Region and globally remains low because no sustained transmission has been reported outside the
+ affected region and mechanisms for surveillance, preparedness and response remain in place.
+
+  Capacities: Democratic Republic of the Congo                Vulnerabilities: Democratic Republic of the Congo
+
+  Leadership and coordination                                 Coordination limitations in remote or insecure areas
+      • Health authorities have mobilized response               • Delays in implementing decentralized response
+           structures and reactivated the Ebola disease              coordination (zonal response approach) in some
+           coordination committee.                                   HZ, combined with incomplete and untimely
+      • On 7 June, The Inter-Agency Standing Committee               reporting, continue to hamper local coordination
+           (IASC) activated a System-Wide Scale-Up for the           and timely, context-specific decision-making.
+           control of infectious disease events in the           • Challenges of payment of frontline workers
+           Democratic Republic of the Congo for an initial       • Inter-community conflicts
+           three-month period.                                   • Insufficient funding allocated
+      • The activation aims to strengthen leadership and         • Slow feedback loops and infodemic management
+           coordination, improve humanitarian access and             in remote and insecure zones
+           advocacy, mobilize additional operational             • Trust remains fragile in conflict-affected areas
+           capacity, and support resource mobilization for       • Community mistrust
+           both the Ebola response and broader                   • More capacity building needed, including of
+           humanitarian needs.                                       African Health Volunteers Corps (AVoHC) and
+                                                                     Strengthening and Utilizing Response Groups for
+  Surveillance                                                       Emergencies (SURGE) and Community health
+      • The Democratic Republic of the Congo has                     workers (CHWs).
+           experience with alert systems, active case search,
+           case investigation and contact tracing from Surveillance
+           previous BVD and other filovirus outbreaks.           • Limited human resources for active case search,
+      • A strong digital health information system (DHIS2)           case investigation and contact tracing
+           was already being used even before its use in the     • Late reporting/delayed detection & verification
+           current outbreak                                      • Limited          epidemiological        information/
+      • Surveillance tools are available in the country              investigation
+      • Training material is available                           • Need to strengthen cross border surveillance and
+                                                                     information sharing.
+  Laboratory                                                     • Need for training including in health zones with no
+      • The Democratic Republic of the Congo has                     prior experience of responding to an Ebola disease
+           previous experience in responding to Ebola                outbreak
+           disease,     including     possessing    reference    • Persistent DHIS2 data synchronization issues
+           laboratories capable of diagnosing BDBV infection         continue to cause discrepancies between SitRep
+           and of conducting additional investigation such as        and DHIS2 figures
+           genomic sequencing.
+      • In the Democratic Republic of the Congo, Laboratory
+           capacities have been scaled up, under the INRB        • BDBV testing capacity remains fragile in
+           leadership, with currently 19 laboratories with           Democratic Republic of the Congo with risks of
+           molecular testing capacities in six provinces: 12         stock outs and limited numbers of suppliers of
+           laboratories in Ituri, 2 in North Kivu, 1 in South        required equipment and reagents, and reliance on
+           Kivu, 1 in Tshopo, 2 in Haut Uele. Testing                swift specimen transportation to laboratories for
+           capacities currently rely on open PCR platforms           timely investigations.
+           and near POC platforms.                               • Delays in issuance and communication               of
+      • The reported testing turnaround time is under                laboratory results.
+           24h.                                                  • There are currently no validated rapid diagnostic
+      • Decentralisation of BDBV diagnostic testing                  tests available for BDBV infection.
+           capacities continues, with new labs planned to be     • Challenges to scale up clinical testing capacities in
+           established in the coming weeks.                          support of the scale up of care capacity
+      • Initial data on the near POC platform and kits               (equipment, supplies, human resources).
+           utilised (RadiOne) under the initial national
+           decentralization plan are available. Additional Clinical management and IPC
+           performance data is needed to further support         • Insufficient isolation and care capacity for the
+           the decentralization strategy.                            current and projected number of cases.
+                                                                 • Lack of well-formulated screening and triage
+  Clinical management and IPC                                        procedures.
+      • The Democratic Republic of the Congo has good            • Severely limited capability / capacity for
+           clinical experience in the management of Ebola            management of critical illness.
+           disease outbreaks.                                    • Saturation of capacity amongst some partner
+      • Training materials, evidence-based guidelines,               organizations, limiting expansion of bed numbers.
+           treatment protocols, and job aids support delivery
+
+                                                                                                    Page 14 of 21
+                                                                                                      Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+          of high-quality care and rapid expansion of             •   Wide geographical extent of the outbreak, which
+          healthcare worker (HCW) capacity .                          requires dynamic, rapid and decentralised scale
+      •   Experienced clinical and administrative teams               up of clinical care to support safe treatment of
+          from WHO, the Ministry of Health, and partners              patients close to the community as possible.
+          including ALIMA, IMC, Medair, MSF, and                  • Competing medical priorities due to other routine
+          Samaritan’s Purse are already deployed to support           morbidities, concurrent outbreaks, and the
+          Ebola Treatment Centres across affected areas.              humanitarian situation.
+      •   Improvements in supply chain estimation match           • Threat to continuity of care due to health and care
+          immediate and projected clinical needs with                 worker infections.
+          delivery.                                               • Patchy availability of safe infrastructure in which
+      •   Use of standardised design principles for                   to deliver care, particularly in smaller treatment
+          treatment centres enhances patient visibility,              centres.
+          efficiency and the capability to provide high-          • Risk of stigma amongst people with active disease
+          quality care.                                               and survivors.
+                                                                  • Self-discharge against medical advice continues to
+  Risk communication and community engagement - RCCE                  represent a risk to patients, staff and the wider
+      • The Democratic Republic of the Congo has                      community.
+          substantial experience in Ebola-related risk            • Essential care services are impacted by diversion
+          communication and community engagement                      of staff, lack of confidence amongst community to
+          (RCCE)                                                      attend, and ongoing disruption to transport and
+      • There are functional National RCCE and Infodemic              health care seeking due to sporadic violence and
+          coordination structures led by the MoHs at                  other reasons.
+          national and subnational levels.                    Risk communication and community engagement - RCCE
+      • There is an operational presence of partners
+          (WHO, IFRC, UNICEF, MSF, Alima, IFRC/Red Cross          • Challenges linked to complex context with
+          and other NGOs)                                             incidents of community resistance, e.g., due to
+      • There are existing engagement networks (CHWs,                 perceived monetization of Ebola.
+          community relays, Red Cross Volunteers, religious       • Limited funding and human resources for RCCE
+          groups, women and youths' associations)                     and infodemic management interventions.
+      • Rapid door-to-door mobilization capacity is               • Need for scaling up resources to support scaling
+          available.                                                  and trust building interventions.
+      • Strong community dialogue experience exists and           • Partners mapping and coordination to be
+          existing community channels are largely trusted             strengthened.
+          (SMS campaigns, call centre, WhatsApp groups,           • Gaps RCCE-infodemic management capacity
+          interpersonal communication).                               (resources and training).
+      • RCCE materials, multilingual messages and                 • Community feedback mechanism (social listening,
+          narratives are available.                                   call centres, community dialogues, community
+      • Joint messaging has been developed with partners              data) to be strengthened among partners to track
+          for affected populations and specific audiences,            community concerns, questions and damaging
+          including displaced populations, refugees, and              narratives and to integrate into the response,
+          travellers. An Ebola social media toolkit is also       • Risk of poor use of evidence and poor
+          available and can be translated into local                  triangulation of data across pillars, which
+          languages to support RCCE activities.                       indicates a need for a strengthened social
+      • Trained staff under the joint Africa CDC and WHO              sciences analytical cell, that will collect
+          emergency programe African Volunteers Health                quantitative and qualitative data across pillars,
+          Corps (AVoHC Surge).                                        triangulate,      analyse    and    provide    key
+      • Experience in integration of RCCE linked to                   recommendations.
+          community-based surveillance, surveillance, SDB,        • Community rumours, misinformation, and
+          case management, etc.                                       mistrust are hindering case detection, reporting,
+                                                                      health-seeking behaviour and delaying safe
+  Border health, PoEs and mass gatherings                             burials.
+     • Exit screening at main airports, ports and ground          • Security challenges continue to limit access to
+         crossings is officially in place in the Democratic           affected communities and impede effective
+         Republic of the Congo.                                       community engagement.
+     • Population mobility mapping exercises have been            • Marginal groups and most at-risk groups left
+         conducted to inform the geospatial location of               behind.
+         response and readiness interventions.                Border health, PoEs and mass gatherings
+     • Risk communication materials targeting individual          • With BVD cases reported in Kisangani, a major
+         travellers and small gatherings’ attendees are               port city linking the Congo River to Kinshasa, and
+         available.                                                   connecting to the Republic of the Congo, and
+     • Authorities in at-risk countries, including Uganda,            indirectly to the Central African Republic (CAR)
+         South Sudan, Tanzania, Rwanda and Kenya, have                and Angola, the potential for further geographic
+         been trained on the use of the WHO All-Hazards               spread is higher. Surveillance and RCCE need to be
+         Risk Assessment Tool for Mass Gatherings.                    further reinforced along this major trade and
+                                                                      travel route.
+  Operational support and logistics                               • Many river sites are informal landing sites, small
+     • Substantial scale-up of surge deployments.                     private ports or informal congregation points, the
+                                                                      extensive use of these informal landing sites and
+
+                                                                                                   Page 15 of 21
+                                                                                                     Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+      •   WHO has deployed 264 field personnel across the            small private ports presents challenges for
+          Democratic Republic of the Congo and Uganda to             surveillance, alert detection, referral and public
+          support response operations.                               response, as these locations often operate outside
+      •   Logistics corridors from Kinshasa in the                   formal public health oversight, creating potential
+          Democratic Republic of the Congo, Nairobi in               gaps in early warning and response systems.
+          Kenya, Dakar in Senegal, and other regional hubs       • Other persistent challenges at PoEs are the
+          remain operational, facilitating the movement of           payment of frontline workers; security concerns in
+          emergency supplies and equipment to affected               relation to compliance with voluntary screening
+          areas. To date, 38 metric tonnes of medical                measures, lack of equipment and supplies, lack of
+          equipment, laboratory consumables, personal                training for front line workers, and access to the
+          protective equipment (PPE), and other emergency            up-to-date list of cases and contacts in a timely
+          supplies have been transported to support                  manner for conducting exit screening at PoEs.
+          response operations across Ituri, North Kivu, and      • The postponement of mass gatherings (MG) held
+          South Kivu provinces. WHO has also received an             within areas with documented BDBV detection
+          additional five metric tonnes of emergency                 needs to be considered until BVD transmission is
+          supplies through support from the United Nations           interrupted. For mass gatherings proceeding
+          Organization Stabilization Mission in the                  outside areas with documented BDBV detection, a
+          Democratic Republic of the Congo (MONUSCO).                risk-based approach should be applied, with
+      •   Cargo flights and logistics support continue to            decisions resting with national or local authorities
+          facilitate the delivery of critical response               and event organizers. Despite scaling down of
+          commodities despite persistent access challenges           MGs, in such settings, the high density and
+          in some affected areas. Operational assessments            mobility of attendees favour close, frequent and
+          of warehousing, stock positioning, and supply              prolonged interactions, which increase the risk of
+          chain management continue to support                       amplification of BVD transmission and potential
+          commodity visibility and distribution across               disruption of health services.
+          affected provinces.                                    • Small gatherings can contribute to increased
+                                                                     disease transmission; during Ebola outbreaks,
+                                                                     some gatherings especially funerals can increase
+                                                                     the risk of transmission. Private and public small
+                                                                     gatherings need particular attention, especially
+                                                                     during outbreaks.
+                                                              Operational support and logistics
+                                                                 • Transport and fuel shortages for field operations.
+                                                                 • Stock-outs of essential supplies (PPE, IPC
+                                                                     materials).
+                                                                 • Lack of resources for communication costs and
+                                                                     communication equipment.
+                                                                 • Lack of resources for social listening (cost of
+                                                                     software, HR).
+                                                                 • HR: tensions due to delayed payments of salaries,
+                                                                     refusal of mobile payment, inconsistent
+                                                                     payment/DSA scales between partners.
+                                                                 • Recruitment: tensions with communities due to
+                                                                     origins/ethnical group. Localised recruitment
+                                                                     should be prioritised.
+
+
+ Reference documents used for risk assessment
+
+ Risk Assessment Methodology
+
+ World Health Organisation, The Manual Rapid risk assessment of acute public health events
+ https://www.who.int/publications/i/item/rapid-risk-assessment-of-acute-public-health-events
+
+ Risk Assessments & Strategic Assessments
+
+ [Limited Access] Event Information Site (EIS) for National IHR Focal Points: Temporary recommendations issued
+ by the Director-General of WHO in relation to the PHEIC associated with the epidemic of Ebola disease caused by
+ Bundibugyo virus (BVD) in the Democratic Republic of the Congo (DRC) and Uganda
+ https://hems.who.int/apps/eis/dashboard/667a1205cdf8e1805dfa0f5d?id=6a104bba609d026fa0195fc2
+
+ Operational Response Guidance
+
+
+                                                                                                    Page 16 of 21
+                                                                                                      Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+ WHO emergency guidance on the use of licensed Ebola virus vaccine during Bundibugyo virus disease outbreaks,
+ 28 May 2026. Geneva: World Health Organization; 2026 (https://iris.who.int/handle/10665/386257 ). Licence
+ CC BY-NC-SA 3.0 IGO
+
+ Current 2026 Outbreak
+
+ Disease outbreak news. Ebola disease caused by Bundibugyo virus - Democratic Republic of the Congo. 1 August
+ 2026 https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON614
+
+ BUNDIBUGYO VIRUS DISEASE OUTBREAK, Democratic Republic of the Congo | Uganda | France
+ Weekly        External     Situation      Report    13,    Data     as     of     09      August 2026
+ https://iris.who.int/server/api/core/bitstreams/21922255-8b77-4612-bc0e-1064fafcf6ef/content
+
+ The National Institute of Public Health, the Democratic Republic of the Congo Sitrep Ebola 13 August:
+ https://insp.cd/sitrep-n089-mvebdb-11-08-2026/
+
+ Africa CDC, Ebola Response: Statement from the Director General, Africa Centres for Disease Control and
+ Prevention (Africa CDC) https://africacdc.africa-newsroom.com/press/ebola-response-statement-from-the-
+ director-general-africa-cdc?lang=en
+
+ WOAH Statement on the Ebola Virus Disease Outbreak in the Democratic Republic of the Congo and Uganda
+ https://www.woah.org/en/woah-statement-on-the-ebola-virus-disease-outbreak-in-the-democratic-republic-
+ of-the-congo-and-uganda/
+
+ IRC: International Rescue Committee (IRC) warns Democratic Republic of the Congo (DRC) Ebola outbreak likely
+ far larger than official figures suggest https://www.africa-newsroom.com/press/international-rescue-
+ committee-irc-warns-democratic-republic-of-the-congo-drc-ebola-outbreak-likely-far-larger-than-official-
+ figures-suggest?lang=en
+
+ United Nations, UN News, Ebola tracing improves in DR Congo – but the virus is still winning the race
+
+ Historical Outbreaks
+
+ MacNeil A, Farnon EC, Wamala J, Okware S, Cannon DL, Reed Z, Towner JS, Tappero JW, Lutwama J, Downing R,
+ Nichol ST, Ksiazek TG, Rollin PE. Proportion of deaths and clinical features in Bundibugyo Ebola virus infection,
+ Uganda. Emerg Infect Dis. 2010 Dec;16(12):1969-72. doi: 10.3201/eid1612.100627. PMID: 21122234; PMCID:
+ PMC3294552. https://pmc.ncbi.nlm.nih.gov/articles/PMC3294552/
+
+ Disease Outbreak News. Ebola outbreak in Democratic Republic of Congo – update. WHO. 26 October 2012
+ https://www.who.int/emergencies/disease-outbreak-news/item/2012_10_26-en
+
+ Ebola Virus Disease Outbreak (BDBV) in Isiro, Democratic Republic of the Congo, 2012: Signs and Symptoms,
+ Management and Outcomes https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0129333
+
+ World Health Organisation, Ebola West Africa, March 2014-2016
+ https://www.who.int/emergencies/situations/ebola-outbreak-2014-2016-West-Africa
+
+ Zomahoun, D. L., Boyd, M. A., Honein, M. A., Montgomery, J. M., Zielinski-Gutierrez, E., Meites, E., Christie, A.,
+ Pillai, S. K., & CDC 2026 Ebola Response (2026). Notes from the Field: Outbreak of Ebola Disease Caused by
+ Bundibugyo Virus - Democratic Republic of the Congo and Uganda, May 2026. MMWR. Morbidity and mortality
+ weekly report, 75(22), 293–294. https://doi.org/10.15585/mmwr.mm7522e3
+
+ Disease Overview
+
+
+
+                                                                                                      Page 17 of 21
+                                                                                                        Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+ World Health Organization. Ebola virus Disease https://www.who.int/news-room/fact-sheets/detail/ebolavirus-
+ disease
+
+ US Centers for Disease Control and Prevention. Ebola disease outbreaks by species and size
+ https://www.cdc.gov/ebola/about/index.html
+
+ Bundibugyo Ebolavirus, https://www.sciencedirect.com/topics/agricultural-and-biological-sciences/bundibugyo-
+ ebolavirus
+
+ Clinical Presentation and Outcomes
+
+ Ebola Virus Disease Outbreak (BDBV) in Isiro, Democratic Republic of the Congo, 2012: Signs and Symptoms,
+ Management and Outcomes https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0129333
+
+ Proportion of Deaths and Clinical Features in Bundibugyo Ebola Virus Infection, Uganda
+ https://pmc.ncbi.nlm.nih.gov/articles/PMC3294552/
+
+ Diagnostics
+
+ Karim S, Mahomed S, Lewis L et al., Urgent need for a reliable rapid diagnostic test for the Ebola epidemic
+ caused by Bundibugyo virus in Africa, The Lancet, 2026; 0 https://doi.org/10.1016/S0140-6736(26)01093-7
+
+ Genomic Epidemiology
+
+ Initial genomes from May 2026 Bundibugyo Virus Disease Outbreak in the Democratic Republic of the Congo and
+ Uganda https://virological.org/t/initial-genomes-from-may-2026-bundibugyo-virus-disease-outbreak-in-the-
+ democratic-republic-of-the-congo-and-uganda/1032
+
+ Mbala Placide, 9 July 2026, Genomic epidemiology of the ongoing 2026 Bundibugyo Virus Disease outbreak in
+ the Democratic Republic of the Congo, Virological.org, Genomic epidemiology of the ongoing 2026 Bundibugyo
+ Virus Disease outbreak in the Democratic Republic of the Congo - Ebolavirus / Bundibugyo ebolavirus –
+ Virological https://virological.org/t/genomic-epidemiology-of-the-ongoing-2026-bundibugyo-virus-disease-
+ outbreak-in-the-democratic-republic-of-the-congo/1045
+
+ Bundibugyo ebolavirus from the 2026 Ebola outbreak in Uganda and DR Congo: a new variant - The Lancet
+ https://www.thelancet.com/journals/lancet/article/PIIS0140-6736(26)01079-2/fulltext
+
+ Surveillance and Reporting
+
+ Elvis Akem, T. (2026). Renewed Confirmed-Case Reporting in Health Zones After 21 Days Without a Newly
+ Attributed Case During the 2026 Bundibugyo Virus Disease Outbreak in the Democratic Republic of the Congo:
+ Implications for Health-Zone Surveillance and Response. Preprints.
+ https://doi.org/10.20944/preprints202608.0905.v1
+
+ Vaccines
+
+ WHO target product profile for Bundibugyo virus disease vaccines, 14 July 2026
+ https://www.who.int/publications/i/item/B09835
+
+ WHO emergency guidance on the use of licensed Ebola virus vaccine during Bundibugyo virus disease outbreaks,
+ 28 May 2026. Geneva: World Health Organization; 2026 (https://iris.who.int/handle/10665/386257 ). Licence
+ CC BY-NC-SA 3.0 IGO.
+
+ One Health, Animal Health, Reservoirs & Ecology
+
+
+                                                                                                    Page 18 of 21
+                                                                                                      Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+ WOAH, Ebola virus disease https://www.woah.org/en/disease/ebola-virus-disease/
+
+ WOAH Statement on the Ebola Virus Disease Outbreak in the Democratic Republic of the Congo and Uganda
+ https://www.woah.org/en/woah-statement-on-the-ebola-virus-disease-outbreak-in-the-democratic-republic-
+ of-the-congo-and-uganda/
+
+ The Rufford Foundation, Protection of Caves, Forests and Roost Sites of Bat in the North Eastern Democratic
+ Republic of Congo https://www.rufford.org/projects/prince-kaleme/protection-of-caves-forests-and-roost-sites-
+ of-bat-in-the-north-eastern-democratic-republic-of-congo
+
+ Humanitarian Context
+
+ Bundibugyo virus outbreak: when a concerning pathogen meets a humanitarian emergency:
+ https://www.nature.com/articles/s41579-026-01332-9
+
+ Security and Access Constraints
+
+ Africa Centres for Disease Control and Prevention (Africa CDC) Statement on Attacks Against Health Facilities
+ During the Bundibugyo Virus Disease Response in the Democratic Republic of the Congo https://africacdc.africa-
+ newsroom.com/press/africa-centres-for-disease-control-and-prevention-africa-cdc-statement-on-attacks-
+ against-health-facilities-during-the-bundibugyo-virus-disease-response-in-the-democratic-republic-of-the-
+ congo?lang=en
+
+ Workforce Surge & Response Capacity
+
+ Braka, F., Conteh, I., Bigirimana, R., Okeibunor, J., & Gueye, A. S. (2025). Bolstering emergency response
+ capacities in Africa: AVoHC-SURGE responders in action. The Pan African Medical Journal, 50(Suppl 1), 12.
+ https://doi.org/10.11604/pamj.supp.2025.50.1.47573
+
+
+         Annex:
+
+         Figure 1: Geographic distribution of cumulative confirmed Bundibugyo virus disease cases and
+         affected health zones in the Democratic Republic of the Congo, as of 12 August 2026.
+
+
+
+
+                                                                                                    Page 19 of 21
+                                                                                                      Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+
+
+    Figure 2: Epidemic curve of reported Bundibugyo virus disease cases by date of reporting, Democratic
+    Republic of the Congo, 14 May–12 August 2026.
+
+
+
+
+                                                                                                Page 20 of 21
+                                                                                                  Version 2.0
+Rapid risk assessment, acute event of potential public health concern
+
+
+    Figure 3: Number of confirmed Bundibugyo virus disease deaths by date of reporting, Democratic Republic
+    of the Congo, 14 May–12 August 2026.
+
+
+
+
+                                                                                              Page 21 of 21
+                                                                                                Version 2.0
+

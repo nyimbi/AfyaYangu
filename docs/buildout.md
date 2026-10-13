@@ -3297,3 +3297,119 @@ counted unasked; an unknown milestone counted as absent; the guidance collapsed 
 growth route reverted to the one-word flag; the semicolon list read as one bullet; the semicolon
 split reaching the bullets; the unchecked checklist reading as an alert; and a re-weigh at the same
 age filing a duplicate document.
+
+---
+
+## §INF-005 — a country half that was a constant, and a link that was a sentence
+
+§INF-005 is five Features, one of them `missing` and three of the four `carried` ones disclosing a
+gap in their own note. All four turned out to be the same shape: **a claim with no table behind it.**
+
+### The country half was a constant, and the county half had no carrier
+
+`LocationService.advisory(destination, origin_country)` interpolated its two arguments into one fixed
+paragraph. Kampala, Kinshasa and Kinshasa-from-Nairobi were answered identically — a traveller asking
+whether it was safe to cross at Busia got a sentence that would have read the same had the outbreak
+been in another hemisphere. That is the `missing` row, and the fix is `afya/location/advisories.py`:
+a table built strictly from WHO's own v4 rapid risk assessment and the two Disease Outbreak News
+notices.
+
+**The table is short because the source is short, and that is the finding.** WHO publishes a band per
+*group of countries* — the DRC very high, "countries sharing land borders with the DRC" high, the rest
+of the African Region and the world low — and then names three countries individually inside the high
+band ("Uganda, the Central African Republic and South Sudan are of particular concern"). It does not
+enumerate the DRC's land-border states. **Burundi shares a land border with the DRC and has no row in
+either source**, so `COUNTRIES` carries exactly seven rows and the test asserts Burundi, Rwanda and
+Tanzania resolve to *nothing* rather than to the regional band. Reading Burundi's band off "rest of
+the African Region" would be the single most consequential invented number in this unit: the regional
+band is about the Region, and the land-border band is where Burundi actually sits.
+
+**Kenya is `not_assessed`, and it is the row the whole section is for.** DON619 says in its own words
+that "a detailed rapid risk assessment is currently ongoing to assess the risk in Kenya and will be
+reported once available". Kenya sits inside the "rest of the African Region" band, and reading it off
+that band answers `low` about the country the advisory is served in. `not_assessed` and `unknown` are
+refusals, not bands: `BAND_LABELS` renders both as "not assessed", and WHO's own caveat — that a
+country with no row "has not been assessed in this notice — that is not the same as being assessed as
+low risk" — travels on every report. Same shape as §MED-002's pregnancy caveat.
+
+**The county half had a carrier the whole time, just not in this module.** The row said it had none.
+`CountyRisk` already holds a per-county band with a stamp and a source, and §INF-001's dashboard route
+already serves it; `LocationService` now takes that read as a collaborator (`CountyRiskRead`, a
+`Protocol`) and `_county_advisory` returns `None` for anything that is not a Kenyan county so the
+caller falls through to the country table. A second table here would be the copy that goes stale the
+first time a county office publishes a risk level.
+
+The two halves use **different vocabularies** and the overlap between them is why `kind` is not
+decoration. A country carries WHO's `very_high|high|low|not_assessed`; a Kenyan county carries
+`low|moderate|high`. They share `high` and `low` — and "high" for Uganda is WHO's land-border band
+while "high" for Busia is a dashboard reading. `PlaceAdvisory.band` accepts the union so one model
+serves both tables and `kind` says which table a row came from, so a client cannot render the union
+as one scale and let a reader rank a Kenyan county against the DRC.
+
+### "What to do if you feel unwell" was one sentence
+
+The advisory ended "if you feel unwell after arrival, call 719 and say where you travelled" — one of
+five things the sources say, and the only one a Kenyan reader already knows. `POST_TRAVEL_STEPS` now
+carries five: 21 days of monitoring and "seek medical care immediately" from CDC, the symptom set from
+WHO's fact sheet, and the 719 call and the arrival declaration as this deployment's own operating
+rule. **Each step carries its `source`**, because three are quoted from an authority and two are ours,
+and `STEP_SOURCES` says so in the served payload rather than presenting five instructions as one
+voice. `TRAVELLER_RISK_NOTE` carries CDC's own counterweight — the viruses "pose little risk to
+travelers or the general public" — because a reader who saw only the bands would conclude the
+opposite.
+
+### The MON-009 link was a message string
+
+"21-day self-monitoring enrolment for travellers (**links to MON-009**)" linked by *saying so*: the
+acknowledgement named days 1, 3, 7, 14 and 21 while `MonitoringService` had never heard of the
+traveller, so `/monitoring/contact/{ref}/diary` answered an empty list and no day was ever logged.
+`self_declare` now calls `self._monitoring.enrol(...)`, and `TravellerEnrolment.diary_linked` reports
+whether it did — a deployment with no monitoring service wired says `False` rather than promising a
+schedule nothing will ask about. The officer is deliberately not passed: a traveller is not a contact
+of a named officer, and inventing one would put a stranger's name on a 21-day record.
+
+### What the canaries found
+
+One MISSED on the first run, and it was a defect in the test rather than in the canary. **Canary #1
+replaced the source's own sentence with an empty string while leaving the band in place** — and the
+test passed, because it compared two destinations' bands and never asserted the sentence reached the
+paragraph. A paragraph that carried a band and dropped the sentence behind it still differs between
+two countries while leaving a reader with a number nobody can check. The fix asserts
+`row_for('Uganda').stated in uganda.advisory`. It is the same shape as §REC-003's three: **assert the
+value that was served, not the constant it was served from.**
+
+**13/13 fired.** The advisory paragraph back to a constant; Kenya served as `low`; an unassessed place
+labelled as low risk; the not-assessed caveat dropped; an unknown place resolved to a band; the county
+half given its own table; the county row stamped with WHO's assessment date; the WHO travel advice
+dropped; a deployment rule relabelled as CDC's; the traveller risk note dropped; the enrolment no
+longer reaching the monitoring service; `diary_linked` reported true with nothing enrolled; and a band
+from neither table accepted.
+
+### What the live probe found, which no test had
+
+The declaration route and the diary route are wired together in `build_services` and not in the
+service — `LocationService` takes the monitoring service as a constructor argument, so a unit test
+that builds both by hand proves the call and proves nothing about the deployment. The front door is
+the only place that shows it: `POST /location/traveller/declare` then
+`POST /monitoring/contact/day` then `GET /monitoring/contact/{ref}/diary` returns `[3]`. The test
+drives all three through `create_app(build_services(...))` for exactly that reason, and asserts
+`diary_linked is True` on the response — the field is what makes the link checkable rather than
+inferred from a message string.
+
+### Counts
+
+**§INF-005 1 `missing` → 0**, all five bullets `carried` with refs that resolve through
+`afya.refs.py`. Across the repo **459 → 460 `carried`, 21 → 20 `missing`**, 497 rows, `deferred` 17
+unchanged.
+
+Five source files archived in `sources/who-ebola-outbreak-news/` with both checksums in
+`sources/INDEX.md`, and the new section records what the sources do and do not support — that WHO
+bands *groups* rather than countries, that it does not enumerate the DRC's land-border states
+(Burundi has no row), that Kenya's assessment was still running, and that the 719 line and the
+declaration are this deployment's own.
+
+The `sources/INDEX.md` table gained the five directories that had a `##` section but no row —
+`air-quality`, `county-adjacency`, `ebola-transmission`, `helpline-directory` and `water-treatment`.
+The sections were all present and the table, which is the list a reader checks against `ls sources/`,
+under-reported the archive by five. It is the internal-link checker's defect in a different file: a
+table that enumerates some of the ways a source is recorded reports a gap as closed.

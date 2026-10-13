@@ -353,6 +353,13 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	# §MON-004's "Works with no data connection" needs one queue that both the sync routes and the
 	# medication tracker enqueue into, so it is built here and shared rather than constructed twice.
 	sync_svc = SyncService(store)
+	# §INF-005's first and fifth Features both reach a service this module already builds: the county
+	# half of "Country and county advisories" reads §INF-001's risk rows, and the traveller enrolment
+	# has to reach §MON-009's diary. Built as locals and handed to `LocationService` rather than
+	# looked up later, because the dict is constructed in one expression and a service that read
+	# `services['info']` from inside would depend on the order the dict happened to be written in.
+	info_svc = InfoService()
+	monitoring_svc = MonitoringService(records_svc, sync_svc)
 
 	return {
 		'registry': registry,
@@ -375,7 +382,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'channels': channels_svc,
 		'crypto': crypto_svc,
 		'emergency': emergency_svc,
-		'info': InfoService(),
+		'info': info_svc,
 		'records': records_svc,
 		'women': WomenService(),
 		'maternal': MaternalService(),
@@ -393,12 +400,16 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# §MON-004's "Works with no data connection": a dose taken with no signal has to reach the
 		# sync queue, so the tracker is handed the queue rather than the route doing it separately —
 		# a caller that forgot would lose the dose while the screen said it was recorded.
-		'monitoring': MonitoringService(records_svc, sync_svc),
+		'monitoring': monitoring_svc,
 		'identity': identity_svc,
 		'community': CommunityService(identity_svc),
 		'alerting': AlertingService(),
 		'realtime': RealtimeService(),
-		'location': LocationService(),
+		# §INF-005's two collaborators. `info_svc.dashboard` is the county risk read and
+		# `monitoring_svc` is the diary the traveller enrolment has to reach — the audit row's
+		# "the link is a message string, so the enrolment does not reach `MonitoringService.enrol`
+		# and the diary stays empty".
+		'location': LocationService(info_svc.dashboard, monitoring_svc),
 		'ai': AIService(),
 		'analytics': AnalyticsService(),
 		'metrics': MetricsService(),
@@ -3888,15 +3899,20 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.get('/location/travel-advisory')
-	async def location_advisory(destination: str, origin_country: str, lang: str = 'en') -> dict[str, str]:
-		"""§LOC-005's pre-travel advisory, in the traveller's language.
+	async def location_advisory(destination: str, origin_country: str, lang: str = 'en') -> dict[str, object]:
+		"""§INF-005's travel advisory, whole: both places, the paragraph, and the post-travel steps.
 
 		`lang` defaults to English and any language without a string table is served English and told
 		so through `TravellerEnrolment.lang`/the advisory's own text — §ACC-002's `answerable` rule,
 		not a second one. The route is public on the reasoning §INF-005 already used: a person asks
 		whether it is safe to travel before deciding to tell anyone who they are.
+
+		The response grew from `{advisory, lang}` to the resolved rows and the five steps, because
+		§INF-005 asks for four things this one route answers and a client that had to call four
+		routes to draw one screen is a client that can draw three of them. `advisory` stays a string
+		for §5.4's USSD and SMS legs, which cannot render a structure.
 		"""
-		return {'advisory': location.advisory(destination, origin_country, lang), 'lang': lang}
+		return location.travel_advisory(destination, origin_country, lang).model_dump(mode='json')
 
 	@app.post('/location/traveller/declare')
 	async def location_declare_traveller(decl: TravelerDeclaration, _subject: str = Depends(require_self())) -> dict[str, object]:

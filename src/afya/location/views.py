@@ -192,3 +192,97 @@ class TravellerEnrolment(BaseModel):
 	report_schedule: list[int]
 	message: str
 	lang: str = 'en'
+	# §INF-005's fifth Feature is "21-day self-monitoring enrolment for travellers (**links to
+	# MON-009**)", and the link was a sentence: the acknowledgement said the traveller was enrolled
+	# for 21 days while `MonitoringService` had never heard of them, so the diary route answered an
+	# empty list. The field is what makes the link checkable from the payload rather than inferred
+	# from a message string — `False` means this deployment has no monitoring service wired, which
+	# a client can act on instead of showing a schedule nothing will ask about.
+	diary_linked: bool = False
+
+
+# --- §INF-005 travel advisories ------------------------------------------------------------
+#
+# "Country and county advisories" is two halves and the repo had neither: `advisory()` interpolated
+# the caller's two arguments into one fixed paragraph, so the country half was a constant and the
+# county half had no carrier at all. `PlaceAdvisory` is the shape both halves are served in.
+
+class PlaceAdvisory(BaseModel):
+	"""One place — a country or a Kenyan county — with the band the authority gives it.
+
+	`kind` is load-bearing and not decoration: the two halves read from **different vocabularies**.
+	A country carries WHO's `very_high|high|low|not_assessed`, a county carries §INF-001's dashboard
+	`low|moderate|high`, and a client that rendered the union as one scale would put a Kenyan county
+	assessed "high" beside the Democratic Republic of the Congo assessed "very high" and let a reader
+	rank them. `band` accepts the union so one model serves both; `kind` says which table it came
+	from, and `source` names the table.
+
+	`unknown` is a third verdict and it is not `low`. A city, a misspelling and a country WHO did not
+	name all resolve here, because from the table's side they are one fact: nothing in the source
+	addresses it. §INF-005 is asked "is it safe to travel", and the only answer that may never be
+	invented is the reassuring one.
+	"""
+	model_config = MODEL_CONFIG
+	place: str
+	kind: str = Field(pattern=r'^(country|county|unknown)$')
+	name: str = ''
+	band: str = Field(pattern=r'^(very_high|high|moderate|low|not_assessed|unknown)$')
+	stated: str = ''
+	# §8.5's "Last updated timestamp" and "Data source attribution", on both halves. A country's is
+	# the date of the assessment it came from; a county's is the dashboard's own stamp, which is
+	# `UNDATED_MS` for a county nobody has assessed — the same distinction `CountyRisk` draws, and
+	# the reason a defaulted low-risk county cannot read as an assessment made today.
+	assessed_on_iso: str = ''
+	source: str = ''
+
+
+class RiskBand(BaseModel):
+	"""One row of WHO's own four-row risk table, as the source prints it.
+
+	Served because it is the frame every country row is read in, and because two of its rows are bands
+	for *groups* — "Rest of the African Region", "Global" — which cannot be resolved to a country and
+	would otherwise be invisible to a traveller who is in neither the DRC nor a land-border state.
+	"""
+	model_config = MODEL_CONFIG
+	label: str
+	band: str = Field(pattern=r'^(very_high|high|low)$')
+	printed: str
+	confidence: str = Field(pattern=r'^(low|moderate|high)$')
+
+
+class PostTravelStep(BaseModel):
+	"""§INF-005's fourth Feature, "What to do if you feel unwell after travel", as steps.
+
+	The row's note called the guidance "one fixed sentence", and it was: `advisory` ended "if you
+	feel unwell after arrival, call 719 and say where you travelled", which is one of five things
+	the sources say and the only one a Kenyan reader already knows.
+
+	`source` travels on every step because the five are **not one authority's**. Three are quoted
+	from WHO or CDC and two are this deployment's operating rule, and a traveller is owed the
+	difference — the same reason `sources/INDEX.md` records what a source does *not* support.
+	"""
+	model_config = MODEL_CONFIG
+	step_id: str
+	instruction: str
+	source: str
+
+
+class TravelAdvisoryReport(BaseModel):
+	"""§INF-005's first and fourth Features, whole: both places, the paragraph, and the steps.
+
+	`advisory` stays a single string because §5.4 puts this answer on WhatsApp, USSD and SMS, and a
+	structured payload is not renderable on two of the three. It is no longer a constant: it is
+	composed from `destination`'s row, so the same question about two countries returns two answers.
+	"""
+	model_config = MODEL_CONFIG
+	destination: PlaceAdvisory
+	origin: PlaceAdvisory
+	advisory: str
+	steps: list[PostTravelStep]
+	risk_table: list[RiskBand]
+	who_travel_advice: str
+	border_note: str
+	traveller_risk_note: str
+	not_assessed_caveat: str
+	lang: str = 'en'
+	source: str
