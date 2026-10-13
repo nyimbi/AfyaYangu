@@ -307,7 +307,6 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§REC-006': 2,
 		'§SEC-001': 2,
 		'§SEC-002': 1,
-		'§SEC-003': 3,
 		'§SEC-004': 1,
 		'§SEC-006': 2,
 		# §EMG-003, §FND-001, §FND-002, §FND-003, §FND-004, §FND-005, §TRI-001, §TRI-002 and

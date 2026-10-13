@@ -16,6 +16,7 @@
 		"numpy>=2.4.6",
 		"grpcio>=1.84.0",
 		"protobuf>=7.36.2",
+		"cryptography>=50.0.2",
 ]
 
 [dependency-groups]

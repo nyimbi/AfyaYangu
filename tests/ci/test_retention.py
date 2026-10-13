@@ -103,13 +103,29 @@ def test_purge_expired_ignores_types_not_held() -> None:
 	assert svc.inventory('U6').held == {}
 
 
-def test_encryption_posture_reports_aes256_and_tls13() -> None:
-	posture = RetentionService.encryption_posture()
-	assert posture.at_rest == 'AES-256'
-	assert posture.in_transit == 'TLS 1.3'
-	assert posture.contact_lists_extra_layer is True
-	assert posture.cloud_backup_e2e is True
-	assert posture.user_held_key is True
+def test_encryption_posture_reports_what_is_deployed_not_what_is_intended() -> None:
+	"""The posture is a report, so it must be able to say `none`.
+
+	This test used to assert three hardcoded `True`s — it pinned the claim rather than the control,
+	which is why §SEC-003's row stayed `missing` while the posture said everything was in place. A
+	deployment with no crypto service reports plaintext; one with an at-rest key reports AES-256 but
+	no second layer for contact lists; only one holding *both* keys reports the extra layer.
+	"""
+	svc = RetentionService()
+	bare = svc.encryption_posture()
+	assert bare.at_rest == 'none', 'no key, no AES-256 — the posture must be able to say so'
+	assert bare.contact_lists_extra_layer is False
+	assert bare.cloud_backup_e2e is False and bare.user_held_key is False
+	assert bare.in_transit == 'TLS 1.3'
+
+	from afya.crypto.service import CryptoService, new_key
+	at_only = svc.encryption_posture(CryptoService(new_key()))
+	assert at_only.at_rest == 'AES-256'
+	assert at_only.contact_lists_extra_layer is False, 'one key fitted twice is not two layers'
+
+	both = svc.encryption_posture(CryptoService(new_key(), new_key()))
+	assert both.at_rest == 'AES-256' and both.contact_lists_extra_layer is True
+
 	standard = RetentionService.standard()
 	assert standard == ENCRYPTION_STANDARD
 	assert 'AES-256' in standard and 'TLS 1.3' in standard

@@ -16,6 +16,15 @@ from afya.privacy.views import ConsentRecord, LegalBasis
 from afya.sync.views import SyncOp
 from afya.persistence.views import StoreStats
 
+# §SEC-003: "Contact lists and location history: additional application-layer encryption". These are
+# the datasets that get the *second* key, so a reader holding the at-rest key — a database dump, a
+# stolen backup bucket — still cannot read where a person has been or who they were near. The set is
+# named here rather than inferred from a prefix, because a dataset that quietly stopped qualifying
+# would silently lose its layer.
+APP_LAYER_DATASETS: frozenset[str] = frozenset({
+	'contact_lists', 'location_history', 'proximity_tokens', 'exposure_declarations',
+})
+
 _SCHEMA = (
 	'CREATE TABLE IF NOT EXISTS sync_ops (op_id TEXT PRIMARY KEY, dataset TEXT NOT NULL, server_version INTEGER NOT NULL DEFAULT 0, client_ts INTEGER NOT NULL, server_ts INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL DEFAULT "{}", attempt INTEGER NOT NULL DEFAULT 0, synced INTEGER NOT NULL DEFAULT 0, retry_at_ms INTEGER)',
 	'CREATE TABLE IF NOT EXISTS consents (consent_id TEXT PRIMARY KEY, subject_ref TEXT NOT NULL, purpose TEXT NOT NULL, data_types TEXT NOT NULL, retention_days INTEGER NOT NULL, legal_basis TEXT NOT NULL, withdrawn INTEGER NOT NULL DEFAULT 0)',
@@ -27,11 +36,49 @@ _SCHEMA = (
 
 
 class SqliteStore(LogMixin):
-	def __init__(self, path: str) -> None:
+	"""§16.1/§17.2's local store, with §SEC-003's encryption applied to the sensitive columns.
+
+	`crypto` is injected rather than imported, and it is optional — a unit test that only wants the
+	queue to survive a reopen must not have to mint a key. What is *not* optional is the
+	consequence: when no crypto service is wired, `sealed` columns are written as plaintext, and
+	`encrypted` reports False so §SEC-003's posture says so instead of asserting AES-256 over a
+	file anyone can read. A store that silently fell back to plaintext while a posture boolean
+	claimed otherwise is precisely the finding the audit row named.
+	"""
+
+	def __init__(self, path: str, crypto: object | None = None) -> None:
 		assert path, 'path required'
 		self._path = path
+		self._crypto = crypto
 		self._ready = False
 		assert not self._ready, 'store starts unready'
+
+	@property
+	def encrypted(self) -> bool:
+		"""Whether this store seals its sensitive columns. Reported, never assumed."""
+		return self._crypto is not None
+
+	def _seal(self, plaintext: str, app_layer: bool = False) -> str:
+		"""Seal one column value, or pass it through when no crypto service is wired."""
+		assert plaintext is not None, 'a column value is required'
+		if self._crypto is None:
+			return plaintext
+		sealed = self._crypto.seal(plaintext.encode('utf-8'), app_layer=app_layer)  # type: ignore[attr-defined]
+		return sealed.to_blob()  # type: ignore[attr-defined]
+
+	def _open(self, stored: str) -> str:
+		"""Reverse `_seal`. A v1-tagged value is opened; anything else is legacy plaintext.
+
+		Rows written before the store was encrypted stay readable, which is the only way an
+		existing handset's queue survives the upgrade. The version tag is what makes that
+		distinguishable from a value that failed to open — and a failed open raises rather than
+		returning the ciphertext, because a corrupt record and an encrypted one must not look alike.
+		"""
+		assert stored is not None, 'a column value is required'
+		if self._crypto is None or not stored.startswith('v1.'):
+			return stored
+		from afya.crypto.service import Sealed
+		return self._crypto.open(Sealed.from_blob(stored)).decode('utf-8')  # type: ignore[attr-defined]
 
 	@asynccontextmanager
 	async def _conn(self) -> AsyncIterator[aiosqlite.Connection]:
@@ -62,7 +109,9 @@ class SqliteStore(LogMixin):
 		async with self._conn() as c:
 			await c.execute(
 				'REPLACE INTO sync_ops VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-				(op.op_id, op.dataset, op.server_version, op.client_ts, op.server_ts, json.dumps(op.payload), op.attempt, int(op.synced), op.retry_at_ms),
+				(op.op_id, op.dataset, op.server_version, op.client_ts, op.server_ts,
+				 self._seal(json.dumps(op.payload), app_layer=op.dataset in APP_LAYER_DATASETS),
+				 op.attempt, int(op.synced), op.retry_at_ms),
 			)
 			await c.commit()
 
@@ -70,7 +119,7 @@ class SqliteStore(LogMixin):
 		async with self._conn() as c:
 			rows = await (await c.execute('SELECT * FROM sync_ops')).fetchall()
 		return [
-			SyncOp(op_id=r[0], dataset=r[1], server_version=r[2], client_ts=r[3], server_ts=r[4], payload=json.loads(r[5]), attempt=r[6], synced=bool(r[7]), retry_at_ms=r[8])
+			SyncOp(op_id=r[0], dataset=r[1], server_version=r[2], client_ts=r[3], server_ts=r[4], payload=json.loads(self._open(r[5])), attempt=r[6], synced=bool(r[7]), retry_at_ms=r[8])
 			for r in rows
 		]
 
@@ -78,7 +127,7 @@ class SqliteStore(LogMixin):
 		async with self._conn() as c:
 			await c.execute(
 				'REPLACE INTO consents VALUES (?, ?, ?, ?, ?, ?, ?)',
-				(rec.consent_id, rec.subject_ref, rec.purpose, json.dumps(rec.data_types), rec.retention_days, rec.legal_basis.value, int(rec.withdrawn)),
+				(rec.consent_id, rec.subject_ref, rec.purpose, self._seal(json.dumps(rec.data_types)), rec.retention_days, rec.legal_basis.value, int(rec.withdrawn)),
 			)
 			await c.commit()
 
@@ -86,7 +135,7 @@ class SqliteStore(LogMixin):
 		async with self._conn() as c:
 			rows = await (await c.execute('SELECT * FROM consents')).fetchall()
 		return [
-			ConsentRecord(consent_id=r[0], subject_ref=r[1], purpose=r[2], data_types=json.loads(r[3]), retention_days=r[4], legal_basis=LegalBasis(r[5]), withdrawn=bool(r[6]))
+			ConsentRecord(consent_id=r[0], subject_ref=r[1], purpose=r[2], data_types=json.loads(self._open(r[3])), retention_days=r[4], legal_basis=LegalBasis(r[5]), withdrawn=bool(r[6]))
 			for r in rows
 		]
 

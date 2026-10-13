@@ -2644,3 +2644,68 @@ target, it aborted the run and **canaries #10–#16 never executed**. A canary t
 silently deletes every canary after it. Separately, the first green 16/16 was invalid: a syntax error
 in the test file made collection fail, and a test file that does not import makes every mutation look
 caught. The suite was re-run against a file that parses and reports zero collection errors.
+
+---
+
+## §SEC-003 — a standard stated in three places and applied in none
+
+§SEC-003 is five Standards, three of which were `missing`. They shared one shape: the tree named the
+control and applied it nowhere. `ENCRYPTION_STANDARD` was a string constant. `EncryptionPosture`
+returned three hardcoded `True`s. `SqliteStore` wrote plaintext rows. §17.5's control table named the
+*string* as the enforcer of the at-rest row, and a test asserted the three `True`s — so the claim and
+its own absence were both pinned in the tree, and neither could be contradicted.
+
+**All three closed, and the posture can now disagree with the design.**
+
+- **"At rest: AES-256"** — `SqliteStore` seals its sensitive columns with AES-256-GCM, a fresh 96-bit
+  nonce per value, and verifies the tag on open. The at-rest key persists in a `0600` sidecar beside
+  the database. `EncryptionPosture.at_rest` reads `none` when no key is wired.
+- **"Contact lists and location history: additional application-layer encryption"** — the datasets
+  the section names by hand get a *second* key, and `CryptoService` refuses to be constructed with
+  the two keys equal, because one key fitted twice is not two layers. The layer travels with the
+  value, so a reader who takes the database and the at-rest key still cannot open a contact list.
+- **"Cloud backup: end-to-end encrypted with user-held key"** — with a passphrase the wallet is
+  sealed under a scrypt-derived key with a fresh salt per backup, the derived key is never stored,
+  and the envelope reports `aes-256-gcm`/`user_held_key=True` with `documents` empty. Without one it
+  still reports `none`/False. The two cases are distinguishable on the payload rather than both
+  claiming the standard.
+
+**The key-management row stays `deferred`, deliberately.** §SEC-003 names the Android Keystore and
+the iOS Secure Enclave; a server-side Python process reaches neither. A sidecar key protects a copy
+of the database file alone — a dump, a backup bucket holding only `.db` — and does not protect
+against a reader with the whole directory, who has the key beside the ciphertext. That is a real
+improvement on plaintext and is not the hardware-backed keystore, and the posture reports the
+difference rather than letting AES-256 close it by implication. `docs/research/encryption-at-rest/`
+records the decision and the rejected options.
+
+**Two defects found by building it, both of which would have shipped.**
+
+1. **A per-boot key silently destroys data.** The first wiring generated the at-rest key at boot. A
+   restart then produced a new key and every stored row became unreadable — "encrypted" turned into
+   "lost", which is worse than the plaintext it replaced. Caught by probing a restart directly; the
+   key is now persisted and `test_the_key_persists_across_a_restart` pins it.
+2. **`Scrypt` has no `maxmem`.** That parameter belongs to `hashlib.scrypt`, not
+   `cryptography`'s `Scrypt`. Pyright caught it before the test did.
+
+**The cipher was not hand-rolled.** The repo hand-rolled a PDF writer rather than add a library, so
+the precedent was worth checking and it does not transfer: a PDF format is a data layout where a bug
+is a malformed file, a cipher is a security primitive where a bug is silent. `cryptography` 50.0.2
+is the only new runtime dependency; `pip-audit` reports no known vulnerabilities and `bandit` no
+medium or high findings.
+
+**Counts: §SEC-003 3 `missing` → 0.** Across the repo 440/36 → **443 `carried`, 33 `missing`**, 493
+rows, `deferred` 17. §17.5's control table now names `CryptoService.seal` for the at-rest row instead
+of the string constant.
+
+**Canaries: 11/11 fired.** A sealed value losing its layer tag; contact lists losing their second
+layer; the two keys allowed to be equal; the store falling back to plaintext under an encryption
+label; the nonce ceasing to be fresh; the backup shipping the plaintext beside its ciphertext; the
+posture asserting the design again; the at-rest key regenerated per boot; a passphrase ignored when
+no crypto service is wired; a tampered ciphertext swallowed instead of raised; and a legacy plaintext
+row ceasing to read back.
+
+**A canary-runner fix carried over from §ACC-002.** The runner initially passed both test files'
+node ids to every canary. A node that does not exist makes pytest exit non-zero on the *collection*
+error, which reads as CAUGHT — a canary passing for the wrong reason, which is the failure the script
+exists to prevent. Each canary now names the file its target lives in, and the runner raises if the
+target did not run.

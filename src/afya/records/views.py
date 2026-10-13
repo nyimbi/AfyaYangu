@@ -359,11 +359,14 @@ class BackupEnvelope(BaseModel):
 	documents themselves and a digest, and the route refuses without the subject's `cloud_backup`
 	consent.
 
-	What this is not: an implementation of end-to-end encryption with a user-held key. §SEC-003 asks
-	for both and `retention.encryption_posture()` asserts them as posture booleans; a key the
-	deployment never holds cannot be exercised by a service that runs on the deployment. `cipher`
-	says `none` and `user_held_key` says False, so the envelope describes what it is instead of
-	inheriting a claim from a neighbouring module.
+	End-to-end encryption is now real rather than asserted: when the caller supplies a passphrase,
+	`sealed` holds the wallet sealed under a key derived from it (§SEC-003's scrypt KDF), `cipher`
+	reads `aes-256-gcm`, `user_held_key` is true, and `documents` is empty — the ciphertext is the
+	backup, and serving the plaintext beside it would undo the encryption it just performed.
+
+	When no passphrase is given the envelope still reports `none`/False and carries the documents,
+	because this deployment holds no key it does not also hold the data with. The two cases are
+	distinguishable on the payload, which is the point: a reader can tell which one they got.
 	"""
 
 	model_config = MODEL_CONFIG
@@ -377,3 +380,10 @@ class BackupEnvelope(BaseModel):
 	user_held_key: bool
 	consent_category: str
 	documents: list[WalletDocument]
+	# The sealed wallet, present exactly when a passphrase produced it. `Sealed.to_blob()`'s string,
+	# so it survives JSON and a TEXT column alike. A reader without the passphrase has an inert blob.
+	sealed: str | None = None
+	# What the recipient needs to know to open it: which KDF and cipher, and that the key was never
+	# sent here. Stated on the envelope because the person restoring a backup is not the person who
+	# wrote the service.
+	open_hint: str | None = None

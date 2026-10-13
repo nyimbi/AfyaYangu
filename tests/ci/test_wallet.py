@@ -463,6 +463,44 @@ async def test_the_backup_refuses_without_consent_and_reports_its_own_cipher() -
 	assert len(envelope.digest_sha256) == 64, 'the digest is a sha256'
 
 
+async def test_a_passphrase_makes_the_backup_end_to_end() -> None:
+	"""§SEC-003's "Cloud backup: end-to-end encrypted with user-held key", which was `missing`.
+
+	The finding was that the envelope reported `none`/False and the posture asserted `True` — a
+	claim and its denial in the same tree. With a passphrase the backup is genuinely end-to-end:
+	the wallet is sealed under a key derived from it, the plaintext does not come back, and the
+	key is never stored. Without one the envelope still reports `none`, so the two are
+	distinguishable rather than both claiming the standard.
+	"""
+	from afya.crypto.service import CryptoService, new_key
+	svc = await _family()
+	await svc.add_document(_doc('d1'))
+	crypto = CryptoService(new_key(), new_key())
+	envelope = await svc.backup('G1', 'G1', '2026-10-13T09:00:00', consented=True,
+		passphrase='a-long-enough-passphrase', crypto=crypto)
+	assert envelope.cipher == 'aes-256-gcm' and envelope.user_held_key is True
+	assert envelope.sealed is not None
+	assert envelope.documents == [], 'the plaintext must not ship beside its own ciphertext'
+	assert 'Malaria test' not in envelope.sealed, 'the title is not in the clear'
+	assert envelope.open_hint and 'never sent to us' in envelope.open_hint
+
+	from afya.crypto.service import Sealed
+	sealed = Sealed.from_blob(envelope.sealed)
+	assert crypto.open_for_user(sealed, 'a-long-enough-passphrase').decode().find('Malaria') > 0
+	with pytest.raises(Exception):
+		crypto.open_for_user(sealed, 'the-wrong-passphrase')
+
+
+async def test_a_passphrase_with_no_crypto_service_is_refused_not_ignored() -> None:
+	"""The dangerous fallback: a caller asks for encryption, the service has no key, and the
+	wallet comes back in the clear under an end-to-end label."""
+	svc = await _family()
+	await svc.add_document(_doc('d1'))
+	with pytest.raises(AssertionError, match='no crypto service'):
+		await svc.backup('G1', 'G1', '2026-10-13T09:00:00', consented=True,
+			passphrase='a-long-enough-passphrase', crypto=None)
+
+
 # --- and the routes, as a client reaches them ---------------------------------------------------
 
 async def _client() -> tuple[httpx.AsyncClient, object]:

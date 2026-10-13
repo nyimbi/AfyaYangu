@@ -151,11 +151,34 @@ class RetentionService(LogMixin):
 
 	# --- SEC-003 encryption ----------------------------------------------------------------
 
-	@staticmethod
-	def encryption_posture() -> EncryptionPosture:
+	def encryption_posture(self, crypto: object | None = None) -> EncryptionPosture:
+		"""§SEC-003's posture, read off the wired crypto service instead of asserted.
+
+		This method used to return three hardcoded `True`s, and the audit row said so: the standard
+		was stated and applied nowhere. A posture that cannot be false is not a report. Each flag is
+		now the answer to a question the deployment can fail:
+
+		* `at_rest` is AES-256 only when a key exists to encrypt with, so a store writing plaintext
+		  reports plaintext.
+		* `contact_lists_extra_layer` is true only when the *second* key is configured — the layer
+		  §SEC-003 asks for is a distinct key, and one key fitted twice is not two layers.
+		* `cloud_backup_e2e` and `user_held_key` are true only when a user-held backup can actually
+		  be produced, which needs a passphrase the deployment does not keep. Until the backup route
+		  accepts one, both stay false and the gap is visible here rather than in a neighbouring
+		  module's docstring.
+
+		`crypto=None` reports the undeployed posture rather than the design intent, because a caller
+		with no crypto service is a deployment that has not enabled any of it.
+		"""
+		at_rest = 'AES-256' if crypto is not None and getattr(crypto, 'available', False) else 'none'
+		app_layer = crypto is not None and bool(getattr(crypto, 'has_app_layer', False))
 		return EncryptionPosture(
-			at_rest='AES-256', in_transit='TLS 1.3', keystore='Android Keystore / iOS Secure Enclave',
-			contact_lists_extra_layer=True, cloud_backup_e2e=True, user_held_key=True,
+			at_rest=at_rest, in_transit='TLS 1.3', keystore='Android Keystore / iOS Secure Enclave',
+			contact_lists_extra_layer=app_layer,
+			# The backup is end-to-end only when a user-held key exists, which the crypto service
+			# cannot answer on its own — the route must be handed a passphrase. `RecordsService.backup`
+			# sets these on the envelope it returns; here they report the deployment default.
+			cloud_backup_e2e=False, user_held_key=False,
 		)
 
 	@staticmethod

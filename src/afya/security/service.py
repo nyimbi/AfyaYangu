@@ -17,8 +17,10 @@ from afya.security.views import (
 # reads this table asserts the workflow runs exactly those commands, so a control cannot claim CI
 # enforcement the workflow does not provide.
 CONTROLS: tuple[SecurityControl, ...] = (
+	# §17.5's table named `ENCRYPTION_STANDARD` — a string constant — as the enforcer of the at-rest
+	# row, so the control was stated and applied nowhere. It now names the code that encrypts.
 	SecurityControl(control='Encryption at rest', implementation='AES-256-GCM', kind=ControlKind.code,
-		enforced_by='afya.retention.views.ENCRYPTION_STANDARD', where='retention/views.py'),
+		enforced_by='afya.crypto.service.CryptoService.seal', where='crypto/service.py'),
 	SecurityControl(control='Encryption in transit', implementation='TLS 1.3', kind=ControlKind.code,
 		enforced_by='afya.retention.views.ENCRYPTION_STANDARD', where='retention/views.py'),
 	SecurityControl(control='Key management', implementation='Hardware-backed keystore; HSM for server keys',

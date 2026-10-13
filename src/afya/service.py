@@ -19,6 +19,7 @@ from afya.brand.service import BRAND, NON_GOALS, PRINCIPLES, VISION, brand_is_cl
 from afya.problem.service import gap_report, lesson_report
 from afya.content_audit.service import content_report
 from afya.config import ServiceConfig
+from afya.crypto.service import KEY_BYTES, CryptoService
 from afya.persistence.service import SqliteStore
 from afya.channels.cost import ZeroRatingRule, parse_rules, zero_rating_gaps
 from afya.channels.attention import attention_report
@@ -213,12 +214,76 @@ class DPIAReviewRequest(BaseModel):
 	reviewed_by: str
 
 
+def _key_from_env(name: str) -> bytes | None:
+	"""Read a 256-bit key from a hex environment variable, or None when it is unset.
+
+	A key of the wrong length is refused rather than padded. Padding a short key to 32 bytes is how
+	a deployment ends up with 8 bytes of entropy and a 256-bit label on it — the same class of
+	failure as a control named in a table and absent from the code.
+	"""
+	raw = os.environ.get(name)
+	if raw is None or raw == '':
+		return None
+	key = bytes.fromhex(raw)
+	assert len(key) == KEY_BYTES, f'{name} must be {KEY_BYTES} bytes of hex ({KEY_BYTES * 2} characters)'
+	return key
+
+
+def _at_rest_key_for(db_path: str | None) -> bytes:
+	"""The at-rest key for a deployment: a 0600 sidecar beside the database, created on first use.
+
+	What this protects: a copy of the database file that does not include the sidecar — a dump, a
+	backup bucket holding only `.db`, a snapshot of one file. What it does not protect: a reader with
+	access to the whole directory, who has the key beside the ciphertext.
+
+	That limitation is stated rather than papered over, because the honest control here is the
+	platform keystore §SEC-003 names — Android Keystore, iOS Secure Enclave — which this server-side
+	build cannot reach and which stays `deferred` in the audit. A sidecar key is a real improvement
+	on plaintext and is not the standard the section asks for, and the posture reports the difference
+	rather than claiming AES-256 has closed it.
+	"""
+	assert db_path is None or db_path, 'a path is either absent or a real path'
+	if db_path is None:
+		return os.urandom(KEY_BYTES)
+	sidecar = Path(f'{db_path}.key')
+	if sidecar.exists():
+		key = bytes.fromhex(sidecar.read_text().strip())
+		assert len(key) == KEY_BYTES, f'{sidecar} does not hold a {KEY_BYTES}-byte key'
+		return key
+	key = os.urandom(KEY_BYTES)
+	sidecar.parent.mkdir(parents=True, exist_ok=True)
+	# Opened 0600 at creation rather than chmod-ed afterwards: between a default-mode write and a
+	# later chmod the key is world-readable, and that window is the whole attack.
+	fd = os.open(str(sidecar), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+	try:
+		os.write(fd, key.hex().encode())
+	finally:
+		os.close(fd)
+	return key
+
+
 def build_services(http: AsyncClient | None = None, db_path: str | None = None) -> dict[str, object]:
 	client = http or AsyncClient(timeout=10)
 	cfg = ServiceConfig.from_env()
 	registry = FeatureRegistry()
 	sms_port = AtSmsRestSend(cfg.at_base_url, cfg.at_api_key, cfg.at_username, client) if cfg.at_api_key else AfricaTalkingSmsPort(cfg.at_base_url, cfg.at_api_key or 'dev-key')
-	store = SqliteStore(db_path) if db_path else None
+	# §SEC-003's encryption. The at-rest key is generated at boot when the deployment has not
+	# supplied one, so a fresh install is encrypted rather than depending on an operator to
+	# remember; `AFYA_AT_REST_KEY` and `AFYA_APP_LAYER_KEY` are read when set, and the two must
+	# differ or the application layer adds nothing. Both are hex, so a key survives a config file.
+	at_rest_key = _key_from_env('AFYA_AT_REST_KEY')
+	app_layer_key = _key_from_env('AFYA_APP_LAYER_KEY')
+	if app_layer_key is not None and at_rest_key == app_layer_key:
+		raise ValueError(
+			'AFYA_APP_LAYER_KEY must differ from AFYA_AT_REST_KEY; the application layer §SEC-003 '
+			'asks for is a second key, not the same one used twice')
+	# A generated key must survive a restart or the store it encrypts becomes unreadable — a random
+	# per-boot key turns "encrypted" into "lost". With a database path the key is persisted in a
+	# sidecar beside it, mode 0600; without one there is nothing to persist and the key is ephemeral,
+	# which is correct for the in-memory store a test builds.
+	crypto_svc = CryptoService(
+		at_rest_key if at_rest_key is not None else _at_rest_key_for(db_path), app_layer_key)
+	store = SqliteStore(db_path, crypto_svc) if db_path else None
 	# §5.4's single identity model, built before the two services that must share it — the case-report
 	# backend (dedup by phone) and the consent registry (a grant on one channel visible on another).
 	# Built here rather than inside either one because a second instance resolves the same phone to a
@@ -291,6 +356,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# handed the telco client's rules rather than a boolean. A deployment with no telco
 		# configured passes nothing and reports every free claim as unverified.
 		'channels': channels_svc,
+		'crypto': crypto_svc,
 		'emergency': emergency_svc,
 		'info': InfoService(),
 		'records': records_svc,
@@ -387,6 +453,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	metrics: MetricsService = svc['metrics']  # type: ignore[assignment]
 	access: AccessService = svc['access']  # type: ignore[assignment]
 	retention: RetentionService = svc['retention']  # type: ignore[assignment]
+	# §SEC-003's encryption, bound here so the posture route and the backup route read the same
+	# object. Reaching into the dict per route would let two of them resolve different services.
+	crypto = svc['crypto']
 	governance: GovernanceService = svc['governance']  # type: ignore[assignment]
 	operations: OperationsService = svc['operations']  # type: ignore[assignment]
 	rollout: RolloutService = svc['rollout']  # type: ignore[assignment]
@@ -1918,18 +1987,26 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/records/{member_ref}/backup')
-	async def records_backup(member_ref: str, at_iso: str = '',
+	async def records_backup(member_ref: str, at_iso: str = '', passphrase: str = '',
 	                         _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> dict[str, object]:
 		"""§REC-001/§10.1's encrypted cloud backup, refused without the `cloud_backup` consent.
 
 		The consent is read from the privacy service rather than taken as a request field: a caller
 		who could assert their own consent in the body would be the label with nothing enforcing it.
+
+		A `passphrase` makes the backup end-to-end. It is taken as a query parameter rather than a
+		body because the route has no body, and it is never logged, never stored, and never sent to
+		the crypto service except to derive a key. §SEC-003's "user-held key" is only true when one
+		was supplied, which is why the envelope reports which case it is.
 		"""
 		from afya.privacy.views import ConsentCategory
 		stamp = at_iso or datetime.now(timezone.utc).isoformat(timespec='seconds')
 		consented = privacy.has_category_consent(_subject, ConsentCategory.cloud_backup)
 		try:
-			envelope = await records.backup(_subject, member_ref, stamp, consented)
+			envelope = await records.backup(
+				_subject, member_ref, stamp, consented,
+				passphrase=passphrase or None, crypto=crypto,
+			)
 		except AssertionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
 		return envelope.model_dump(mode='json')
@@ -4039,7 +4116,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.get('/retention/encryption')
 	async def retention_encryption() -> dict[str, object]:
-		return retention.encryption_posture().model_dump(mode='json')
+		"""§SEC-003's posture, read off the crypto service this deployment actually built."""
+		return retention.encryption_posture(crypto).model_dump(mode='json')
 
 	@app.post('/retention/correct')
 	async def retention_correct(req: CorrectionRequest, at_iso: str,

@@ -569,20 +569,23 @@ class RecordsService(LogMixin):
 		)
 
 	async def backup(self, subject_ref: str, member_ref: str, at_iso: str,
-	                 consented: bool) -> BackupEnvelope:
+	                 consented: bool, passphrase: str | None = None,
+	                 crypto: object | None = None) -> BackupEnvelope:
 		"""§REC-001's "Optional encrypted cloud backup" and §10.1's "Encrypted cloud backup".
-
-		Two things make this a backup rather than a claim.
 
 		It refuses without the subject's consent. `cloud_backup` is a §SEC-001 category with its own
 		revocation consequences, and a backup that ran regardless would be the consent label with
 		nothing enforcing it — the shape the audit row named.
 
-		It states its own cipher. `retention.encryption_posture()` asserts `cloud_backup_e2e=True`
-		and `user_held_key=True` as design properties, and §SEC-003 asks for both. This deployment
-		holds no key it does not also hold the data with, so a service here cannot implement
-		end-to-end encryption and must not say it has: `cipher` is `none` and `user_held_key` is
-		False, and the finding stays open rather than being closed by a boolean three modules away.
+		With a passphrase it is genuinely end-to-end. The wallet is sealed under a key derived from
+		the passphrase by scrypt, with a fresh salt per backup; the derived key is never stored, so
+		the deployment cannot open its own backup and neither can a reader who takes the database.
+		`sealed` carries the ciphertext and `documents` comes back empty — returning both would hand
+		the plaintext to whoever the encryption was meant to exclude.
+
+		Without one it states its own cipher: `none`/False, documents in the clear. The finding that
+		stood here was that the envelope inherited a claim from a posture boolean three modules away;
+		it now reports what it did, and the two outcomes are distinguishable on the payload.
 		"""
 		assert consented, 'encrypted cloud backup needs the cloud_backup consent (spec SEC-001)'
 		self.assert_owns(subject_ref, member_ref)
@@ -590,11 +593,26 @@ class RecordsService(LogMixin):
 		import json
 		blob = json.dumps([d.model_dump(mode='json') for d in docs],
 		                  sort_keys=True, separators=(',', ':')).encode()
+		if passphrase is None:
+			return BackupEnvelope(
+				backup_id=f'BAK-{member_ref}-{at_iso}', subject_ref=subject_ref, created_iso=at_iso,
+				document_count=len(docs), member_count=1,
+				digest_sha256=hashlib.sha256(blob).hexdigest(), cipher='none', user_held_key=False,
+				consent_category='cloud_backup', documents=docs,
+			)
+		assert crypto is not None, (
+			'a passphrase was given but no crypto service is wired, so the wallet cannot be sealed; '
+			'refusing rather than returning the documents unencrypted under an end-to-end label')
+		sealed = crypto.seal_for_user(blob, passphrase)  # type: ignore[attr-defined]
+		self._log_info('wallet backed up end to end', member=member_ref, docs=len(docs))
 		return BackupEnvelope(
 			backup_id=f'BAK-{member_ref}-{at_iso}', subject_ref=subject_ref, created_iso=at_iso,
 			document_count=len(docs), member_count=1,
-			digest_sha256=hashlib.sha256(blob).hexdigest(), cipher='none', user_held_key=False,
-			consent_category='cloud_backup', documents=docs,
+			digest_sha256=hashlib.sha256(blob).hexdigest(), cipher='aes-256-gcm', user_held_key=True,
+			consent_category='cloud_backup', documents=[],
+			sealed=sealed.to_blob(),  # type: ignore[attr-defined]
+			open_hint=('AES-256-GCM, key derived from your passphrase with scrypt. The key was never '
+				'sent to us — without the passphrase this backup cannot be opened, by anyone.'),
 		)
 
 	# --- §10.1 vaccination certificates -----------------------------------------------------------
