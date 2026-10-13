@@ -17,7 +17,23 @@ MIN_CELL_SIZE = 10
 # --- AI-001 community-level risk prediction ----------------------------------------------
 
 class AggregateCell(BaseModel):
-	"""One aggregated geography cell. `population` is the denominator the min-cell rule tests."""
+	"""One aggregated geography cell. `population` is the denominator the min-cell rule tests.
+
+	The five Inputs §AI-001 names are the five fields above `encounter_density`. Two were missing
+	until now — `geofence_entries` and `search_signals` — and the shape of that gap is worth naming:
+	the tree *had* both quantities, in `integrations.feeds.build_geofence_feed` (distinct subjects
+	entering a cell, already floored at 10) and in §AI-003's `facility_search` / `medicine_search`
+	signals, and neither reached the model. A signal that exists in the product and is not an input
+	to the prediction the product makes is an input the section asks for and nobody wired.
+
+	Both are counts of *distinct people* in the cell and not events: the same rule
+	`build_geofence_feed` states, for the same reason — ten visits by four people is a cell of four,
+	and counting events clears the floor with a cell that describes those four.
+
+	The defaults are 0 rather than required so a caller that has no geofence feed and no search
+	signal sends a cell rather than omitting one: an absent input is a zero, and the `reason` on the
+	hotspot says which inputs were zero so a reader can tell "no signal" from "no data".
+	"""
 	model_config = MODEL_CONFIG
 	cell_id: str
 	county: str
@@ -26,6 +42,74 @@ class AggregateCell(BaseModel):
 	cough_events: int = Field(ge=0)
 	encounter_density: float = Field(ge=0)
 	facility_reports: int = Field(ge=0)
+	# §AI-001's second Input, "geofence entries": distinct subjects whose entry events landed in this
+	# cell. Carried as a count, because the individual events are what `build_geofence_feed` exists
+	# to refuse to emit.
+	geofence_entries: int = Field(default=0, ge=0)
+	# §AI-001's fifth Input, "search and content-engagement signals": facility-finder and
+	# medicine-search queries that resolved to this cell, plus content engagement. One count rather
+	# than three because the section names one signal, and splitting it would invent two thresholds
+	# it does not state.
+	search_signals: int = Field(default=0, ge=0)
+	# Where the cell is, when the caller knows. Optional because a cell that arrived from a
+	# sub-county rollup has no centroid, and required for clustering: adjacency is a spatial claim
+	# and a cell with no position is not adjacent to anything. `None` means "cannot be linked",
+	# which the cluster list reports rather than silently dropping.
+	lat: float | None = Field(default=None, ge=-90, le=90)
+	lon: float | None = Field(default=None, ge=-180, le=180)
+
+
+class ClusterLink(BaseModel):
+	"""One edge of a transmission cluster (§AI-001's second Output).
+
+	An edge and not a group: a cluster is a connected set of cells, and a model that returned only
+	the set would lose *which* cells touch, which is the part a response team acts on — you
+	surround a cluster, and you surround it along the links.
+	"""
+	model_config = MODEL_CONFIG
+	from_cell: str
+	to_cell: str
+	km: float = Field(ge=0)
+	shared_signal: str
+
+
+class TransmissionCluster(BaseModel):
+	"""§AI-001's "transmission cluster identification".
+
+	Distinct from a hotspot. A hotspot is one cell above its own baseline; a cluster is a set of
+	adjacent cells whose *combined* signal is above baseline — two cells each at 1.2σ and touching
+	are one event a response team should treat as one, and the map that lists them as two hotspots
+	tells PHEOC to send two teams. The `links` are what makes it a cluster rather than a list.
+	"""
+	model_config = MODEL_CONFIG
+	cluster_id: str
+	counties: list[str]
+	cell_ids: list[str]
+	links: list[ClusterLink]
+	combined_probability: float = Field(ge=0, le=1)
+	reason: str
+
+
+class ResourceRecommendation(BaseModel):
+	"""§AI-001's "resource deployment recommendations".
+
+	Advice to a human, which is why nothing here is actioned by this system and why `rationale`
+	names the quantity it was derived from. `quantity` is `None` when the section's own arithmetic
+	does not determine one — a modelled number presented as a decision is worse than an absent one.
+	"""
+	model_config = MODEL_CONFIG
+	county: str
+	resource: str = Field(pattern=r'^(rapid_response_team|ors_kits|test_kits|vaccine_doses|vector_control|risk_communication)$')
+	quantity: int | None = Field(default=None, ge=0)
+	unit: str
+	rationale: str
+	auto_actioned: bool = False
+
+	def model_post_init(self, _context: object) -> None:
+		assert not self.auto_actioned, (
+			'§19.3 keeps a human in the loop: a resource recommendation is advice, and a row that '
+			'actioned itself would be the system deploying teams'
+		)
 
 
 class Hotspot(BaseModel):
@@ -43,6 +127,11 @@ class HotspotMap(BaseModel):
 	suppressed_cells: int = Field(ge=0)
 	consumers: list[str]
 	explanation: str
+	# §AI-001's other two Outputs. Defaulted so the suppression-only path — every cell below the
+	# floor, nothing may be published — does not have to invent an empty cluster list, and so the
+	# map a caller already reads keeps its shape.
+	clusters: list[TransmissionCluster] = Field(default_factory=list)
+	recommendations: list[ResourceRecommendation] = Field(default_factory=list)
 
 
 # --- AI-002 personal risk scoring --------------------------------------------------------

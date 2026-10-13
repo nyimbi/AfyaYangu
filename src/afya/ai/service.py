@@ -10,9 +10,10 @@ import statistics
 from datetime import date, timedelta
 
 from afya.ai.views import (
-	MIN_CELL_SIZE, SIGNAL_SOURCES, AggregateCell, EarlyWarningScan, FairnessAudit, Hotspot,
-	HotspotMap, ModelCard, ModelFootprint, RaisedSignal, RedressOutcome, RedressRequest, RiskInputs,
-	RiskScore, SignalCollection, SignalEvent, SignalObservation, WarningAssessment, WarningSignal,
+	MIN_CELL_SIZE, SIGNAL_SOURCES, AggregateCell, ClusterLink, EarlyWarningScan, FairnessAudit,
+	Hotspot, HotspotMap, ModelCard, ModelFootprint, RaisedSignal, RedressOutcome, RedressRequest,
+	ResourceRecommendation, RiskInputs, RiskScore, SignalCollection, SignalEvent, SignalObservation,
+	TransmissionCluster, WarningAssessment, WarningSignal,
 )
 from afya.logmixin import LogMixin
 
@@ -139,34 +140,244 @@ class AIService(LogMixin):
 
 	# --- AI-001 hotspots ------------------------------------------------------------------
 
+	# §AI-001 says "uses anonymised, aggregated data"; it states no weights. These are the model's
+	# own, and they are here rather than inline so the one place that decides what a hotspot is can
+	# be read as a whole. `_WEIGHT_FEVER` dominates because fever is the signal the product actually
+	# collects at scale; the other four shift the cell, they do not carry it.
+	_WEIGHT_FEVER = 1.0
+	_WEIGHT_COUGH = 0.5
+	_WEIGHT_FACILITY = 0.4
+	_WEIGHT_GEOFENCE = 0.3
+	_WEIGHT_SEARCH = 0.3
+	# Two cells are in one cluster when they are within this of each other. The section states no
+	# distance, so it is a named constant with the reasoning attached rather than a literal: 5 km is
+	# the radius §COM-102's own alert zones top out at, so a cluster is the same order of
+	# neighbourhood as the alert a response team would raise over it.
+	CLUSTER_RADIUS_KM = 5.0
+
+	def cells_from_signals(self, county: str, cell_id: str, population: int,
+			at_iso: str | None = None, facility_reports: int = 0, geofence_entries: int = 0,
+			lat: float | None = None, lon: float | None = None) -> AggregateCell:
+		"""Build one `AggregateCell` from the signals this service already holds (§AI-001's Inputs).
+
+		This is the bridge the section's second and fifth Inputs were missing. The tree had both
+		quantities and neither reached the model: the search signals live in this service's own
+		`_signal_events` ledger under `facility_search` and `medicine_search`, and geofence entries
+		live in `integrations.feeds.build_geofence_feed`'s aggregation — distinct subjects per cell,
+		already floored at 10 — which the caller passes in because that aggregation is the module that
+		owns the floor and this service must not keep a second copy of it. A signal the product
+		records and does not feed to the prediction it makes is an Input the section asks for and
+		nobody wired.
+
+		`facility_reports` is likewise the caller's: §AI-001's fourth Input is *crowdsourced* reports
+		about facilities, which live in `afya.facilities`, and reading the search ledger into that
+		field would make two of the section's five Inputs the same number wearing two names.
+
+		The window is one day, because the ledger's own baseline is a distribution over periods and a
+		day is the smallest period the section's other consumers read. The cell is built whatever its
+		population and left for `hotspots` to suppress and count — that is the one place that decides
+		what may be published, and a bridge that pre-filtered would hide the suppression from the
+		report that exists to state it.
+		"""
+		assert county and cell_id, 'a cell needs a county and an id'
+		window = (at_iso or date.today().isoformat())[:10]
+		today = [e for e in self._signal_events if e.county == county and e.at_iso[:10] == window]
+
+		def _count(*signals: str) -> int:
+			return sum(1 for e in today if e.signal in signals)
+
+		return AggregateCell(
+			cell_id=cell_id, county=county, population=population,
+			fever_reports=_count('fever_triage', 'triage_volume'),
+			cough_events=_count('cough_events'),
+			# The ledger's `encounter_density` signal is a count of proximity encounters and the cell
+			# wants a density, so the count is the numerator over the population the caller gave. The
+			# `unwell_checkin` signal is the closest thing the ledger holds to an encounter and is
+			# what §AI-003 names as its sixth monitored pattern; both are folded here for the same
+			# reason and the cell's `reason` names the density rather than either count.
+			encounter_density=round(_count('encounter_density', 'unwell_checkin') / population, 4) if population else 0.0,
+			facility_reports=facility_reports, geofence_entries=geofence_entries,
+			search_signals=_count('facility_search', 'medicine_search'),
+			lat=lat, lon=lon,
+		)
+
+	def _signal_score(self, cell: AggregateCell) -> float:
+		"""The cell's combined signal per person, in the section's five Inputs.
+
+		Every term is a *rate*, not a count: a cell of 40,000 and a cell of 200 with the same count
+		are not the same event, and a model that added raw counts would rank the big cell first every
+		time and call it epidemiology.
+		"""
+		pop = cell.population
+		return (
+			self._WEIGHT_FEVER * cell.fever_reports / pop
+			+ self._WEIGHT_COUGH * cell.cough_events / pop
+			+ self._WEIGHT_FACILITY * cell.facility_reports / pop
+			+ self._WEIGHT_GEOFENCE * cell.geofence_entries / pop
+			+ self._WEIGHT_SEARCH * cell.search_signals / pop
+			# Encounter density is already per person, so it enters unscaled by population.
+			+ cell.encounter_density
+		)
+
+	def _cluster(self, cells: list[AggregateCell]) -> list[TransmissionCluster]:
+		"""§AI-001's "transmission cluster identification": connected cells, by proximity.
+
+		Single-linkage over the cells that carry a position, and only over cells that already cleared
+		the baseline — clustering the whole map would produce one cluster spanning the country
+		whenever the map is dense, which names every cell and therefore identifies none.
+
+		A cell with no `lat`/`lon` cannot be linked and is reported in the `reason` rather than
+		dropped silently: "we could not tell whether this cell touches the others" is a fact PHEOC
+		can act on, and a cluster that quietly omitted it would read as complete.
+		"""
+		from afya.facilities.service import haversine_km
+		located = [c for c in cells if c.lat is not None and c.lon is not None]
+		unlocated = len(cells) - len(located)
+		# Bound to tuples so the `None` narrowing survives into the loop: a cell that reached this
+		# list has both coordinates, and the assertion says so once rather than at every use.
+		points: list[tuple[AggregateCell, float, float]] = []
+		for c in located:
+			assert c.lat is not None and c.lon is not None, 'located cells carry both coordinates'
+			points.append((c, c.lat, c.lon))
+		# Union-find over indices, so a chain of cells 4 km apart is one cluster however long it is.
+		parent = list(range(len(points)))
+
+		def find(i: int) -> int:
+			while parent[i] != i:
+				parent[i] = parent[parent[i]]
+				i = parent[i]
+			return i
+
+		links: list[ClusterLink] = []
+		for i, (a, alat, alon) in enumerate(points):
+			for j in range(i + 1, len(points)):
+				b, blat, blon = points[j]
+				km = haversine_km(alat, alon, blat, blon)
+				if km <= self.CLUSTER_RADIUS_KM:
+					parent[find(i)] = find(j)
+					links.append(ClusterLink(
+						from_cell=a.cell_id, to_cell=b.cell_id, km=round(km, 2),
+						shared_signal='adjacent cells within the cluster radius',
+					))
+		groups: dict[int, list[int]] = {}
+		for i in range(len(points)):
+			groups.setdefault(find(i), []).append(i)
+		out: list[TransmissionCluster] = []
+		for members in groups.values():
+			if len(members) < 2:
+				continue  # one cell is a hotspot, which the map already carries
+			cells_in = [points[i][0] for i in members]
+			ids = sorted(c.cell_id for c in cells_in)
+			edge = [link for link in links if link.from_cell in ids and link.to_cell in ids]
+			counties = sorted({c.county for c in cells_in})
+			total_pop = sum(c.population for c in cells_in)
+			combined = round(min(0.99, sum(self._signal_score(c) * c.population for c in cells_in) / total_pop), 4)
+			out.append(TransmissionCluster(
+				cluster_id='TC-' + '-'.join(ids[:3]), counties=counties, cell_ids=ids, links=edge,
+				combined_probability=combined,
+				reason=(
+					f'{len(cells_in)} adjacent cells ({", ".join(ids)}) within '
+					f'{self.CLUSTER_RADIUS_KM:g} km of one another, combined signal '
+					f'{combined:.3f} per person across a population of {total_pop}.'
+					+ (f' {unlocated} further cell(s) carried no position and could not be linked.' if unlocated else '')
+				),
+			))
+		return sorted(out, key=lambda c: -c.combined_probability)
+
+	def _recommend(self, clusters: list[TransmissionCluster], hotspots: list[Hotspot]) -> list[ResourceRecommendation]:
+		"""§AI-001's "resource deployment recommendations", derived from what the map found.
+
+		Only from clusters and hotspots, never from the raw cells: a recommendation is the section's
+		third Output and it has to trace to its first two, or it is a number with no finding behind
+		it. A cluster gets a team and test kits — the two things that verify a cluster — and a lone
+		hotspot gets risk communication, because one cell above baseline is a signal to check, not a
+		finding to deploy against.
+
+		`quantity` is `None` where the section's own arithmetic does not determine one. A rapid
+		response team is one per cluster and that is a decision the map can make; how many ORS kits a
+		county needs depends on a stock position this service does not hold, and inventing a figure
+		would be a modelled number wearing the authority of a recommendation.
+		"""
+		per_county: dict[str, list[str]] = {}
+		for cluster in clusters:
+			for county in cluster.counties:
+				per_county.setdefault(county, []).append(cluster.cluster_id)
+		out: list[ResourceRecommendation] = []
+		for county, cluster_ids in sorted(per_county.items()):
+			out.append(ResourceRecommendation(
+				county=county, resource='rapid_response_team', quantity=len(cluster_ids),
+				unit='team(s)', rationale=(
+					f'{len(cluster_ids)} transmission cluster(s) in {county} '
+					f'({", ".join(cluster_ids)}); a cluster is verified by sampling, which is what a '
+					'rapid response team does.'
+				),
+			))
+			out.append(ResourceRecommendation(
+				county=county, resource='test_kits', quantity=None, unit='kits', rationale=(
+					f'One or more transmission clusters in {county}. The quantity depends on the '
+					'cluster population and the county\'s current stock, neither of which this service '
+					'holds — it is left for the county team to size rather than modelled here.'
+				),
+			))
+		lone = [h for h in hotspots if not any(h.county in c.counties for c in clusters)]
+		for county in sorted({h.county for h in lone}):
+			out.append(ResourceRecommendation(
+				county=county, resource='risk_communication', quantity=None, unit='campaign',
+				rationale=(
+					f'{sum(1 for h in lone if h.county == county)} cell(s) above baseline in {county} '
+					'with no adjacent cell above it. One elevated cell is a signal to check, so this is '
+					'a communication recommendation and not a deployment.'
+				),
+			))
+		return out
+
 	def hotspots(self, cells: list[AggregateCell]) -> HotspotMap:
+		"""§AI-001's map: hotspots, the clusters they form, and what that implies for resources.
+
+		The suppression rule is applied once, to the cells that go in, so a cluster can only ever be
+		built from cells that already cleared `MIN_CELL_SIZE`. That ordering is the privacy control:
+		a cluster whose `reason` named a cell of four people would re-identify exactly what the floor
+		exists to prevent, and a cluster built before suppression would do it through the back door.
+		"""
 		assert cells, 'no cells supplied'
 		eligible = [c for c in cells if c.population >= MIN_CELL_SIZE]
 		suppressed = len(cells) - len(eligible)
 		if not eligible:
 			return HotspotMap(hotspots=[], suppressed_cells=suppressed, consumers=['county health teams', 'PHEOC'],
 				explanation='Every cell is below the minimum cell size of 10; nothing may be published.')
-		rates = [c.fever_reports / c.population for c in eligible]
-		mean = statistics.fmean(rates)
-		stdev = statistics.pstdev(rates) or 1.0
+		scores = [self._signal_score(c) for c in eligible]
+		mean = statistics.fmean(scores)
+		stdev = statistics.pstdev(scores) or 1.0
 		out: list[Hotspot] = []
-		for cell, rate in zip(eligible, rates):
-			z = (rate - mean) / stdev
+		for cell, score in zip(eligible, scores):
+			z = (score - mean) / stdev
 			prob = round(min(0.99, max(0.01, 0.5 + z * 0.15)), 2)
 			if z < 0.5:
 				continue
+			rate = cell.fever_reports / cell.population
+			# The reason names every input and its value, including the zero ones: a reader has to be
+			# able to tell "this cell reported no geofence entries" from "this deployment has no
+			# geofence feed", and a reason that omitted the zeros cannot say which.
 			reason = (
 				f'{cell.fever_reports} fever reports in a population of {cell.population} '
 				f'({rate * 1000:.1f} per 1,000) against a mean of {mean * 1000:.1f} per 1,000; '
+				f'{cell.cough_events} cough, {cell.facility_reports} facility report(s), '
+				f'{cell.geofence_entries} geofence entr(ies), {cell.search_signals} search signal(s), '
 				f'{cell.encounter_density:.1f} encounters per person.'
 			)
 			out.append(Hotspot(cell_id=cell.cell_id, county=cell.county, probability=prob, reason=reason,
 				recommended_action='Send a rapid response team to verify and test; increase local surveillance.'))
-		self._log_info('hotspot map built', hotspots=len(out), suppressed=suppressed)
+		hotspots = sorted(out, key=lambda h: -h.probability)
+		clusters = self._cluster([c for c in eligible if any(h.cell_id == c.cell_id for h in hotspots)])
+		recommendations = self._recommend(clusters, hotspots)
+		self._log_info('hotspot map built', hotspots=len(hotspots), clusters=len(clusters),
+		               recommendations=len(recommendations), suppressed=suppressed)
 		return HotspotMap(
-			hotspots=sorted(out, key=lambda h: -h.probability), suppressed_cells=suppressed,
+			hotspots=hotspots, suppressed_cells=suppressed,
 			consumers=['county health teams', 'PHEOC'],
-			explanation=f'{len(out)} cell(s) above baseline; {suppressed} suppressed for size. Aggregated data only — no individual record informed this map.',
+			explanation=f'{len(hotspots)} cell(s) above baseline; {len(clusters)} cluster(s) among them; '
+				f'{suppressed} suppressed for size. Aggregated data only — no individual record informed this map.',
+			clusters=clusters, recommendations=recommendations,
 		)
 
 	# --- AI-002 personal risk -------------------------------------------------------------

@@ -2012,3 +2012,84 @@ answering; and the CHW pick made unstable.
 it leans on — that a border post's status is a thing the tree already models — is §LOC-005's
 `BorderPost`, carried by `afya.location.service:LocationService.border_status`. The two are not yet
 reconciled onto one screen, which is noted rather than papered over.
+
+## §AI-001 — two signals with no consumer, and a consumer with no signal
+
+The section names five Inputs, three Outputs, and a privacy rule. Three of the five Inputs were
+carried; the other two, and two of the three Outputs, were not — and the four gaps were two failures
+wearing opposite coats.
+
+**Two signals the product recorded and never used.** `AggregateCell` had no `geofence_entries` and no
+`search_signals`, while the tree held both quantities: `integrations.feeds.build_geofence_feed`
+already aggregated distinct subjects per cell at the min-cell floor, and §AI-003's own
+`_signal_events` ledger already recorded `facility_search` and `medicine_search` rows. Neither
+reached the prediction. A signal the product collects and does not feed to the model it exists to
+inform is an Input the section names and nobody wired — invisible, because both halves work.
+
+**One output with a builder and no producer.** `build_resource_feed` rendered §18.3's
+`resource_deployment` feed correctly, with `auto_actioned: False` on every row, and **nothing produced
+its recommendations**. That is the same failure as §INF-007's read-with-no-producer, on the write
+side: the arrow AI → PHEOC had a renderer at one end and no source at the other.
+
+**What changed.** `AggregateCell` gained `geofence_entries`, `search_signals`, and optional `lat`/`lon`
+— optional because a cell rolled up from a sub-county has no centroid, and adjacency is a spatial
+claim that a cell without a position cannot make. `AIService._signal_score` is the model's whole
+definition in one place: **every term is a rate, not a count**, because a cell of 40,000 and a cell of
+200 with the same count are not the same event and a model that added counts would rank by population
+and call it epidemiology. The weights are the model's own — the section states none — and fever
+dominates because fever is what the product collects at scale. `cells_from_signals` is the bridge:
+it reads the search ledger for the county and day, takes the geofence count from its caller (the floor
+lives in the module that owns the aggregation, and a second copy of it here is a second floor that can
+differ), and **builds the cell whatever its population**, leaving suppression to `hotspots` — the one
+place that decides what may be published, and the place whose count would be wrong if a bridge
+pre-filtered.
+
+`TransmissionCluster` with `ClusterLink` edges is the second Output, built by single-linkage over the
+cells that cleared **both** the min-cell floor and the baseline. That ordering is the privacy control:
+a cluster whose `reason` named a cell of four people would re-identify exactly what the floor exists
+to prevent, and a cluster built before suppression would do it through the back door. Clustering the
+whole eligible set instead of the hotspots would produce one country-spanning cluster whenever the map
+is dense — naming every cell and therefore identifying none. A cell with no position is **reported**
+in the cluster's `reason`, not dropped: "we could not tell whether this cell touches the others" is a
+fact PHEOC can act on, and a cluster that quietly omitted it would read as complete.
+
+`ResourceRecommendation` is the third Output, derived from the clusters and hotspots and never from
+the raw cells — a recommendation has to trace to a finding. A cluster gets a rapid response team
+(sampling is what verifies a cluster) and test kits; a lone hotspot gets risk communication, because
+one elevated cell is a signal to check, not a finding to deploy against. `quantity` is `None` where
+the section's arithmetic does not determine one: how many test kits a county needs depends on the
+cluster population and a stock position this service does not hold, and a modelled number wearing the
+authority of a recommendation is worse than an absent one. `model_post_init` refuses
+`auto_actioned=True` — §19.3's human in the loop, as a gate rather than a comment.
+
+`POST /ai/hotspots/deploy` is the producer: it takes the map's **own** recommendations, not the
+caller's, and pushes them through the existing §18.3 feed. A caller posting its own recommendation
+list could put a rapid-response team on the wire with nothing behind it; what the route adds is the
+transport, not the judgement. A map with nothing above baseline returns `recommendations: 0` with the
+reason named, rather than surfacing the transport's (deliberate) refusal of an empty batch as though
+the caller had sent something malformed.
+
+Thirteen canaries were run against `tests/ci/canary_ai001.py` and all thirteen fire: an input on the
+cell and out of the score; geofence entries stop moving the score; the score counting instead of
+rating; every cell clustered rather than the hotspots; the cluster radius covering everything; an
+unlinkable cell silently dropped; a lone cell becoming a cluster; a lone hotspot getting a team; a
+recommendation actioning itself; a quantity invented for the kits; the deploy route inventing a
+recommendation; search signals counted as facility reports; and the bridge pre-filtering the floor.
+
+**Three of those canaries MISSED on the first run, and all three were the test's fault, not the
+code's.** `test_cells_further_apart_than_the_radius_are_not_one_cluster` had one cell below baseline,
+which is filtered *before* clustering runs — so it was testing the baseline filter while claiming to
+test the distance, and would have passed whatever the radius. `test_one_cell_above_baseline_is_a_hotspot_and_not_a_cluster`
+had its neighbour far away, so a version clustering every eligible cell also produced nothing.
+`test_a_lone_hotspot_gets_communication_and_not_a_deployment` asserted on the *communication* rows,
+which are emitted after the team rows, so widening the team rule changed nothing it looked at. Each
+was rewritten to differ from its control in exactly the one respect it claims to test. A canary aimed
+at a filter upstream of the behaviour under test reports a gate it never reached.
+
+**Counts: 4 rows left `missing` — 4 to `carried` — 58 → 54.** 493 rows, `carried` 422, `missing` 54,
+`deferred` 17.
+
+**Sources.** No new archive. The section states no threshold and no weight; the min-cell floor of 10
+is §19.3's own and was already archived with §SEC-004, and the model weights and the 5 km cluster
+radius are the model's own parameters, named as constants in `AIService` with the reasoning attached
+rather than presented as sourced figures.

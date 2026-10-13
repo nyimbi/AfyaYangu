@@ -3573,6 +3573,40 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+	@app.post('/ai/hotspots/deploy')
+	async def ai_hotspot_deploy(cells: list[AggregateCell],
+			_subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
+		"""§AI-001's third Output, shipped as §18.3's `resource_deployment` feed.
+
+		The gap this closes is the one the audit found: `build_resource_feed` rendered a
+		`resource_deployment` feed and **nothing produced its recommendations**. So the map answered
+		with hotspots and the feed that is supposed to carry what to do about them was a builder with
+		no caller — the same read-with-no-producer shape as §INF-007, on the write side.
+
+		The recommendations come from `AIService.hotspots`, not from the request: a caller posting
+		its own recommendation list could put a rapid-response team on the wire without the finding
+		that justifies it. What this route adds is the transport, not the judgement.
+		"""
+		try:
+			recommendations = [r.model_dump(mode='json') for r in ai.hotspots(cells).recommendations]
+			if not recommendations:
+				# A map with no cluster and no lone hotspot has nothing to deploy against, and an
+				# empty push is refused by the transport on purpose (a quiet hour must not read as a
+				# failed sync). Saying so here names the reason instead of surfacing the transport's
+				# refusal as though the caller had sent something malformed.
+				return {'feed': 'resource_deployment', 'cells_withheld': 0, 'recommendations': 0,
+				        'accepted': 0, 'note': 'no cluster and no isolated hotspot; nothing to recommend.'}
+			built, withheld = build_feed('resource_deployment', recommendations)
+			accepted = await pheoc.push_feed('resource_deployment', built)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		except HTTPException:
+			raise
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='PHEOC did not accept the feed') from exc
+		return {'feed': 'resource_deployment', 'cells_withheld': withheld,
+		        'recommendations': len(built), 'accepted': accepted}
+
 	@app.post('/ai/risk-score')
 	async def ai_risk(inp: RiskInputs) -> dict[str, object]:
 		return ai.personal_risk(inp).model_dump(mode='json')

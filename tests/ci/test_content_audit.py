@@ -291,7 +291,6 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§ACC-003': 1,
 		'§ACC-004': 1,
 		'§ACC-005': 1,
-		'§AI-001': 4,
 		'§ALT-002': 1,
 		'§COM-101': 2,
 		'§COM-103': 1,
