@@ -35,6 +35,12 @@ class ChwProfile(BaseModel):
 	registry_verified: bool
 	provisioned_by: str
 	trained_iso: str | None = None
+	# §INF-006's sixth Content is "CHW" in a directory of *contacts*, and a profile carried a name, a
+	# county and a community with no way to reach the person — so the row was unanswerable even for a
+	# deployment that had provisioned every worker. Optional because a worker's number is personal
+	# data they may not have given: `None` yields no directory row and the kind is reported absent,
+	# which is the honest answer and not the same as a row that dials nothing.
+	phone: str | None = None
 
 
 class ChwCase(BaseModel):

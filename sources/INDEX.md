@@ -543,3 +543,91 @@ people who are sick or have died from Ebola disease". The code's "one caregiver,
 latrine" is the standard Ebola treatment-unit arrangement, not a sentence either source prints; it is
 carried as guidance with that provenance recorded here rather than attributed to a page that does not
 say it.
+
+---
+
+## Helpline directory — §INF-006's GBV and child helplines
+
+§INF-006's Contents name a "mental health helpline", a "GBV helpline" and a "child helpline". The
+tree held numbers for the first and for none of the other two, so two of the eight rows the section
+prints had no carrier at all. The three sources below are the operators' and UN Women's own pages for
+the numbers now in `afya.info.service.HOTLINES`.
+
+They are archived because a helpline number is a life-safety fact: a number that cites a URL nobody
+kept is a number that cannot be re-checked, and the failure mode is a person in crisis dialling a
+dead line.
+
+**Retrieved:** 2026-10-13.
+
+| File | What it is | SHA-256 (first 16) |
+|---|---|---|
+| `unwomen-1195-gbv-hotline.html` | UN Women Africa, "Kenya's national toll-free helpline 1195: A lifeline for gender-based violence survivors" | `c4bd318f5c6da073` |
+| `childline-kenya-116.html` | Childline Kenya's own site, home and "Our Story" | `20c5d65e9bae5a27` |
+| `gvrc-0800720565.html` | Gender Violence Recovery Centre (GVRC) own site | `bb859c587ce9feeea` |
+
+URLs: `https://africa.unwomen.org/en/stories/feature-story/2023/12/kenyas-national-toll-free-helpline-1195-a-lifeline-for-gender-based-violence-survivors`,
+`https://childlinekenya.co.ke/`, `https://gvrc.or.ke/`.
+
+**What the UN Women page supports, quoted:**
+
+- **That 1195 is national, toll-free and for GBV.** "Kenya's national toll-free helpline 1195" and
+  "The National Gender-Based Violence Toll-Free Helpline, 1195, serves as a crucial resource for
+  survivors". This is the whole basis for the row existing.
+- **24/7 staffing.** "Trained counselors are available 24/7 to offer survivors emotional support".
+- **An SMS route.** "The helpline's SMS-based system allows survivors to discreetly report incidents
+  and receive medical advice, including guidance on preventing sexually transmitted infections (STIs)
+  and HIV." This matters for the directory's second Feature: "one-tap SMS" is only a real capability
+  on a line that reads texts, and this is the source that says 1195 does.
+- **Multilingual.** "the helpline is multilingual, offering services in several local languages,
+  including Swahili, Kikuyu, Luhya, and Kalenjin".
+- **Who operates it.** "HAK, a local NGO and a UN Women partner, operates the helpline in partnership
+  with the Kenyan government." The row does not name the operator; the source is recorded here so a
+  reader can find it.
+
+**What the UN Women page does NOT support:** any statement by the Ministry of Health or PHEOC that
+1195 is the line the health system routes GBV cases to. It is UN Women reporting a UN Women partner's
+work. That is why the row is `verified=False` — §18.4's verification is a confirmation by the
+deploying authority, and no source here is that authority speaking.
+
+**What Childline Kenya's own site supports, quoted:**
+
+- **116 is the National Child Helpline, and the Government owns the number.** "In a public private
+  partnership arrangement, Childline Kenya and the Government of Kenya, through the Department of
+  Children Services, manage the Child Helpline 116" and "The number 116 belongs to the Government and
+  Childline manages it on behalf of the Government as a technical partner."
+- **24-hour, toll-free, free from any mobile.** "Our core service is the National Child Helpline 116,
+  Kenya's only 24-hour, toll-free telephone and web-based helpline for children"; on the earlier
+  0800 221 0800 line, "which was easier to remember, and was also available on mobile devices for
+  free from anywhere in Kenya".
+- **It is a reporting platform as well as a counselling line.** "The National Helpline 116 is a
+  confidential reporting platform that is accessible to children and adults who have identified or
+  witnessed violence".
+
+**What Childline Kenya's own site does NOT support:** that 116 reaches a health facility. It routes
+to child protection services. The directory lists it under the section's "child helpline" Content
+without claiming it is a clinical line.
+
+**What GVRC's own site supports, quoted:**
+
+- **0800720565 is 24/7 and toll-free.** "If you or someone you know is in immediate danger or in need
+  of urgent assistance, please call our 24/7 toll-free helpline: 0800720565".
+- **Free comprehensive medical, legal and psychosocial support.** "GVRC offers free, comprehensive
+  medical, legal, and psychosocial support" and "comprehensive free medical treatment and psychosocial
+  support to survivors who have suffered any form of violence such as sexual, physical, psychologi[cal]".
+  This is the one of the three that is a *clinical* service, which is why it is carried as a second
+  `gbv_helpline` row beside the national line rather than folded into it.
+- **It runs one-stop centres inside hospitals.** "This Gender Based Violence Recovery Centre (GBVRC)
+  model has been adopted in various county and sub-county hospitals including: Centre for Assault and
+  Recovery in Eldoret (CARE) situated in Moi Teaching and Referral Centre" and a list naming Kenyatta
+  National Hospital, Makueni County Hospital, Homabay County Referral Hospital and others. That list
+  is the reason the row is a helpline rather than a facility: GVRC is the number that reaches the
+  network, and which centre a caller is nearest is a question for `nearest_facility`, not this row.
+
+**What GVRC's own site does NOT support:** that the line is answered by clinicians, or that it
+dispatches an ambulance. The site states the *service* is medical; it does not state the *line* is a
+clinical triage line.
+
+**None of the three has been confirmed against MoH/PHEOC**, which is the confirmation §18.4 asks for
+and the reason every row added from these sources is `verified=False`. A row that arrived looking
+checked would be worse than a row with a gap: the `updated_line` the directory serves is None for
+these, which a client renders as "never verified" rather than inferring freshness from silence.

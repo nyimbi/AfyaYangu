@@ -49,8 +49,14 @@ def test_the_absent_list_is_coverage_of_the_sections_eight() -> None:
 	directory = InfoService().hotline_directory()
 	assert set(directory.absent) == {k for k in SPEC_CONTENTS if k not in {r.kind for r in directory.contacts}}
 	assert directory.complete == (not directory.absent)
-	# The four the tree has no number for are named rather than omitted.
-	assert {ContactKind.gbv_helpline, ContactKind.child_helpline} <= set(directory.absent)
+	# The two Contents that are answers about the *caller* rather than national rows are named rather
+	# than omitted: a county health office and a CHW are whoever the caller's county and community
+	# have, so a directory built with no county cannot list them and says so. The GBV and child
+	# helplines used to be on this line and are now carried — 1195 and 116 are national and
+	# toll-free, and both are archived in `sources/helpline-directory/`.
+	assert {ContactKind.county_health_office, ContactKind.chw} <= set(directory.absent)
+	assert ContactKind.gbv_helpline not in directory.absent
+	assert ContactKind.child_helpline not in directory.absent
 
 	full = ContactDirectory(contacts=[
 		HotlineInfo(name=f'contact {k.value}', number='719', hours='24/7', kind=k,
@@ -129,6 +135,87 @@ def test_the_directory_with_no_places_imported_reports_absent_rather_than_failin
 	assert len(directory.contacts) == len(HOTLINES) + 3, 'the fixed rows are still served'
 
 
+# --- the two Contents that are answers about the caller, not national rows ------------------------
+
+def test_the_county_health_office_is_a_number_per_county_and_absent_without_one() -> None:
+	"""§INF-006's second Content. It is not a national line: it is whoever the caller's county has.
+
+	A directory that served all 47 offices would be a list a person has to search, and one that
+	printed "County Health Office: no number" would spend a screen slot saying nothing. So the row
+	exists when the caller names a county the deployment has a number for, and the kind is reported
+	absent otherwise — the same shape as `nearest_facility`.
+	"""
+	import asyncio
+
+	svc = InfoService()
+	assert ContactKind.county_health_office in svc.hotline_directory().absent, 'no county, no office'
+	assert ContactKind.county_health_office in svc.hotline_directory(county='Busia').absent, \
+		'a county with no number on file is still a gap'
+
+	asyncio.run(svc.register_county_office('Busia', '+254 55 123 4567'))
+	directory = svc.hotline_directory(county='Busia')
+	assert ContactKind.county_health_office not in directory.absent
+	row = next(r for r in directory.contacts if r.kind is ContactKind.county_health_office)
+	assert row.county == 'Busia' and row.name.startswith('Busia')
+	assert row.actions is not None and row.actions.tel_uri == 'tel:+254551234567'
+	# And another county does not see Busia's office.
+	assert ContactKind.county_health_office in svc.hotline_directory(county='Kisumu').absent
+
+
+def test_a_county_office_with_no_number_is_refused_rather_than_stored() -> None:
+	"""`_county_office_rows` treats a falsy number as "not on file", so an empty string would be a
+	registration that silently disappears — the operator would believe they had filed a number and
+	the screen would disagree with them."""
+	import asyncio
+
+	svc = InfoService()
+	for bad in (('Busia', ''), ('', '719')):
+		with pytest.raises(AssertionError):
+			asyncio.run(svc.register_county_office(*bad))
+
+
+def test_the_chw_row_comes_from_the_provisioned_profile_and_is_absent_without_one() -> None:
+	"""§INF-006's sixth Content, and the finding: `ChwProfile` carried a name, a county and a
+	community and *no way to reach the person*, so a directory row for a CHW was unanswerable even
+	for a deployment that had provisioned every worker in the country."""
+	import asyncio
+
+	from afya.chw.service import ChwService
+	from afya.chw.views import ChwProfile
+
+	svc = InfoService()
+	chw = ChwService()
+	assert ContactKind.chw in svc.hotline_directory(county='Busia').absent, 'nobody provisioned'
+
+	async def _provision() -> None:
+		await chw.provision(ChwProfile(
+			chw_ref='CHW-1', name='Achieng Odhiambo', county='Busia', community='Budalangi',
+			registry_verified=True, provisioned_by='County', phone='+254 71 234 5678'))
+		# A second worker in the same county with no number: the row picks the one that has one.
+		await chw.provision(ChwProfile(
+			chw_ref='CHW-2', name='No Phone', county='Busia', community='Budalangi',
+			registry_verified=True, provisioned_by='County'))
+		# A county whose *only* worker gave no number is a gap rather than a row with a blank
+		# number: the directory lists a CHW so a person can reach them, and a name that cannot be
+		# dialled is a name spending a screen slot on a life-safety page.
+		await chw.provision(ChwProfile(
+			chw_ref='CHW-3', name='No Number', county='Kisumu', community='Kibuye',
+			registry_verified=True, provisioned_by='County'))
+
+	asyncio.run(_provision())
+	directory = svc.hotline_directory(county='Busia', chw=chw)
+	row = next(r for r in directory.contacts if r.kind is ContactKind.chw)
+	assert row.name.startswith('Achieng Odhiambo') and row.number == '+254 71 234 5678'
+	assert row.actions is not None and row.actions.tel_uri == 'tel:+254712345678'
+	# The pick is stable, so the number a person saved is the number they reach next time.
+	serving = chw.serving('Busia')
+	assert serving is not None and serving.chw_ref == 'CHW-1'
+	assert chw.serving('Kisumu') is not None, 'a worker exists, they just have no number'
+	assert ContactKind.chw in svc.hotline_directory(county='Kisumu', chw=chw).absent, \
+		'a worker with no number is a gap, not a row with a blank number'
+	assert chw.serving('Garissa') is None, 'a county with no worker is an answer, not an error'
+
+
 def test_the_route_serves_the_directory_with_the_actions() -> None:
 	"""The route is where the finding was: `hotlines()` served a list of two numbers and the section's
 	Features were nowhere. It answers the directory now, and each row carries its URIs."""
@@ -145,3 +232,37 @@ def test_the_route_serves_the_directory_with_the_actions() -> None:
 	assert body['complete'] is False
 	assert {c['kind'] for c in body['contacts']} >= {'emergency_hotline', 'mental_health_helpline'}
 	assert all(c['actions']['tel_uri'].startswith('tel:') for c in body['contacts'])
+
+
+def test_registering_a_county_office_is_guarded_and_a_citizen_cannot_file_one() -> None:
+	"""The write that fills a row a person may dial in an emergency. `infrastructure` rather than a
+	citizen scope: a county office's published number is the county authority's fact, and a route any
+	caller could post to would let anyone put a number on a life-safety screen. The test asserts the
+	refusal rather than the write, because the refusal is the half that can be got wrong silently."""
+	import asyncio
+
+	from afya.privacy.views import RBACRole
+	from afya.service import build_services, create_app
+
+	services = build_services()
+	app = create_app(services)
+	ops = services['auth'].provision_staff('ops-0', RBACRole.sysadmin, registrar='MoH ops')  # type: ignore[union-attr]
+
+	async def _post() -> tuple[httpx.Response, httpx.Response, httpx.Response, httpx.Response]:
+		async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+			anon = await c.post('/info/county-office', params={'county': 'Busia', 'number': '719'})
+			blank = await c.post('/info/county-office', params={'county': 'Busia', 'number': ''},
+			                     headers={'authorization': f'Bearer {ops.access_token}'})
+			ok = await c.post('/info/county-office',
+			                  params={'county': 'Busia', 'number': '+254 55 123 4567'},
+			                  headers={'authorization': f'Bearer {ops.access_token}'})
+			served = await c.get('/info/hotlines', params={'county': 'Busia'})
+			return anon, blank, ok, served
+
+	anon, blank, ok, served = asyncio.run(_post())
+	assert anon.status_code in (401, 403), anon.text
+	assert blank.status_code == 422, blank.text
+	assert ok.status_code == 200, ok.text
+	row = next(c for c in served.json()['contacts'] if c['kind'] == 'county_health_office')
+	assert row['name'] == 'Busia County Health Office', row
+	assert row['actions']['tel_uri'] == 'tel:+254551234567', row

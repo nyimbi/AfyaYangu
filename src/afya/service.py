@@ -42,7 +42,7 @@ from afya.mental.support import ReferralRequest
 from afya.women.service import WomenService
 from afya.women.views import ContraceptionRequest, CycleLog
 from afya.alerts.service import AlertsService
-from afya.alerts.views import AirQuality, CommunityAlert, FloodReport, WaterQuality
+from afya.alerts.views import AirQuality, CommunityAlert, FloodReport, ServiceStatus, WaterQuality
 from afya.blood.service import BloodRequest, BloodService, Donor
 from afya.chronic.service import ChronicService
 from afya.chronic.views import (
@@ -1130,6 +1130,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/info/hotlines')
 	async def info_hotlines(
 		lang: str = 'en', now_ms: int | None = None, lat: float | None = None, lon: float | None = None,
+		county: str | None = None,
 	) -> dict[str, object]:
 		"""§INF-006's directory, with §6.2.3's stamp on each entry and the ones this deployment lacks.
 
@@ -1138,11 +1139,27 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		never been verified, which is a fact a client should render rather than infer from silence.
 
 		The section's fourth Content is "nearest facility", which is not a row but an answer about the
-		caller's position, so it is composed only when `lat`/`lon` are given. The four Features are
-		served as `actions` on each row, rendered here rather than left to each client.
+		caller's position, so it is composed only when `lat`/`lon` are given. The second and sixth —
+		"county health office" and "CHW" — are answers about the caller's *county*, and are composed
+		the same way from `county`. The four Features are served as `actions` on each row, rendered
+		here rather than left to each client.
 		"""
-		directory = info.hotline_directory(now_ms, lang, lat, lon, places)
+		directory = info.hotline_directory(now_ms, lang, lat, lon, places, county, chw)
 		return directory.model_dump(mode='json')
+
+	@app.post('/info/county-office')
+	async def info_register_county_office(county: str, number: str,
+			_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, str]:
+		"""Register a county health office's number (§INF-006's second Content).
+
+		Infrastructure-scoped, matching `POST /info/dashboard/{county}`: a county office's published
+		number is the county authority's fact, and the row it fills is one a caller may dial in an
+		emergency. A citizen-scoped write here would let anyone put a number on a life-safety screen.
+		"""
+		try:
+			return {'county': county, 'number': await info.register_county_office(county, number)}
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.get('/info/dashboard/{county}')
 	async def info_dashboard(county: str, lang: str = 'en', now_ms: int | None = None) -> dict[str, object]:
@@ -3225,14 +3242,35 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		the preference map already routes to `facility_alerts` — so this is a view over one category
 		of the existing feed rather than a second store. Keeping it one store is what stops a closure
 		being published twice and read as two events.
+
+		`statuses` is the current state per place and `items` the announcements that produced it. The
+		two differ deliberately: a market that closed and reopened has one current status and two feed
+		items, and a screen that showed only the items would make a reader work out which is now.
+		`coverage` names the section's six Contents and how many current statuses each carries, so a
+		deployment with no road-closure feed says so rather than rendering an empty section.
 		"""
 		items = [i for i in alerting.feed(county) if i.category == 'service']
+		statuses = alerts.service_status(county)
 		return {
 			'county': county,
-			'count': len(items),
+			'count': len(statuses),
+			'statuses': [s.model_dump(mode='json') for s in statuses],
+			'coverage': alerts.status_coverage(),
 			'items': [i.model_dump(mode='json') for i in items],
 			'note': 'Statuses come from county and national sources; check the source line before travelling.',
 		}
+
+	@app.post('/alerting/service-status')
+	async def alerting_publish_status(status: ServiceStatus,
+			_subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+		"""Publish one §INF-007 status. This is the producer the read above was missing.
+
+		`assigned` rather than a citizen scope: a market closure or a border-post restriction is what
+		a county authority publishes, and the feed it lands in is the one that reaches every phone in
+		the county. The same scope guards `POST /alerting/feed` for the same reason.
+		"""
+		stored = await alerts.publish_status(status, alerting)
+		return stored.model_dump(mode='json')
 
 	@app.post('/alerting/preferences')
 	async def alerting_preference(subject_ref: str, category: str, enabled: bool, _subject: str = Depends(require_self())) -> dict[str, object]:

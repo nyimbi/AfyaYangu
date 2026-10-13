@@ -61,6 +61,20 @@ HOTLINES: tuple[HotlineInfo, ...] = (
 		kind=ContactKind.emergency_hotline),
 	HotlineInfo(name='ODPC Complaints Desk', number='+254-20-4226849', hours='business hours',
 		verified=False, kind=ContactKind.complaints_desk),
+	# §INF-006's "GBV helpline" and "child helpline", which the tree had no number for. Both are
+	# national, toll-free and 24/7, and both are archived in `sources/helpline-directory/` with what
+	# each source states: UN Women for 1195 (Kenya's National Gender-Based Violence Toll-Free
+	# Helpline, staffed by Healthcare Assistance Kenya, multilingual, with an SMS route because a
+	# survivor may not be able to speak) and Childline Kenya's own site for 116 (the National Child
+	# Helpline, owned by the Government through the Department of Children Services and managed by
+	# Childline). `verified=False` on both: these are the operators' own statements, and neither has
+	# been confirmed against MoH/PHEOC, which is the verification §18.4 asks for.
+	HotlineInfo(name='National GBV Helpline', number='1195', hours='24/7', verified=False,
+		kind=ContactKind.gbv_helpline),
+	HotlineInfo(name='GVRC gender-based violence line', number='0800720565', hours='24/7',
+		verified=False, kind=ContactKind.gbv_helpline),
+	HotlineInfo(name='Childline Kenya (National Child Helpline)', number='116', hours='24/7',
+		verified=False, kind=ContactKind.child_helpline),
 )
 
 # §INF-006 prints eight Contents and the two rows above cover one of them plus a desk the section
@@ -179,8 +193,25 @@ class InfoService(LogMixin):
 		self._withdrawn: dict[str, list[str]] = {}
 		self._back_translations: dict[str, BackTranslation] = {}
 		self._community_validations: dict[str, CommunityValidation] = {}
+		# §INF-006's "county health office", which is a number per county rather than a national
+		# line. Empty at construction: a directory that invented a number for a county nobody had
+		# given one would be worse than the gap, which is why the kind is reported absent instead.
+		self._county_offices: dict[str, str] = {}
 		self.seed()
 		assert self._content and self._risk == {}
+
+	async def register_county_office(self, county: str, number: str) -> str:
+		"""Record a county health office's number (§INF-006's second Content).
+
+		Refuses an empty number rather than storing one: `_county_office_rows` treats a falsy number
+		as "not on file" and reports the kind absent, so an empty string would be a row that silently
+		disappears — the operator would believe they had registered a number and the screen would
+		disagree with them.
+		"""
+		assert county and number, 'a county office needs a county and a number'
+		self._county_offices[county] = number
+		self._log_info('county health office registered', county=county)
+		return number
 
 	def seed(self) -> int:
 		"""Load harmonised en/sw corpus; idempotent.
@@ -800,6 +831,7 @@ class InfoService(LogMixin):
 	def hotline_directory(
 		self, at_ms: int | None = None, lang: str = 'en',
 		lat: float | None = None, lon: float | None = None, places: PlacesService | None = None,
+		county: str | None = None, chw: object | None = None,
 	) -> ContactDirectory:
 		"""§INF-006's "single screen with all relevant contacts", with the ones this deployment lacks.
 
@@ -814,6 +846,12 @@ class InfoService(LogMixin):
 		closest to the caller, so it is only answerable with a position. Given one, the nearest place
 		of any clinical kind is folded in and carries its own `phone` when OSM had one; without one
 		the kind is reported absent, because a directory cannot name a nearest facility to nobody.
+
+		`county` and `chw` compose the two Contents that are *not* national numbers. A county health
+		office and a community health worker are whoever the caller's county and community have, so
+		both are answerable only from what the deployment knows about that county — the same shape as
+		`nearest_facility`, and reported absent for the same reason when the caller names no county or
+		the county has no number on file.
 		"""
 		rows = [
 			row.model_copy(update={
@@ -823,7 +861,57 @@ class InfoService(LogMixin):
 			for row in _directory_rows()
 		]
 		rows.extend(self._nearest_facility_rows(lat, lon, places, lang))
+		rows.extend(self._county_office_rows(county, lang))
+		rows.extend(self._chw_rows(chw, county, lang))
 		return ContactDirectory(contacts=rows)
+
+	def _county_office_rows(self, county: str | None, lang: str) -> list[HotlineInfo]:
+		"""§INF-006's "county health office", which is a number per county and not a national line.
+
+		Absent until a county is named: the directory is a screen about *the caller's* county, and
+		serving all 47 offices would be a list a person has to search. Absent again when the named
+		county has no number on file — a row reading "County Health Office: no number" is a row that
+		took a screen slot to say nothing, and `absent` is where that fact belongs.
+		"""
+		if county is None:
+			return []
+		number = self._county_offices.get(county)
+		if not number:
+			return []
+		row = HotlineInfo(
+			name=f'{county} County Health Office', number=number, hours='business hours',
+			verified=False, kind=ContactKind.county_health_office, county=county,
+		)
+		return [row.model_copy(update={
+			'actions': self.hotline_actions(row, lang),
+			'updated_line': self.hotline_freshness(row, None, lang),
+		})]
+
+	def _chw_rows(self, chw: object | None, county: str | None, lang: str) -> list[HotlineInfo]:
+		"""§INF-006's "CHW": the community health worker who serves the caller.
+
+		`chw` is a `ChwService`, typed loosely for the reason every cross-module port here is. The
+		number is `ChwProfile.phone`, which did not exist: a profile carried a name, a county and a
+		community and no way to reach the person, so the section's sixth Content was unanswerable
+		even for a deployment that had provisioned every worker. A CHW with no number on file yields
+		no row, so the kind is reported absent rather than listed as unreachable.
+		"""
+		if chw is None:
+			return []
+		profile = getattr(chw, 'serving', None)
+		if profile is None:
+			return []
+		worker = profile(county) if county is not None else None
+		if worker is None or not getattr(worker, 'phone', None):
+			return []
+		row = HotlineInfo(
+			name=f'{worker.name} (community health worker)', number=worker.phone,
+			hours='working hours', verified=False, kind=ContactKind.chw, county=worker.county,
+		)
+		return [row.model_copy(update={
+			'actions': self.hotline_actions(row, lang),
+			'updated_line': self.hotline_freshness(row, None, lang),
+		})]
 
 	def _nearest_facility_rows(
 		self, lat: float | None, lon: float | None,

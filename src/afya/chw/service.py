@@ -25,6 +25,20 @@ class ChwService(LogMixin):
 		assert chw_ref in self._chws, 'unknown or unprovisioned CHW'
 		return self._chws[chw_ref]
 
+	def serving(self, county: str) -> ChwProfile | None:
+		"""The worker §INF-006's directory lists for a county, or `None` if the county has none.
+
+		`None` rather than an assertion, because "this county has no CHW provisioned" is an answer the
+		directory needs — the sixth Content is then reported absent, which is a fact a screen can
+		print. An assert here would turn a gap in the deployment into a 500 on a life-safety screen.
+
+		The pick is the lowest `chw_ref` among the county's workers, which is stable across restarts
+		and gives the same person every time; a random pick would show a caller a different worker on
+		each refresh, and the number they saved would stop being the number they reach.
+		"""
+		workers = sorted((w for w in self._chws.values() if w.county == county), key=lambda w: w.chw_ref)
+		return workers[0] if workers else None
+
 	def training(self) -> list[dict[str, object]]:
 		return [dict(m) for m in TRAINING_MODULES]
 

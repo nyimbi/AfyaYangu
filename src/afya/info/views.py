@@ -108,6 +108,11 @@ class HotlineInfo(BaseModel):
 	# key would add it silently — the directory would then serve one shape and its model describe
 	# another. None means never verified, which is a fact to render, not silence to infer from.
 	updated_line: str | None = None
+	# Which county's office this is. §INF-006's "county health office" and "CHW" are not national
+	# numbers: they are whoever the caller's county and community have. `None` is a national row, and
+	# a county-scoped row is served only to a caller who named that county — a directory that showed
+	# every county's office to everyone would be a list, not an answer.
+	county: str | None = None
 
 	def model_post_init(self, _context: object) -> None:
 		assert not self.verified or self.verified_at_ms > UNDATED_MS, (

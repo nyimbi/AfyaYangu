@@ -1897,3 +1897,118 @@ already archived under `sources/ebola-transmission/` for §TRI-003, and §COM-10
 its own. The 500 m / 1 km / 5 km zones are the section's, and the recipient estimate
 (`π r² × 4,000 /km²`) is a stated modelling assumption in the code, not a sourced figure — it is
 labelled as such where it is computed.
+
+## §INF-006 — a directory that printed two numbers and four Features nobody could use
+
+The section asks for "a single screen with all relevant contacts", prints eight Contents and four
+Features. What existed was `GET /info/hotlines` serving a list of two rows of a table as text: one of
+eight Contents, none of the four Features, and no statement about the seven it lacked.
+
+**The gap had a shape, and it was two shapes.** Four Contents were national numbers the tree simply
+did not hold — the GBV helpline and the child helpline among them, while `mental.COUNSELLING_LINES`
+held the counselling numbers three modules away and the route never read the table. Two more were not
+national numbers at all: "county health office" and "CHW" are whoever the *caller's* county and
+community have, so a directory built without a county cannot list them and must say so. And the
+sixth was unanswerable by construction — `ChwProfile` carried a name, a county and a community and
+**no way to reach the person**, so a CHW row could not be composed for a deployment that had
+provisioned every worker in the country.
+
+**What changed.** `HOTLINES` gained three rows (1195 the National GBV Helpline, 0800720565 GVRC, 116
+Childline Kenya), each `verified=False` with the archive named in the comment — these are the
+operators' own statements and none has been confirmed against MoH/PHEOC, which is the confirmation
+§18.4 asks for. `HotlineInfo.county` is `None` for a national row and the caller's county for a
+row about them; a county-scoped row is served only to a caller who named that county, because a
+directory that showed every county's office to everyone would be a list, not an answer.
+`InfoService._county_office_rows` and `_chw_rows` follow `_nearest_facility_rows`' pattern: they
+return `[]` when the row is unanswerable, so the kind lands in `absent` and the screen prints a gap
+rather than a blank line. `ChwProfile.phone` is new — optional, because it is personal data the
+worker may not have given — and `ChwService.serving(county)` returns `None` rather than asserting,
+because "this county has no CHW provisioned" is an answer a life-safety screen must be able to print
+and an assert would turn a gap in the deployment into a 500. The pick is the lowest `chw_ref` among
+the county's workers: stable across restarts, so the number a person saved is the number they reach
+next time. `register_county_office` refuses an empty number, because `_county_office_rows` treats a
+falsy number as "not on file" — an empty string would be a registration that silently disappears
+while the operator believes they filed it.
+
+**The four Features are rendered server-side** as `actions` on each row (`tel_uri`, `sms_uri`,
+`vcard`, `share_url`), the way `Directions` renders its two map URLs. "One-tap call" as a client
+obligation is a feature two clients implement differently; as a URI it is one behaviour. The
+`vcard` is why "save to contacts" is a row field and not a client string.
+
+**Wiring.** `POST /info/county-office`, guarded by `require_scope('infrastructure')` — matching
+`POST /info/dashboard/{county}` — because the row it fills is one a caller may dial in an emergency,
+and a citizen-scoped write would let anyone put a number on a life-safety screen. `GET /info/hotlines`
+gained `county`, and passes it through.
+
+**Counts: 4 rows left `missing` — 4 to `carried` — 66 → 62.**
+
+**Sources.** New archive `sources/helpline-directory/` — UN Women on 1195 (national, toll-free,
+24/7, multilingual, with an SMS route, operated by HAK), Childline Kenya's own site on 116 (the
+National Child Helpline, the number owned by the Government through the Department of Children
+Services), and GVRC's own site on 0800720565 (24/7, free, the one of the three that is a clinical
+service). What each does and does not support is recorded in `sources/INDEX.md`; none of the three is
+the deploying authority speaking, which is why every added row is `verified=False`.
+
+## §INF-007 — a screen that was correct, wired, reachable, and permanently empty
+
+The section is one sentence naming six Contents: "School closures, border post status, market
+closures, water interruptions, road closures affecting facility access, public transport
+disruptions." Two were carried and four had no carrier.
+
+**The gap had a shape worth naming, because it is not the usual one.** `GET /alerting/service-status`
+already existed. It filtered the feed's `service` category, the category already had a preference
+mapping (`service → facility_alerts`) and the socket already fanned out over it. **Nothing produced a
+`service` item.** So the screen answered zero however many closures the county had published: a read
+with no producer, which is the same failure as a capability with no route wearing the opposite coat.
+A missing route is visible from the outside — the path 404s. A read with no producer returns `200`
+with an empty list forever, and every test written against the read passes.
+
+**What changed.** `ServiceStatus` in `afya/alerts/views.py` carries the six kinds as a closed set
+(`SERVICE_STATUS_KINDS`) with a **per-kind state vocabulary** (`STATES_FOR`): a school is `open` or
+`closed`, a water supply `interrupted` or `restored`, a border post or road `restricted` as well. One
+shared vocabulary would let a school be "interrupted", and a status a reader cannot map onto a
+decision is a status that does not answer "can I go there today". §INF-007's own qualifier —
+"road closures **affecting facility access**" — is carried as a field and enforced in
+`model_post_init`, because this feed exists to answer whether the reader can reach care and a closure
+that does not affect reaching care belongs in a traffic feed. `headline` and `body` are derived
+properties, so the alert text cannot drift from the status, and `body` names the place again because
+§3.3 principle 10 requires every output be shareable: a body forwarded without its headline says
+"Closed after flooding" and names nothing.
+
+`AlertsService.publish_status(status, feed)` is the producer. It **publishes into the feed rather
+than storing beside it**, so the status screen and the phone alert are one fact rather than two that
+can disagree; the feed is written first and `_statuses` second, so the list is a view of what was
+published. The verification rule is not restated: `verified=status.verified` is passed and the feed's
+own §ALT-001 gate refuses an unverified item, so one rule lives in one place. `service_status()` is
+keyed on `(kind, name)` and returns the latest per place — a feed is a record of what was announced,
+a status screen answers "can I go there today" — while `status_coverage()` reports the section's six
+and how many current statuses each carries, so a deployment with no road-closure feed says so instead
+of rendering an empty section. `feed` is typed loosely (`object`) for the reason every cross-module
+port here is: the two are wired at the composition root and neither imports the other's class, so a
+status publishes with no feed wired and still records.
+
+`POST /alerting/service-status` is guarded by `require_scope('assigned')` — the same scope as
+`POST /alerting/feed`, for the same reason: a market closure or border-post restriction reaches every
+phone in the county.
+
+**Wiring.** One new route and one widened read. `GET /alerting/service-status` now serves `count`
+(the current statuses), `statuses`, `coverage` and `items` (the feed items that produced them), which
+differ deliberately — a market that closed and reopened has one current status and two feed items.
+
+Sixteen canaries were run against `tests/ci/canary_inf007.py` and all sixteen fire, across both
+sections: one shared state vocabulary; the road qualifier dropped; the headline losing the place; the
+status stored without being published (the original defect restored — the screen goes back to being
+permanently empty while the status service looks like it works); the verification flag written rather
+than passed; the status screen becoming a log; the county filter dropped; the coverage report naming
+one of six; the publish route losing its guard; the route not passing the caller's county; another
+county's office served to a caller who named their own; an unreachable CHW listed anyway; an empty
+county-office number stored; the CHW profile losing its phone number; `serving` asserting instead of
+answering; and the CHW pick made unstable.
+
+**Counts: 4 rows left `missing` — 4 to `carried` — 62 → 58.** 493 rows, `carried` 418, `missing` 58,
+`deferred` 17.
+
+**Sources.** No new archive for §INF-007: the section states no threshold, and the one external fact
+it leans on — that a border post's status is a thing the tree already models — is §LOC-005's
+`BorderPost`, carried by `afya.location.service:LocationService.border_status`. The two are not yet
+reconciled onto one screen, which is noted rather than papered over.
