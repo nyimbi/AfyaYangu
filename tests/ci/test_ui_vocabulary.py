@@ -581,7 +581,12 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/facilities/nearest'),  # a read expressed as a POST: a coordinate in, a list out
 	('POST', '/facilities/find'),     # the same read with §FND-001's four filters in the body
 	('POST', '/facilities/{facility_id}/reports'),  # a crowd-sourced report; `reporter_ref` is the claim
-	('POST', '/facilities/{facility_id}/booking'),
+	# `/facilities/{facility_id}/booking` left this list when §FND-006's "reschedule, cancel" arrived.
+	# The three verbs now share one owner, recorded from an *optional* token — booking an appointment
+	# is Tier 2 and a login between a person and a clinic slot would break the feature, but a booking
+	# filed without one has no owner and so can never be moved or released by whoever presents its
+	# six-character reference. The walker counts the optional dependency as a guard, and that is the
+	# honest reading: the route now reads the token to decide who the appointment belongs to.
 	('POST', '/facilities/{facility_id}/correction'),
 	('POST', '/facilities/{facility_id}/wait'),
 	('POST', '/insurance/prices'),

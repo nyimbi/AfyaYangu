@@ -2210,3 +2210,108 @@ the API's own metadata record and the derived table; the derivation rule and wha
 does not support are in `sources/INDEX.md`. The section states no threshold and no count, and the 1 km
 segment rule is the repo's own parameter, named as a constant beside its reasoning rather than
 presented as a sourced figure.
+
+## §FND-006 — a booking with no owner, and three verbs that could not exist without one
+
+§9.4 prints five Features. Two were carried and three were not, and the three were the whole of the
+section: a person could be *given* an appointment and could not choose, move or release one. The
+`book` that existed took a `slot_iso` the caller supplied and wrote a row — which is the shape that
+makes the other two bullets look like missing screens rather than a missing relation.
+
+### "reschedule, cancel" could not be built, because the booking belonged to nobody
+
+`Booking` had a six-character reference and no owner. That is enough for a *create* and nothing else:
+a cancel keyed on a reference anyone can read off a screen is a delete key anyone can perform, and a
+reschedule is the same with a new time on it. So the unit is one field — `subject_ref` — and the three
+verbs are the three things it makes possible.
+
+The owner is taken from the token, never from the body. `optional_subject()` rather than a guard,
+because booking an appointment is Tier 2 and a login between a person and a clinic slot would break
+the feature it is there to provide; but a booking filed *with* a token records whose it is, and that
+is the difference between an appointment only its owner can move and one that six guessed characters
+take. The route reads the token to decide who the appointment belongs to, which is why it left
+`UNGATED_WRITES` — the walker counts an optional dependency as a guard, and that is the honest
+reading of what the route now does.
+
+`owns()` is the single place §17's ownership relation is applied. A second implementation in a route
+would be a second rule, and the two would diverge on the case that matters.
+
+### The unknown reference and the someone-else's reference answer identically
+
+A 404 for a reference that names nothing and a 403 for one that exists but is not the caller's turns
+the route into an **oracle**: six characters is a search space a script walks in minutes, and the 404
+tells it which guesses named a real appointment. Both now answer the same 403 with the same detail,
+and the only place a booking's existence is admitted is a route its owner has already passed.
+
+The service refuses an unknown reference too, and that is not redundant. `owns` guards the route; the
+gRPC surface, an offline replay and a test all reach `FacilityService` without passing it, and each
+would otherwise get a booking minted out of nothing. Canary #18 fires on exactly that — it is the
+second line, and the one a caller who never sees an HTTP status depends on.
+
+### A cancel is a state, not a deletion
+
+§FND-006's queue is a **position**. A booking that vanished would silently move everyone behind it,
+and "where did my place go" is not a question a clinic can answer after the row is gone. So
+`cancelled` is a flag, the row survives, and the place it held is released — which is what the person
+actually asked for.
+
+A reschedule keeps the queue position and moves only the time. A person who booked in March and moves
+to April has not joined the back of a new line, and renumbering them punishes the one behaviour a
+clinic most wants: being told in advance. The old slot's place is released before the new one's is
+taken, so a facility's booked count is never briefly wrong in the direction that oversells it.
+
+### The slot is published one at a time, and a full one stays on the screen
+
+A day is not a formula. A clinic that runs a queue at nine and appointments in the afternoon cannot be
+expressed as a start, an interval and a count, and the generic mobile form's `list` field is
+comma-separated text — it cannot render a body carrying a list of *objects*. So `SlotOffer` publishes
+one slot per call, which is the shape a form can fill and the shape a facility actually decides in.
+
+`FacilitySlot` carries `capacity` and `booked` rather than a boolean `taken`, and the day is served
+with the taken slots in it at `free == 0`. A screen that offered only free times would tell a person
+nothing about whether the clinic is full today or closed, and "nothing available" is the answer they
+most need before they travel. `free` is a `@computed_field` so a slot cannot advertise places its
+bookings have taken, and `model_post_init` refuses a slot claiming more booked than it offers.
+
+A facility with no published schedule still takes a booking. Most of the registry has none, and "we do
+not run appointments here" is not the same answer as "that time is taken" — refusing would make the
+feature unavailable everywhere it has not been configured, which is everywhere.
+
+### The reminder is derived, and a cancelled booking carries none
+
+§FND-006's "Reminder notifications" is `Booking.reminder_due_iso`, a `@computed_field` computed from
+the slot. On §ACC-004's reasoning — the same shape as §MON-001's missed-dose alert and §REC-004's
+contraception reminder — the server states *when* the reminder is due and the device holds it, so the
+reminder fires with no network and §ACC-001's offline mode keeps working.
+
+Derived rather than stored is the load-bearing half: a stored lead is a second copy of a policy the
+facility sets, and the copy that drifts is the one already written into somebody's appointment. A
+reschedule moves the reminder because the reminder *is* the slot, minus the lead. A cancelled booking
+returns the empty string, because a notification for an appointment the person has already released is
+worse than none — it sends them to a clinic for nothing.
+
+### Canaries
+
+Eighteen canaries run against `tests/ci/canary_fnd006.py` and all eighteen fire: a booking ignoring the
+published slot; a full slot dropped from the day; a reschedule renumbering the queue; the ownership
+check removed; an unowned booking becoming anyone's; a cancel deleting the row; the reminder ceasing
+to follow the slot; a cancelled booking keeping its reminder; a reschedule oversubscribing a slot; a
+reschedule leaking the old slot; re-publishing forgetting the bookings; the path/body facility
+agreement dropped; the publish route losing its guard; the owner taken from the caller; a slot
+claiming more booked than it offers; a schedule carrying another day; a cancelled booking being
+movable; and the service inventing a booking for an unknown reference.
+
+**Two canaries were blind on the first run, and both were the same failure in the instrument.** #3
+asserted `moved.queue_position == first.queue_position` where `moved is first` — the same object the
+mutation writes to — so the assertion held whatever the code did; it now reads both positions back
+through the service. #18 targeted a route branch that the route's own `owns` check had made
+unreachable, so the mutation never ran; it now targets the service's assertion, which is the guard
+that is actually load-bearing. A canary that passes is a bug in the canary, and a *test* that compares
+an object to itself is a canary's blind spot wearing the test's clothes.
+
+**Counts: 3 rows left `missing` — 3 to `carried` — 51 → 48.** 493 rows, `carried` 428, `missing` 48,
+`deferred` 17.
+
+**Sources.** None. §9.4 states no threshold, no interval and no lead time; `REMINDER_LEAD_HOURS = 24`
+is the repo's own parameter, named as a constant beside its reasoning rather than presented as a
+sourced figure.

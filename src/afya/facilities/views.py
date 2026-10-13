@@ -1,11 +1,20 @@
 """Facility domain models (spec §8.2 FND-001..006, §18.5 MoHF)."""
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from afya.derived import DerivedFields
 from afya.ids import uuid7str
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
+
+# §FND-006's "Reminder notifications": how long before an appointment the reminder is due.
+#
+# A constant rather than a field, and in this module rather than the service, because the reminder
+# time is *derived from the slot* and the derivation lives on `Booking`. A lead carried per booking
+# would be a second copy of a policy the facility sets, and the copy that drifts is the one already
+# written into somebody's appointment.
+REMINDER_LEAD_HOURS = 24
 
 
 class FacilityKind(str, Enum):
@@ -207,3 +216,118 @@ class Booking(BaseModel):
 	facility_id: str
 	slot_iso: str
 	queue_position: int = Field(ge=1, le=500)
+	# §FND-006's "Book, reschedule, cancel" needs somebody the booking belongs to: without it a
+	# cancel is a delete keyed on a short, guessable reference, and a reschedule is the same with a
+	# new time on it. The owner is taken from the token on the route, never from the body, so the
+	# field is `None` only for a booking filed before an owner was recorded.
+	subject_ref: str | None = None
+	# `cancelled` is a state rather than a deletion because §FND-006's queue is a *position*: a
+	# booking that vanished would silently move everyone behind it, and "where did my place go" is
+	# not a question a clinic can answer after the row is gone.
+	cancelled: bool = False
+
+	@computed_field  # type: ignore[prop-decorator]
+	@property
+	def reminder_due_iso(self) -> str:
+		"""§FND-006's "Reminder notifications", as the instant the device schedules one for.
+
+		Derived from the slot rather than stored, so the lead cannot drift from the appointment it
+		belongs to and a reschedule cannot leave a reminder pointing at the old time. Not a
+		notification queue: on §ACC-004's reasoning — the same shape as §MON-001's missed-dose alert
+		and §REC-004's contraception reminder — the server states when the reminder is due and the
+		device holds it, so the reminder fires with no network and §ACC-001's offline mode keeps
+		working.
+
+		A cancelled booking carries no reminder, because a notification for an appointment the person
+		has already released is worse than none: it sends them to a clinic for nothing.
+		"""
+		if self.cancelled:
+			return ''
+		from datetime import datetime, timedelta
+		try:
+			at = datetime.fromisoformat(self.slot_iso)
+		except ValueError:
+			return ''
+		return (at - timedelta(hours=REMINDER_LEAD_HOURS)).isoformat()
+
+
+class FacilitySlot(BaseModel):
+	"""One of §FND-006's available slots.
+
+	`capacity` and `booked` rather than a boolean `taken`: a screen that offered only free times
+	would tell a person nothing about whether the clinic is full today or closed, and "nothing
+	available" is the answer they most need before they travel. A facility that runs a queue rather
+	than appointments publishes eight places at nine o'clock instead of eight rows.
+	"""
+
+	model_config = MODEL_CONFIG
+	facility_id: str
+	slot_iso: str
+	capacity: int = Field(default=1, ge=1, le=200)
+	booked: int = Field(default=0, ge=0, le=200)
+
+	def model_post_init(self, _context: object) -> None:
+		assert self.booked <= self.capacity, (
+			f'{self.slot_iso} at {self.facility_id} reports {self.booked} booked into a slot of '
+			f'{self.capacity} — a clinic cannot have filled more places than it offers'
+		)
+
+	@computed_field  # type: ignore[prop-decorator]
+	@property
+	def free(self) -> int:
+		"""Places left. Derived, so a slot cannot advertise places its bookings have taken."""
+		return self.capacity - self.booked
+
+	@property
+	def open(self) -> bool:
+		return self.free > 0
+
+
+class SlotOffer(BaseModel):
+	"""§FND-006's "participating facilities", as what one of them publishes.
+
+	One slot per request rather than a whole day at once. A day is not a formula — a clinic that runs
+	a queue at nine and appointments in the afternoon cannot be expressed as a start, an interval and
+	a count — and a body carrying a list of *objects* is a shape the generic mobile form cannot
+	render: its `list` field is comma-separated text. Publishing one slot per call is the shape a
+	form can fill and the shape a facility actually decides in.
+	"""
+
+	model_config = MODEL_CONFIG
+	facility_id: str | None = None
+	slot_iso: str
+	capacity: int = Field(default=1, ge=1, le=200)
+
+
+class SlotSchedule(BaseModel):
+	"""§FND-006's "View available slots": one facility's day, as the screen reads it.
+
+	The day is echoed back because the answer is *about* a day — a client that asked for Tuesday and
+	received a bare list cannot tell an empty Tuesday from a request that was answered with the wrong
+	day's rows.
+	"""
+
+	model_config = MODEL_CONFIG
+	facility_id: str
+	day_iso: str
+	slots: list[FacilitySlot] = []
+
+	def model_post_init(self, _context: object) -> None:
+		assert all(s.facility_id == self.facility_id for s in self.slots), (
+			'a schedule carries one facility\'s day; a slot naming another clinic would be served '
+			'under the wrong one'
+		)
+		assert all(s.slot_iso.startswith(self.day_iso) for s in self.slots), (
+			'the schedule names a day and carries slots from another one'
+		)
+
+	@property
+	def open_count(self) -> int:
+		return sum(1 for s in self.slots if s.open)
+
+
+class BookingChange(BaseModel):
+	"""§FND-006's reschedule: the booking is in the path, the new slot is the body."""
+
+	model_config = MODEL_CONFIG
+	slot_iso: str

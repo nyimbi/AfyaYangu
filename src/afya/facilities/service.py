@@ -3,8 +3,8 @@ import math
 from typing import Any
 
 from afya.facilities.views import (
-	Booking, CostBand, Facility, FacilityKind, FacilityLevel, FacilityReport, NearestRequest,
-	OfflineFacility,
+	Booking, BookingChange, CostBand, Facility, FacilityKind, FacilityLevel, FacilityReport,
+	FacilitySlot, NearestRequest, OfflineFacility, SlotOffer, SlotSchedule,
 )
 from afya.logmixin import LogMixin
 
@@ -51,6 +51,10 @@ class FacilityService(LogMixin):
 		self._bookings: dict[str, Booking] = {}
 		self._queue_counts: dict[str, int] = {}
 		self._waits: dict[str, list[int]] = {}
+		# §FND-006's "View available slots": what each facility has published, keyed by the pair the
+		# booking is keyed by, so a booking and the slot it fills cannot disagree about which one it
+		# is. Empty for most of the registry — "we do not run appointments here" is the ordinary case.
+		self._slots: dict[tuple[str, str], FacilitySlot] = {}
 		# §FND-001's "Recent user reports ('no malaria tests today,' 'long queue')". A list per
 		# facility, newest first, because the section shows them as a feed and a single latest string
 		# loses the second report a person needs to see.
@@ -224,14 +228,119 @@ class FacilityService(LogMixin):
 		assert fac.kind is FacilityKind.ed, 'only ED facilities expose status'
 		return fac.ed_status or 'unknown'
 
-	async def book(self, facility_id: str, slot_iso: str, booking_id: str) -> Booking:
+	async def book(self, facility_id: str, slot_iso: str, booking_id: str,
+			subject_ref: str | None = None) -> Booking:
+		"""§FND-006's "Book". The owner is recorded so the two other verbs have something to check.
+
+		A slot that a facility has published and filled is refused rather than oversubscribed: the
+		queue position is a place in a real line, and a booking accepted into a slot with no room
+		left is a person sent to a clinic that cannot see them. A facility that has published no
+		schedule at all is not refused — most of the registry has none, and "we do not run
+		appointments here" is not the same answer as "that time is taken".
+		"""
 		fac = self._facilities[facility_id]
+		assert fac.kind is not None, 'a registry row always carries its kind'
+		offered = self._slots.get((facility_id, slot_iso))
+		if offered is not None:
+			assert offered.open, f'{slot_iso} at {facility_id} has no places left'
+			offered.booked += 1
 		pos = self._queue_counts.get(facility_id, 0) + 1
 		self._queue_counts[facility_id] = pos
-		booking = Booking(booking_id=booking_id, facility_id=facility_id, slot_iso=slot_iso, queue_position=pos)
+		booking = Booking(booking_id=booking_id, facility_id=facility_id, slot_iso=slot_iso,
+			queue_position=pos, subject_ref=subject_ref)
 		self._bookings[booking.booking_id] = booking
-		assert booking.queue_position >= 1
+		self._log_info('booking made', facility=facility_id, slot=slot_iso, position=pos,
+		               owned=subject_ref is not None)
 		return booking
+
+	async def publish_slot(self, offer: SlotOffer) -> FacilitySlot:
+		"""§FND-006's "participating facilities": a facility publishing a time it will see people.
+
+		Re-publishing a slot that already has bookings keeps the count rather than resetting it: the
+		offer is the facility saying "this time still exists, with this many places", and a reset
+		would silently reopen places people hold. Shrinking capacity below what is already booked is
+		refused by the model's own post-init check, which is the honest answer — the facility has to
+		cancel someone first, and that is a decision with a person on the other end of it.
+		"""
+		facility_id = offer.facility_id
+		assert facility_id is not None, 'a slot is published by a facility'
+		assert facility_id in self._facilities, f'unknown facility {facility_id}'
+		existing = self._slots.get((facility_id, offer.slot_iso))
+		booked = existing.booked if existing is not None else 0
+		slot = FacilitySlot(facility_id=facility_id, slot_iso=offer.slot_iso,
+			capacity=offer.capacity, booked=booked)
+		self._slots[(facility_id, offer.slot_iso)] = slot
+		self._log_info('slot published', facility=facility_id, slot=offer.slot_iso,
+		               capacity=slot.capacity, booked=slot.booked)
+		return slot
+
+	def slots(self, facility_id: str, day_iso: str) -> SlotSchedule:
+		"""§FND-006's "View available slots at participating facilities", for one facility and day.
+
+		A read, not a filter: taken slots stay in the answer with `free == 0`, because a person
+		choosing a time needs to see that the morning is full rather than an afternoon list that
+		looks like the whole day. Sorted by time, which is the order the day happens in.
+		"""
+		rows = [s for (f, iso), s in self._slots.items() if f == facility_id and iso.startswith(day_iso)]
+		return SlotSchedule(facility_id=facility_id, day_iso=day_iso,
+			slots=sorted(rows, key=lambda s: s.slot_iso))
+
+	def booking(self, booking_id: str) -> Booking:
+		assert booking_id in self._bookings, f'unknown booking {booking_id}'
+		return self._bookings[booking_id]
+
+	async def reschedule(self, booking_id: str, slot_iso: str) -> Booking:
+		"""§FND-006's "reschedule". The queue place is kept; the time moves.
+
+		Keeping the position is the point: a person who booked in March and moves their appointment
+		to April has not joined the back of a new line, and re-numbering them would punish the one
+		behaviour a clinic most wants to encourage — telling it in advance.
+
+		The old slot's place is released and the new one's taken, in that order, so a facility's
+		booked count is never briefly wrong in the direction that oversells it.
+		"""
+		booking = self.booking(booking_id)
+		assert not booking.cancelled, f'{booking_id} was cancelled; book a new appointment'
+		if booking.slot_iso != slot_iso:
+			held = self._slots.get((booking.facility_id, booking.slot_iso))
+			if held is not None:
+				held.booked = max(0, held.booked - 1)
+			wanted = self._slots.get((booking.facility_id, slot_iso))
+			if wanted is not None:
+				assert wanted.open, f'{slot_iso} at {booking.facility_id} has no places left'
+				wanted.booked += 1
+		booking.slot_iso = slot_iso
+		self._log_info('booking rescheduled', booking=booking_id, slot=slot_iso)
+		return booking
+
+	async def cancel(self, booking_id: str) -> Booking:
+		"""§FND-006's "cancel". The row stays; the place goes back.
+
+		A state rather than a deletion, for the reason `Booking.cancelled` gives: the queue behind it
+		was numbered against this row, and deleting it would renumber people who did nothing. The
+		slot's place is released because a clinic that keeps a cancelled appointment's seat is
+		counting a person who is not coming.
+		"""
+		booking = self.booking(booking_id)
+		assert not booking.cancelled, f'{booking_id} is already cancelled'
+		booking.cancelled = True
+		held = self._slots.get((booking.facility_id, booking.slot_iso))
+		if held is not None:
+			held.booked = max(0, held.booked - 1)
+		self._log_info('booking cancelled', booking=booking_id)
+		return booking
+
+	def owns(self, booking_id: str, subject_ref: str | None) -> bool:
+		"""Whether `subject_ref` may move or release this booking (§17's ownership, for §FND-006).
+
+		`False` for a booking with no owner, which is the deliberate half: a booking filed before the
+		owner was recorded cannot be shown to belong to whoever presents the reference, and the
+		alternative — treating an unowned row as anyone's — is the IDOR this exists to prevent. A
+		clinic can still see it, because a clinic's routes do not come through here.
+		"""
+		if subject_ref is None or booking_id not in self._bookings:
+			return False
+		return self._bookings[booking_id].subject_ref == subject_ref
 
 	def all_facilities(self) -> list[Facility]:
 		return list(self._facilities.values())

@@ -109,7 +109,9 @@ FEATURE_OF: dict[str, str] = {
 	'record_case_counts': 'INF-001', 'record_sub_county': 'INF-001',
 	'medicine_registry': 'MED-001', 'medicine_recalls': 'MED-001', 'report_suspicious_medicine': 'MED-004',
 	'sha_cover_verify': 'INF-016', 'sha_facilities': 'INF-016', 'sha_benefits': 'INF-016',
-	'nearest_facilities': 'FND-001', 'ed_status': 'FND-002', 'report_wait': 'FND-004', 'book_appointment': 'FND-006',
+	'nearest_facilities': 'FND-001', 'ed_status': 'FND-002', 'report_wait': 'FND-004',
+	'book_appointment': 'FND-006', 'view_slots': 'FND-006', 'reschedule_appointment': 'FND-006',
+	'cancel_appointment': 'FND-006', 'publish_slot': 'FND-006',
 	'testing_sites': 'FND-003', 'vaccination_points': 'FND-005',
 	'service_status': 'INF-007', 'risk_zones_near_me': 'LOC-001',
 	'verify_medicine': 'MED-001', 'drug_interactions': 'MED-002', 'dosage': 'MED-003', 'report_stock': 'MED-004',
@@ -251,6 +253,10 @@ OPERATOR_SCOPES: dict[str, str] = {
 	# publishes to the public, which is why it stays a rung above these two.
 	'record_case_counts': 'county_aggregate',
 	'record_sub_county': 'county_aggregate',
+	# §FND-006's appointment times: publishing one is the facility saying it will see people at
+	# that hour, which is the same class of claim as its §FND-001 registry row and the same scope
+	# that maintains it. Booking, moving and cancelling are the person's own and carry no scope.
+	'publish_slot': 'county_aggregate',
 }
 
 # Slugs withheld until PHEOC activates the outbreak event (§11.1). Grouped by the feature that
@@ -388,7 +394,11 @@ def catalogue() -> list[MobileAction]:
 		_a('nearest_facilities', 'Find care near me', 'Facilities', 'POST', '/facilities/nearest', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('kind', 'Type of place', 'select', FACILITY_KINDS), _f('limit', 'How many results', 'int')]),
 		_a('ed_status', 'How busy is the emergency unit?', 'Facilities', 'GET', '/facilities/{facility_id}/ed-status', [_f('facility_id', 'Facility', 'path')]),
 		_a('report_wait', 'Report the queue length', 'Facilities', 'POST', '/facilities/{facility_id}/wait', [_f('facility_id', 'Facility', 'path'), _f('minutes', 'Minutes waited', 'int')]),
-		_a('book_appointment', 'Book an appointment', 'Facilities', 'POST', '/facilities/{facility_id}/booking', [_f('facility_id', 'Facility', 'path'), _auto('booking_id', 'Booking number'), _f('slot_iso', 'Appointment time')]),
+		_a('book_appointment', 'Book an appointment', 'Facilities', 'POST', '/facilities/{facility_id}/booking', [_f('facility_id', 'Facility', 'path'), _auto('booking_id', 'Booking number'), _f('slot_iso', 'Appointment time', ph='e.g. 2026-10-20T09:00+03:00')]),
+		_a('view_slots', 'What times are free?', 'Facilities', 'GET', '/facilities/{facility_id}/slots', [_f('facility_id', 'Facility', 'path'), _f('day_iso', 'Which day', ph='YYYY-MM-DD')]),
+		_a('reschedule_appointment', 'Move my appointment', 'Facilities', 'POST', '/facilities/booking/{booking_id}/reschedule', [_f('booking_id', 'Booking number', 'path'), _f('slot_iso', 'New appointment time', ph='e.g. 2026-10-22T14:00+03:00')]),
+		_a('cancel_appointment', 'Cancel my appointment', 'Facilities', 'POST', '/facilities/booking/{booking_id}/cancel', [_f('booking_id', 'Booking number', 'path')]),
+		_a('publish_slot', 'Offer appointment times', 'Facilities', 'POST', '/facilities/{facility_id}/slots', [_f('facility_id', 'Facility', 'path'), _f('slot_iso', 'Time you will see people', ph='e.g. 2026-10-20T09:00+03:00'), _f('capacity', 'How many people at that time', 'int', ph='leave blank for one')]),
 		# Medicine
 		_a('verify_medicine', 'Is my medicine genuine?', 'Medicine', 'POST', '/medicine/verify', [_f('batch_number', 'Batch number (on the box)'), _f('gtin', 'Barcode number')]),
 		_a('drug_interactions', 'Can I take these together?', 'Medicine', 'POST', '/medicine/interactions', [_f('drugs', 'Medicines', 'list')]),
@@ -740,6 +750,10 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'nearest_facilities': ('Find care near me', 'Nearest clinics and hospitals with walking directions'),
 	'ed_status': ('How busy is A&E?', 'Live queues at casualty units'),
 	'book_appointment': ('Book an appointment', 'Skip the queue with a slot'),
+	'view_slots': ('What times are free?', 'See a clinic’s appointment times for a day, and which are full'),
+	'reschedule_appointment': ('Move my appointment', 'Change the time of an appointment you booked'),
+	'cancel_appointment': ('Cancel my appointment', 'Give up your appointment time so someone else can take it'),
+	'publish_slot': ('Offer appointment times', 'Publish the times your facility will see people, and how many at each'),
 	'verify_medicine': ('Is my medicine real?', 'Check any drug against the national registry'),
 	'drug_interactions': ('Can I take these together?', 'Check risky medicine combinations'),
 	'dosage': ('How much do I give?', 'Correct dose by weight'),

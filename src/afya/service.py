@@ -58,8 +58,8 @@ from afya.medicine.views import (
 )
 from afya.facilities.service import FacilityService
 from afya.facilities.views import (
-	Booking, BookingRequest, Facility, FacilityLevel, FacilityReportRequest, NearestRequest, OfflineFacility,
-	ServiceOffered,
+	Booking, BookingChange, BookingRequest, Facility, FacilityLevel, FacilityReportRequest, NearestRequest,
+	OfflineFacility, ServiceOffered, SlotOffer,
 )
 from afya.info.escalation import CORRECTION_FEED_CATEGORY, ContentError
 from afya.info import health_education
@@ -977,11 +977,81 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except AssertionError as exc:
 			raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+	@app.get('/facilities/{facility_id}/slots')
+	async def facility_slots(facility_id: str, day_iso: str) -> dict[str, object]:
+		"""§FND-006's "View available slots at participating facilities". Public: choosing a clinic
+		is something a person does before they have decided to tell anyone who they are."""
+		return facilities.slots(facility_id, day_iso).model_dump(mode='json')
+
+	@app.post('/facilities/{facility_id}/slots')
+	async def facility_publish_slot(facility_id: str, offer: SlotOffer,
+			_subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
+		"""What a participating facility publishes. The county health team's scope, because a slot
+		on the public screen is the facility saying it will see people — the same class of claim as
+		§FND-001's registry row, and the same scope that maintains it."""
+		if offer.facility_id is not None and offer.facility_id != facility_id:
+			raise HTTPException(status_code=422,
+				detail=f'body names facility {offer.facility_id!r}, path names {facility_id!r}')
+		try:
+			return (await facilities.publish_slot(
+				offer.model_copy(update={'facility_id': facility_id}))).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
 	@app.post('/facilities/{facility_id}/booking')
-	async def facility_book(facility_id: str, booking: BookingRequest) -> Booking:
+	async def facility_book(facility_id: str, booking: BookingRequest,
+			subject: str | None = Depends(optional_subject())) -> Booking:
+		"""§FND-006's "Book". The owner is the token's subject, never the body's.
+
+		`optional_subject` rather than a guard, because booking an appointment is §FND-006's Tier-2
+		feature and the whole point of it is that it works — requiring a token would put a login
+		between a person and a clinic slot. But a booking filed *with* a token records the owner, and
+		that is what makes the cancel below safe: the reference is short enough to read off a screen,
+		so the token is the difference between an appointment that can be moved only by its owner and
+		one anyone holding six characters can take.
+		"""
 		if not any(f.facility_id == facility_id for f in facilities.all_facilities()):
 			raise HTTPException(status_code=404, detail='unknown facility')
-		return await facilities.book(facility_id, booking.slot_iso, booking.booking_id)
+		try:
+			return await facilities.book(facility_id, booking.slot_iso, booking.booking_id, subject)
+		except AssertionError as exc:
+			raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+	@app.post('/facilities/booking/{booking_id}/reschedule')
+	async def facility_reschedule(booking_id: str, change: BookingChange,
+			subject: str | None = Depends(optional_subject())) -> Booking:
+		"""§FND-006's "reschedule", owned by the token's subject (§17).
+
+		A booking filed without a token has no owner and cannot be moved by presenting its reference:
+		the route answers 403, not 404. The *same* 403 covers a reference that names nothing, and
+		that is deliberate — a 404 for the unknown id and a 403 for the known-but-not-yours turns
+		this route into an oracle for which six-character references exist, and the reference is
+		short enough to read off a screen. The check is `owns`, which is the one place the relation
+		is applied; a second implementation here would be a second rule.
+		"""
+		if not facilities.owns(booking_id, subject):
+			raise HTTPException(status_code=403, detail='this appointment belongs to someone else')
+		try:
+			return await facilities.reschedule(booking_id, change.slot_iso)
+		except AssertionError as exc:
+			raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+	@app.post('/facilities/booking/{booking_id}/cancel')
+	async def facility_cancel(booking_id: str,
+			subject: str | None = Depends(optional_subject())) -> Booking:
+		"""§FND-006's "cancel", on the same ownership rule and the same uniform 403 as the reschedule.
+
+		A POST rather than a DELETE because the row survives: the queue behind it was numbered
+		against it, and removing it would renumber people who did nothing. §17.1's "deletable at any
+		time" is about a person's *data*, and this is a state a clinic reads — the appointment is
+		released, which is what the person asked for.
+		"""
+		if not facilities.owns(booking_id, subject):
+			raise HTTPException(status_code=403, detail='this appointment belongs to someone else')
+		try:
+			return await facilities.cancel(booking_id)
+		except AssertionError as exc:
+			raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 	# --- medicine ---
 	@app.post('/medicine/verify')
