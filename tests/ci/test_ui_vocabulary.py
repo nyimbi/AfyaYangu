@@ -620,6 +620,9 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/emergency/card/qr'),
 	('POST', '/blood/donors'),        # a donor enrols themselves
 	('POST', '/blood/match'),
+	('POST', '/blood/alerts'),        # a POST because the request is a body, not because it writes:
+	                                  # it computes the alerts and stores none, and returns the same
+	                                  # donor fields `/blood/match` above already returns
 	('POST', '/privacy/dpia'),        # a self-assessment of a proposed use; stores nothing
 	('POST', '/location/border'),
 	('POST', '/location/checkin/point'),

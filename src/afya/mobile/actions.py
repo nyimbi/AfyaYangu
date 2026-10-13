@@ -151,6 +151,7 @@ FEATURE_OF: dict[str, str] = {
 	# The chart is §REC-003's "percentile charts", which is the growth section rather than the wallet.
 	'growth_chart': 'REC-003',
 	'add_lab': 'REC-007', 'view_labs': 'REC-007', 'register_donor': 'REC-004', 'find_donors': 'REC-004',
+	'donor_alerts': 'REC-004', 'donation_centres': 'REC-004',
 	'wellbeing_check': 'REC-005', 'counselling_lines': 'REC-005', 'mood_screen': 'REC-005',
 	'mood_log': 'REC-005', 'mood_trend': 'REC-005', 'coping_tips': 'REC-005',
 	'outbreak_support': 'REC-005', 'ask_referral': 'REC-005',
@@ -475,6 +476,8 @@ def catalogue() -> list[MobileAction]:
 		_a('vaccination_certificate', 'Vaccination certificate', 'Records', 'GET', '/records/{member_ref}/vaccination-certificate', [_f('member_ref', 'Family member', 'path'), _f('purpose', 'What is it for?', 'select', ['travel', 'school', 'employment']), _f('at_iso', 'As at')]),
 		_a('register_donor', 'Register as a blood donor', 'Records', 'POST', '/blood/donors', [_f('donor_ref', 'Donor reference'), _f('blood_group', 'Blood group', 'select', BLOOD_GROUPS), _f('county', 'County'), _f('last_donation_iso', 'Last donation date', ph='optional')]),
 		_a('find_donors', 'Find blood donors', 'Records', 'POST', '/blood/match', [_f('request_id', 'Request number'), _f('blood_group', 'Group needed', 'select', BLOOD_GROUPS), _f('county', 'County'), _f('urgency', 'How urgent?', 'select', ['routine', 'urgent', 'critical'])]),
+		_a('donor_alerts', 'Who should we call for blood?', 'Records', 'POST', '/blood/alerts', [_f('request_id', 'Request number'), _f('blood_group', 'Group needed', 'select', BLOOD_GROUPS), _f('county', 'County'), _f('urgency', 'How urgent?', 'select', ['routine', 'urgent', 'critical'])]),
+		_a('donation_centres', 'Where can I give blood?', 'Records', 'GET', '/blood/donation-centres', [_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('kind', 'What kind of place?', 'select', ['blood_donation', 'blood_bank']), _f('limit', 'How many', 'int')]),
 		# Wellbeing
 		# Five answers, not five fields. The model holds `scores` as a list of exactly five, and the
 		# form offered s1..s5 — a shape neither client could turn into the list, so the action was
@@ -811,6 +814,8 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'add_medication': ('Remind me to take my medicine', 'Never miss a dose or a refill'),
 	'register_donor': ('Donate blood', 'Join the donor list for your county'),
 	'find_donors': ('Find blood', 'Matching for nearby eligible donors'),
+	'donor_alerts': ('Who can give blood?', 'The donors to call, and how far each one is'),
+	'donation_centres': ('Where can I give blood?', 'Donation sites near you, and blood banks'),
 	'wellbeing_check': ('How am I feeling?', 'Gentle check-in plus free counselling lines'),
 	'mood_screen': ('How am I really doing?', 'A short, well-known check for low mood or worry'),
 	'mood_log': ('How is my mood today?', 'One tap a day, and you can see the shape of your weeks'),

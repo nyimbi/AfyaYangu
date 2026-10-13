@@ -19,6 +19,13 @@ class PlaceKind(str, Enum):
 	testing_site = 'testing_site'
 	vaccination_point = 'vaccination_point'
 	water_point = 'water_point'
+	# §REC-006's "Find donation centres". Two members rather than one, because the OpenStreetMap
+	# vocabulary the importer reads distinguishes them and the distinction is the one a donor cares
+	# about: `healthcare=blood_donation` is a site where a person gives blood, `healthcare=blood_bank`
+	# is where donated blood is stored. Collapsing them would put a storage site in a donor's results
+	# and call it a place to give blood. Definitions archived at `sources/osm-healthcare-tags/`.
+	blood_donation = 'blood_donation'
+	blood_bank = 'blood_bank'
 
 
 class TestType(str, Enum):

@@ -68,6 +68,7 @@ from afya.facilities.views import (
 )
 from afya.info.escalation import CORRECTION_FEED_CATEGORY, ContentError
 from afya.info import health_education
+from afya.info import counties
 from afya.info.localisation import BackTranslation, CommunityValidation, workflow_for
 from afya.info.myths import categories_of, topic_for_slug
 from afya.info.recency import instant_iso
@@ -2618,6 +2619,32 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/blood/match')
 	async def blood_match(req: BloodRequest, today_iso: str = '2026-10-08') -> list[dict[str, object]]:
 		return [m.model_dump(mode='json') for m in blood.match(req, today_iso)]
+
+	@app.post('/blood/alerts')
+	async def blood_alerts(req: BloodRequest, today_iso: str = '2026-10-08') -> list[dict[str, object]]:
+		"""§REC-006's "Receive alerts when your blood type is urgently needed nearby".
+
+		The donors who should be told, as data — the same shape §MON-001's missed-dose alerts and
+		§EMG-001's countdown take, and for §ACC-004's reason: the server states the alert and the
+		device schedules it, so nothing polls. `urgency` decides the reach, which is what the field
+		was for; before this it was carried on the request and read by nobody.
+		"""
+		return [a.model_dump(mode='json') for a in blood.donor_alerts(req, today_iso, counties.ADJACENCY)]
+
+	@app.get('/blood/donation-centres')
+	async def blood_donation_centres(lat: float, lon: float, kind: str = 'blood_donation',
+	                                 limit: int = 5) -> list[dict[str, object]]:
+		"""§REC-006's "Find donation centres" — a public question with a public answer.
+
+		`kind` defaults to `blood_donation` because that is the question a donor is asking; a caller
+		that wants the storage sites names `blood_bank` explicitly, and the label on each result says
+		which of the two it is.
+		"""
+		try:
+			return [c.model_dump(mode='json')
+			        for c in blood.donation_centres(places, lat, lon, limit, (kind,))]
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	# A community alert reaches every phone in the county. §17.4's `assigned` is the CHW's scope —
 	# the role that carries a worker's report up — so issuing one is a worker action, not a

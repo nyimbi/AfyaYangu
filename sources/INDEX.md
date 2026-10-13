@@ -14,6 +14,7 @@ that uses it, with its retrieval URL, date, and checksum.
 | WHO Model Formulary 2008, Appendices 1–3 and the monographs' contraindication lines | `afya.medicine.interactions`, `afya.medicine.contraindications` — §MED-002's interaction table, and the pregnancy, breastfeeding, age and condition axes | `who-model-formulary/` |
 | WHO fact sheets, menopause (2024) and family planning/contraception (2025); NHS UK, fertility in the menstrual cycle | `afya.women.content` — §REC-004's contraception, fertility awareness, menopause support and referral | `who-reproductive-health/` |
 | Radford et al., *Robust Speech Recognition via Large-Scale Weak Supervision* (arXiv:2212.04356); OpenAI `mel_filters.npz` (MIT) | `afya.ml.speech` — §ACC-002's log-Mel front end and the whisper-tiny recogniser | `whisper-asr/` |
+| OpenStreetMap wiki, `Key:healthcare` — the `blood_donation` and `blood_bank` values | `afya.places.views.PlaceKind`, `afya.integrations.overpass` — §REC-006's donation centres | `osm-healthcare-tags/` |
 
 Every source is stored as the published artefact **and** as layout-preserving text (`pdftotext
 -layout`), with both checksums recorded. The text copy is what a tool reads: an agent given a PDF
@@ -1057,3 +1058,55 @@ selection, not a database: absence from Appendix 1 is not clearance, and the che
 returning unmatched names separately rather than reporting them as safe. It states no severity
 grading beyond the starred/not-starred mark. It carries no dose for the condition axis and no
 paediatric dose at all — that is the Pocket Book, a separate source above.
+
+## OpenStreetMap healthcare tags — §REC-006's donation centres
+
+§REC-006 asks the app to "Find donation centres". The repo's `PlaceKind` enum had eight members and
+none of them was a donation centre, so the vocabulary had to come from somewhere rather than be
+invented — and the obvious guess is wrong. OpenStreetMap does **not** define `amenity=blood_donation`;
+the donation tags live under the separate `healthcare` key, and the two values are documented as
+*different things*. A finder that collapsed them would return a storage site as a place to give
+blood, which is a result the person asking cannot use.
+
+**Publisher:** OpenStreetMap wiki (OSM contributors). **Retrieved:** 2026-10-13.
+**Licence:** the wiki pages themselves state Creative Commons Attribution-ShareAlike 2.0 (the
+`Wiki content license` link in the archived HTML). The OSM *data* the tags describe is separately
+ODbL 1.0 — this archive holds wiki text only, no OSM data.
+**URLs:** `https://wiki.openstreetmap.org/wiki/Tag:healthcare%3Dblood_donation` and
+`https://wiki.openstreetmap.org/wiki/Tag:healthcare%3Dblood_bank`, both reached from
+`https://wiki.openstreetmap.org/wiki/Key:healthcare`.
+
+### Files
+
+| File | SHA-256 (first 16) |
+|---|---|
+| `healthcare-blood_donation.html` | `40fbe400b2ce8132` |
+| `healthcare-blood_donation.txt` | `8833f7760171a7a0` |
+| `healthcare-blood_bank.html` | `f962df9c281b1754` |
+| `healthcare-blood_bank.txt` | `a7a9f0b5ec683bef` |
+
+### What the source states
+
+- **`healthcare=blood_donation`** — "A facility where you can donate blood, plasma and/or platelets,
+  and possibly have stem cell samples taken."
+- **`healthcare=blood_bank`** — "a facility where blood gathered as a result of blood donation is
+  stored and preserved for later use in blood transfusion", which the page adds "are often found in
+  a hospital or medical centre".
+- Both are values of the **`healthcare`** key. The `amenity` key carries neither, which is why the
+  Overpass query in `afya.integrations.overpass` asks under `healthcare` and the parser reads both
+  keys rather than one.
+
+### What the source does and does not support
+
+- **It defines the tags; it does not enumerate the sites.** Nothing here says how many donation
+  centres or blood banks exist in Kenya, or in any county. The finder's answer is whatever the OSM
+  import holds, and a county with nothing imported gets an empty list — which is an absence of data,
+  not a statement that the county has no donation centre.
+- **`amenity=blood_donation` is not a value OSM defines.** A query written against it returns the
+  empty set while appearing to work, which is the failure the archived 404 on that tag's page
+  documents. The `healthcare` key is the one that carries the donation vocabulary.
+- **The two kinds are not interchangeable and the source does not rank them.** It states what each
+  is for; the choice to default the finder to `blood_donation` is the repo's, made because the
+  section's bullet is the question a donor asks.
+- **Tagging is voluntary and uneven.** A facility that takes donations may be tagged as neither, so
+  the finder's list is a floor rather than a census — the same caveat the `amenity` import carries.

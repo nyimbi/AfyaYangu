@@ -10,6 +10,12 @@ _KIND_MAP: dict[str, PlaceKind] = {
 	'pharmacy': PlaceKind.pharmacy, 'clinic': PlaceKind.clinic, 'hospital': PlaceKind.hospital,
 	'school': PlaceKind.school, 'doctors': PlaceKind.treatment_unit, 'water_point': PlaceKind.water_point,
 }
+# §REC-006's donation centres live under the `healthcare` key rather than `amenity` — the two OSM
+# vocabularies are separate namespaces and a query for `amenity=blood_donation` returns nothing,
+# because no such value exists. Definitions archived at `sources/osm-healthcare-tags/`.
+_HEALTHCARE_KIND_MAP: dict[str, PlaceKind] = {
+	'blood_donation': PlaceKind.blood_donation, 'blood_bank': PlaceKind.blood_bank,
+}
 _BBOX_PAD = 0.25  # ° around county center
 
 
@@ -19,6 +25,8 @@ def overpass_query(min_lat: float, min_lon: float, max_lat: float, max_lon: floa
 (
 	node["amenity"~"^(pharmacy|clinic|hospital|school|doctors)$"]({min_lat},{min_lon},{max_lat},{max_lon});
 	way["amenity"~"^(pharmacy|clinic|hospital|school|doctors)$"]({min_lat},{min_lon},{max_lat},{max_lon});
+	node["healthcare"~"^(blood_donation|blood_bank)$"]({min_lat},{min_lon},{max_lat},{max_lon});
+	way["healthcare"~"^(blood_donation|blood_bank)$"]({min_lat},{min_lon},{max_lat},{max_lon});
 );
 out center tags 200;"""
 
@@ -39,7 +47,7 @@ def parse_overpass(payload: dict[str, Any]) -> list[Place]:
 		name = tags.get('name')
 		osm_id = f"{'N' if el['type'] == 'node' else ('W' if el['type'] == 'way' else 'R')}{el['id']}"
 		geom = _center(el)
-		kind = _KIND_MAP.get(tags.get('amenity', ''))
+		kind = _KIND_MAP.get(tags.get('amenity', '')) or _HEALTHCARE_KIND_MAP.get(tags.get('healthcare', ''))
 		if not (name and geom and kind):
 			continue
 		try:

@@ -1,0 +1,152 @@
+Tag:healthcare=blood_bank - OpenStreetMap Wiki 
+ Tag:healthcare=blood_bank 
+ From OpenStreetMap Wiki 
+ Jump to navigation 
+ Jump to search 
+ Help 
+ Tag:healthcare=blood bank 
+ In other languages 
+  Afrikaans  
+  asturianu  
+  azərbaycanca  
+  Bahasa Indonesia  
+  Bahasa Melayu  
+  bosanski  
+  brezhoneg  
+  català  
+  čeština  
+  Crnogorski  
+  dansk  
+  Deutsch  
+  eesti  
+  English  
+  español  
+  Esperanto  
+  euskara  
+  français  
+  Frysk  
+  Gàidhlig  
+  galego  
+  hrvatski  
+  Ido  
+  interlingua  
+  íslenska  
+  italiano  
+  Kreyòl ayisyen  
+  kréyòl gwadloupéyen  
+  kurdî  
+  latviešu  
+  Lëtzebuergesch  
+  lietuvių  
+  magyar  
+  Nederlands  
+  norsk  
+  norsk nynorsk  
+  occitan  
+  polski  
+  português  
+  română  
+  sardu  
+  shqip  
+  slovenčina  
+  slovenščina  
+  srpski (latinica)  
+  suomi  
+  svenska  
+  Tagalog  
+  Tiếng Việt  
+  Türkçe  
+  Zazaki  
+  Ελληνικά  
+  беларуская  
+  български  
+  македонски  
+  монгол  
+  русский  
+  српски / srpski  
+  українська  
+  հայերեն  
+  עברית  
+  العربية  
+  سرائیکی  
+  فارسی  
+  پنجابی  
+  پښتو  
+  नेपाली  
+  मराठी  
+  हिन्दी  
+  বাংলা  
+  ਪੰਜਾਬੀ  
+  தமிழ்  
+  മലയാളം  
+  සිංහල  
+  ไทย  
+  မြန်မာဘာသာ  
+  တႆး  
+  한국어  
+  ქართული  
+  ⵜⴰⵎⴰⵣⵉⵖⵜ  
+  中文（简体）  
+  中文（繁體）  
+  日本語  
+  粵語  
+ Other languages... 
+ v   · d   · e healthcare  =  blood_bank 
+ Description
+ A center where blood gathered as a result of blood donation is stored and preserved for later use in blood transfusion  
+ Group: health 
+ Used on these elements 
+ Useful combination
+ name =* 
+ opening_hours =* 
+ See also
+ amenity = blood_bank 
+ healthcare = blood_donation 
+ healthcare = laboratory 
+ Status:   approved 
+ healthcare = blood_bank $1% $1% $1% $1% More details at tag info 
+ Tools for this tag
+ taginfo   · AD   · AT   · BE   · BR   · BY   · CH   · CH²   · CN   · CZ   · DE   · DACH   · DK   · FI   · FR   · GB   · GR   · HU   · IE (N+S)   · IR   · IT   · LI   · LU   · JP   · KP   · KR   · NL   · NO   · PL   · PT   · RU   · ES   · AR   · MX   · CO   · BO   · CL   · EC   · PY   · PE   · UY   · VE   · TW   · UA   · US   · VN 
+ overpass-turbo 
+ QLever 
+ Sophox 
+ Postpass via overpass-turbo 
+ OSM Tag History 
+ StyleInfo 
+ The tag healthcare = blood_bank is used for a blood bank : a facility where blood gathered as a result of blood donation is stored and preserved for later use in blood transfusion. These facilities are often found in a hospital or medical centre. 
+ The similar tag amenity = blood_bank has also been used. It is more common overall but has been used only in India, where a list of blood banks is available from OpenGovernmentData.
+ For a facility where members of the public can donate blood, see healthcare = blood_donation 
+ How to map 
+ Create a node at the center of the blood bank and tag it with healthcare = blood_bank and name =* .
+ If the entire area of the blood bank is known, it can be mapped as an area. 
+ See also 
+ healthcare = blood_donation 
+ amenity = blood_bank 
+ healthcare = laboratory 
+ amenity = hospital 
+ Retrieved from " https://wiki.openstreetmap.org/w/index.php?title=Tag:healthcare%3Dblood_bank&oldid=2966291 " 
+ Categories : Tag descriptions for group "health" Tag descriptions for key "healthcare" Tag descriptions Tag descriptions by value Tag descriptions with status "approved" Health Hidden categories: Pages unavailable in Italian Pages unavailable in Dutch Pages unavailable in Japanese Item with no description in language CS Item with no description in language JA Item with no description in language FR Item with no description in language PT Item with no description in language IT Item with no description in language UK Item with no description in language PL Item with no description in language FI Item with no description in language NL Item with no description in language HU Item with no description in language ZH-HANS Item with no description in language ZH-HANT 
+ Navigation menu 
+ Personal tools 
+ English Create account Log in 
+ associated-pages 
+ Page Discussion 
+ English 
+ Views 
+ Read View source View history 
+ More 
+ Search 
+ Site 
+ Main Page The map Map Features Contributors Help Blogs Shop Donations Wiki discussion Recent changes Special pages 
+ Tools 
+ What links here Related changes Printable version Permanent link Page information Cite this page 
+ In other projects 
+ Data item 
+ In other languages 
+ Add links 
+ This page was last edited on 16 March 2026, at 15:51. 
+ Content is available under Creative Commons Attribution-ShareAlike 2.0 license unless otherwise noted. 
+ Privacy policy 
+ About OpenStreetMap Wiki 
+ Disclaimers 
+ Mobile view

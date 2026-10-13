@@ -2892,3 +2892,100 @@ well-formed `HH:MM` strings, distinct and in order, and arithmetic satisfies all
 passes is a bug in the canary, but the bug was in the *test*: it asserted the shape of the answer and
 not the choice behind it. It now asserts the property `REMINDER_CLOCK`'s own comment gives — a
 twice-daily course is a morning and an evening — which is the thing arithmetic cannot do.
+
+## §REC-006 — a field nobody read, and a vocabulary that had to be looked up
+
+§REC-006 prints five Features. Three had carriers; the two that did not failed from opposite sides
+of the same table — one was a question the code answered for the wrong person, the other a word the
+code had no word for.
+
+### `match` answers the requester, and the bullet is about the donor
+
+"Receive alerts when your blood type is urgently needed nearby" was `missing` while `match` was
+fully implemented, tested and routed. The two statements are not in tension: `match` answers *who can
+I call*, ranked, and returns it to the facility that asked. The bullet is the other direction — *my
+group is needed, here* — and no path in the codebase told a donor anything. The tell was the request's
+own `urgency` field: `routine|urgent|critical`, carried on `BloodRequest`, validated, and read by
+nobody. A field that decides nothing is a feature that decides nothing.
+
+`donor_alerts` makes urgency decide two things, and both are decisions rather than filters:
+
+- **`URGENCY_REACH` widens the counties, in hops** — 0 for the request's own, 1 for the counties
+  that touch it, 2 for the counties that touch those, over §INF-001's adjacency table. This is what
+  makes the alert *nearby* rather than *local*: a county hospital short of B+ calls Kiambu because a
+  donor an hour away is a donor, and calls Nakuru because a donor three hours away still beats no
+  unit at all. The walk returns each county's distance, so `distance_counties` is what the search
+  already computed rather than a second `if` that would drift from it.
+- **`URGENCY_DEPTH` widens the groups.** A `routine` need notifies the exact group in its own county
+  and nobody else. A routine request is met from the stock list; waking a donor for it spends the one
+  thing a donor list runs on, which is their willingness to be woken.
+
+Two rules bound it. **An ineligible donor is not alerted** — the 90-day interval is a safety rule
+about the donor, not a supply rule, and an alert is an invitation to break it; the check is the same
+`_eligible` that `match` and `record_donation` use, so the three cannot disagree about one donor. And
+**an incompatible donor is not alerted** — an A+ donor cannot be given to a B+ patient, and bringing
+someone in to be turned away is worse than not calling them, because it spends the same goodwill the
+first rule protects.
+
+Each alert carries both `requested_group` and `donor_group`. They are usually different groups: a B+
+patient can be given O- blood, so most alerts go to a donor whose group is not the one on the request,
+and "B+ is needed" and "your O- can be given to a B+ patient" are different sentences. A donor told
+only the first has to work out whether it applies to them.
+
+### A word the code did not have, and the source that has it
+
+"Find donation centres" was `missing` for the bluntest reason: `PlaceKind` had eight members and none
+of them was a donation centre, so no route could list one and no import could carry one.
+
+The vocabulary is not invented. OpenStreetMap documents **two** kinds, and documents them as different
+things — `healthcare=blood_donation` is "a facility where you can donate blood, plasma and/or
+platelets", `healthcare=blood_bank` is where donated blood "is stored and preserved for later use in
+blood transfusion". Both are archived at `sources/osm-healthcare-tags/`. Two members rather than one
+because a storage site is somewhere the blood already is, not somewhere a donor can go: a finder that
+collapsed them would put a place a donor cannot use at the top of a distance-sorted list.
+
+`donation_centres` therefore defaults to `blood_donation` alone and offers `blood_bank` only when it
+is named — the same reasoning §FND-003's `test_type` filter applies to a test a facility does not
+offer. The label comes from `DONATION_SITE_KINDS` rather than from the caller, so the two cannot be
+presented as one.
+
+**The key is the part that would have gone wrong silently.** The donation tags live under `healthcare`,
+not `amenity` — `amenity=blood_donation` is not a value OSM defines, and the wiki page for it 404s.
+An Overpass query written against `amenity` returns the empty set while appearing to work, and a
+parser reading only `amenity` drops every site the query found: a zero that looks like "Kenya has no
+donation centres" rather than like a bug. The query and the parser are asserted against each other
+for that reason, and canary #7 reproduces exactly that shape.
+
+### The defect this work found, twice
+
+The first version of `URGENCY_REACH` was `{'routine': 0, 'urgent': 1, 'critical': 2}` read as a
+**boolean** — nonzero meant "also the counties that touch it". So `urgent` and `critical` reached
+byte-identical sets and the table's top row was a value that decided nothing: the same defect the
+bullet was about, `urgency` carried and read by nobody, reintroduced one level down. A live probe of
+the route showed the two responses differing only in the word `Urgent`/`Critical` inside the message.
+Reading the number as **hops** and walking breadth-first fixes it — `critical` now reaches Nakuru,
+which does not touch Nairobi, and `Murang'a`, which is two hops out — and a test asserts the three
+values are distinct, so the table cannot silently collapse again. Canary #9 patches the walk back to
+one hop and is the one that would have caught it.
+
+The second was in the *test*, and it is the same class of bug the §MON-004 canary had. Canary #1
+flattens `URGENCY_REACH` so every request reaches the neighbours, and it MISSED on the first run: the
+fixture had no exact-group donor in a neighbouring county, so widening the reach changed nothing the
+test looked at. The canary was fine; the test was asserting depth while claiming to assert reach.
+Adding a B+ donor in Kiambu — one the *routine* case must not wake and the *urgent* case must — made
+the table's first row testable at all. A gate that cannot fail for the reason it names is not testing
+what it says.
+
+A third thing the gates found, which is a control working rather than a defect: `test_ui_vocabulary`'s
+unguarded-write check failed on the new `POST /blood/alerts`. It is a POST because the request is a
+body, not because it writes — it computes the alerts and stores none — so it went onto the named list
+with that justification, beside `/blood/match`, which is the same shape.
+
+**Counts: §REC-006 2 `missing` → 0**, both `carried` with refs that resolve through `afya.refs.py`.
+Across the repo **447 → 449 `carried`, 29 → 27 `missing`**, 493 rows, `deferred` 17.
+
+**Canaries: 9/9 fired.** The urgency tables flattened to full reach; the reach walk stopping after one
+hop; the depth table flattened so a routine request reaches every compatible group; an ineligible
+donor invited to donate; an incompatible donor alerted; the finder defaulting to both kinds; the two
+place kinds collapsed into one; the importer reading only the `amenity` key; and the route forgetting
+the adjacency table.

@@ -1,0 +1,235 @@
+Tag:healthcare=blood_donation - OpenStreetMap Wiki 
+ Tag:healthcare=blood_donation 
+ From OpenStreetMap Wiki 
+ Jump to navigation 
+ Jump to search 
+ Help 
+ Tag:healthcare=blood donation 
+ In other languages 
+  Afrikaans  
+  asturianu  
+  azərbaycanca  
+  Bahasa Indonesia  
+  Bahasa Melayu  
+  bosanski  
+  brezhoneg  
+  català  
+  čeština  
+  Crnogorski  
+  dansk  
+  Deutsch  
+  eesti  
+  English  
+  español  
+  Esperanto  
+  euskara  
+  français  
+  Frysk  
+  Gàidhlig  
+  galego  
+  hrvatski  
+  Ido  
+  interlingua  
+  íslenska  
+  italiano  
+  Kreyòl ayisyen  
+  kréyòl gwadloupéyen  
+  kurdî  
+  latviešu  
+  Lëtzebuergesch  
+  lietuvių  
+  magyar  
+  Nederlands  
+  norsk  
+  norsk nynorsk  
+  occitan  
+  polski  
+  português  
+  română  
+  sardu  
+  shqip  
+  slovenčina  
+  slovenščina  
+  srpski (latinica)  
+  suomi  
+  svenska  
+  Tagalog  
+  Tiếng Việt  
+  Türkçe  
+  Zazaki  
+  Ελληνικά  
+  беларуская  
+  български  
+  македонски  
+  монгол  
+  русский  
+  српски / srpski  
+  українська  
+  հայերեն  
+  עברית  
+  العربية  
+  سرائیکی  
+  فارسی  
+  پنجابی  
+  پښتو  
+  नेपाली  
+  मराठी  
+  हिन्दी  
+  বাংলা  
+  ਪੰਜਾਬੀ  
+  தமிழ்  
+  മലയാളം  
+  සිංහල  
+  ไทย  
+  မြန်မာဘာသာ  
+  တႆး  
+  한국어  
+  ქართული  
+  ⵜⴰⵎⴰⵣⵉⵖⵜ  
+  中文（简体）  
+  中文（繁體）  
+  日本語  
+  粵語  
+ Other languages... 
+ v   · d   · e healthcare  =  blood_donation 
+ Description
+ Facility where you can donate blood, plasma and/or platelets, and possibly have stem cell samples taken  
+ Group: health 
+ Used on these elements 
+ Useful combination
+ operator =* 
+ donation:compensation =* 
+ See also
+ amenity = blood_bank 
+ healthcare = blood_bank 
+ healthcare = laboratory 
+ Status:   approved 
+ healthcare = blood_donation $1% $1% $1% $1% More details at tag info 
+ Tools for this tag
+ taginfo   · AD   · AT   · BE   · BR   · BY   · CH   · CH²   · CN   · CZ   · DE   · DACH   · DK   · FI   · FR   · GB   · GR   · HU   · IE (N+S)   · IR   · IT   · LI   · LU   · JP   · KP   · KR   · NL   · NO   · PL   · PT   · RU   · ES   · AR   · MX   · CO   · BO   · CL   · EC   · PY   · PE   · UY   · VE   · TW   · UA   · US   · VN 
+ overpass-turbo 
+ QLever 
+ Sophox 
+ Postpass via overpass-turbo 
+ OSM Tag History 
+ StyleInfo 
+ A facility where you can donate blood , plasma and/or platelets, and possibly have stem cell samples taken.
+ Contents 
+ 1 How to map 
+ 2 Tagging 
+ 2.1 Main tag 
+ 2.2 Information on the facility 
+ 2.3 Which components of your blood can be donated 
+ 2.4 Compensation for donation 
+ 3 Rendering 
+ 4 Examples 
+ 5 JOSM preset 
+ 6 External links 
+ 7 Footnotes 
+ How to map 
+ Either
+ add a node in the middle of the facility and tag it with the tags below or 
+ draw a way around the facility's building and tag it with building =* and the tags below. (It may be necessary to create a multipolygon for complex buildings.) 
+ Tagging 
+ Key
+ Value
+ Description
+ Photo
+ Main tag 
+ healthcare 
+ blood_donation 
+ A facility where you can donate blood, plasma and/or platelets, and possibly have stem cell samples taken
+ Information on the facility 
+ operator 
+ *
+ The name of the organization that organises the donation, e.g. Red Cross 
+ ref 
+ *
+ The reference code of the facility, if it has one
+ phone 
+ *
+ The phone number of the facility
+ email 
+ *
+ The email address of the facility
+ website 
+ *
+ The website of the facility
+ opening_hours 
+ * (Attention: has a specific syntax) 
+ The facility's opening hours
+ Which components of your blood can be donated 
+ If some of these are given, others are implied to be unknown. Explicitly add tags with value no if you know the situation.
+ blood:whole
+ yes/no
+ Whether or not you can donate whole blood here
+ blood:plasma
+ yes/no
+ Whether or not you can donate plasma here. This is done with a plasmapheresis device.
+ blood:platelets
+ yes/no
+ Whether or not you can donate platelets here. This is done with a plateletpheresis device.
+ blood:stemcells
+ yes/no
+ Whether you can have blood samples taken to determine the tissue type of your stem cells . An appointment might be required.
+ Compensation for donation 
+ donation:compensation 
+ no
+ You get no compensation for your donation.
+ donation:compensation 
+ yes
+ You get a compensation for donating (use the subtags below if you know the type of compensation).
+ If yes, tag the type of compensation as well if you know it
+ If one or some of these are given, others are implied to be no . [ 1 ] 
+ donation:compensation :payment
+ yes
+ You get paid for each donation, either at the time of donation or after a certain amount of donations.
+ donation:compensation :vouchers
+ yes
+ You get one or more vouchers for every donation. Those can be either vouchers for fun rewards at the donation centre itself, or coupons for local businesses.
+ donation:compensation :gift
+ yes
+ You can choose a small gift after your donation. In Japan this is called "献血粗品". You do not have to collect vouchers to get these gifts. You may use this tag in combination with donation:compensation:vouchers = yes , this either means that you can choose between vouchers and a small gift, or that you can have both.
+ Click here to search for pictures with Google Images 
+ This table is a wiki template with a default description in English. Editable here . 
+ Rendering 
+ A possible icon: (blood droplet coming out of person)
+ OsmAnd uses this icon.
+ The standard tile layer does not render them. This is how it could look like. 
+ Examples 
+ 2818569027   2818569027 Blood donation centre in Bruges, Belgium 
+ 281211429   281211429 Blood donation centre in Aalst, Belgium 
+ JOSM preset 
+ A screenshot of the preset window 
+ Blood donation is included in the JOSM preset "Healthcare". To add it, open the JOSM preferences, go to the 3rd tab on the left (the map with the grid on top) and then the 3rd tab on top (Tagging Presets). Select the preset from the Available presets list and click the arrow to the right of the list. Click the OK button at the bottom of the window and accept to restart JOSM.
+ External links 
+ Blood donation on Wikipedia 
+ Footnotes 
+ ↑ So donation:compensation:vouchers = yes implies donation:compensation:payment = no and donation:compensation:gift = no . There's no need to explicitly add the latter. 
+ Related terms : ‹  blood bank  ›  ‹  blood donation  ›  ‹  plasma donation  ›  ‹  platelets donation  ›  ‹  stemcell donation  ›  
+ Retrieved from " https://wiki.openstreetmap.org/w/index.php?title=Tag:healthcare%3Dblood_donation&oldid=2872310 " 
+ Categories : Tag descriptions for group "health" Tag descriptions for key "healthcare" Tag descriptions Tag descriptions by value Tag descriptions with status "approved" Health Hidden categories: Pages unavailable in Italian Pages loading applicabilities from data item Item with no description in language IT Item with no description in language FI Item with no description in language HU Item with no description in language ZH-HANS Item with no description in language ZH-HANT 
+ Navigation menu 
+ Personal tools 
+ English Create account Log in 
+ associated-pages 
+ Page Discussion 
+ English 
+ Views 
+ Read View source View history 
+ More 
+ Search 
+ Site 
+ Main Page The map Map Features Contributors Help Blogs Shop Donations Wiki discussion Recent changes Special pages 
+ Tools 
+ What links here Related changes Printable version Permanent link Page information Cite this page 
+ In other projects 
+ Data item 
+ In other languages 
+ Add links 
+ This page was last edited on 6 July 2025, at 14:26. 
+ Content is available under Creative Commons Attribution-ShareAlike 2.0 license unless otherwise noted. 
+ Privacy policy 
+ About OpenStreetMap Wiki 
+ Disclaimers 
+ Mobile view
