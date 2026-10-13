@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from afya.derived import DerivedFields
 from afya.info.recency import UNDATED_MS
+from afya.registry.diseases import DISEASE_PATTERN
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -27,6 +28,124 @@ class CountyRisk(BaseModel):
 	# a defaulted low-risk row, and with no stamp that row reads as today's assessment.
 	updated_at_ms: int = Field(default=UNDATED_MS, ge=0)
 	source: str = ''
+
+
+class CaseCounts(DerivedFields, BaseModel):
+	"""§INF-001's second Display: "Case counts (confirmed, suspected) with trend".
+
+	`confirmed` and `suspected` are separate fields because they are separate facts and the section
+	prints both. A single `cases` number would make a suspected case look confirmed, which is the one
+	distinction a reader of an outbreak dashboard is actually making — and the trend is derived from
+	the history rather than carried as a word, so a caller cannot assert "rising" on a flat series.
+
+	`disease` is carried because §INF-001's first Display is "Ebola and other notifiable diseases":
+	a county can be at three confirmed Ebola and forty confirmed cholera, and one number for both is
+	a dashboard nobody can act on.
+	"""
+	model_config = MODEL_CONFIG
+	county: str
+	disease: str = Field(default='evd', pattern=DISEASE_PATTERN)
+	confirmed: int = Field(ge=0)
+	suspected: int = Field(ge=0)
+	previous_confirmed: int | None = Field(default=None, ge=0)
+	previous_suspected: int | None = Field(default=None, ge=0)
+	as_of_iso: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+
+	def model_post_init(self, _context: object) -> None:
+		assert self.previous_confirmed is None or self.previous_confirmed >= 0
+		# A "previous" without a date to compare against is not a trend, it is a second number.
+		assert (self.previous_confirmed is None) == (self.previous_suspected is None), \
+			'a comparison period is either known for both counts or for neither'
+
+	@computed_field  # type: ignore[prop-decorator]
+	@property
+	def trend(self) -> str:
+		"""`rising` / `falling` / `steady` / `new` — derived, so the word cannot drift from the counts.
+
+		`new` rather than `steady` when there is no previous period: a county reporting its first
+		cases has not held steady, and a dashboard that said so would tell a reader the outbreak is
+		stable on the day it was first detected.
+		"""
+		previous_confirmed, previous_suspected = self.previous_confirmed, self.previous_suspected
+		if previous_confirmed is None or previous_suspected is None:
+			return 'new'
+		delta = (self.confirmed + self.suspected) - (previous_confirmed + previous_suspected)
+		return 'rising' if delta > 0 else ('falling' if delta < 0 else 'steady')
+
+
+class SubCountyStatus(BaseModel):
+	"""§INF-001's third Display: "Affected sub-counties and locations".
+
+	A county-level dashboard answers "is my county affected"; this answers "is *my* area", which is
+	the question the reader opened the screen with. `locations` are the named places inside the
+	sub-county — a market, a village, a facility — because a sub-county name alone still covers a
+	population of tens of thousands.
+	"""
+	model_config = MODEL_CONFIG
+	county: str
+	sub_county: str = Field(min_length=2)
+	disease: str = Field(default='evd', pattern=DISEASE_PATTERN)
+	confirmed: int = Field(ge=0)
+	suspected: int = Field(ge=0)
+	locations: list[str] = Field(default_factory=list)
+	as_of_iso: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+
+	def model_post_init(self, _context: object) -> None:
+		assert self.confirmed or self.suspected or self.locations, (
+			'an "affected sub-county" with no case and no location is not affected, and listing it '
+			'would put a place on the dashboard that has nothing to report'
+		)
+
+
+class CountyDashboard(BaseModel):
+	"""§INF-001's dashboard, assembled: the risk row, the case counts, the sub-counties, the alerts
+	and the service statuses.
+
+	Assembled rather than five routes because the section asks for "a simple, visual, daily-updated
+	dashboard" and a client drawing one should not have to join five responses to know what today
+	looks like — a join the client can get wrong is a join the server should make.
+
+	`neighbouring` is the section's "and neighbouring counties": a reader in Busia is affected by
+	what happens in Bungoma, and a dashboard scoped to the caller's own county answers a narrower
+	question than the one the section asks.
+
+	There is no `updated_at_ms` or `source` here. Both are §8.5's "Last updated timestamp" and "Data
+	source attribution", and both belong to the risk assessment — the field the section dates is
+	"current outbreak status by county", and a second stamp on the container that had to equal the
+	first is a drift hazard with nothing to gain. Each part dates itself: a case count carries
+	`as_of_iso`, a status carries `effective_iso`, and `served()` spreads the risk's stamp to the top
+	level so a client reading the payload flat still finds it.
+	"""
+	model_config = MODEL_CONFIG
+	county: str
+	risk: CountyRisk
+	case_counts: list[CaseCounts]
+	sub_counties: list[SubCountyStatus]
+	alerts: list[dict[str, object]]
+	service_status: list[dict[str, object]]
+	neighbouring: list[CountyRisk]
+
+	def served(self, updated_line: str | None) -> dict[str, object]:
+		"""The wire shape: §8.5's Displays flat, as the section lists them.
+
+		The section prints seven Displays as one flat list, and a client drawing a traffic-light
+		dashboard reads `risk_level` — not `risk.risk_level`. Flattening here rather than nesting
+		keeps the route's existing contract: `risk_level`, `active_signals`, `bulletin`, `source` and
+		`updated_at_ms` were already top-level keys of this payload before the dashboard grew, and
+		moving them under `risk` would break every client to gain nothing a reader can see.
+
+		`updated_line` is passed in rather than computed here because §6.2.3's line is rendered
+		against the *caller's* clock, which the service does not hold.
+		"""
+		return {
+			**self.risk.model_dump(mode='json'),
+			'updated_line': updated_line,
+			'case_counts': [c.model_dump(mode='json') | {'trend': c.trend} for c in self.case_counts],
+			'sub_counties': [s.model_dump(mode='json') for s in self.sub_counties],
+			'alerts': self.alerts,
+			'service_status': self.service_status,
+			'neighbouring': [n.model_dump(mode='json') for n in self.neighbouring],
+		}
 
 
 class ContactKind(str, Enum):

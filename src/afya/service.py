@@ -67,6 +67,7 @@ from afya.info.localisation import BackTranslation, CommunityValidation, workflo
 from afya.info.myths import categories_of, topic_for_slug
 from afya.info.recency import instant_iso
 from afya.info.service import InfoService
+from afya.info.views import CaseCounts, SubCountyStatus
 from afya.info.views import WORKFLOW, ContentItem, CountyRisk
 from afya.privacy.service import PrivacyService
 from afya.privacy.views import _SCOPE, ConsentCategory, ConsentRecord, DPIAInput, RBACRole
@@ -1163,15 +1164,68 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.get('/info/dashboard/{county}')
 	async def info_dashboard(county: str, lang: str = 'en', now_ms: int | None = None) -> dict[str, object]:
-		"""§INF-001's county dashboard, with §8.5's "Last updated timestamp".
+		"""§INF-001's county dashboard: all seven Displays, assembled, with §6.2.3's stamp.
 
 		`updated_line` is None when the county has never been assessed. `dashboard()` answers an
 		unknown county with a defaulted low-risk row so a client always has something to draw, and
 		without the stamp that default is indistinguishable from an assessment someone made today —
 		which is exactly the undated content §6.2.3 calls destructive.
+
+		The section's fourth and fifth Displays — "active alerts and advisories" and "service status"
+		— are §ALT-001's alert feed and §INF-007's status feed. They are read from those services
+		rather than restated here, because they are the same facts on two screens and a second copy
+		would be the one that goes stale. Both are county-filtered; the alerts are the *current* alert
+		per kind, which is what `by_county` returns, not the feed's whole history.
 		"""
-		risk = info.dashboard(county)
-		return {**risk.model_dump(mode='json'), 'updated_line': info.dashboard_freshness(county, now_ms, lang)}
+		assembled = info.county_dashboard(
+			county,
+			[a.model_dump(mode='json') for a in alerts.by_county(county)],
+			[s.model_dump(mode='json') for s in alerts.service_status(county)],
+		)
+		return assembled.served(info.dashboard_freshness(county, now_ms, lang))
+
+	@app.post('/info/dashboard/{county}/cases')
+	async def info_record_case_counts(county: str, counts: CaseCounts,
+			_subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
+		"""Record a county's case counts (§INF-001's second Display).
+
+		`county_aggregate` rather than `infrastructure`: a case count is the county health team's own
+		epidemiological report — the same scope that already guards `POST /surveillance/signal` and
+		`POST /ai/hotspots` — whereas a risk *level* is what the authority publishes to the public and
+		stays with the infrastructure scope that guards it.
+
+		The path's `county` must match the body's. A route that took the county from the path and the
+		rest from the body could file Bungoma's counts against Busia with nothing to catch it, and the
+		mismatch would surface as a dashboard that contradicts the report it was built from.
+		"""
+		if counts.county != county:
+			raise HTTPException(
+				status_code=422,
+				detail=f'body names county {counts.county!r}, path names {county!r}')
+		try:
+			row = await info.record_case_counts(counts)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {**row.model_dump(mode='json'), 'trend': row.trend}
+
+	@app.post('/info/dashboard/{county}/sub-counties')
+	async def info_record_sub_county(county: str, status: SubCountyStatus,
+			_subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
+		"""Record an affected sub-county (§INF-001's third Display).
+
+		Same scope and same path/body agreement as the case counts, for the same reasons. The model
+		refuses an "affected" sub-county carrying neither a case nor a named location, so a place with
+		nothing to report cannot be put on the dashboard by a caller who is filling a table.
+		"""
+		if status.county != county:
+			raise HTTPException(
+				status_code=422,
+				detail=f'body names county {status.county!r}, path names {county!r}')
+		try:
+			row = await info.record_sub_county(status)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return row.model_dump(mode='json')
 
 	@app.post('/info/dashboard/{county}')
 	async def info_set_dashboard(county: str, risk_level: str, active_signals: int, bulletin: str,

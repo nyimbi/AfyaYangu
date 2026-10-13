@@ -1,0 +1,48 @@
+# 47 counties, 113 adjacent pairs
+Baringo	Elgeyo-Marakwet, Kericho, Laikipia, Nakuru, Samburu, Turkana, Uasin Gishu, West Pokot
+Bomet	Kericho, Nakuru, Narok, Nyamira
+Bungoma	Busia, Kakamega, Trans Nzoia
+Busia	Bungoma, Kakamega, Siaya
+Elgeyo-Marakwet	Baringo, Trans Nzoia, Uasin Gishu, West Pokot
+Embu	Kirinyaga, Kitui, Machakos, Tharaka
+Garissa	Isiolo, Lamu, Tana River, Wajir
+Homa Bay	Kericho, Kisii, Kisumu, Migori, Nyamira, Siaya
+Isiolo	Garissa, Kitui, Laikipia, Marsabit, Meru, Samburu, Tana River, Wajir
+Kajiado	Kiambu, Machakos, Makueni, Nairobi, Nakuru, Narok, Taita Taveta
+Kakamega	Bungoma, Busia, Nandi, Siaya, Trans Nzoia, Uasin Gishu, Vihiga
+Kericho	Baringo, Bomet, Homa Bay, Kisumu, Nakuru, Nandi, Nyamira, Uasin Gishu
+Kiambu	Kajiado, Machakos, Murang'a, Nairobi, Nakuru, Nyandarua
+Kilifi	Kwale, Mombasa, Taita Taveta, Tana River
+Kirinyaga	Embu, Murang'a, Nyeri
+Kisii	Homa Bay, Migori, Narok, Nyamira
+Kisumu	Homa Bay, Kericho, Nandi, Siaya, Vihiga
+Kitui	Embu, Isiolo, Machakos, Makueni, Meru, Taita Taveta, Tana River, Tharaka
+Kwale	Kilifi, Mombasa, Taita Taveta
+Laikipia	Baringo, Isiolo, Meru, Nakuru, Nyandarua, Nyeri, Samburu
+Lamu	Garissa, Tana River
+Machakos	Embu, Kajiado, Kiambu, Kitui, Makueni, Murang'a, Nairobi
+Makueni	Kajiado, Kitui, Machakos, Taita Taveta
+Mandera	Wajir
+Marsabit	Isiolo, Samburu, Turkana, Wajir
+Meru	Isiolo, Kitui, Laikipia, Nyeri, Tharaka
+Migori	Homa Bay, Kisii, Narok
+Mombasa	Kilifi, Kwale
+Murang'a	Kiambu, Kirinyaga, Machakos, Nyandarua, Nyeri
+Nairobi	Kajiado, Kiambu, Machakos
+Nakuru	Baringo, Bomet, Kajiado, Kericho, Kiambu, Laikipia, Narok, Nyandarua
+Nandi	Kakamega, Kericho, Kisumu, Uasin Gishu, Vihiga
+Narok	Bomet, Kajiado, Kisii, Migori, Nakuru
+Nyamira	Bomet, Homa Bay, Kericho, Kisii
+Nyandarua	Kiambu, Laikipia, Murang'a, Nakuru, Nyeri
+Nyeri	Kirinyaga, Laikipia, Meru, Murang'a, Nyandarua
+Samburu	Baringo, Isiolo, Laikipia, Marsabit, Turkana
+Siaya	Busia, Homa Bay, Kakamega, Kisumu, Vihiga
+Taita Taveta	Kajiado, Kilifi, Kitui, Kwale, Makueni, Tana River
+Tana River	Garissa, Isiolo, Kilifi, Kitui, Lamu, Taita Taveta
+Tharaka	Embu, Kitui, Meru
+Trans Nzoia	Bungoma, Elgeyo-Marakwet, Kakamega, Uasin Gishu, West Pokot
+Turkana	Baringo, Marsabit, Samburu, West Pokot
+Uasin Gishu	Baringo, Elgeyo-Marakwet, Kakamega, Kericho, Nandi, Trans Nzoia
+Vihiga	Kakamega, Kisumu, Nandi, Siaya
+Wajir	Garissa, Isiolo, Mandera, Marsabit
+West Pokot	Baringo, Elgeyo-Marakwet, Trans Nzoia, Turkana

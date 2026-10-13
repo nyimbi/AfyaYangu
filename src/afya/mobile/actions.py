@@ -106,6 +106,7 @@ FEATURE_OF: dict[str, str] = {
 	'content_errors': 'INF-003', 'record_back_translation': 'INF-003', 'record_community_validation': 'INF-003',
 	'content_localisation': 'INF-003',
 	'hotline_directory': 'INF-006', 'county_risk': 'INF-001', 'set_county_risk': 'INF-001',
+	'record_case_counts': 'INF-001', 'record_sub_county': 'INF-001',
 	'medicine_registry': 'MED-001', 'medicine_recalls': 'MED-001', 'report_suspicious_medicine': 'MED-004',
 	'sha_cover_verify': 'INF-016', 'sha_facilities': 'INF-016', 'sha_benefits': 'INF-016',
 	'nearest_facilities': 'FND-001', 'ed_status': 'FND-002', 'report_wait': 'FND-004', 'book_appointment': 'FND-006',
@@ -244,6 +245,12 @@ OPERATOR_SCOPES: dict[str, str] = {
 	# §INF-001: a county's risk level is what the county health authority publishes, not something a
 	# citizen asserts. The read (`county_risk`) is public; this is the write behind it.
 	'set_county_risk': 'infrastructure',
+	# The same section's second and third Displays, on the county health team's own scope: case
+	# counts and affected sub-counties are the county's epidemiological report, the same scope that
+	# guards the surveillance signal they are computed from. A risk *level* is what the authority
+	# publishes to the public, which is why it stays a rung above these two.
+	'record_case_counts': 'county_aggregate',
+	'record_sub_county': 'county_aggregate',
 }
 
 # Slugs withheld until PHEOC activates the outbreak event (§11.1). Grouped by the feature that
@@ -352,6 +359,8 @@ def catalogue() -> list[MobileAction]:
 		_a('hotline_directory', 'Useful phone numbers', 'Information', 'GET', '/info/hotlines', []),
 		_a('county_risk', 'How is my county doing?', 'Information', 'GET', '/info/dashboard/{county}', [_f('county', 'County', 'path')]),
 		_a('set_county_risk', 'Update a county status', 'Information', 'POST', '/info/dashboard/{county}', [_f('county', 'County', 'path'), _f('risk_level', 'Risk level', 'select', ['low', 'moderate', 'high']), _f('active_signals', 'Active signals', 'int'), _f('bulletin', 'What should people do?', 'textarea'), _f('source', 'Source', ph='county health office')]),
+		_a('record_case_counts', 'Record case counts', 'Information', 'POST', '/info/dashboard/{county}/cases', [_f('county', 'County', 'path'), _f('disease', 'Disease', 'select', list(DISEASES)), _f('confirmed', 'Confirmed cases', 'int'), _f('suspected', 'Suspected cases', 'int'), _f('as_of_iso', 'Counted up to (date)', ph='YYYY-MM-DD')]),
+		_a('record_sub_county', 'Record an affected area', 'Information', 'POST', '/info/dashboard/{county}/sub-counties', [_f('county', 'County', 'path'), _f('sub_county', 'Sub-county', ph='e.g. Teso North'), _f('disease', 'Disease', 'select', list(DISEASES)), _f('confirmed', 'Confirmed cases', 'int'), _f('suspected', 'Suspected cases', 'int'), _f('locations', 'Places affected', 'list', ph='e.g. Amagoro market, Kocholia'), _f('as_of_iso', 'Counted up to (date)', ph='YYYY-MM-DD')]),
 		_a('service_status', 'Are services open today?', 'Information', 'GET', '/alerting/service-status', [_f('county', 'County', ph='optional')]),
 		_a('testing_sites', 'Where can I get tested?', 'Facilities', 'GET', '/places/testing-sites', [
 			_f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'),
@@ -691,6 +700,8 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'signal_scan': ('How is my county this week?', 'The six outbreak signals, counted and compared with recent weeks'),
 	'signal_report': ('Report a signal', 'Log one occurrence of an outbreak signal for your county'),
 	'set_county_risk': ('Update a county status', 'Set the risk level and guidance people in a county see'),
+	'record_case_counts': ('Record case counts', 'Log a county’s confirmed and suspected cases for a period'),
+	'record_sub_county': ('Record an affected area', 'Log the sub-counties and places with cases, so people can see whether it is near them'),
 	'decision_tree': ('Should I see a doctor?', 'Plain-language help deciding your next step'),
 	'hotlines': ('Who can I call?', 'Hotline numbers that are free and answered'),
 	'febrile_triage': ('Check my fever', 'Quick check: treat malaria first unless there is Ebola contact risk'),

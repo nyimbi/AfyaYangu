@@ -631,3 +631,60 @@ clinical triage line.
 and the reason every row added from these sources is `verified=False`. A row that arrived looking
 checked would be worse than a row with a gap: the `updated_line` the directory serves is None for
 these, which a client renders as "never verified" rather than inferring freshness from silence.
+
+---
+
+## County adjacency — §INF-001's "and neighbouring counties"
+
+§INF-001's Description asks for a dashboard of "health risks in the user's county **and neighbouring
+counties**", and nothing in the repo recorded that Busia is next to Bungoma. The table in
+`afya.info.counties` is derived from the boundary file below rather than typed from memory, and
+`tests/ci/test_county_adjacency.py` re-derives it from the archived copy on every run.
+
+It is archived because the derivation is the whole claim. A hand-typed list of 113 pairs is a claim
+about geography with no source, and the failure mode is a dashboard that omits a county the reader's
+own outbreak will cross into — a screen that looks complete and is not.
+
+**Publisher:** geoBoundaries (William & Mary geoLab), `gbOpen` release, Kenya ADM1 ("Counties").
+Boundary source: RCMRD GeoPortal / Africa GeoPortal. **Licence:** Public Domain.
+**Boundary year represented:** 2020. **Retrieved:** 2026-10-13.
+**API metadata:** `https://www.geoboundaries.org/api/current/gbOpen/KEN/ADM1/`
+**GeoJSON:** `https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/KEN/ADM1/geoBoundaries-KEN-ADM1_simplified.geojson`
+
+| File | What it is | SHA-256 (first 16) |
+|---|---|---|
+| `geoBoundaries-KEN-ADM1_simplified.geojson` | The 47 county polygons, simplified release (861,584 bytes, `admUnitCount` 47) | `4d9e1b8a6d305ee2` |
+| `geoBoundaries-KEN-ADM1.api-metadata.json` | The API's own record of that release: source, licence, year, unit count, vertex statistics | `fd14563ea85bd690` |
+| `county-adjacency.txt` | The derivation — one line per county, its neighbours, plus the pair count | `1550965c862a703b` |
+
+**The derivation rule**, stated here so the table, the text copy and the test cannot drift:
+
+> Two counties are adjacent when their polygons share a boundary **segment** at least **1 km** long,
+> with coordinates rounded to **3 decimal places** (about 110 m at Kenya's latitudes).
+
+Both constants are load-bearing. The **1 km threshold** is what makes the answer a *border* rather
+than a meeting point: four counties meet at one vertex in western Kenya, and a shared vertex is not a
+shared border — a rule based on shared vertices gives 112 pairs including pairs that touch at a point.
+The **3-decimal rounding** is what makes a shared segment *findable*: the two sides of a border are
+stored as separate rings, so without rounding their vertices differ in the last decimals and no edge
+ever compares equal, and the rule would return zero pairs while looking correct.
+
+**What the source supports:** that these 47 polygons, and the simplified release's own metadata
+(`admUnitCount: 47`), are the boundary set the table was derived from; and, given the rule above, that
+the derivation is reproducible — the test recomputes it and compares all 113 pairs.
+
+**What it does not support, and where the code says so:**
+
+- **It is not a legal boundary.** It is a simplified cartographic release. Where a county boundary is
+  disputed on the ground, this table is not evidence about it, and no code here treats it as such —
+  the table answers one question, "which counties does a reader's outbreak cross into".
+- **It does not support the spelling of any county name.** The names are the file's `shapeName`
+  values, including `Murang'a` with its apostrophe and `Tharaka` (the county is Tharaka-Nithi). They
+  are the keys `afya.info.counties` matches on, so a caller using a different spelling gets an empty
+  neighbour list rather than an error — which the module's `neighbours` docstring states.
+- **It says nothing about distance, travel time or road access.** Two counties that share a 1 km
+  border may be a day apart by road; the table is adjacency, not proximity.
+- **It is not a sub-county or ward boundary set.** §INF-001's third Display needs sub-counties and
+  `SubCountyStatus` takes them as caller-supplied strings. ADM2 would be the source for those and is
+  not archived here, because nothing in the code derives from it yet — the sub-county row records
+  what a county health team reports, not a boundary join.

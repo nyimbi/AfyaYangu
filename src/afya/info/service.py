@@ -16,6 +16,7 @@ from urllib.parse import quote
 
 from afya.auth.views import now_ms
 from afya.info.content_seed import rendition_rows, seed_rows
+from afya.info.counties import neighbours
 from afya.info.escalation import ContentError, ContentEscalation, escalate
 from afya.info.localisation import (
 	SOURCE_LANG, BackTranslation, CommunityValidation, LocalisationState, localisation, next_stage,
@@ -27,8 +28,9 @@ from afya.info.questions import (
 )
 from afya.info.recency import UNDATED_MS, ServedFreshness, freshness, freshness_line, midnight_ms
 from afya.info.views import (
-	ContactDirectory, ContactKind, ContentItem, ContentStage, CountyRisk, DecisionNode, DecisionStep,
-	EntryAnswer, HotlineActions, HotlineInfo, InfoLink, MYTH_TAG,
+	CaseCounts, ContactDirectory, ContactKind, ContentItem, ContentStage, CountyDashboard, CountyRisk,
+	DecisionNode, DecisionStep, EntryAnswer, HotlineActions, HotlineInfo, InfoLink, MYTH_TAG,
+	SubCountyStatus,
 )
 from afya.logmixin import LogMixin
 from afya.places.views import PlaceKind, PlacesService
@@ -189,6 +191,12 @@ class InfoService(LogMixin):
 	def __init__(self) -> None:
 		self._content: dict[str, ContentItem] = {}
 		self._risk: dict[str, CountyRisk] = {}
+		# §INF-001's second and third Displays, keyed so a later report supersedes an earlier one:
+		# `(county, disease)` for the counts and `(county, sub_county, disease)` for the sub-county
+		# rows. A log would make the dashboard's "current" figure a question the reader has to answer
+		# from two dates, which is the same defect `AlertsService.service_status` avoids for §INF-007.
+		self._cases: dict[tuple[str, str], CaseCounts] = {}
+		self._sub_counties: dict[tuple[str, str, str], SubCountyStatus] = {}
 		self._errors: dict[str, ContentError] = {}
 		self._withdrawn: dict[str, list[str]] = {}
 		self._back_translations: dict[str, BackTranslation] = {}
@@ -708,6 +716,91 @@ class InfoService(LogMixin):
 
 	def dashboard(self, county: str) -> CountyRisk:
 		return self._risk.get(county, CountyRisk(county=county, risk_level='low', active_signals=0, bulletin='No official signal.'))
+
+	async def record_case_counts(self, counts: CaseCounts, at_ms: int | None = None) -> CaseCounts:
+		"""Record a county's case counts for a period (§INF-001's second Display).
+
+		**The previous period is carried forward from what was already recorded, not asked for.** A
+		trend needs two periods, and the only honest source of the earlier one is the earlier row —
+		this service already holds it. A caller who had to restate last week's figures would sooner or
+		later restate them wrongly, and the word "rising" on an outbreak dashboard would then be a
+		transcription of the caller's memory. If the caller *does* supply a previous period it wins,
+		because a county may genuinely be comparing against a period this deployment never saw.
+
+		The carry-forward is skipped when `as_of_iso` matches the stored row: that is a correction to
+		the period already on file, and shifting the old figures into `previous_*` would make a
+		corrected count read as a change in the outbreak.
+		"""
+		stored = self._cases.get((counts.county, counts.disease))
+		updates: dict[str, object] = {}
+		if counts.previous_confirmed is None and stored is not None and stored.as_of_iso != counts.as_of_iso:
+			updates = {'previous_confirmed': stored.confirmed, 'previous_suspected': stored.suspected}
+		row = counts.model_copy(update=updates) if updates else counts
+		self._cases[(row.county, row.disease)] = row
+		self._log_info('case counts recorded', county=row.county, disease=row.disease,
+		               confirmed=row.confirmed, trend=row.trend)
+		return row
+
+	def case_counts(self, county: str, disease: str | None = None) -> list[CaseCounts]:
+		"""A county's counts, one row per disease, most recently reported first.
+
+		Per disease rather than one total because §INF-001's first Display is "Ebola **and other
+		notifiable diseases**": a county at three confirmed Ebola and forty confirmed cholera has
+		two answers, and summing them would put a number on the dashboard that no reader can act on.
+		"""
+		rows = [c for (c_county, _), c in self._cases.items()
+		        if c_county == county and (disease is None or c.disease == disease)]
+		return sorted(rows, key=lambda c: (c.as_of_iso, c.disease), reverse=True)
+
+	async def record_sub_county(self, status: SubCountyStatus, at_ms: int | None = None) -> SubCountyStatus:
+		"""Record an affected sub-county (§INF-001's third Display).
+
+		`at_ms` is accepted for symmetry with every other write here and is deliberately unused: this
+		model's date is `as_of_iso`, a *day*, because a sub-county's case count is reported per day
+		and not per instant. Stamping an instant would put a precision on the screen that the source
+		does not have. The parameter stays so the route's signature matches its siblings and a caller
+		who passes a clock is not silently ignored by a route that forgot to declare it.
+		"""
+		self._sub_counties[(status.county, status.sub_county, status.disease)] = status
+		self._log_info('sub-county status recorded', county=status.county,
+		               sub_county=status.sub_county, locations=len(status.locations))
+		return status
+
+	def sub_counties(self, county: str, disease: str | None = None) -> list[SubCountyStatus]:
+		"""The county's affected sub-counties, worst first.
+
+		Ordered by total cases descending rather than alphabetically: the section asks for the places
+		that are *affected*, and a reader scanning the list is looking for the ones with cases in
+		them. Ties break on the name so the order is deterministic — an order that depended on dict
+		insertion would make two identical deployments serve two different screens.
+		"""
+		rows = [s for (s_county, _, _), s in self._sub_counties.items()
+		        if s_county == county and (disease is None or s.disease == disease)]
+		return sorted(rows, key=lambda s: (-(s.confirmed + s.suspected), s.sub_county))
+
+	def county_dashboard(self, county: str, alerts: list[dict[str, object]],
+			service_status: list[dict[str, object]]) -> CountyDashboard:
+		"""§INF-001's seven Displays assembled for one county.
+
+		`alerts` and `service_status` are passed in rather than read here because §INF-001's fourth
+		and fifth Displays are §ALT-001's alert feed and §INF-007's status feed — the same facts on
+		two screens, and this module must not become a second reader of them. The route holds both
+		services, so the join happens where both are in scope and there is one reader per fact.
+
+		The neighbouring counties are §INF-001's "and neighbouring counties", resolved through the
+		derived border table. An unknown county gets an empty list rather than an error: the risk
+		read already answers an unknown name with a defaulted row so a client always has something to
+		draw, and a dashboard that 500'd on the same input would be inconsistent with itself.
+		"""
+		return CountyDashboard(
+			county=county,
+			risk=self.dashboard(county),
+			case_counts=self.case_counts(county),
+			sub_counties=self.sub_counties(county),
+			alerts=alerts,
+			service_status=service_status,
+			neighbouring=[self.dashboard(n) for n in neighbours(county)],
+		)
 
 	# INF-002: explicit decision tree — node_id -> node
 	TREE: dict[str, DecisionNode] = {

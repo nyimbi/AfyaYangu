@@ -2093,3 +2093,120 @@ at a filter upstream of the behaviour under test reports a gate it never reached
 is §19.3's own and was already archived with §SEC-004, and the model weights and the 5 km cluster
 radius are the model's own parameters, named as constants in `AIService` with the reasoning attached
 rather than presented as sourced figures.
+
+---
+
+## §INF-001 — three Displays nobody could put a fact behind
+
+§8.5 prints seven Displays. Four were carried and three were not, and the three were the ones a reader
+opens the screen for: **how many cases, where inside my county, and can I go there today.** The fourth
+that the audit called carried — "service status (schools, borders, markets)" — is the one §INF-007 had
+just built a producer for, so a third of this unit is wiring rather than new machinery.
+
+### The counts, and the word that must not be typed
+
+`CaseCounts` carries `confirmed` and `suspected` as two fields because the section prints them as a
+pair and the distinction is the whole point: a reader of an outbreak dashboard is deciding whether a
+feverish child has Ebola or malaria, and one `cases` number answers that question with the wrong one
+of the two. One row **per disease**, because the section's first Display is "Ebola **and other
+notifiable diseases**" — a county at three confirmed Ebola and forty confirmed cholera has two
+answers and the response to each is different.
+
+`trend` is a `@computed_field`, not a field. A carried trend is a word a caller asserts, and "rising"
+on an outbreak dashboard is the one word that has to follow from the figures. Deriving it also means
+the API's own output is not a 422 against the API's own input, which is what `DerivedFields` exists
+for — asserted in the test rather than assumed.
+
+**The previous period is carried forward from the row already on file, not asked for.** A trend needs
+two periods and the service holds the earlier one. A caller who had to restate last week's figures
+would sooner or later restate them wrongly, and the word on the dashboard would then be a
+transcription of their recollection rather than a reading of the data. A caller who *does* supply one
+wins, because a county may be comparing against a period this deployment never saw. The carry-forward
+is skipped when `as_of_iso` matches the stored row: that is a **correction** to the period on file,
+and shifting the old figures into `previous_*` would make a corrected count read as a rise or fall —
+the dashboard would report an epidemiological event that did not happen, caused by someone fixing a
+typo.
+
+`new` rather than `steady` when there is no earlier period: a county reporting its first cases has not
+held steady, and a dashboard that said so would tell a reader the outbreak is stable on the day it was
+first detected.
+
+### The sub-counties, and what "affected" means
+
+`SubCountyStatus` carries the sub-county, its disease, its counts, and the named `locations` inside it
+— a market, a village, a facility — because a sub-county name alone still covers tens of thousands of
+people. `model_post_init` refuses an "affected" area carrying neither a case nor a named location: a
+place with nothing to report is not affected, and listing it puts a name on a life-safety screen with
+nothing behind it. Re-reporting a place **supersedes** it rather than appending, because a sub-county's
+status is current — a place that had two cases and now has five has one answer, and a screen listing
+both makes the reader work out which is today's from two dates. The list is ordered worst-first, ties
+broken on the name so two identical deployments serve the same screen.
+
+### The service status, which is §INF-007's fact on a second surface
+
+The fifth Display is `AlertsService.publish_status`'s output, read from that service rather than
+restated — the same fact on two screens, and a second copy would be the one that goes stale. The join
+happens in the route, where both services are in scope, so there is one reader per fact. The section's
+"where available" is answered by the feed being empty rather than by a placeholder row, and the test
+drives the *producer* through its own route and then asks the dashboard whether the fact arrived.
+
+### Neighbouring counties needed a border table, and there was none
+
+The section's Description asks for "the user's county **and neighbouring counties**", and nothing in
+the repo recorded that Busia is next to Bungoma. `afya.info.counties` is **derived** from
+geoBoundaries' Kenya ADM1 release, archived under `sources/county-adjacency/` with the rule stated:
+two counties are adjacent when their polygons share a boundary segment at least 1 km long, coordinates
+rounded to 3 decimals. Both constants are load-bearing — a shared *vertex* is not a shared border
+(four counties meet at one point in western Kenya), and without rounding the two sides of a border
+never compare equal and the rule returns zero pairs while looking correct.
+
+`test_county_adjacency.py` **re-derives the table** from the archived GeoJSON on every run and
+compares all 113 pairs, rather than checking a count. A count survives a swap: if Bungoma gained Busia
+and lost Kakamega the total would be unchanged, and the swap is exactly what a hand edit produces. It
+also pins the counties whose geography is least forgiving — Mandera has one neighbour and that is
+correct — because a per-county check catches what a total does not.
+
+### One architecture decision worth naming
+
+`CountyDashboard` carries **no** `updated_at_ms` and **no** `source`. Both are §8.5's "Last updated
+timestamp" and "Data source attribution", and both belong to the risk assessment: the field the
+section dates is "current outbreak status by county", and a second stamp on the container that had to
+equal the first is a drift hazard with nothing to gain. Each part dates itself — a count carries
+`as_of_iso`, a status carries `effective_iso` — and `served()` spreads the risk's stamp to the top
+level so a client reading the payload flat still finds it. **The four keys that were already top-level
+stay top-level**: `risk_level`, `active_signals`, `bulletin`, `source` and `updated_at_ms` were this
+payload's shape before the dashboard grew, and nesting them under `risk` would break every client to
+gain nothing a reader can see.
+
+### Canaries
+
+Nineteen canaries run against `tests/ci/canary_inf001.py` and all nineteen fire: the previous period
+not carried forward; the trend ceasing to be a computed field; the trend ignoring suspected cases; a
+correction becoming a new period; half a comparison period accepted; an empty sub-county accepted; the
+sub-county read ignoring the county; the case-count read ignoring the county; the sub-county read
+ignoring the disease; the dashboard dropping the service statuses; the border table losing one side of
+a pair; the neighbouring counties dropped; a neighbour wearing the caller's risk; the route no longer
+checking the county agrees; the write losing its guard; a sub-county appended rather than superseded;
+the sub-county order ceasing to mean anything; the served payload nesting the risk row; and an unknown
+county raising.
+
+**One canary was intermittently blind, and the cause was the harness rather than the code.** Canaries
+#7 and #8 mutate different methods — the sub-county read and the case-count read — and both edits
+happen to be the *same byte length*, because each removes a `X_county == county and (` of exactly 24
+characters. CPython validates a `.pyc` on (source mtime, source size), both recorded to a coarse
+granularity, so when the two writes landed in the same second the second canary's pytest run reused
+the **first** canary's bytecode: `case_counts` was never mutated, the test passed, and the script
+reported a gate it had never pointed anywhere. It fired 19/19 on most runs and 18/19 on others — a
+canary that is sometimes blind is blind, and the tell was the disagreement between runs rather than
+any single result. The fix is a `__pycache__` purge after each write. **This is the same class as the
+`assert before in s` rule and for the same reason: the failure is in the instrument, and it is
+invisible precisely because it looks like a clean result.**
+
+**Counts: 3 rows left `missing` — 3 to `carried` — 54 → 51.** 493 rows, `carried` 425, `missing` 51,
+`deferred` 17.
+
+**Sources.** `sources/county-adjacency/` — geoBoundaries Kenya ADM1 (simplified), public domain, with
+the API's own metadata record and the derived table; the derivation rule and what the source does and
+does not support are in `sources/INDEX.md`. The section states no threshold and no count, and the 1 km
+segment rule is the repo's own parameter, named as a constant beside its reasoning rather than
+presented as a sourced figure.
