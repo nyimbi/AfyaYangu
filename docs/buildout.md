@@ -3731,3 +3731,121 @@ the specification's own table and is already archived with the section it comes 
 document states how long an offline case report may wait or what it must carry. Nothing here is
 sourced from a publication, and saying so is better than pointing a citation at the spec section that
 was being implemented.
+
+---
+
+## §COM-103 — a checkbox that told the person it had been sent
+
+§COM-103's **"Option to share with health authorities through a secure, encrypted channel"** was
+`missing`, and the audit row said exactly why: *"`ContactList.share_consent` is a flag and `summary`
+reports it, but nothing transmits a list anywhere — there is no encrypted channel and no share
+route."*
+
+This is the §COM-101 shape with a worse ending. There, a rule existed for a dataset nothing wrote —
+a gap you could only find by reading the matrix. Here the form asked *"Share with the health team?"*,
+a person ticked it, and `summary` answered **"Shared with the health team."** Nothing had been sent.
+The screen did not merely omit a feature; it stated a fact that was false, and it stated it about the
+one decision §COM-103's data handling treats as a consent boundary.
+
+The defect was one line of code and it is worth naming: `ContactTracingSummary.shared` was assigned
+`bucket.share_consent`. Consent and delivery are different facts, and the second is the one a person
+needs. They now have different names — `shared` is set when a share has actually left, and the
+message distinguishes three states rather than two: held, ready to share, sent.
+
+### The gate that matters, and the direction it fails in
+
+A contact list is the dataset §SEC-003 names by hand for **"additional application-layer
+encryption"**. `CryptoService` has carried the second key since that section was built —
+`APP_LAYER_DATASETS` lists `contact_lists` first — so the seal was available and unused.
+
+The seal is therefore `app_layer=True`, and the share is **refused** when the deployment holds no
+application-layer key. That refusal is the feature's most important line. Falling back to the
+at-rest key would have been one character shorter and would have produced a share that reads
+`AES-256-GCM` on the wire and is openable by the operator whose database it protects — a control
+whose label outlives its substance. The audit row this closes was a flag standing in for a
+transmission; a fallback here would have replaced it with a transmission standing in for a layer.
+
+Three gates, each a different refusal, each tested separately:
+
+| Gate | Refusal | Why it is its own test |
+|---|---|---|
+| `share_consent` | *"needs the person's explicit consent"* | §COM-103: "Transmitted only with explicit consent." A share on request makes the flag decorative — the audit row's own shape. |
+| a non-empty list | *"nothing to share"* | An empty list arriving at the county reads as "this person had no contacts" — a claim about the outbreak the person never made. |
+| an app-layer key | *"holds no application-layer key"* | The dangerous direction. Refusing beats sending under the key an operator already holds. |
+
+### A transport that fails is the normal case, not the edge case
+
+The person sharing a contact list is the person who has been told they are a case or a contact. That
+is not a moment to depend on the county's endpoint being up, and the first live probe proved the
+point: the composition root builds an `AdamClient` pointing at `adam.health.go.ke`, which is not
+reachable from a test machine and raised `403` straight through the route.
+
+So the envelope is **sealed and kept before the transport is consulted**, and a transport failure
+degrades to *held* rather than raising. §16.1 principle 5 — nothing is lost. The outbox is keyed on
+`(subject, recipient)` rather than on `share_id`, which is what makes the retry honest: a second tap
+re-sends the *same* ciphertext instead of sealing a fresh one and leaving the first in the dashboard
+forever, so a person who shared once sees one share.
+
+The receipt says which happened. `"Encrypted and kept on this device. It will be sent as soon as the
+health team's channel is reachable."` is a worse sentence than the delivered one and a true one.
+
+### The receipt does not echo the ciphertext
+
+`ContactShareReceipt` has no `sealed` field. A response carrying it would put the one value worth
+protecting into a response body, a log line and a client's memory, for no gain — the caller produced
+it. The same rule holds on the dashboard route: `/community/contacts/{ref}/shares` serves the
+recipient, the count, the timestamps and the algorithm, and never the blob.
+
+### §SEC-006's dashboard is the point of the share, so it is wired
+
+A share that reached nobody's dashboard would leave §SEC-006's in-app data view answering "nothing
+shared" about a list the county now holds. The route records it through `RetentionService.record_share`,
+which is the existing "what has been shared, with whom, when" surface — recorded in the route rather
+than inside the community service so the two services stay unaware of each other.
+
+### Canaries — 10/10 fired
+
+Canary #5 **MISSED** on the first run, and the miss was the *test's* fault, not the canary's. The
+assertion was `pytest.raises(AssertionError, match='application-layer key')`, and `CryptoService.seal`
+raises its own refusal with that phrase in it — so the test passed whether the service refused up
+front or let the seal fail underneath. That is precisely the difference between a gate and a fallback
+that happens to trip, and the loose match erased it. Tightened to the service's own wording
+(`'the deployment holds no application-layer key'`), the canary fired.
+
+One assertion was also **unsound and had to be replaced**: `assert 's1' not in sealed` failed against
+correct ciphertext, because a two-character subject ref occurs in random base64 by chance. It now
+checks the *decoded* ciphertext for `b'Person'`, `b'subject_ref'` and `b'home'` — a substring test on
+the encoded form is noise, and it fails for the right reason on the wrong evidence.
+
+The ten: nothing transmits; the consent gate dropped; an empty list sent; the list sealed under the
+at-rest key; a deployment with no app key falling back; the receipt echoing the ciphertext; `shared`
+reading the consent flag again; the outbox written after the send; the window typed again; the
+envelope reaching ADaM unsealed.
+
+### Live probe
+
+Through `uvicorn --factory afya.service:create_app`, with `AFYA_APP_LAYER_KEY` set:
+
+- save a two-person list with consent → `shared: false`, *"Ready to share with the health team."*
+- share it → `CSH-01A1370E`, `entries: 2`, `expires_at_ms` 21 days out, message *"Encrypted and kept
+  on this device…"* (ADaM unreachable — the honest answer)
+- `/community/contacts/probe-1/shares` → one row, no `sealed`
+- `/retention/inventory/probe-1` → `{"with": "County Disease Surveillance Team", "what": "contact
+  list (2 people)", "when": "2026-10-13T20:57:15.852000+00:00"}`
+- a list with no consent → **422** *"needs the person's explicit consent"*
+- another subject's list → **403** (the `require_self` binding, unchanged)
+- withdraw → `{"withdrawn": 1}`, and the summary returns to `shared: false`
+- an empty list with consent → **422** *"nothing to share"*
+
+The three mobile actions (`share_contacts`, `contact_shares`, `withdraw_contact_shares`) are in the
+catalogue and dormant with the rest of Tier 4 until outbreak activation — verified, not assumed: the
+three pre-existing COM-103 actions are equally absent from a citizen's catalogue.
+
+**§COM-103 1 `missing` → 0.** Across the repo **463 → 464 `carried`, 17 → 16 `missing`**, 497 rows,
+`deferred` 17 unchanged.
+
+**No new source directory.** The bullet is a behaviour and a transport property, not a claim about the
+world. §COM-103's window is the 21 days §COM-102 already carries, read from `ALERT_WINDOW_DAYS`
+rather than typed again; §SEC-003's standard is the specification's own and already archived with the
+section it comes from. No external document states how a Kenyan county receives a contact list, and
+inventing one to fill the citation slot would be worse than the gap.

@@ -665,6 +665,24 @@ carry, or how a replayed report is deduplicated; the answers in the code are §1
 §16.2's flow and §16.4's delta, all from the specification. Recorded so the absence of a new source
 directory is not read as a missing citation — the same note §LOC-001 and §ALT-002 carry.
 
+**Where §COM-103's encrypted contact-list share comes from, and where it does not.** The bullet is
+carried by `afya.community.service:CommunityService.share_contacts`, and three things in it are
+cited rather than invented. The **second key** is §SEC-003's own standard ("Contact lists and
+location history: additional application-layer encryption"), archived with that section and
+implemented since it was written as `CryptoService(app_layer_key=…)` with `contact_lists` first in
+`APP_LAYER_DATASETS`. The **21-day window** is §COM-103's "deleted after the contact-tracing window
+closes", and the number is read from §COM-102's `ALERT_WINDOW_DAYS` rather than typed again, because
+three features that each wrote their own 21 would be three answers to one question. The **recipient**
+is an office ("County Disease Surveillance Team") and not a person, which is a design choice the
+section's own wording supports rather than a sourced fact.
+
+Nothing else here is a claim about the world. No source states how a Kenyan county health team
+receives a contact list, what transport it uses, or what a person must be told when a share cannot be
+delivered; the answers in the code are §COM-103's data-handling clause and §16.1 principle 5. The
+ADaM leg reuses §18.1's integration point, which is archived with its section. Recorded so the
+absence of a new source directory is not read as a missing citation — the same note §LOC-001,
+§ALT-002 and §COM-101 carry.
+
 ---
 
 ## Helpline directory — §INF-006's GBV and child helplines

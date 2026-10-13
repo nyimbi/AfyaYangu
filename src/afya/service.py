@@ -379,6 +379,11 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	# same reason as the two above — the dict is one expression, so `location` cannot reach the
 	# `surveillance` entry beside it.
 	surveillance_svc = SurveillanceService(registry, privacy_svc)
+	# §18's ADaM client, built as a local because two entries need the same object: the integrations
+	# dict below and §COM-103's encrypted contact-list share, which travels the ADaM wire. Two
+	# constructions would be two clients with two connection pools, and a share sent through one
+	# would be invisible to the health check reading the other.
+	adam_svc = AdamClient(cfg.adam_url, client, cfg.adam_api_key, cfg.adam_cert())
 
 	return {
 		'registry': registry,
@@ -425,7 +430,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# and §16.3 already carried a `case_reports` rule with nothing writing to it.
 		'monitoring': monitoring_svc,
 		'identity': identity_svc,
-		'community': CommunityService(identity_svc, sync_svc),
+		'community': CommunityService(identity_svc, sync_svc, crypto_svc, adam_svc),
 		'alerting': alerting_svc,
 		'realtime': RealtimeService(),
 		# §INF-005's two collaborators. `info_svc.dashboard` is the county risk read and
@@ -463,7 +468,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'pheoc': PheocClient(cfg.pheoc_url, client, cfg.pheoc_api_key),
 		'mohf': MoHFFacilityClient(cfg.mohf_url, client),
 		'ppb': PPBClient(cfg.ppb_url, client, cfg.ppb_api_key),
-		'adam': AdamClient(cfg.adam_url, client, cfg.adam_api_key, cfg.adam_cert()),
+		'adam': adam_svc,
 		'sha': SHAClient(cfg.sha_url, client, cfg.sha_api_key),
 		'telco': telco,
 	}
@@ -3643,6 +3648,48 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/community/contacts/{subject_ref}/entry')
 	async def community_contact_entry(subject_ref: str, entry: ContactEntry, _subject: str = Depends(require_self())) -> dict[str, object]:
 		return community.add_contact(subject_ref, entry).model_dump(mode='json')
+
+	@app.post('/community/contacts/{subject_ref}/share')
+	async def community_contact_share(subject_ref: str, with_who: str | None = None,
+	                                  _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§COM-103's "share with health authorities through a secure, encrypted channel".
+
+		A POST rather than a field on `/community/contacts`, because the two are different acts at
+		different moments: saving a list is a person writing down who they met, and sharing it is a
+		decision they make afterwards and can take back. Folding the share into the save would make
+		the consent flag the only gate, which is the shape the audit row named.
+		"""
+		try:
+			receipt = await community.share_contacts(subject_ref, with_who)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		# §SEC-006's "what has been shared, with whom, when" reads `RetentionService.inventory`, and
+		# a share that did not reach it would leave the dashboard §COM-103 exists to feed answering
+		# "nothing shared" about a list the county now holds. Recorded here rather than inside the
+		# community service so the two services stay unaware of each other.
+		retention.record_share(
+			subject_ref, receipt.with_who, f'contact list ({receipt.entries} people)',
+			datetime.fromtimestamp(receipt.shared_at_ms / 1000, tz=timezone.utc).isoformat())
+		return receipt.model_dump(mode='json')
+
+	@app.get('/community/contacts/{subject_ref}/shares')
+	async def community_contact_shares(subject_ref: str, _subject: str = Depends(require_self())) -> list[dict[str, object]]:
+		"""The shares this person has made — §SEC-006's "what has been shared, with whom, when".
+
+		The ciphertext is dropped from every row. A dashboard that echoed `sealed` would put the one
+		value worth protecting into a response, a log and a client cache for no gain.
+		"""
+		return [
+			{'share_id': s.share_id, 'with_who': s.with_who, 'entries': s.entries,
+			 'shared_at_ms': s.shared_at_ms, 'expires_at_ms': s.expires_at_ms,
+			 'algorithm': s.algorithm}
+			for s in community.shared_contacts(subject_ref)
+		]
+
+	@app.delete('/community/contacts/{subject_ref}/shares')
+	async def community_contact_shares_withdraw(subject_ref: str, _subject: str = Depends(require_self())) -> dict[str, int]:
+		"""Take a share back before the tracing window closes. §SEC-005's right to delete."""
+		return {'withdrawn': community.withdraw_shares(subject_ref)}
 
 	@app.post('/community/misinformation')
 	async def community_misinfo(submission: MisinfoSubmission) -> dict[str, object]:

@@ -6,14 +6,17 @@ reported -> investigated -> lab_result -> closed.
 """
 import json
 
+from typing import Any, Protocol
+
 from afya.auth.views import now_ms
 from afya.community.protocol import PROTOCOL, ResponseClock, coverage, response_clock
 from afya.community.views import (
 	ALERT_WINDOW_DAYS, FOLLOWUP_DAYS, ISSUE_ROUTING, CaseReport, CaseReportView, CaseStatus,
-	ClaimAnswer, CommunityIssue, ContactEntry, ContactList, ContactTracingSummary, IssueReceipt,
-	IssueStatus, MisinfoCluster, MisinfoSubmission, PeerAlert, PeerAlertAck, PeerAlertGuidance,
-	PeerAlertReceipt,
+	ClaimAnswer, CommunityIssue, ContactEntry, ContactList, ContactShare, ContactShareReceipt,
+	ContactTracingSummary, IssueReceipt, IssueStatus, MisinfoCluster, MisinfoSubmission, PeerAlert,
+	PeerAlertAck, PeerAlertGuidance, PeerAlertReceipt,
 )
+from afya.crypto.service import CryptoService
 from afya.identity.service import IdentityService
 from afya.ids import uuid7str
 from afya.info.myths import (
@@ -74,6 +77,39 @@ ALERT_GUIDANCE: tuple[str, ...] = (
 )
 
 
+class HealthAuthorityPort(Protocol):
+	"""§COM-103's "secure, encrypted channel", as the community service sees it.
+
+	The service seals the list and hands the envelope over; what carries it is the deployment's
+	business, because the channel that exists differs by county — ADaM where the national platform is
+	reachable, a county health team's own endpoint where it is not, and in a unit test a port that
+	records what it was handed. The service is therefore testable without a network and the transport
+	is replaceable without touching the consent logic.
+
+	Structural rather than an import of `AdamClient` for the same reason `SyncQueue` is: the
+	dependency then runs one way, and no cycle can form through the module that carries the bytes.
+	"""
+
+	async def share_contact_list(self, envelope: dict[str, Any]) -> str: ...
+
+
+# §COM-103's data handling: "Deleted after the contact-tracing window closes." The window is the
+# same 21 days §COM-102's follow-up prompts and §MON-009's diary run on, and it is read from the
+# constant rather than typed again — three features that each wrote their own 21 would be three
+# answers to one question.
+CONTACT_SHARE_WINDOW_DAYS: int = ALERT_WINDOW_DAYS
+
+# The recipient §COM-103's bullet names. An office rather than a person: a share addressed to an
+# individual is unreadable the day that individual transfers, and the contact list is the county's
+# to act on rather than theirs to keep.
+CONTACT_SHARE_RECIPIENT = 'County Disease Surveillance Team'
+
+CONTACT_SHARE_MESSAGE = (
+	'Encrypted and sent to the county disease surveillance team. It is kept for 21 days — the '
+	'tracing window — and then deleted. You can withdraw it sooner by deleting your contact list.'
+)
+
+
 def _alert_day(alert: PeerAlert, acknowledged_iso: str) -> int:
 	"""Which day of §COM-102's window an acknowledgement falls on, clamped into it.
 
@@ -93,7 +129,9 @@ def _alert_day(alert: PeerAlert, acknowledged_iso: str) -> int:
 
 
 class CommunityService(LogMixin):
-	def __init__(self, identity: IdentityService | None = None, sync: SyncQueue | None = None) -> None:
+	def __init__(self, identity: IdentityService | None = None, sync: SyncQueue | None = None,
+	             crypto: CryptoService | None = None,
+	             authority: HealthAuthorityPort | None = None) -> None:
 		"""`identity` is §5.4's single identity model, injected rather than constructed here because the
 		index it holds is shared with the channel layer — two instances would resolve the same phone to
 		two subjects and the deduplication would find nothing. Optional only so a unit test can build
@@ -106,6 +144,15 @@ class CommunityService(LogMixin):
 		`case_reports` rule with nothing queueing a report through it — a rule for a dataset nothing
 		writes. Optional for the same reason `identity` is: a unit test that only wants the dedup must
 		not have to stand up a queue.
+
+		`crypto` and `authority` are §COM-103's "share with health authorities through a secure,
+		encrypted channel", and they are two parameters rather than one because they fail
+		independently. `crypto` supplies the seal — and the share is *refused* rather than sent in the
+		clear when it is absent or when the deployment holds no application-layer key, because a
+		contact list is the one dataset §SEC-003 names for the second layer and a plaintext share
+		would be the audit row's "a flag and nothing transmits" replaced by something worse.
+		`authority` supplies the transport; with none, a consented share is sealed, stored and
+		reported as held rather than silently reported as delivered.
 		"""
 		self._issues: dict[str, CommunityIssue] = {}
 		self._issue_status: dict[str, IssueStatus] = {}
@@ -122,6 +169,12 @@ class CommunityService(LogMixin):
 		# §COM-101's offline report queue. Absent when the service is built without one, and a report
 		# is then recorded locally and not queued — the same two-state shape §MON-004's tracker has.
 		self._sync: SyncQueue | None = sync
+		# §COM-103's encrypted share. `_shares` is the outbox: a sealed envelope is kept whether or
+		# not a transport took it, so a deployment with no authority yet still has the list sealed and
+		# ready, and the person is told which of the two happened rather than the flattering one.
+		self._crypto = crypto
+		self._authority: HealthAuthorityPort | None = authority
+		self._shares: dict[str, ContactShare] = {}
 		# dedup key -> the report already open under it. §5.4 says reports are deduplicated, and the
 		# key is the resolved subject rather than the raw number so a USSD report and an app report
 		# by the same person collide.
@@ -397,14 +450,116 @@ class CommunityService(LogMixin):
 			by_setting[e.setting] = by_setting.get(e.setting, 0) + 1
 		total = len(bucket.entries)
 		progress = min(100.0, round(100.0 * len(by_setting) / len(TRACING_PROMPTS), 1))
+		# `shared` reports whether a share has actually *left*, not whether consent was given. The
+		# flag alone was the audit row: the summary read `share_consent` and the person was told
+		# "Shared with the health team." while nothing had been sent anywhere. Consent and delivery
+		# are different facts and the second is the one a person needs.
+		delivered = any(s.subject_ref == subject_ref for s in self._shares.values())
 		return ContactTracingSummary(
-			subject_ref=subject_ref, by_setting=by_setting, total=total, shared=bucket.share_consent,
+			subject_ref=subject_ref, by_setting=by_setting, total=total, shared=delivered,
 			progress_pct=progress,
 			message=(
 				'Thank you — this is hard, and it protects people you care about. '
-				+ ('Shared with the health team.' if bucket.share_consent else 'Held on your phone until you choose to share.')
+				+ ('Shared with the health team.' if delivered
+				   else 'Ready to share with the health team.' if bucket.share_consent
+				   else 'Held on your phone until you choose to share.')
 			),
 		)
+
+	async def share_contacts(self, subject_ref: str, with_who: str | None = None,
+	                         at_ms: int | None = None) -> ContactShareReceipt:
+		"""§COM-103's "share with health authorities through a secure, encrypted channel".
+
+		Three gates, and each is a different refusal:
+
+		1. **Consent.** `share_consent` must be true. §COM-103's data handling says the list is
+		   "transmitted only with explicit consent", and a route that shared on request would make
+		   the flag decorative — the same shape as the audit row this closes.
+		2. **Something to share.** An empty list is refused rather than sent: an empty contact list
+		   arriving at the county reads as "this person had no contacts", which is a claim about the
+		   outbreak that the person never made.
+		3. **A key.** The list is sealed under the *application-layer* key and the share is refused
+		   when that key is absent. Falling back to the at-rest key would put the contacts under the
+		   key the operator already holds, which is the one layer §SEC-003 says is not enough here.
+
+		The envelope is built before the transport is consulted, so a deployment with no authority
+		still seals and keeps the list; `receipt.message` then says it is held rather than delivered.
+		A share that reported success with nothing behind it would be the audit row again.
+		"""
+		bucket = self._contacts.get(subject_ref)
+		assert bucket is not None, 'no contact list is held for this person'
+		assert bucket.share_consent, (
+			'sharing a contact list needs the person\'s explicit consent (§COM-103); the list is '
+			'held on the phone until they give it')
+		assert bucket.entries, 'there is nothing to share — an empty list is not a statement about contacts'
+		assert self._crypto is not None and self._crypto.has_app_layer, (
+			'the deployment holds no application-layer key, so a contact list cannot be sealed; '
+			'refusing rather than sharing it under the at-rest key alone')
+		recipient = with_who or CONTACT_SHARE_RECIPIENT
+		shared_at = at_ms if at_ms is not None else now_ms()
+		# A second share to the same recipient reuses the envelope already held rather than sealing
+		# a fresh one. That is what makes the held-then-sent path work: a person with no bars taps
+		# share, the envelope is sealed and kept, and when signal returns the *same* ciphertext goes
+		# out. Sealing again would leave the first envelope in the outbox forever, so the dashboard
+		# would show two shares where the person made one.
+		held = self._shares.get(f'{subject_ref}:{recipient}')
+		if held is not None and held.expires_at_ms > shared_at:
+			envelope = held
+		else:
+			payload = json.dumps({
+				'subject_ref': subject_ref,
+				'entries': [e.model_dump(mode='json') for e in bucket.entries],
+			}).encode('utf-8')
+			sealed = self._crypto.seal(payload, app_layer=True)
+			envelope = ContactShare(
+				subject_ref=subject_ref, with_who=recipient, sealed=sealed.to_blob(),
+				entries=len(bucket.entries), shared_at_ms=shared_at,
+				expires_at_ms=shared_at + CONTACT_SHARE_WINDOW_DAYS * 86_400_000,
+				receipt='',
+			)
+			# Kept before it is sent, so a transport that fails does not lose the sealed list.
+			self._shares[f'{subject_ref}:{recipient}'] = envelope
+		delivered = False
+		if self._authority is not None:
+			# A transport that exists but is unreachable is this section's *normal* case, not an edge
+			# one: the person sharing a contact list is the person who has been told they are a case
+			# or a contact, and that is not a moment to depend on the county's endpoint being up. The
+			# envelope is already sealed and kept, so a failure here degrades to held — the same
+			# answer as a deployment with no transport — rather than raising and losing the fact that
+			# the person made the decision. §16.1 principle 5: nothing is lost.
+			try:
+				await self._authority.share_contact_list(envelope.model_dump(mode='json'))
+				delivered = True
+			except Exception as exc:  # noqa: BLE001 — any transport failure means the same thing here
+				self._log_warn('contact list share could not be delivered', subject=subject_ref,
+					error=str(exc)[:120])
+		self._log_info('contact list share', subject=subject_ref, entries=envelope.entries,
+			delivered=delivered, recipient=recipient)
+		return ContactShareReceipt(
+			share_id=envelope.share_id, with_who=recipient, entries=envelope.entries,
+			shared_at_ms=shared_at, expires_at_ms=envelope.expires_at_ms,
+			algorithm=envelope.algorithm,
+			message=CONTACT_SHARE_MESSAGE if delivered else
+				'Encrypted and kept on this device. It will be sent as soon as the health team\'s '
+				'channel is reachable.',
+		)
+
+	def shared_contacts(self, subject_ref: str) -> list[ContactShare]:
+		"""The envelopes this person has shared, newest last. §SEC-006's dashboard reads it."""
+		return [s for s in self._shares.values() if s.subject_ref == subject_ref]
+
+	def withdraw_shares(self, subject_ref: str) -> int:
+		"""§COM-103's "deleted after the contact-tracing window closes", on the person's own demand.
+
+		Returns the count removed. §SEC-005 gives a person the right to delete their own data at any
+		time, and a share the person cannot take back would be a retention rule with no lever.
+		"""
+		gone = [k for k, s in self._shares.items() if s.subject_ref == subject_ref]
+		for k in gone:
+			del self._shares[k]
+		if gone:
+			self._log_info('contact shares withdrawn', subject=subject_ref, count=len(gone))
+		return len(gone)
 
 	# --- COM-104 misinformation tracker ---------------------------------------------------
 

@@ -206,6 +206,7 @@ FEATURE_OF: dict[str, str] = {
 	'submit_case': 'COM-101', 'advance_case': 'COM-101', 'ppe_reminder': 'COM-101',
 	'peer_alert': 'COM-102', 'peer_alert_followup': 'COM-102', 'ack_peer_alert': 'COM-102',
 	'tracing_prompts': 'COM-103', 'save_contacts': 'COM-103', 'add_contact': 'COM-103',
+	'share_contacts': 'COM-103', 'contact_shares': 'COM-103', 'withdraw_contact_shares': 'COM-103',
 	'flag_misinformation': 'COM-104', 'misinformation_clusters': 'COM-104',
 	'publish_feed_item': 'ALT-001', 'alert_feed': 'ALT-001',
 	'alert_preferences': 'ALT-003', 'set_alert_preference': 'ALT-003',
@@ -310,6 +311,7 @@ DORMANT_SLUGS: frozenset[str] = frozenset({
 	# Peer alerts (COM-102), contact tracing (COM-103), misinformation tracking (COM-104)
 	'peer_alert', 'peer_alert_followup', 'ack_peer_alert',
 	'tracing_prompts', 'save_contacts', 'add_contact',
+	'share_contacts', 'contact_shares', 'withdraw_contact_shares',
 	'flag_misinformation', 'misinformation_clusters',
 	# Exposure notification (ALT-004)
 	'send_exposure_notice', 'ack_exposure',
@@ -610,6 +612,9 @@ def catalogue() -> list[MobileAction]:
 		_a('tracing_prompts', 'Help me remember who I met', 'Community', 'GET', '/community/tracing-prompts', []),
 		_a('save_contacts', 'Save my contact list', 'Community', 'POST', '/community/contacts', [_s(), _f('entries', 'People', 'list'), _f('share_consent', 'Share with the health team?', 'bool')]),
 		_a('add_contact', 'Add one person I met', 'Community', 'POST', '/community/contacts/{subject_ref}/entry', [_s('path'), _f('description', 'Who was it?'), _f('setting', 'Where?', 'select', CONTACT_SETTINGS), _f('approx_location', 'Roughly where?'), _f('name_unknown', "I don't know their name", 'bool')]),
+		_a('share_contacts', 'Share my contact list with the health team', 'Community', 'POST', '/community/contacts/{subject_ref}/share', [_s('path'), _f('with_who', 'Who should get it?', ph='optional')]),
+		_a('contact_shares', 'What I have shared', 'Community', 'GET', '/community/contacts/{subject_ref}/shares', [_s('path')]),
+		_a('withdraw_contact_shares', 'Take my contact list back', 'Community', 'DELETE', '/community/contacts/{subject_ref}/shares', [_s('path')]),
 		_a('flag_misinformation', 'Report something I heard', 'Community', 'POST', '/community/misinformation', [_auto('submission_id', 'Report number'), _f('claim', 'What did you hear?', 'textarea'), _f('county', 'County'), _f('medium', 'How did you get it?', 'select', MISINFO_MEDIA), _f('topic', 'Topic', ph='optional')]),
 		_a('misinformation_clusters', 'Rumours going around', 'Community', 'GET', '/community/misinformation/clusters', []),
 		# Outbreak mode

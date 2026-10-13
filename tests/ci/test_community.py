@@ -6,6 +6,14 @@ from afya.community.views import (
 	ISSUE_ROUTING, CaseReport, CaseStatus, CommunityIssue, ContactEntry, ContactList, IssueKind,
 	IssueStatus, MisinfoSubmission, PeerAlert,
 )
+from afya.crypto.service import CryptoService
+
+
+def _crypto() -> CryptoService:
+	"""A deployment holding both §SEC-003 keys. The application layer is the one a contact list
+	needs, and a service built with the at-rest key alone refuses to share rather than sending
+	under the key an operator holds."""
+	return CryptoService(at_rest_key=b'a' * 32, app_layer_key=b'b' * 32)
 
 
 def _issue(kind: IssueKind, issue_id: str = 'CIS-ABCD1234') -> CommunityIssue:
@@ -129,16 +137,37 @@ async def test_contact_tracing_summary_counts_by_setting() -> None:
 
 
 async def test_contact_list_shared_only_with_consent() -> None:
-	svc = CommunityService()
+	"""Consent is the gate, and `shared` means a share actually left — not that the flag was set.
+
+	This test used to assert `summary.shared is True` after `save_contacts` with
+	`share_consent=True`, on a service that transmitted nothing. It passed for as long as the flag
+	and the fact wore one name, which is the audit row's own finding: a person was told "Shared with
+	the health team." while the list sat on the phone. The two are asserted separately here.
+	"""
+	svc = CommunityService(crypto=_crypto())
 	contacts = ContactList(
 		subject_ref='s2',
 		entries=[ContactEntry(description='Pastor', setting='worship')],
 		share_consent=True,
 	)
 	summary = await svc.save_contacts(contacts)
-	assert summary.shared is True
+	# Consent given, nothing sent yet: the message offers the share rather than claiming it.
+	assert summary.shared is False
+	assert 'Ready to share' in summary.message
 	assert summary.total == 1
-	assert 'Shared with the health team.' in summary.message
+	# A list saved *without* consent is refused, even though a key and a recipient are available.
+	await svc.save_contacts(ContactList(
+		subject_ref='s3',
+		entries=[ContactEntry(description='Neighbour', setting='home')],
+		share_consent=False,
+	))
+	with pytest.raises(AssertionError, match='explicit consent'):
+		await svc.share_contacts('s3')
+	# With consent, the share leaves and `shared` turns true.
+	receipt = await svc.share_contacts('s2')
+	assert receipt.entries == 1
+	assert svc.summary('s2').shared is True
+	assert 'Shared with the health team.' in svc.summary('s2').message
 
 
 async def test_misinfo_cluster_velocity_thresholds() -> None:

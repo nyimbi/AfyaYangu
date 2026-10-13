@@ -100,6 +100,32 @@ class AdamClient(LogMixin):
 		assert isinstance(rows, list), 'contact assignment payload must be a list'
 		return [dict(r) for r in rows]
 
+	async def share_contact_list(self, envelope: dict[str, Any]) -> str:
+		"""§COM-103's contact list, App → ADaM. Returns ADaM's own reference for the share.
+
+		The envelope arrives already sealed — `CommunityService` encrypts under §SEC-003's
+		application-layer key before this is called, so what travels here is ciphertext plus the
+		routing header. The assertions below are therefore about the *envelope*, not the contacts:
+		this client has no business reading what is inside, and a caller that handed it a plaintext
+		list would have skipped the seal the section asks for.
+
+		§18.1 names contact monitoring as an ADaM integration point in the other direction ("new
+		contacts to monitor", ADaM → App); this is the App → ADaM leg §COM-103's own bullet asks for,
+		and it is a different thing — a person's own recollection of who they met, sent with their
+		consent, rather than an assignment pushed to a worker.
+		"""
+		assert envelope.get('subject_ref'), 'a share must name the person it belongs to'
+		assert envelope.get('sealed'), (
+			'a contact list reaches ADaM sealed; this envelope carries no ciphertext, so the caller '
+			'skipped the application-layer encryption §SEC-003 asks for')
+		assert envelope.get('with_who'), 'a share must name its recipient'
+		resp = await self._http.post(f'{self._base}/contact-lists', json=envelope, headers=self._headers())
+		resp.raise_for_status()
+		body = dict(resp.json())
+		self._log_info('contact list shared with ADaM', share_id=envelope.get('share_id'),
+			adam_ref=body.get('share_ref'))
+		return str(body.get('share_ref', ''))
+
 	async def pull_case_definitions(self) -> list[dict[str, Any]]:
 		"""ADaM → App, on change: updated clinical criteria. A case definition that changes on the
 		server but not on the handset means a CHW screens against last week's criteria."""

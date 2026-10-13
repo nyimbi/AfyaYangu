@@ -302,6 +302,47 @@ class ContactTracingSummary(BaseModel):
 	message: str
 
 
+class ContactShare(BaseModel):
+	"""§COM-103's "secure, encrypted channel": the envelope a contact list travels in.
+
+	`sealed` is a `Sealed.to_blob()` string, so the list is ciphertext before it leaves the process
+	and the wire carries nothing a reader can open. It is sealed under the *application-layer* key
+	and not the at-rest key, which is §SEC-003's own standard for contact lists and also the only
+	choice that makes the transport meaningful: the at-rest key is the one an operator holds, so a
+	share sealed under it is a share the operator could read without being the recipient.
+
+	The recipient is named in the clear and the payload is not. That is deliberate — a routing header
+	has to be readable to be routed, and `with_who` names an office rather than a person, so it
+	discloses nothing about the contacts inside.
+	"""
+	model_config = MODEL_CONFIG
+	share_id: str = Field(default_factory=lambda: 'CSH-' + uuid7str().replace('-', '').upper()[:8])
+	subject_ref: str
+	with_who: str = Field(min_length=2, max_length=120)
+	sealed: str = Field(min_length=1)
+	entries: int = Field(ge=0)
+	shared_at_ms: int
+	algorithm: str = 'AES-256-GCM'
+	expires_at_ms: int
+	receipt: str
+
+
+class ContactShareReceipt(BaseModel):
+	"""What the sharer is told. The ciphertext is deliberately absent.
+
+	A response that echoed `sealed` back would put the one value worth protecting into a log, a
+	cache and a client's memory for no gain — the caller produced it.
+	"""
+	model_config = MODEL_CONFIG
+	share_id: str
+	with_who: str
+	entries: int
+	shared_at_ms: int
+	expires_at_ms: int
+	algorithm: str
+	message: str
+
+
 # --- COM-104 misinformation tracker ------------------------------------------------------
 
 class MisinfoSubmission(BaseModel):
