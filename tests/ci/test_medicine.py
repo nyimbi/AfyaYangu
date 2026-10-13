@@ -51,6 +51,12 @@ async def test_artemether_lumefantrine_is_dosed_by_weight_band() -> None:
 
 def test_interaction_table() -> None:
 	svc = MedicineService(PPBStubClient())
-	hits = svc.check_interactions(['warfarin', 'aspirin', 'metformin'])
-	assert len(hits) == 1 and 'MAJOR' in hits[0]
-	assert svc.check_interactions(['metformin']) == []
+	report = svc.check_interactions(['warfarin', 'aspirin', 'metformin'])
+	assert len(report.pairs) == 1
+	# The appendix's own marking, not a severity scale it does not have: `warfarin` + `aspirin` is
+	# starred in Appendix 1, which the appendix defines as "potentially hazardous".
+	assert report.pairs[0].hazard == 'hazardous'
+	assert report.pairs[0].a == 'Acetylsalicylic acid'
+	assert svc.check_interactions(['metformin']).pairs == []
+	# The section's fourth bullet, served with every answer.
+	assert report.guidance and report.disclaimer

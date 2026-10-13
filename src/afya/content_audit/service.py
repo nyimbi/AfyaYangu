@@ -150,8 +150,8 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	# --- §8.3 MED-002: Drug Interaction and Safety Checker -----------------------------------
 	('MED-002', 'Features', 'Select or scan two or more medicines', 'carried', 'afya.medicine.service:MedicineService.check_interactions', None),
 	('MED-002', 'Features', 'Check for known interactions', 'carried', 'afya.medicine.service:MedicineService.check_interactions', None),
-	('MED-002', 'Features', 'Flag contraindications for pregnancy, children, and common conditions', 'missing', None, '`_INTERACTIONS` is drug-pair rows only; there is no contraindication axis for pregnancy, age or a condition'),
-	('MED-002', 'Features', 'Guidance to consult a pharmacist', 'missing', None, 'the check returns severity strings and no guidance line'),
+	('MED-002', 'Features', 'Flag contraindications for pregnancy, children, and common conditions', 'carried', 'afya.medicine.contraindications:for_patient', 'four axes from the WHO Model Formulary 2008: Appendix 2 (pregnancy, 221 drugs), Appendix 3 (breastfeeding, 202), the age floor in each monograph\'s own `Contraindications:` line (21 drugs), and the 19 condition families the monographs name (187 drug/condition pairs). Each axis fires only on the input that selects it, and the appendix\'s own "absence from the list does not imply safety" is served with every pregnancy answer'),
+	('MED-002', 'Features', 'Guidance to consult a pharmacist', 'carried', 'afya.medicine.service:MedicineService.PHARMACIST_GUIDANCE', 'served on every report alongside the section\'s own Disclaimer line, `INTERACTION_DISCLAIMER`'),
 	# --- §8.3 MED-003: Dosage Calculator -----------------------------------------------------
 	('MED-003', 'Features', 'Enter weight and age', 'carried', 'afya.medicine.views:DoseRequest', 'weight_kg, and age_months which the source only needs for zinc'),
 	('MED-003', 'Features', 'Select medicine', 'carried', 'afya.medicine.views:DoseRequest', 'drug, matched against the formulary rather than free text'),

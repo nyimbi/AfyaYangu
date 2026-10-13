@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict
 
 from afya.community.views import FOLLOWUP_DAYS
 from afya.location.views import ALERT_ZONE_RADII_M
+from afya.medicine import contraindications
 from afya.records.views import WALLET_DOC_KINDS
 from afya.registry.diseases import DISEASES
 from afya.access.views import LANGUAGE_MATRIX
@@ -419,7 +420,12 @@ def catalogue() -> list[MobileAction]:
 		_a('publish_slot', 'Offer appointment times', 'Facilities', 'POST', '/facilities/{facility_id}/slots', [_f('facility_id', 'Facility', 'path'), _f('slot_iso', 'Time you will see people', ph='e.g. 2026-10-20T09:00+03:00'), _f('capacity', 'How many people at that time', 'int', ph='leave blank for one')]),
 		# Medicine
 		_a('verify_medicine', 'Is my medicine genuine?', 'Medicine', 'POST', '/medicine/verify', [_f('batch_number', 'Batch number (on the box)'), _f('gtin', 'Barcode number')]),
-		_a('drug_interactions', 'Can I take these together?', 'Medicine', 'POST', '/medicine/interactions', [_f('drugs', 'Medicines', 'list')]),
+		_a('drug_interactions', 'Can I take these together?', 'Medicine', 'POST', '/medicine/interactions',
+			[_f('drugs', 'Medicines', 'list', ph='e.g. warfarin, aspirin'),
+			 _f('pregnant', 'Pregnant or breastfeeding', 'bool'),
+			 _f('age_months', 'Age in months (for a child)', 'int'),
+			 _f('conditions', 'Ongoing conditions', 'select',
+			    options=[label for _slug, label in contraindications.CONDITION_AXES])]),
 		# `mg_per_kg` was a field here and is gone: it asked a parent for the one constant the
 		# calculator exists to look up, so the action answered a multiplication. `age_months` is the
 		# section's own "Enter weight and age", and it is what zinc's dose turns on.

@@ -4,10 +4,11 @@ from typing import Protocol
 
 from afya.facilities.service import haversine_km
 from afya.logmixin import LogMixin
-from afya.medicine import formulary
+from afya.medicine import contraindications, formulary, interactions
 from afya.medicine.views import (
-	BatchRecall, DoseLine, DoseRequest, DoseResult, ProductDisplay, RegistrationStatus, StockAlert,
-	StockAvailability, StockReport, VerifyRequest, VerifyResult, essential_slug,
+	BatchRecall, ContraindicationFlag, DoseLine, DoseRequest, DoseResult, InteractionReport,
+	ProductDisplay, RegistrationStatus, StockAlert, StockAvailability, StockReport, VerifyRequest,
+	VerifyResult, essential_slug,
 )
 
 
@@ -243,12 +244,15 @@ def status_from_verify_answer(data: dict[str, object], batch_number: str) -> tup
 
 
 class MedicineService(LogMixin):
-	_INTERACTIONS: tuple[str, ...] = (
-		'warfarin|aspirin:major:additive bleeding risk',
-		'metronidazole|alcohol:moderate:disulfiram-like reaction',
-		'artemether|ketoconazole:moderate:QT prolongation',
-		'rifampicin|oral_contraceptives:major:reduced efficacy',
+	# §MED-002's fourth bullet: "Guidance to consult a pharmacist". Kept as one constant because
+	# the check must not be the last word — the reference is a table and the patient is not in it.
+	PHARMACIST_GUIDANCE = (
+		'Take this to a pharmacist or clinician before you act on it. A pharmacist can see your '
+		'other medicines, your allergies and your test results, and none of those are in this check.'
 	)
+
+	# The section's own Disclaimer line, carried rather than paraphrased.
+	INTERACTION_DISCLAIMER = 'Informational only. Not a substitute for professional advice.'
 
 	def __init__(self, ppb: PPBRegistryPort) -> None:
 		self._ppb = ppb
@@ -260,18 +264,43 @@ class MedicineService(LogMixin):
 		assert req.batch_number and req.gtin, 'batch+gtin required'
 		return await self._ppb.verify(req)
 
-	def check_interactions(self, drugs: list[str]) -> list[str]:
+	def check_interactions(self, drugs: list[str], pregnant: bool | None = None,
+	                       age_months: int | None = None,
+	                       conditions: list[str] | None = None) -> InteractionReport:
+		"""§MED-002: whether these medicines can be taken together, and by this patient.
+
+		Two questions in one answer, because the section asks both: which pairs interact (Appendix
+		1) and which of these medicines is a problem for this person's pregnancy, age or condition
+		(the monographs' own contraindication lines and Appendix 2). The patient axes are optional
+		and each fires only on the input that selects it — nothing is inferred from a field the
+		caller did not send.
+
+		Refusals are answers, as `dose` established. A name the reference cannot place comes back in
+		`unmatched` rather than raising, because "we do not know this medicine" and "these medicines
+		are safe together" are opposite claims and only one of them is safe to act on.
+		"""
 		assert len(drugs) <= 50, 'unreasonable polypharmacy'
-		found: list[str] = []
-		for idx, left in enumerate(drugs):
-			for right in drugs[idx + 1:]:
-				for row in self._INTERACTIONS:
-					pair, severity, note = row.split(':', 2)
-					names = pair.split('|')
-					if {left.lower(), right.lower()} == set(names):
-						found.append(f'{severity.upper()} {left}+{right}: {note}')
-		self._log_info('interaction check', hits=len(found))
-		return found
+		pairs, unmatched = interactions.lookup(drugs)
+		flags = [ContraindicationFlag(drug=drug, axis=axis, text=text)
+		         for drug, axis, text in contraindications.for_patient(
+		             drugs, pregnant=pregnant, age_months=age_months, conditions=conditions)]
+		self._log_info('interaction check', drugs=len(drugs), pairs=len(pairs),
+		               flags=len(flags), unmatched=len(unmatched))
+		return InteractionReport(
+			pairs=pairs,
+			flags=flags,
+			unmatched=unmatched,
+			guidance=self.PHARMACIST_GUIDANCE,
+			disclaimer=self.INTERACTION_DISCLAIMER,
+			hazards=interactions.HAZARD_DEFINITION,
+			# Served only where it applies. The caveat is about a question the caller asked; a
+			# caller who did not say they are pregnant has not asked it, and the sentence would
+			# then be an unprompted claim about a patient whose state nobody stated.
+			pregnancy_caveat=(
+				f'{contraindications.PREGNANCY_CAVEAT}. '
+				f'{contraindications.PREGNANCY_BENEFIT_CAVEAT}'
+			) if pregnant else None,
+		)
 
 	def dose(self, req: DoseRequest) -> DoseResult:
 		"""§MED-003's calculator: the dose range for this child, from the WHO Pocket Book.

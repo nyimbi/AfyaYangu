@@ -2709,3 +2709,118 @@ node ids to every canary. A node that does not exist makes pytest exit non-zero 
 error, which reads as CAUGHT — a canary passing for the wrong reason, which is the failure the script
 exists to prevent. Each canary now names the file its target lives in, and the runner raises if the
 target did not run.
+
+## §MED-002 — four hand-typed rows where a reference belonged, and a contraindication axis that did not exist
+
+§MED-002's four `Features` bullets split two and two. "Select or scan two or more medicines" and
+"Check for known interactions" were `carried`, because `check_interactions` existed and looked up a
+pair. "Flag contraindications for pregnancy, children, and common conditions" and "Guidance to
+consult a pharmacist" were `missing`, and both were missing for the same reason: there was no
+clinical data behind either.
+
+The interaction "table" was four rows typed into `service.py`:
+
+	'warfarin|aspirin:major:additive bleeding risk',
+	'metronidazole|alcohol:moderate:disulfiram-like reaction',
+	'artemether|ketoconazole:moderate:QT prolongation',
+	'rifampicin|oral_contraceptives:major:reduced efficacy',
+
+and `check_interactions` returned `list[str]` — a shape with nowhere to put a contraindication, a
+guidance line, or the name of a medicine the reference does not contain.
+
+### The source, and why the `-layout` copy is load-bearing
+
+The **WHO Model Formulary 2008** supplies all four axes from one authority: Appendix 1 (Interactions,
+p. 503) for drug pairs, Appendix 2 (Pregnancy, p. 582), Appendix 3 (Breastfeeding, p. 599), and a
+`Contraindications:` line in each of the ~250 monographs for the age and condition axes. It is
+archived at `sources/who-model-formulary/` with its checksums and page references in
+`sources/INDEX.md`, and the generator scripts are committed beside it under `tools/`.
+
+Appendix 1 and Appendix 2 are two-column tables, and IRIS's own plain-text extraction of this
+document interleaves the columns into unreadable runs. `pdftotext -layout` keeps them in order, which
+is what makes the tables checkable against the code row by row rather than by eye.
+
+### Three properties of the data that are not transcription
+
+1. **The appendix lists each pair twice**, once under each drug: 2,853 rows reduce to 1,452 unique
+   unordered pairs, and 1,370 appear under both. `lookup` keys on the unordered pair, so
+   `['warfarin', 'aspirin']` and `['aspirin', 'warfarin']` are the same question.
+2. **Seven pairs carry a different hazard marking in the two listings** — Clomipramine + Warfarin is
+   `noted` under clomipramine and `hazardous` under warfarin. The table keeps the **more severe** of
+   the two. Where a source disagrees with itself the disagreement resolves toward the warning, never
+   away from it. (The plan for this work said 54; the emitter measures 7, and the emitted module
+   states the measured figure.)
+3. **The appendix's severity axis is two-valued, not graded.** Its own definition: "the symbol *
+   indicates a potentially hazardous interaction … Interactions with no symbol do not usually have
+   serious consequences." So a row is `hazardous` or `noted`, and `HAZARD_DEFINITION` carries that
+   sentence because "noted" is not a reassurance. The dead `InteractionPair` model's invented
+   `minor|moderate|major` pattern is gone.
+
+### The two caveats that travel with the pregnancy axis
+
+Appendix 2 says in its own words that **"Absence of a medicine from the list does not imply safety"**
+and that "Drugs should be prescribed in pregnancy only if the expected benefits to the mother are
+thought to be greater than the risk to the fetus." Both are served with every answer that asked about
+pregnancy. Without them, a "no flag" result reads as reassurance for a drug the appendix simply does
+not list — a claim the source explicitly refuses to make. A caller who did not say they are pregnant
+has not asked the question, so the sentence is not volunteered about a patient whose state nobody
+stated.
+
+### The age axis is a floor the source states, not a dose
+
+Twenty-one monographs state an age floor, some as a number ("children under 8 years", "infants less
+than 3 months") and some as the bare word "children" or "neonates". A word is stored as `None` rather
+than converted to a figure the source did not write — the same reason `afya.medicine.formulary`
+leaves `max_mg_per_dose` empty where no maximum is stated.
+
+### Two extraction defects, each invisible in the output
+
+1. **Operator precedence in the header filter.** The running headers (the folio line and the section
+   title repeated at the top of every page) were filtered by `'WHO Model Formulary 2008' in l or
+   label in l and l.strip() != label`, which Python parses as `A or (B and C)`. Only the folio line
+   was dropped; every section title was kept and appended to the comment above it, so
+   `Not known to be harmful` acquired an `Appendix 2: Pregnancy` tail. It parses, it runs, and the
+   only symptom is a sentence that reads slightly wrong.
+2. **A name longer than its column.** Two Appendix 2 rows are typeset with a single space between
+   the name and its comment, and one name — `Pentamidine isetionate` — is longer than the comment
+   column, so neither a 2+-space rule nor the column position finds the boundary. A fixed `col - 1`
+   split landed mid-word (`'Phenoxymethylpenicilli'` / `'n Not known to be harmful'`). The fix reads
+   the source's own vocabulary: split at the longest leading substring that is a drug name the
+   Formulary uses elsewhere.
+
+Both are fixed in the committed generators, which regenerate both data modules **byte-identically**
+(verified by `diff` after re-running them from the committed copies).
+
+### Paracetamol is the row a window-based read gets wrong
+
+Paracetamol's monograph has only `Precautions:` — no `Contraindications:` line at all — so it has no
+condition or age flags and none may be invented for it. The first extraction attempt used a
+fixed-size character window and attributed Propranolol's contraindications to paracetamol. The
+extraction is now bounded by the *next field keyword* rather than by a window, and
+`test_med002.py::test_paracetamol_has_no_contraindication_line_and_is_not_invented_one` pins it.
+
+### What the answer looks like now
+
+`check_interactions(drugs, pregnant=None, age_months=None, conditions=None) -> InteractionReport`,
+serving `pairs`, `flags`, `unmatched`, `guidance`, `disclaimer`, `hazards` and `pregnancy_caveat`.
+Refusals are answers, as `dose()` established: a name the reference cannot place comes back in
+`unmatched` rather than raising, because "we do not know this medicine" and "these medicines are safe
+together" are opposite claims and only one of them is safe to act on. `POST /medicine/interactions`
+carries the three optional patient fields, and the mobile catalogue's `drug_interactions` action
+gained `pregnant`, `age_months` and a `conditions` select whose options are the condition labels —
+no spec feature code appears in any served string.
+
+**Counts: §MED-002 2 `missing` → 0**, both now `carried` with refs that resolve through
+`afya.refs.py`. Across the repo **443 → 445 `carried`, 33 → 31 `missing`**, 493 rows, `deferred` 17.
+
+**Canaries: 10/10 fired.** The pair lookup made order-dependent; the hazard disagreement resolved
+downward; an unmatched name silently dropped; the pregnancy caveat dropped; the pregnancy caveat
+volunteered to a caller who never said they were pregnant; the age floor off by one band; a condition
+firing without being named; the guidance line emptied; the route dropping the patient fields; and a
+single medicine accepted where the section says two or more.
+
+**One canary had to be rewritten.** The first attempt at the disagreement canary patched `lookup`'s
+sort order, which does not change any hazard — the resolution direction is baked into the committed
+table at emit time — so it MISSED. A canary that passes is a bug in the canary: it now flips the
+actual `Clomipramine + Warfarin` row, and the test asserts that specific pair rather than only the
+count.

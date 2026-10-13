@@ -11,6 +11,7 @@ that uses it, with its retrieval URL, date, and checksum.
 | PHQ-9 and GAD-7 instruments, with the Pfizer instruction manual | `afya.mental.instruments`, `afya.mental.service` — §REC-005's screenings | `phq9-gad7/` |
 | Psychological first aid: guide for field workers (WHO, 2011), English and Kiswahili | `afya.mental.support` — §REC-005's coping strategies and outbreak-specific support | `who-pfa/` |
 | WHO Pocket Book of Hospital Care for Children, 2nd ed. (2013) | `afya.medicine.formulary` — §MED-003's dose ranges, formulations and maximum doses | `who-pocket-book/` |
+| WHO Model Formulary 2008, Appendices 1–3 and the monographs' contraindication lines | `afya.medicine.interactions`, `afya.medicine.contraindications` — §MED-002's interaction table, and the pregnancy, breastfeeding, age and condition axes | `who-model-formulary/` |
 | WHO fact sheets, menopause (2024) and family planning/contraception (2025); NHS UK, fertility in the menstrual cycle | `afya.women.content` — §REC-004's contraception, fertility awareness, menopause support and referral | `who-reproductive-health/` |
 | Radford et al., *Robust Speech Recognition via Large-Scale Weak Supervision* (arXiv:2212.04356); OpenAI `mel_filters.npz` (MIT) | `afya.ml.speech` — §ACC-002's log-Mel front end and the whisper-tiny recogniser | `whisper-asr/` |
 
@@ -974,3 +975,85 @@ confidently wrong text — `speech.py`'s docstring records that finding and deco
 Kalenjin, Kikuyu and English. `LANGUAGE_MATRIX` carries `asr: False` for `luo`, `bxk`, `kln` and `ki`,
 and whisper-tiny's language tokens cover 98 languages of which `sw` and `en` are the two this repo
 ships. No source here supports recognition in the other four, and none is claimed.
+
+## WHO Model Formulary 2008
+
+The World Health Organization's formulary — a monograph per medicine, plus appendices that
+cross-reference them. §MED-002 asks for a checker that flags "contraindications for pregnancy,
+children, and common conditions", and the repo had no clinical data behind that clause: the
+interaction table was four rows typed into `service.py` and there was no contraindication axis at
+all. This is where all four axes come from — Appendix 1 for drug pairs, Appendix 2 for pregnancy,
+Appendix 3 for breastfeeding, and each monograph's own `Contraindications:` line for age and
+condition.
+
+**Publisher:** World Health Organization. **Edition:** 2008, published 2009. **ISBN:**
+978 92 4 154765 9. **Editors:** Marc C. Stuart, Maria Kouimtzi, Suzanne R. Hill.
+**Retrieved:** 2026-10-13.
+**Record page:** `https://iris.who.int/handle/10665/44053` (IRIS uuid `8bdde138-003e-4b61-9208-1abe1e7b0d02`).
+
+### Files
+
+| File | Bytes | SHA-256 (first 16) |
+|---|---|---|
+| `who-model-formulary-2008.pdf` | 3698742 | `2d4252dedd830557` |
+| `who-model-formulary-2008.txt` | 1611743 | `5a0c07e8802b3ccf` |
+
+The PDF is the publisher's own file, 644 pages. The `.txt` is `pdftotext -layout` over it, and the
+`-layout` flag is load-bearing here in a way it is not for most sources: Appendix 1 and Appendix 2
+are two-column tables, and IRIS's own plain-text extraction of the same document interleaves the
+columns into unreadable runs. With `-layout` the columns survive in order and the tables can be
+checked against the code row by row.
+
+**The download path is a bitstream UUID, not the record page.** The PDF came from
+`https://iris.who.int/server/api/core/bitstreams/614b1dd8-8006-489d-a83c-51c657f8d3f2/content`; the
+record page is an Angular landing page whose `<link rel="item" type="application/pdf">` tag carries
+that URL. Check `file` on anything retrieved this way before checksumming it — the same trap the
+Pocket Book entry records.
+
+### What the source supports, and what it does not
+
+- **Appendix 1 (Interactions), p. 503–581** — for each drug, the drugs it interacts with and the
+  effect. 2,853 rows over 223 drug headings, which reduce to **1,452 unique unordered pairs**
+  because the appendix lists each pair **twice**, once under each drug. **1,370** pairs appear under
+  both; **7** carry a *different* hazard marking in the two listings, and the table keeps the more
+  severe one. A pair listed once is not evidence of anything — the appendix is not exhaustive, and
+  a drug absent from it has not been cleared.
+- **Appendix 1's severity axis is two-valued, not graded.** Its own words: "the symbol * indicates a
+  potentially hazardous interaction and the combined administration of the drugs involved should be
+  avoided, or only taken with caution and appropriate monitoring. Interactions with no symbol do not
+  usually have serious consequences." The repo stores `hazardous` or `noted` and carries that
+  sentence as `HAZARD_DEFINITION`, because "noted" is not a reassurance and a client that renders it
+  as one has misread the source. There is no `minor|moderate|major` scale in this document.
+- **Appendix 2 (Pregnancy), p. 582–598** — 221 drugs with the source's comment for each. Its own
+  caveat, which travels with every pregnancy answer the service gives: **"Absence of a medicine from
+  the list does not imply safety"**, and "Drugs should be prescribed in pregnancy only if the
+  expected benefits to the mother are thought to be greater than the risk to the fetus." A checker
+  that returns "no flag" without those sentences turns an absent row into a reassurance the source
+  explicitly refuses to give.
+- **Appendix 3 (Breastfeeding), p. 599–610** — 202 drugs. A separate table from Appendix 2, and the
+  service does not infer one from the other: they are different clinical states and the source keeps
+  them apart.
+- **The monographs' `Contraindications:` lines** — the age axis (21 drugs stating a floor, as a
+  number or as the bare word "children"/"neonates") and the condition axis (19 condition families,
+  187 drug/condition pairs). Where a monograph states a word rather than a number the table stores
+  `None` rather than converting it to a figure the source did not write — the same reason
+  `afya.medicine.formulary` leaves `max_mg_per_dose` empty where no maximum is stated.
+- **Not every drug has a `Contraindications:` line.** Paracetamol has only `Precautions:`, so it has
+  no condition or age flags and none may be invented for it. This is the row that a window-based
+  extraction gets wrong: reading a fixed character window past the end of the monograph attributes
+  the *next* drug's contraindications to paracetamol. `test_med002.py` pins the correct behaviour.
+
+**Two extraction defects worth recording, because each was invisible in the output.** The appendix's
+running headers (the folio line and the repeated section title) are filtered out by a test that read
+`A or B and C`, which Python parses as `A or (B and C)` — so only the folio line was dropped and
+every section title was appended to the comment above it. And the two-column tables typeset a few
+wrapped drug names with a single space between the name and its comment, and one name (`Pentamidine
+isetionate`) is longer than the comment column, so neither a 2+-space rule nor a column position
+finds the boundary. Both are fixed in the generator scripts, which are committed beside this source
+under `who-model-formulary/tools/`.
+
+**What the source does not support.** It is a 2008 formulary and its interaction list is a
+selection, not a database: absence from Appendix 1 is not clearance, and the checker says so by
+returning unmatched names separately rather than reporting them as safe. It states no severity
+grading beyond the starred/not-starred mark. It carries no dose for the condition axis and no
+paediatric dose at all — that is the Pocket Book, a separate source above.

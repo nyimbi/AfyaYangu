@@ -117,11 +117,57 @@ class VerifyResult(BaseModel):
 
 
 class InteractionPair(BaseModel):
+	"""Two medicines the Formulary's Appendix 1 lists together, in the appendix's own vocabulary.
+
+	`hazard` is `hazardous` or `noted`, not a severity scale. The appendix defines the axis itself
+	and it is two-valued — see `afya.medicine.interactions.HAZARD_DEFINITION` — so a model that
+	graded it `minor|moderate|major` would be inventing a scale the source does not have, and a
+	client that rendered `noted` as "safe" would be misreading the source in the direction that
+	matters.
+	"""
+
 	model_config = MODEL_CONFIG
 	a: str
 	b: str
-	severity: str = Field(pattern=r'^(minor|moderate|major)$')
+	hazard: str = Field(pattern=r'^(hazardous|noted)$')
 	note: str
+
+
+class ContraindicationFlag(BaseModel):
+	"""One drug, one patient axis, and the source's own sentence for it.
+
+	`axis` is the input that selected the flag — `pregnancy`, `children`, or the slug of a condition
+	the caller named. `text` is the Formulary's wording, carried rather than summarised: a
+	paraphrase of a contraindication is a contraindication somebody rewrote.
+	"""
+
+	model_config = MODEL_CONFIG
+	drug: str
+	axis: str
+	text: str
+
+
+class InteractionReport(BaseModel):
+	"""§MED-002's answer: what the source says about these medicines, and what it does not say.
+
+	`unmatched` is the load-bearing field. "This medicine is not in the reference" and "these
+	medicines are safe together" are opposite claims and only the second is one a person acts on,
+	so a name the table could not place is reported back rather than dropped — the same distinction
+	`DoseResult.unknown` draws.
+
+	`pregnancy_caveat` travels with every answer that asked about pregnancy, because the appendix
+	says in its own words that absence from its list does not imply safety; a report that omitted it
+	would turn an absent row into a reassurance the source refuses to give.
+	"""
+
+	model_config = MODEL_CONFIG
+	pairs: list[InteractionPair] = Field(default_factory=list)
+	flags: list[ContraindicationFlag] = Field(default_factory=list)
+	unmatched: list[str] = Field(default_factory=list)
+	guidance: str
+	disclaimer: str
+	hazards: str
+	pregnancy_caveat: str | None = None
 
 
 class DoseRequest(BaseModel):

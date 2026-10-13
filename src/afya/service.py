@@ -58,7 +58,8 @@ from afya.integrations.feeds import FEED_CADENCE, FEED_GRANULARITY, MIN_CELL, bu
 from afya.integrations.service import InlineJaliPort, JaliClient, JaliPort, MoHFFacilityClient, PPBClient, PheocClient, SHAClient, TelcoGatewayClient
 from afya.medicine.service import STOCK_REPORT_MAX_KM, MedicineService
 from afya.medicine.views import (
-	ESSENTIAL_MEDICINES, DoseRequest, StockReport, SuspiciousReport, VerifyRequest,
+	ESSENTIAL_MEDICINES, DoseRequest, InteractionReport, StockReport, SuspiciousReport,
+	VerifyRequest,
 )
 from afya.facilities.service import FacilityService
 from afya.facilities.views import (
@@ -200,8 +201,19 @@ class BreathEstimateRequest(BaseModel):
 
 
 class InteractionsRequest(BaseModel):
+	"""§MED-002's question, with the patient the section's third bullet asks about.
+
+	The three patient fields are optional and each selects one axis of the answer: `pregnant` the
+	Appendix 2 list, `age_months` the age floor in each monograph's own contraindication line, and
+	`conditions` the condition families the monographs name. Omitted, the answer is the drug-pair
+	check alone — which is what it was before, minus the four rows typed into the service.
+	"""
+
 	model_config = MODEL_CONFIG
-	drugs: list[str]
+	drugs: list[str] = Field(min_length=2, max_length=50)
+	pregnant: bool | None = None
+	age_months: int | None = Field(default=None, ge=0, le=1200)
+	conditions: list[str] = Field(default_factory=list)
 
 
 class DPIAReviewRequest(BaseModel):
@@ -1141,8 +1153,10 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return (await medicine.verify(req)).model_dump(mode='json')
 
 	@app.post('/medicine/interactions')
-	async def medicine_interactions(req: InteractionsRequest) -> list[str]:
-		return medicine.check_interactions(req.drugs)
+	async def medicine_interactions(req: InteractionsRequest) -> dict[str, object]:
+		return medicine.check_interactions(
+			req.drugs, pregnant=req.pregnant, age_months=req.age_months,
+			conditions=req.conditions).model_dump(mode='json')
 
 	@app.post('/medicine/stock')
 	async def medicine_stock(report: StockReport,
