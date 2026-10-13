@@ -562,6 +562,11 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/channels/sms'),        # the telco's inbound webhook, authenticated by signature
 	('POST', '/channels/ussd'),       # the aggregator's inbound USSD session
 	('POST', '/channels/whatsapp'),   # the WhatsApp Business webhook
+	# The same webhook, carrying a voice note instead of text. A note arrives from Meta exactly as
+	# a text message does — there is no token to require and no subject to check, because the only
+	# identity the channel has is the MSISDN in the form field. It stores nothing: the recording is
+	# transcribed in a temporary file, deleted in a `finally`, and what leaves is a triage verdict.
+	('POST', '/channels/whatsapp/voice'),
 	('POST', '/sync/batch'),          # a device's own queued ops, keyed by its device id
 	('POST', '/sync/delta'),
 	('POST', '/sync/flush'),

@@ -54,6 +54,26 @@ class VoiceRequest(BaseModel):
 	lang: str
 	utterance: str = Field(min_length=1, max_length=1000)
 	offline: bool = False
+	# §ACC-002's "voice-to-text for CHW notes and case descriptions". The route already took any
+	# `VoiceRequest` and returned an *intent* — which is a symptom-reporting path, not a
+	# transcription: a CHW dictating "the patient's house is behind the market, three children, one
+	# with a rash" got `intent=unknown` and their words discarded. `purpose` says which of the two
+	# the caller is doing, because they are answered differently and only one of them is a triage.
+	purpose: str = Field(default='symptoms', pattern=r'^(symptoms|note)$')
+
+
+class VoiceAudioRequest(BaseModel):
+	"""§ACC-002's actual input: audio, not text. The text models were the shape of the gap.
+
+	`VoiceRequest` takes an `utterance`, which is a *transcript* — so every voice path in the tree
+	began after the hard part was already done, and a person who cannot type had no way in. This is
+	the model for the thing a handset actually produces, and `purpose` carries over unchanged
+	because a note and a symptom report are still two different questions asked of the same audio.
+	"""
+	model_config = MODEL_CONFIG
+	subject_ref: str
+	lang: str
+	purpose: str = Field(default='symptoms', pattern=r'^(symptoms|note)$')
 
 
 class VoiceResult(BaseModel):
@@ -64,6 +84,19 @@ class VoiceResult(BaseModel):
 	confidence: float = Field(ge=0, le=1)
 	spoken_reply: str
 	on_device: bool
+	# Which language the answer is actually in, on §ACC-002's `answerable` rule: a speaker of a
+	# language with no table is served English *and told so*, rather than reading English believing
+	# it is Dholuo. `lang` stays the language the caller asked for; this is the one they got.
+	served_in: str = 'en'
+	# The symptoms a free-text utterance names, read out of it rather than assumed. This is the
+	# field that makes "voice-guided symptom reporting" a report and not a menu: the caller's own
+	# words enter the engine, and the client shows which of them were understood.
+	symptoms: list[str] = Field(default_factory=list)
+	# Which recogniser produced the transcript, when the request arrived as audio. `None` means the
+	# caller sent text and no recognition ran — the two are different claims and a client that
+	# rendered "recognised on device" over a typed message would be reporting a step that did not
+	# happen. `LANGUAGE_MATRIX`'s `asr` flag says which languages ship recognition at all.
+	recogniser: str | None = None
 
 
 class BatteryProfile(BaseModel):

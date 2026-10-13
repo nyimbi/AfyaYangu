@@ -32,6 +32,7 @@ from afya.community.views import FOLLOWUP_DAYS
 from afya.location.views import ALERT_ZONE_RADII_M
 from afya.records.views import WALLET_DOC_KINDS
 from afya.registry.diseases import DISEASES
+from afya.access.views import LANGUAGE_MATRIX
 from afya.strings import SUPPORTED_LANGS
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -93,6 +94,15 @@ INTENSITIES = ['low', 'balanced', 'maximum']
 # list to offer: §ACC-002 names six for voice and §LOC-005 asks for cross-border support, but a
 # dropdown that offered Dholuo here would be offering a language this path answers in English.
 TRAVELLER_LANGS = sorted(SUPPORTED_LANGS)
+# §ACC-002's voice path offers the languages recognition actually *ships* for, which is
+# `LANGUAGE_MATRIX`'s `asr` flag and not its key set — the same distinction `TRAVELLER_LANGS`
+# draws for the traveller path, for the same reason: a dropdown offering Dholuo on a recogniser
+# that was never trained on it promises a transcript of words nobody said.
+LANGUAGE_MATRIX_ASR: dict[str, bool] = {
+	str(meta['code']): bool(meta['asr']) for meta in LANGUAGE_MATRIX.values()
+}
+VOICE_LANGS = sorted(code for code in TRAVELLER_LANGS if LANGUAGE_MATRIX_ASR.get(code))
+VOICE_PURPOSES = ['symptoms', 'note']
 OUTPUT_KINDS = ['triage', 'risk_score', 'hotspot', 'exposure', 'tier4_activation']
 # §6.5's content workflow, in order. The server refuses a jump, so the control offers the steps.
 CONTENT_STAGES = ['draft', 'clinical_review', 'translation', 'back_translation', 'community_validation', 'published', 'archived']
@@ -197,6 +207,7 @@ FEATURE_OF: dict[str, str] = {
 	'signal_scan': 'AI-003', 'signal_report': 'AI-003',
 	'model_cards': 'AI-004', 'fairness_audit': 'AI-004', 'file_redress': 'AI-005',
 	'access_profile': 'ACC-001', 'ui_screens': 'ACC-001', 'languages': 'ACC-002', 'voice': 'ACC-002',
+	'voice_audio': 'ACC-002', 'whatsapp_voice': 'ACC-002',
 	'battery_profile': 'ACC-004', 'compatibility': 'ACC-005', 'sensor_capabilities': 'ACC-005',
 	'retention_policy': 'SEC-005', 'record_holding': 'SEC-006', 'record_share': 'SEC-006',
 	'data_inventory': 'SEC-006', 'export_my_data': 'SEC-005', 'delete_my_data': 'SEC-005', 'purge_expired': 'SEC-005',
@@ -621,7 +632,8 @@ def catalogue() -> list[MobileAction]:
 		_a('access_profile', 'Make the app easier to use', 'Access', 'POST', '/access/profile', [_s(), _f('simple_mode', 'Simple mode', 'bool'), _f('large_text', 'Large text', 'bool'), _f('high_contrast', 'High contrast', 'bool'), _f('read_aloud', 'Read screens aloud', 'bool'), _f('voice_input', 'Speak instead of typing', 'bool'), _f('lang', 'Language')]),
 		_a('ui_screens', 'Screen list', 'Access', 'GET', '/access/screens', [_f('simple_mode', 'Simple mode', 'bool')]),
 		_a('languages', 'Languages', 'Access', 'GET', '/access/languages', [_f('tier', 'Priority tier', 'int')]),
-		_a('voice', 'Speak to the app', 'Access', 'POST', '/access/voice', [_s(), _f('lang', 'Language'), _f('utterance', 'What you said'), _f('offline', 'No network?', 'bool')]),
+		_a('voice', 'Speak to the app', 'Access', 'POST', '/access/voice', [_s(), _f('lang', 'Language'), _f('utterance', 'What you said'), _f('purpose', 'Symptoms or a note?', 'select', VOICE_PURPOSES), _f('offline', 'No network?', 'bool')]),
+		_a('voice_audio', 'Send a recording', 'Access', 'POST', '/access/voice/audio', [_s(), _f('lang', 'Language', 'select', VOICE_LANGS), _f('purpose', 'Symptoms or a note?', 'select', VOICE_PURPOSES), _f('file', 'Recording', 'file')]),
 		_a('battery_profile', 'Battery use', 'Access', 'GET', '/access/battery', [_s(), _f('intensity', 'Monitoring level', 'select', INTENSITIES), _f('battery_saver', 'Battery saver', 'bool')]),
 		_a('compatibility', 'Will it work on my phone?', 'Access', 'GET', '/access/compatibility/{platform}', [_f('platform', 'Phone type', 'path')]),
 		_a('sensor_capabilities', 'What my phone can measure', 'Access', 'GET', '/sensors/capabilities', []),
@@ -647,6 +659,7 @@ def catalogue() -> list[MobileAction]:
 		_a('channel_costs', 'Will this cost me airtime?', 'Channels', 'GET', '/channels/cost', []),
 		_a('ussd_menu', 'USSD menu', 'Channels', 'POST', '/channels/ussd', [_f('session_id', 'Session'), _f('msisdn', 'Phone number'), _f('text', 'Selection')]),
 		_a('whatsapp_send', 'WhatsApp reply', 'Channels', 'POST', '/channels/whatsapp', [_f('from_msisdn', 'Phone number'), _f('body', 'Message')]),
+		_a('whatsapp_voice', 'Send a WhatsApp voice note', 'Channels', 'POST', '/channels/whatsapp/voice', [_f('from_msisdn', 'Phone number'), _f('voice_note_lang', 'Language', 'select', VOICE_LANGS), _f('file', 'Voice note', 'file')]),
 		_a('queue_sync_op', 'Save for later (offline)', 'Sync', 'POST', '/sync/ops', [_f('op_id', 'Change number'), _f('dataset', 'What kind of change?', 'select', SYNC_DATASETS), _f('client_ts', 'When it happened', 'int')]),
 		_a('flush_sync', 'Send everything now', 'Sync', 'POST', '/sync/flush', [_f('connection', 'Connection', 'select', ['wifi', 'metered', 'offline'], ph='wifi')]),
 		_a('offline_state', 'Is my work saved?', 'Sync', 'GET', '/sync/state', []),
@@ -836,6 +849,8 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'access_profile': ('Make the app easier to use', 'Bigger text, simple mode, read aloud'),
 	'channel_costs': ('Will this cost me airtime?', 'What each way of reaching us costs you, and whether it is free'),
 	'voice': ('Speak to the app', 'Ask in your own language'),
+	'voice_audio': ('Send a recording', 'Speak a symptom report or a note and we will write it down'),
+	'whatsapp_voice': ('Send a WhatsApp voice note', 'Hold the button, speak, and we will triage it'),
 	'enrol_monitoring': ('Start my 21-day check-in', 'A short daily temperature log while you are being watched over'),
 	'monitoring_day': ('Log today', 'Temperature and how you feel, morning and evening'),
 	'monitoring_diary': ('My 21-day diary', 'Every day you have logged, and the countdown to the end'),

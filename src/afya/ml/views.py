@@ -22,3 +22,17 @@ import csv
 def class_map(path: Path) -> list[str]:
 	with open(path) as fh:
 		return [row['display_name'] for row in csv.DictReader(fh)]
+
+class SpeechTranscript(BaseModel):
+	"""§ACC-002's voice-to-text output. Text and never audio: the waveform does not leave the handset.
+
+	`on_device` is not decoration. §17.2's rule is that raw data stays on the handset, and a
+	transcript is what crosses; the flag records that the model which produced it is small enough to
+	be *the* model in the app bundle, so a server that ran it is reproducing what the phone does
+	rather than substituting a larger model behind the person's back.
+	"""
+	model_config = MODEL_CONFIG
+	lang: str
+	transcript: str
+	on_device: bool
+	tokens: int = Field(ge=0)

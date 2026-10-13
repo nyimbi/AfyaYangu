@@ -9,7 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import json
 import os
+import tempfile
+import wave as wavmod
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import cast
 
 from afya.brand.service import BRAND, NON_GOALS, PRINCIPLES, VISION, brand_is_clean, brand_violations
@@ -94,7 +97,7 @@ from afya.triage.views import EBOLA_SYMPTOMS, DiaryEntry, RiskLevel, TriageInput
 
 # spec-coverage domains (§9.1, §9.6, §10.2-10.4, §11.4-11.5, §12, §17, §19)
 from afya.access.service import AccessService
-from afya.access.views import AccessProfile, VoiceRequest
+from afya.access.views import AccessProfile, VoiceAudioRequest, VoiceRequest
 from afya.ai.service import AIService
 from afya.analytics.service import AnalyticsService
 from afya.analytics.views import DASHBOARDS, DashboardId
@@ -238,6 +241,16 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	# be false the moment they diverged.
 	triage_svc = TriageService(registry, privacy_svc)
 	facilities_svc = FacilityService()
+	# §ACC-002's recogniser, built before both consumers for §SENS-002's reason: `AccessService`
+	# answers a voice request and `ChannelService` transcribes a WhatsApp voice note, and two
+	# engines would be two answers to one recording. Absent assets leave it None and every audio
+	# path refuses by name rather than answering from a stub.
+	try:
+		from afya.ml.speech import WhisperSpeechEngine as WSE
+		speech_engine: object | None = WSE()
+	except (FileNotFoundError, AssertionError, ImportError):
+		speech_engine = None
+	access_svc = AccessService(speech_engine)
 
 	async def telco_rules() -> list[ZeroRatingRule] | None:
 		"""The carrier's zero-rating rules, as rules. Failure is the channel service's to report.
@@ -252,7 +265,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	# through §5.3's channel service so the zero-rating claim is resolved where every other message's
 	# is; the ambulance leg is §FND-001's own registry rather than a second list of bases; and the
 	# countdown is a parameter the section does not state, so it is passed rather than inlined.
-	channels_svc = ChannelService(sms_port, telco_rules, triage_svc, identity_svc, privacy_svc)
+	channels_svc = ChannelService(sms_port, telco_rules, triage_svc, identity_svc, privacy_svc, access_svc)
 	emergency_svc = EmergencyService(
 		Inline719Port(), channels_svc, FacilityAmbulancePort(facilities_svc))
 	# §MON-001's tracker reads and writes the wallet's dose log, so the wallet is built first and
@@ -303,7 +316,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'ai': AIService(),
 		'analytics': AnalyticsService(),
 		'metrics': MetricsService(),
-		'access': AccessService(),
+		'access': access_svc,
 		'retention': RetentionService(),
 		'governance': GovernanceService(),
 		'operations': OperationsService(),
@@ -1996,8 +2009,49 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/channels/whatsapp')
 	async def channels_whatsapp(msg: WhatsAppIn, lang: str = 'en') -> dict[str, object]:
 		"""`lang` is a query parameter for the same reason the USSD route takes one: WhatsApp
-		Business carries no locale header we can trust, and §5.4 puts the same engine behind it."""
-		return channels.route_whatsapp(msg, lang).model_dump(mode='json')
+		Business carries no locale header we can trust, and §5.4 puts the same engine behind it.
+
+		A voice note is refused here rather than answered, and that is the fix to §ACC-002's fourth
+		bullet rather than a regression: the note's `body` is a media reference, and routing it
+		through the text keyword map answered "a media id contains no symptom word" at the low risk
+		level. `/channels/whatsapp/voice` is where a note goes, and it transcribes first.
+		"""
+		try:
+			return channels.route_whatsapp(msg, lang).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/channels/whatsapp/voice')
+	async def channels_whatsapp_voice(
+		file: UploadFile = File(...), from_msisdn: str = Form(...), voice_note_lang: str = Form('en'),
+	) -> dict[str, object]:
+		"""§ACC-002's "voice note triage on WhatsApp": audio in, the same answer the app gives.
+
+		Form fields rather than a JSON body, because this is the shape a webhook delivers — Meta
+		posts the media reference alongside the message metadata, and the audio arrives as a
+		download. The note is transcribed and then triaged through §5.4's one engine, so a person
+		speaking into WhatsApp and the same person speaking into the app cannot get two answers.
+		"""
+		try:
+			msg = WhatsAppIn(from_msisdn=from_msisdn, body='voice-note', kind='voice',
+				voice_note_lang=voice_note_lang)
+		except ValidationError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		blob = await file.read()
+		if not blob:
+			raise HTTPException(status_code=422, detail='an empty recording cannot be transcribed')
+		with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as fh:
+			fh.write(blob)
+			path = Path(fh.name)
+		try:
+			result = channels.route_whatsapp_voice(msg, path)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		except (wavmod.Error, EOFError) as exc:
+			raise HTTPException(status_code=422, detail=f'not a readable WAV file: {exc}') from exc
+		finally:
+			path.unlink(missing_ok=True)
+		return {'reply': result.spoken_reply, 'channel': 'whatsapp', **result.model_dump(mode='json')}
 
 	@app.post('/channels/ussd/callback')
 	async def channels_ussd_callback(cb: AtUssdCallback, lang: str = 'en', _body: bytes = Depends(require_webhook())) -> dict[str, str]:
@@ -3892,10 +3946,42 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/access/voice')
 	async def access_voice(req: VoiceRequest, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""Text in, answer out. The *audio* route is `/access/voice/audio`; this one takes a
+		transcript, which is what a client that did its own on-device recognition already has."""
 		try:
 			return access.transcribe(req).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/access/voice/audio')
+	async def access_voice_audio(
+		file: UploadFile = File(...), subject_ref: str = '', lang: str = 'en', purpose: str = 'symptoms',
+		_subject: str = Depends(require_self()),
+	) -> dict[str, object]:
+		"""§ACC-002's actual entry point: a 16 kHz mono WAV recording, transcribed and answered.
+
+		The recording is written to a temporary file, read by the engine and removed — §17.2's rule
+		is that the waveform does not survive the request, and holding it in memory for the life of
+		the process would be a recording kept. What leaves is the transcript and the answer to it.
+		"""
+		try:
+			req = VoiceAudioRequest(subject_ref=subject_ref, lang=lang, purpose=purpose)
+		except ValidationError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		blob = await file.read()
+		if not blob:
+			raise HTTPException(status_code=422, detail='an empty recording cannot be transcribed')
+		with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as fh:
+			fh.write(blob)
+			path = Path(fh.name)
+		try:
+			return access.transcribe_audio(req, path).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		except (wavmod.Error, EOFError) as exc:
+			raise HTTPException(status_code=422, detail=f'not a readable WAV file: {exc}') from exc
+		finally:
+			path.unlink(missing_ok=True)
 
 	@app.get('/access/battery')
 	async def access_battery(subject_ref: str = 'U1', intensity: str = 'balanced', battery_saver: bool = False, _subject: str = Depends(require_self())) -> dict[str, object]:

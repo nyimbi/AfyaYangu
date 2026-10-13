@@ -1,5 +1,7 @@
 """Channel domain models (spec §5, CHAN-000..006)."""
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Self
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -38,6 +40,31 @@ class WhatsAppIn(BaseModel):
 	model_config = MODEL_CONFIG
 	from_msisdn: str = Field(pattern=r'^\+?\d{8,15}$')
 	body: str = Field(min_length=1, max_length=4096)
+	# §ACC-002's "voice note triage on WhatsApp". A WhatsApp voice note arrives as *media*, not as
+	# text: the sender holds the button down, speaks, and what reaches the webhook is an audio
+	# reference. The model had one text field, so the router read a note's media id as if it were
+	# the message body — a voice note was answered at the low risk level because the id contained no
+	# symptom word. `voice_note_lang` is what the sender's own keypad/profile says they speak; the
+	# note itself has no language tag until it is transcribed.
+	kind: str = Field(default='text', pattern=r'^(text|voice)$')
+	voice_note_lang: str | None = None
+
+	@model_validator(mode='after')
+	def _a_voice_note_is_not_also_text(self) -> Self:
+		"""A voice note carries no body to read: its `body` is the media reference, and a client that
+		also sent text would be two messages in one. The two are separate arrivals.
+
+		The second assert is the one that matters. §ACC-002's `LANGUAGE_MATRIX` ships recognition per
+		language, so a note that declares none is a note no recogniser can be pointed at — and
+		guessing the language is guessing which language to mis-hear the person in.
+		"""
+		assert self.kind == 'voice' or self.voice_note_lang is None, (
+			'a language was given for a voice note that is not a voice note'
+		)
+		assert self.kind != 'voice' or self.voice_note_lang is not None, (
+			'a voice note arrived with no language declared, and recognition ships per language'
+		)
+		return self
 
 
 class WhatsAppOut(BaseModel):

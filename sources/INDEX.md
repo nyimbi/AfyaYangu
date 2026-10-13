@@ -12,6 +12,7 @@ that uses it, with its retrieval URL, date, and checksum.
 | Psychological first aid: guide for field workers (WHO, 2011), English and Kiswahili | `afya.mental.support` — §REC-005's coping strategies and outbreak-specific support | `who-pfa/` |
 | WHO Pocket Book of Hospital Care for Children, 2nd ed. (2013) | `afya.medicine.formulary` — §MED-003's dose ranges, formulations and maximum doses | `who-pocket-book/` |
 | WHO fact sheets, menopause (2024) and family planning/contraception (2025); NHS UK, fertility in the menstrual cycle | `afya.women.content` — §REC-004's contraception, fertility awareness, menopause support and referral | `who-reproductive-health/` |
+| Radford et al., *Robust Speech Recognition via Large-Scale Weak Supervision* (arXiv:2212.04356); OpenAI `mel_filters.npz` (MIT) | `afya.ml.speech` — §ACC-002's log-Mel front end and the whisper-tiny recogniser | `whisper-asr/` |
 
 Every source is stored as the published artefact **and** as layout-preserving text (`pdftotext
 -layout`), with both checksums recorded. The text copy is what a tool reads: an agent given a PDF
@@ -926,3 +927,50 @@ not community-validated — §6.5's workflow governs published health *content*,
 strings. A Dholuo, Luhya or Kikuyu table added later should go through that workflow; a
 machine-translated table would report this gap as closed, which is the failure the whole file is
 written to avoid.
+
+---
+
+## Whisper ASR — §ACC-002's recogniser
+
+`models/speech/` carries a whisper-tiny speech recogniser, and `src/afya/ml/speech.py` implements its
+front end in numpy. Two things are load-bearing enough to archive: the paper the architecture and
+front-end constants come from, and the Mel filterbank the engine actually multiplies by.
+
+| Source | Used by | Archived |
+|---|---|---|
+| Radford, Kim, Xu, Brockman, McLeavey, Sutskever, *Robust Speech Recognition via Large-Scale Weak Supervision*, OpenAI, arXiv:2212.04356 | `afya.ml.speech` — the log-Mel front end, the prompt token sequence, the 30 s window | `whisper-asr/whisper-2212.04356.pdf` + `.txt` |
+| `whisper/assets/mel_filters.npz` (MIT, © 2022 OpenAI) | `afya.ml.speech:log_mel` — the `mel_80` matrix | `whisper-asr/mel_filters.npz` |
+
+Checksums (sha256, first 16 hex):
+
+| File | sha256[:16] |
+|---|---|
+| `whisper-asr/whisper-2212.04356.pdf` | `6337bde031b2f237` |
+| `whisper-asr/whisper-2212.04356.txt` | `23f8f8ebef3c3175` |
+| `whisper-asr/mel_filters.npz` | `7450ae70723a5ef9` |
+
+Retrieved 2026-10-13 from `https://arxiv.org/pdf/2212.04356` and
+`https://github.com/openai/whisper/raw/main/whisper/assets/mel_filters.npz`. Whisper is MIT-licensed;
+the ONNX export is `onnx-community/whisper-tiny` (quantized, int8), and the tokenizer, vocabulary and
+`preprocessor_config.json` in `models/speech/` come from that repository.
+
+**What the paper does and does not support.** §2.2 states the front end precisely: audio resampled to
+16,000 Hz, an 80-channel log-Mel spectrogram, computed over 25-millisecond windows with a stride of
+10 milliseconds. Those are the constants `speech.py` asserts against `preprocessor_config.json`, and
+they are what the paper is archived for. The paper does **not** name the window function. That
+whisper uses the *periodic* Hann window rather than the symmetric one is read from the reference
+implementation, not from the paper — `test_acc002.py::test_the_window_is_periodic_not_symmetric`
+pins the distinction, and `canary_acc002.py` #1 pins that the test can fail. This is recorded because
+a reader who follows only the citation would conclude the window is unspecified, and the two differ
+by one sample of phase.
+
+**What is measured rather than cited.** The deployed `models/speech/mel_80.npy` is byte-identical to
+`mel_80` in the archived `.npz` (verified by `np.array_equal`, 2026-10-13), so the filterbank is the
+one this source describes and not a re-derivation. The paper also does not state the merge strategy
+of the exported decoder, and the KV-cache branch of `decoder_model_merged_quantized.onnx` produces
+confidently wrong text — `speech.py`'s docstring records that finding and decodes without the cache.
+
+**The six-language bullet stays open.** §ACC-002's first bullet names Swahili, Dholuo, Luhya,
+Kalenjin, Kikuyu and English. `LANGUAGE_MATRIX` carries `asr: False` for `luo`, `bxk`, `kln` and `ki`,
+and whisper-tiny's language tokens cover 98 languages of which `sw` and `en` are the two this repo
+ships. No source here supports recognition in the other four, and none is claimed.

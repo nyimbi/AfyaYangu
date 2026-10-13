@@ -2564,3 +2564,83 @@ acknowledgement ignoring the declared language; the daily prompt ignoring it; th
 for any day; a lab turnaround allowed with no lab; tests allowed with no lab; the report route losing
 its guard; the report route ceasing to refuse a bad day; a Kiswahili string losing its placeholders;
 an unknown key returning a placeholder; and the fallback ceasing to go through `answerable`.
+
+---
+
+## §ACC-002 — a voice interface whose hard part was never built
+
+§ACC-002 is five bullets, and the shape of the gap was the same in all of them: the tree had the
+*shape* of a voice interface and none of its substance. `VoiceRequest` took an `utterance` — a
+transcript — so every voice path in the repo began after the hard part was already done, and a
+person who cannot type had no way in at all. `VoiceResult.on_device` reported offline recognition
+that did not exist. The three bullets left `missing` were the three where that showed.
+
+**Two closed, one deliberately left open.**
+
+- **"Voice-to-text for CHW notes and case descriptions"** — `VoiceRequest.purpose` now separates the
+  two questions one entry point was answering. `purpose='note'` makes the transcript the result and
+  skips the intent map; the predecessor ran a dictation through the intent map, discarded it, and
+  answered `intent=unknown`, so a CHW describing a household got nothing back. `CaseReport.voice_note`
+  carries the transcript with the language it was said in, asserted paired. §COM-101's "voice-to-text
+  notes in local languages" rides on the same field and closed with it.
+- **"Voice note triage on WhatsApp"** — `WhatsAppIn.kind='voice'` reaches `route_whatsapp_voice`,
+  which transcribes the note and puts the transcript through the *same* `transcribe` the typed path
+  uses, so a spoken report and a typed one cannot diverge into two sets of rules. `route_whatsapp`
+  now refuses a note by name rather than reading its media reference as a message body.
+- **"Voice-guided symptom reporting in Swahili, Dholuo, Luhya, Kalenjin, Kikuyu, and English"** —
+  **stays `missing`.** The reporting half is real now: `VOICE_SYMPTOM_WORDS` reads the symptoms out of
+  free text rather than matching six intent keywords, so "fever and headache since Tuesday" no longer
+  loses the headache. But the bullet names six languages and recognition ships for two. `LANGUAGE_MATRIX`
+  carries `asr: False` for `luo`, `bxk`, `kln` and `ki`, and `SUPPORTED_LANGS` has tables for `en` and
+  `sw` only. Widening either set to make the count look better is precisely the failure
+  `test_personas.py` was written to prevent, and `test_acc002.py` inherits the pin.
+
+**The recogniser is real, and it is not the obvious implementation.** `WhisperSpeechEngine` runs
+whisper-tiny int8 through `onnxruntime` and numpy — no torch, no transformers, no tokenizers — the
+same zero-dependency shape as §SENS-002's YAMNet. Two things were measured rather than assumed:
+
+1. **The merged decoder's KV-cache branch is broken in this export.** It produces *confidently wrong*
+   text — "After early morning, the" for audio saying "After early nightfall, the" — with cached and
+   uncached agreeing for two tokens and then diverging. Re-running the full prefix each step costs
+   ~0.35 s for a 30-token utterance, which is inside budget, so the cache is deliberately unused.
+2. **The language is prompted, never detected.** A three-word utterance is too short to detect from,
+   and a wrong guess produces a fluent transcript of the wrong words — worse than a refusal, because
+   it reads like a successful recording. `transcribe` asserts the language is one the model was
+   trained on and refuses otherwise.
+
+**One correction, recorded because it nearly shipped as a false claim.** The module docstring and the
+first version of canary #1 both stated that using `np.hanning` — the *symmetric* window, where
+whisper uses the periodic one — yields a wrong transcript. Measured directly, both windows produce
+the identical, correct sentence for `speech_en.wav`. The original garbage transcript had a different
+cause (a truncated prompt), and attributing it to the window was wrong. The canary is now pointed at
+the structural assertion that can actually fail (`periodic[1] > 0.0` fails for `np.hanning`), and the
+docstring says what is true: the windows differ by one sample of phase, and this fixture does not
+separate them.
+
+**Counts: §ACC-002 3 `missing` → 1 — two closed, one held open deliberately.** Across the repo the
+three flipped rows move the totals 437/39 → **440 `carried`, 36 `missing`**, 493 rows, `deferred` 17
+unchanged. Two of the three are §ACC-002's; the third is §COM-101's "voice-to-text notes in local
+languages", which rides on `CaseReport.voice_note` and moves that section 2 → 1.
+
+**Sources.** `sources/whisper-asr/` archives the whisper paper (arXiv:2212.04356, 28 pp.) and OpenAI's
+`mel_filters.npz`, both checksummed, with the `.txt` extraction beside the PDF. The INDEX entry states
+what the paper supports — 16 kHz, 80-channel log-Mel, 25 ms windows, 10 ms stride, all of which
+`preprocessor_config.json` mirrors and `speech.py` asserts — and what it does not: the window function
+and the decoder merge strategy are read from the reference implementation, not the paper. The deployed
+`mel_80.npy` is asserted byte-identical to the archived `mel_80`.
+
+**Canaries: 16/16 fired.** The symmetric window; the language prompt dropped; a note triaged as a
+symptom report; symptoms no longer read out of free text; the audio path transcribing without
+triaging; `served_in` claiming the requested language; audio answered with no recogniser deployed;
+the recogniser accepting a language it does not know; the six-language gap closed by widening the
+table list; the voice dropdown offering a language recognition does not ship for; a voice note read
+as a text body; the voice branch accepting a text message; the channel layer answering a note with no
+recogniser; a voice note declaring no language; a case report carrying half a voice note; and the
+audio route losing its guard.
+
+**Two canary lessons.** Canary #9 looked for a literal (`frozenset({'en', 'sw'})`) that appears
+nowhere — the definition is `frozenset(TRIAGE_RECS)` — and because the script asserts on a missing
+target, it aborted the run and **canaries #10–#16 never executed**. A canary that crashes the runner
+silently deletes every canary after it. Separately, the first green 16/16 was invalid: a syntax error
+in the test file made collection fail, and a test file that does not import makes every mutation look
+caught. The suite was re-run against a file that parses and reports zero collection errors.

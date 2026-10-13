@@ -1,7 +1,9 @@
 """Channel service — SMS/USSD/WhatsApp/radio/social/CHW/native contracts (spec §5, CHAN-000..006)."""
+from pathlib import Path
 from typing import Awaitable, Callable, Protocol
 
 from afya.channels.cost import ChannelCostVerdict, ZeroRatingRule, cost_report, cost_verdict
+from afya.access.views import VoiceAudioRequest, VoiceResult
 from afya.channels.views import (
 	ChwTask, PushPayload, RadioBulletin, SmsOut, UssdRequest, UssdResponse, WhatsAppIn, WhatsAppOut,
 )
@@ -60,7 +62,7 @@ class AfricaTalkingSmsPort:
 class ChannelService(LogMixin):
 	def __init__(self, sms: SmsGatewayPort, zero_rating: Callable[[], Awaitable[list[ZeroRatingRule] | None]] | None = None,
 	             triage: TriageService | None = None, identity: IdentityService | None = None,
-	             privacy: PrivacyService | None = None) -> None:
+	             privacy: PrivacyService | None = None, access: object | None = None) -> None:
 		"""`zero_rating` supplies §18.8's billing rules when the carrier is reachable, and None when
 		they have not been pulled. Injected rather than constructed here because the rules live on the
 		telco client and the channel service must not depend on the integration layer; a deployment
@@ -82,6 +84,7 @@ class ChannelService(LogMixin):
 		self._triage = triage
 		self._identity = identity
 		self._privacy = privacy
+		self._access = access
 		self._ussd_state: dict[str, int] = {}
 		self._chw_tasks: list[ChwTask] = []
 		assert self._ussd_state == {} and self._chw_tasks == []
@@ -255,6 +258,33 @@ class ChannelService(LogMixin):
 			return {'text': resp.menu, 'action': 'CON', 'store_symptoms': str(store_symptoms).lower()}
 		return {'text': resp.end_text or '', 'action': 'END', 'store_symptoms': str(store_symptoms).lower()}
 
+	def route_whatsapp_voice(self, msg: WhatsAppIn, note: Path) -> VoiceResult:
+		"""§ACC-002's "voice note triage on WhatsApp", as a transcription and then a triage.
+
+		A WhatsApp voice note reaches the webhook as *media*, not as text, so the router had no body
+		to read: it read the media reference as the message and answered at the low risk level,
+		because a media id contains no symptom word. The branch that fixes that runs the note through
+		the *same* `AccessService.transcribe_audio` the app uses — one recogniser, one triage engine,
+		so a person who speaks into WhatsApp and the same person speaking into the app get one
+		answer rather than two.
+
+		The language is `msg.voice_note_lang`, which the model requires on a voice note: §ACC-002
+		ships recognition per language, and detecting it from a three-word report is how a
+		recogniser comes back with a fluent transcript of the wrong words.
+		"""
+		assert msg.kind == 'voice', 'this path transcribes a voice note and not a text message'
+		assert msg.voice_note_lang is not None, 'a voice note must declare its language'
+		assert self._access is not None, (
+			'the accessibility service is not wired into the channel layer; a voice note cannot be '
+			'transcribed without it'
+		)
+		return self._access.transcribe_audio(  # type: ignore[attr-defined]
+			VoiceAudioRequest(
+				subject_ref=msg.from_msisdn, lang=msg.voice_note_lang, purpose='symptoms',
+			),
+			note,
+		)
+
 	def route_whatsapp(self, msg: WhatsAppIn, lang: str = 'en') -> WhatsAppOut:
 		"""§CHAN-3's keyword router, answering through §5.4's shared triage engine.
 
@@ -265,6 +295,10 @@ class ChannelService(LogMixin):
 		that mentions no symptom the engine knows enters with an empty list and is answered at the
 		low risk level, which is the honest reading of "no symptom named".
 		"""
+		assert msg.kind == 'text', (
+			'a voice note has no body to read; route it through `route_whatsapp_voice`, which '
+			'transcribes it first'
+		)
 		body = msg.body.lower()
 		if 'fever' in body or 'symptom' in body or any(s in body for s in SYMPTOM_WORDS):
 			# A body that says "fever" is a report of fever, and the engine has one way to hear it:

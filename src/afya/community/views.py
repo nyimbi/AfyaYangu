@@ -1,7 +1,8 @@
 """Community models (spec §10.4 COM-005, §11.4 COM-101..104)."""
 from enum import Enum
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from afya.derived import DerivedFields
 from afya.ids import uuid7str
@@ -89,7 +90,14 @@ class CaseReport(BaseModel):
 	temperature_c: float | None = Field(default=None, ge=30, le=45)
 	geotagged: bool = False
 	photo_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+	# §COM-101's "voice-to-text notes in local languages" and §ACC-002's "voice-to-text for CHW
+	# notes and case descriptions" are the same bullet seen from two sections. `voice_note_lang`
+	# named a language and nothing recorded a note: the field was there, the audio had nowhere to
+	# go, and a CHW who dictated an observation had to type it afterwards or lose it. The note is
+	# carried as the transcript the recogniser produced, beside the language it was recognised in —
+	# never as audio, because §17.2 keeps the waveform on the handset.
 	voice_note_lang: str | None = None
+	voice_note: str | None = Field(default=None, max_length=2000)
 	suspected_disease: str = Field(default='evd', pattern=DISEASE_PATTERN)
 	reported_offline: bool = False
 	# §5.4's "deduplicated by phone number" needs the number the report came from, and the model had
@@ -99,6 +107,20 @@ class CaseReport(BaseModel):
 	# a report that did not come over a channel has none. Absent means "cannot be deduplicated", which
 	# `CommunityService.submit_case` reports rather than treats as "no duplicate".
 	reporter_msisdn: str | None = Field(default=None, pattern=r'^\+[1-9]\d{6,14}$')
+
+	@model_validator(mode='after')
+	def _a_note_is_kept_in_the_language_it_was_said_in(self) -> Self:
+		"""A transcript with no language, or a language with no transcript, is half a record.
+
+		`voice_note_lang` used to be settable on its own, which is how the field came to look
+		implemented while nothing recorded a note. The two move together now: a note is a transcript
+		*and* the language the recogniser was pointed at, and a report that carries one without the
+		other is refused rather than stored as a claim about a recording nobody made.
+		"""
+		assert (self.voice_note is None) == (self.voice_note_lang is None), (
+			'a voice note was given a language with no transcript, or a transcript with no language'
+		)
+		return self
 
 
 class CaseReportView(BaseModel):

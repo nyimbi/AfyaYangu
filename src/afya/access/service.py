@@ -4,11 +4,14 @@ The point of this module is that no user is excluded by their device. Every capa
 missing sensor removes has a named fallback, and the fallback table is data the client renders —
 not a paragraph in a document that nobody enforces.
 """
+from pathlib import Path
+
 from afya.access.views import (
 	LANGUAGE_MATRIX, MIN_TOUCH_TARGET_DP, AccessProfile, BatteryProfile, DeviceCompatibility,
-	UIAsset, VoiceRequest, VoiceResult,
+	UIAsset, VoiceAudioRequest, VoiceRequest, VoiceResult,
 )
 from afya.logmixin import LogMixin
+from afya.strings import SYMPTOM_WORDS, answerable
 
 # §13.2 graceful degradation — missing sensor -> the path that still works.
 SENSOR_FALLBACKS: dict[str, str] = {
@@ -71,6 +74,23 @@ VOICE_INTENTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
 	(('child', 'mtoto', 'vaccine', 'chanjo'), 'immunisation', 'Opening your child immunisation schedule.'),
 )
 
+# §ACC-002's first bullet asks for *symptom reporting*, and the predecessor read six intent
+# keywords and returned a canned reply — a person who said "fever and headache since Tuesday" was
+# answered at the fever intent and the headache was dropped. These are the symptoms the voice path
+# hears in free text, read from §5.4's own vocabulary rather than written again so a symptom the
+# triage engine knows cannot be invisible to the voice path.
+VOICE_SYMPTOM_WORDS: tuple[str, ...] = SYMPTOM_WORDS
+
+VOICE_TRIAGE_FOLLOWUP: dict[str, str] = {
+	'en': 'I heard symptoms. Starting a check — is the temperature above 38 degrees?',
+	'sw': 'Nimesikia dalili. Tunaanza ukaguzi — je, joto ni zaidi ya digrii 38?',
+}
+
+VOICE_UNRECOGNISED: dict[str, str] = {
+	'en': 'I did not catch that. Try saying: fever, find care, or help.',
+	'sw': 'Sikusikia vizuri. Jaribu kusema: homa, tafuta matibabu, au msaada.',
+}
+
 INTENSITY_SENSORS: dict[str, list[str]] = {
 	'low': ['fall'],
 	'balanced': ['fall', 'cough', 'ppg'],
@@ -80,8 +100,17 @@ INTENSITY_BATTERY: dict[str, float] = {'low': 0.8, 'balanced': 2.5, 'maximum': 4
 
 
 class AccessService(LogMixin):
-	def __init__(self) -> None:
+	def __init__(self, speech: object | None = None) -> None:
+		"""`speech` is §ACC-002's recogniser, injected rather than imported for §SENS-002's reason.
+
+		`WhisperSpeechEngine` loads 41 MB of ONNX and needs `onnxruntime`, so a deployment that has
+		not shipped the assets — and every unit test that only wants the text path — must be able to
+		build this service without it. When it is absent, an *audio* request is refused by name
+		rather than answered from a stub, because a transcript nobody produced is the one failure a
+		voice path may not have.
+		"""
 		self._profiles: dict[str, AccessProfile] = {}
+		self._speech = speech
 		assert self._profiles == {}
 
 	def set_profile(self, profile: AccessProfile) -> AccessProfile:
@@ -103,15 +132,81 @@ class AccessService(LogMixin):
 		return out
 
 	def transcribe(self, req: VoiceRequest) -> VoiceResult:
+		"""§ACC-002's voice path, answering two different questions with one entry point.
+
+		`purpose='symptoms'` is §ACC-002's *first* bullet: the caller's own words are read for the
+		symptoms they name and the intent map decides what to do about them. Reading the symptoms out
+		of the utterance is what makes this a *report* rather than a menu — the predecessor matched
+		six keyword intents and returned a canned reply, so a person who said "I have had fever and
+		headache since Tuesday" was answered at the fever intent and the headache was dropped.
+
+		`purpose='note'` is the third bullet, and it is not a triage: a CHW's note or case
+		description has no intent and no recommendation, and running it through the intent map
+		discarded the dictation and answered `intent=unknown`. The transcript *is* the result, and
+		`intent` says so rather than pretending to a classification that was never attempted.
+
+		`served_in` reports the language the answer is actually in. §ACC-002 lists six languages for
+		this bullet and only `en`/`sw` have tables, so the gap is served rather than hidden: the
+		caller is told which language they got, on the same `answerable` rule the triage route uses.
+		"""
 		assert req.lang in {v['code'] for v in LANGUAGE_MATRIX.values()}, 'unsupported language'
-		lowered = req.utterance.lower()
+		served = answerable(req.lang)
 		asr = bool(next(v['asr'] for v in LANGUAGE_MATRIX.values() if v['code'] == req.lang))
+		lowered = req.utterance.lower()
+		if req.purpose == 'note':
+			# §ACC-002's "voice-to-text for CHW notes and case descriptions". The words are the
+			# output; nothing is classified and nothing is recommended, because a note is not a
+			# symptom report and answering it as one would put a triage verdict on a field
+			# observation.
+			return VoiceResult(
+				lang=req.lang, transcript=req.utterance, intent='note', confidence=1.0,
+				spoken_reply='Note saved as text.', on_device=asr, served_in=served, symptoms=[],
+			)
+		symptoms = [s for s in VOICE_SYMPTOM_WORDS if s in lowered]
 		for keywords, intent, reply in VOICE_INTENTS:
 			if any(k in lowered for k in keywords):
 				return VoiceResult(lang=req.lang, transcript=req.utterance, intent=intent, confidence=0.82,
-					spoken_reply=reply, on_device=asr)
+					spoken_reply=reply, on_device=asr, served_in=served, symptoms=symptoms)
+		if symptoms:
+			# A symptom named with no intent keyword is still a symptom report. The predecessor
+			# returned `intent=unknown` and dropped the symptom, so "I have been vomiting" entered
+			# nothing at all — the words were heard and the finding was lost.
+			return VoiceResult(lang=req.lang, transcript=req.utterance, intent='triage', confidence=0.6,
+				spoken_reply=VOICE_TRIAGE_FOLLOWUP[served], on_device=asr, served_in=served,
+				symptoms=symptoms)
 		return VoiceResult(lang=req.lang, transcript=req.utterance, intent='unknown', confidence=0.3,
-			spoken_reply='I did not catch that. Try saying: fever, find care, or help.', on_device=asr)
+			spoken_reply=VOICE_UNRECOGNISED[served], on_device=asr, served_in=served, symptoms=[])
+
+	@property
+	def speech(self) -> object:
+		assert self._speech is not None, (
+			'the speech model is not deployed (models/speech); audio cannot be transcribed without it')
+		return self._speech
+
+	def transcribe_audio(self, req: VoiceAudioRequest, path: Path) -> VoiceResult:
+		"""§ACC-002's audio path: a recording in, the same answer the text path gives.
+
+		This is where the three voice bullets meet. The audio is transcribed by the on-device
+		recogniser, the transcript is then put through `transcribe` — the *same* method the typed
+		path uses — so a spoken symptom report and a typed one cannot diverge into two sets of
+		rules. `recogniser` records which model produced the words, and `on_device` is the engine's
+		own claim rather than this method's.
+
+		The language is not detected. §ACC-002 ships recognition per language, and a three-word
+		utterance is too short to detect from: a wrong guess produces a fluent transcript of the
+		wrong words, which is worse than a refusal because it reads like a successful recording.
+		"""
+		assert req.lang in {v['code'] for v in LANGUAGE_MATRIX.values()}, 'unsupported language'
+		engine = self.speech
+		recognised = engine.transcribe_wav(path, req.lang)  # type: ignore[attr-defined]
+		served = self.transcribe(VoiceRequest(
+			subject_ref=req.subject_ref, lang=req.lang, utterance=recognised.transcript,
+			purpose=req.purpose,
+		))
+		return served.model_copy(update={
+			'on_device': bool(recognised.on_device),
+			'recogniser': f'whisper-tiny/{req.lang}',
+		})
 
 	def battery_profile(self, subject_ref: str, intensity: str = 'balanced', battery_saver: bool = False) -> BatteryProfile:
 		assert intensity in INTENSITY_SENSORS, 'unknown intensity'
