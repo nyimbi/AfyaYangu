@@ -129,7 +129,8 @@ from afya.location.views import (
 from afya.monitoring.service import MonitoringService
 from afya.monitoring.views import (
 	AdherenceEvent, CampaignNotice, ConditionProfile, FoodSafetyAlert, HouseholdMemberRequest,
-	LocationConsentDecision, MedSchedule, MonitoringDay, PeakFlowReading, WeightReading,
+	LarvicidingNotice, LocationConsentDecision, MedSchedule, MonitoringDay, PeakFlowReading,
+	WeightReading,
 )
 from afya.realtime.service import RealtimeService
 from afya.realtime.views import KNOWN_CATEGORIES, SocketSubscription, now_iso
@@ -3318,6 +3319,39 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def monitoring_breeding_site(county: str, lat: float, lon: float, description: str) -> dict[str, object]:
 		return await monitoring.report_breeding_site(county, lat, lon, description)
 
+	# §MON-007's larviciding campaign notice. A county issues it, on the same reasoning as the
+	# food-safety alert below: it is a public statement about a place, not a personal record.
+	@app.post('/monitoring/larviciding')
+	async def monitoring_larviciding(notice: LarvicidingNotice, _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
+		try:
+			return (await monitoring.publish_larviciding(notice, alerting)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/monitoring/larviciding/{county}')
+	async def monitoring_larviciding_rounds(county: str, on_iso: str = '2026-10-10') -> list[dict[str, object]]:
+		return [n.model_dump(mode='json') for n in monitoring.larviciding_rounds(county, on_iso)]
+
+	# §MON-007's personal protection reminders. `at_iso` is supplied, not assumed — the household's
+	# own evening is what the net reminder is anchored to, the same contract `/alerts/water-safety`
+	# keeps for the treatment reminder.
+	@app.get('/monitoring/protection-reminder')
+	async def monitoring_protection_reminder(county: str, rainfall_mm_72h: float, at_iso: str) -> dict[str, object]:
+		try:
+			return monitoring.protection_reminder(county, rainfall_mm_72h, at_iso).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	# §MON-008's therapeutic feeding sites, over §FND-001's registry. A read expressed as a GET: a
+	# county and a position in, a list out.
+	@app.get('/monitoring/therapeutic-feeding')
+	async def monitoring_therapeutic_feeding(county: str, lat: float, lon: float, limit: int = 5) -> list[dict[str, object]]:
+		try:
+			return [s.model_dump(mode='json')
+			        for s in monitoring.therapeutic_feeding_centres(facilities, county, lat, lon, limit)]
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
 	# A food-safety alert is a public warning about a named product; the county issues it.
 	@app.post('/monitoring/food-alert')
 	async def monitoring_food_alert(alert: FoodSafetyAlert, _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
@@ -3328,9 +3362,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return [a.model_dump(mode='json') for a in monitoring.food_alerts(county)]
 
 	@app.get('/monitoring/nutrition/{age_months}')
-	async def monitoring_nutrition(age_months: int) -> dict[str, object]:
+	async def monitoring_nutrition(age_months: int, month: int | None = None) -> dict[str, object]:
+		"""§MON-008's feeding guidance, and — when the caller names a month — what is in season.
+
+		`month` is optional because a client with no calendar position can honestly be served the
+		age band's own list and nothing else; inventing a month would answer a question nobody asked.
+		"""
 		try:
-			return monitoring.nutrition_guidance(age_months).model_dump(mode='json')
+			return monitoring.nutrition_guidance(age_months, month).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 

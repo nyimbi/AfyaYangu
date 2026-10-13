@@ -2989,3 +2989,159 @@ hop; the depth table flattened so a routine request reaches every compatible gro
 donor invited to donate; an incompatible donor alerted; the finder defaulting to both kinds; the two
 place kinds collapsed into one; the importer reading only the `amenity` key; and the route forgetting
 the adjacency table.
+
+## §MON-007 and §MON-008 — a notice with no category, and a season that was a field name
+
+Both sections are Tier 3 and both were three-quarters built. §MON-007's `vector_risk` decided the
+rain band, `report_breeding_site` routed a report and `rvf_alert` fired for livestock-adjacent
+households; §MON-008 had aflatoxin and recall alerts, `NUTRITION_BY_AGE` for infant feeding and its
+local-food lists for the recipe bullet. The four `missing` rows were the two in each section that
+*reach a person* — a notice nobody published and a reminder nobody scheduled; a season with no data
+behind it and a place kind that did not exist.
+
+### §MON-007: a category the feed did not have, and two reminders nothing scheduled
+
+**"larviciding campaign notifications"** failed because there was nowhere to put one. The audit row
+was precise: "the alert feed has no vector or larviciding category and `AlertKind` carries none".
+
+Two things follow from that sentence, and the second is the one that decides the design. A feed
+category is not free: `FEED_PREFERENCE` maps every category to a §ALT-003 preference, and
+`tests/ci/test_realtime.py` asserts the two sets are equal — so a twelfth category with no
+preference behind it is a notice published into a feed no subscriber can match. The preference
+already existed. §ALT-003's Options list has nine entries and one of them is "County alerts", which
+is exactly what a larviciding round is: a county operation over named habitats on named days, whose
+audience is everyone living around them rather than an age band. So `vector_control` maps to
+`county_alerts` and **`TOGGLEABLE` is deliberately not widened** — a twelfth switch would be a
+preference the section never printed, and `test_no_new_toggle_was_invented_for_it` asserts the
+length stays 11.
+
+`AlertKind` was left alone for the same reason from the other side. A larviciding round is not a
+community hazard; it is an operation. Filing it as an alert would have made the hazard vocabulary
+carry something that is not one, and the feed is the surface that already carries operations
+(`immunisation` campaign notices, `service` status).
+
+**The supplement rule is appended, not trusted.** The WHO manual is unambiguous — larviciding
+"should never be seen as a substitute for ITNs or IRS in areas with significant malaria risk" — and
+a county notice is exactly the document in which that sentence goes missing, because the round is
+visible and the nets are not. `publish_larviciding` appends `SUPPLEMENT_RULE` to the caller's body
+rather than validating that the caller included it: a body that must contain a sentence can be
+written without one, and the failure mode is a resident who stops using a net. Canary #1 drops the
+append and is the one whose failure mode is a malaria case.
+
+**"personal protection reminders"** failed on the word *reminder*. `VectorRisk.advise` already said
+"drain containers, use nets every night" — as text, on a screen, once. A reminder needs a time, and
+nothing produced one.
+
+`ProtectionReminder` schedules both acts, and the two are not the same kind of act:
+
+- **The net is a nightly habit**, and the manual fixes when: biting is "between dusk and dawn (and
+  especially during the early hours of the morning)", with `An. gambiae` and `An. funestus` peaking
+  "an hour before dawn". So `net_due_iso` is the next dusk, and a reminder asked for *after* dusk
+  rolls to tomorrow — otherwise it fires in the past, which on a device means it fires immediately,
+  telling a person to go to bed at the moment they are already up.
+- **Draining containers is habitat manipulation**, which the manual calls "a recurrent activity",
+  and its interval is `LARVICIDE_INTERVAL_FLOOR_DAYS` — derived as `min` over `LARVICIDE_CLASSES`
+  rather than typed. A household is then asked to clear standing water at least as often as a county
+  would re-treat the same water, and a class added to the table with a shorter interval moves the
+  household's date without anyone editing a second constant.
+
+The message varies with the rain band, and that required a refactor worth naming: `vector_risk` had
+the four bands inline as a chained ternary and `protection_reminder` needs the same four. A second
+copy is a second definition, and the two would eventually disagree about where `wet` starts — which
+is the difference between "keep using your net" and "drain the containers now". `_rainfall_band` is
+now the one definition, and `test_the_four_rain_bands_are_one_definition` walks the seven boundary
+values through *both* callers.
+
+### §MON-008: a field name with nothing behind it, and a kind OSM does not have
+
+**"Seasonal food availability"** is the clearest example in the audit of a name that reads as a
+feature. `NutritionGuidance.seasonal_foods` existed and `NUTRITION_BY_AGE` filled it — with fixed
+lists that do not vary by season. The seasonal half was the field's name.
+
+The FAO Crop Calendar for Kenya is machine-readable, and `SEASONAL_FOODS` is **generated from it
+rather than typed**: 29 crops with a stated harvest month, plus the 5 the source flags `all_year`,
+each row carrying the source's own French crop name beside the English label. The generator is at
+`/tmp/afya_extract/crops.py` and the table is reproducible from the archived JSON — which is the
+point of the second column. A translation asserted by position alone is unverifiable; `Fève, vert`
+beside `Broad bean` is checkable.
+
+Two limits are the source's and are recorded rather than papered over:
+
+- **The data is disaggregated by agro-ecological zone** and carries no national month, so a month in
+  the table means "harvested this month somewhere in Kenya". That is the right granularity for a
+  national app and the wrong one for county advice.
+- **Avocado, mango, banana, amaranth and fish are absent from the data entirely** — and
+  `NUTRITION_BY_AGE` names avocado and small fish. They are therefore absent from the seasonal table
+  rather than given invented months, and the module comment says so.
+
+`in_season` is a **separate field**, not a replacement for `seasonal_foods`. The existing pinned
+assertions at `test_monitoring.py:209,211,214` still hold, and that is the correct outcome rather
+than a test that needed relaxing: a parent is making two different decisions — what to feed this
+child, and what to buy this week — and a merged list cannot say which entry was which. Canary #4
+merges them.
+
+**"therapeutic feeding programme locations"** failed for the bluntest reason: no vocabulary. The
+audit row named `PlaceKind` and `FacilityKind`, and neither had a member.
+
+OpenStreetMap has **no tag** for a therapeutic feeding centre or a malnutrition treatment site. That
+was established three ways rather than assumed: the `healthcare` key's 31 values include only
+`healthcare=nutrition_counselling`, which is dietary counselling and not treatment; the `amenity`
+key's feeding values are all animal feeding (`feeding_place` is for livestock); and a live taginfo
+search for `malnutrition` returns no structured keys. So a place vocabulary had no source while the
+national clinical guideline has one.
+
+`IMAM_PROGRAMMES` carries Kenya's own three programme types with the guideline's definitions —
+`OTP`, `SC`, `SFP`, from its abbreviation list — and they are served as the **national vocabulary,
+not as a per-site claim**. The registry records *that* a facility is a therapeutic feeding site and
+not which of the three it runs; a per-row claim invented from nothing would send a child with
+complications to an out-patient queue, because the guideline is explicit that an OTP treats severe
+acute malnutrition *without* complications while an SC admits those with them, or an infant under
+six months. Canary #10 collapses the vocabulary to a single per-site claim.
+
+The kind went to `FacilityKind`, not `ServiceOffered`. That enum's own docstring is §FND-001's
+printed list of seven, closed, and a nutrition programme is not one of the seven — widening it would
+make the finder offer a service the section never printed.
+
+### What the canaries found
+
+Two things, and the second is a test defect rather than a code one.
+
+The first was mechanical: three canary targets were **not unique**. `for county in notice.counties:`
+appears twice in `monitoring/service.py` — once in §MON-001's `publish_campaign` and once in the new
+`publish_larviciding` — and the assert-unique guard caught it before the patch applied to the wrong
+function. The guard earning its keep is the whole reason it exists; a canary that patches the wrong
+copy tests nothing and reports CAUGHT.
+
+The second: canary #11 of the §MON-008 set — the site label emptied to the bare slug — **MISSED on
+the first run**, and the test was wrong, not the canary. `test_the_three_programmes_travel_with_every_site`
+asserted `site.label == THERAPEUTIC_FEEDING_LABEL`, which is a constant compared with itself: it
+agrees whatever the constant says, so a label emptied to `'therapeutic_feeding'` passed it. The
+assertion was about a field's *presence*, not its content, which is the shape §MON-004's canary
+found in its own fixture. The fix is `test_the_site_label_is_a_sentence_and_not_the_internal_slug`,
+which pins the content — a sentence, naming the condition, not the slug. This is the same lesson
+twice in two sections: **a gate that cannot fail for the reason it names is not testing what it
+says**, and the only way to know is to watch it fail.
+
+### Counts
+
+**§MON-007 2 `missing` → 0** and **§MON-008 2 `missing` → 0**, all four `carried` with refs that
+resolve through `afya.refs.py`. Across the repo **449 → 453 `carried`, 27 → 23 `missing`**, 493 rows,
+`deferred` 17 unchanged (the flips go to `carried`, not `deferred`).
+
+Five sources archived with both checksums in `sources/INDEX.md`: the WHO larval source management
+manual, the FAO Crop Calendar for Kenya, the FEWS NET seasonal calendar, the Kenya IMAM guideline,
+and the WHO/UNICEF/WFP/SC CMAM joint statement. The joint statement is archived as provenance and
+explicitly **not** as the source of any served string — it writes "therapeutic feeding centre" only
+descriptively — and `sources/INDEX.md` says so, so the citation is not read as carrying more than it
+does.
+
+**Canaries: 23/23 fired** — 11 for §MON-007 and 12 for §MON-008. The supplement rule dropped from
+the published body; the round filed under the wrong feed category; every item addressed to the first
+county; the reach filter inverted; the net reminder anchored at an arbitrary hour; a reminder asked
+for after dusk firing in the past; the container interval hand-typed; the rain band threshold
+shifted; the message collapsed to one string; the bad instant accepted; the publish route dropping
+its county scope. And: the all-year flag ignored; the month filter inverted; a month outside the year
+accepted; the two food lists merged; the finder filtering on the wrong facility kind; the finder not
+ordering by distance; the county filter dropped; the limit ignored; an empty county raising instead
+of answering; the programme vocabulary collapsed to a per-site claim; the site label emptied to the
+bare slug; and the nutrition route dropping the month.

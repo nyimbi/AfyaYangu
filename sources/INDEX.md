@@ -15,6 +15,11 @@ that uses it, with its retrieval URL, date, and checksum.
 | WHO fact sheets, menopause (2024) and family planning/contraception (2025); NHS UK, fertility in the menstrual cycle | `afya.women.content` — §REC-004's contraception, fertility awareness, menopause support and referral | `who-reproductive-health/` |
 | Radford et al., *Robust Speech Recognition via Large-Scale Weak Supervision* (arXiv:2212.04356); OpenAI `mel_filters.npz` (MIT) | `afya.ml.speech` — §ACC-002's log-Mel front end and the whisper-tiny recogniser | `whisper-asr/` |
 | OpenStreetMap wiki, `Key:healthcare` — the `blood_donation` and `blood_bank` values | `afya.places.views.PlaceKind`, `afya.integrations.overpass` — §REC-006's donation centres | `osm-healthcare-tags/` |
+| WHO, *Larval source management: a supplementary measure for malaria vector control — an operational manual* (2013) | `afya.monitoring.views.LARVICIDE_CLASSES`, `afya.monitoring.service.MonitoringService.publish_larviciding` — §MON-007's larviciding notices and protection reminders | `who-larval-source-management/` |
+| FAO Crop Calendar for Kenya (GIEWS, `lastUpdated` 26/02/2021) | `afya.monitoring.views.SEASONAL_FOODS` — §MON-008's seasonal food availability | `fao-crop-calendar-kenya/` |
+| FEWS NET Kenya seasonal calendar, 2024 | `afya.monitoring.views.SEASONAL_FOODS` — the cross-check on the FAO harvest windows | `fews-net-kenya-seasonal-calendar/` |
+| Kenya National Guideline for Integrated Management of Acute Malnutrition (IMAM), 2020 | `afya.monitoring.views.IMAM_PROGRAMMES`, `afya.facilities.views.FacilityKind` — §MON-008's therapeutic feeding programme locations | `kenya-imam-guidelines/` |
+| WHO/UNICEF/WFP/SC, *Community-based management of severe acute malnutrition — a joint statement* (2007) | `afya.monitoring.views.THERAPEUTIC_FEEDING_LABEL` — §MON-008's community-based treatment vocabulary | `who-cmam-joint-statement/` |
 
 Every source is stored as the published artefact **and** as layout-preserving text (`pdftotext
 -layout`), with both checksums recorded. The text copy is what a tool reads: an agent given a PDF
@@ -1110,3 +1115,214 @@ ODbL 1.0 — this archive holds wiki text only, no OSM data.
   section's bullet is the question a donor asks.
 - **Tagging is voluntary and uneven.** A facility that takes donations may be tagged as neither, so
   the finder's list is a floor rather than a census — the same caveat the `amenity` import carries.
+
+---
+
+## WHO larval source management manual — §MON-007's larviciding and protection reminders
+
+Larviciding is a malaria intervention with an operational manual behind it, and §MON-007 asks for
+its campaign notices. The manual supplies the two things a notice and a reminder need and cannot
+invent: the re-treatment interval per larvicide class, and the source's own conditions on when
+larviciding is worth doing at all.
+
+**Publisher:** World Health Organization, Global Malaria Programme. **Published:** 2013.
+**ISBN:** 978 92 4 150582 7. **Retrieved:** 2026-10-13.
+**Record page:** `https://iris.who.int/handle/10665/85879`.
+
+### Files
+
+| File | Bytes | SHA-256 (first 16) |
+|---|---|---|
+| `lsm-manual.pdf` | 3961378 | `0c5573d971d6fe63` |
+| `lsm-manual.txt` | 440308 | `2f64b103c0551634` |
+
+The `.txt` is `pdftotext -layout` over the publisher's PDF. `-layout` matters for the larvicide
+class tables, where the interval and the product share a row.
+
+### What the source supports
+
+- **Re-treatment intervals, by class.** Bacterial larvicides: "Frequency of re-treatment with
+  bacterial larvicides can range from 1 to 4 weeks for Anopheles", with "typical re-treatment
+  intervals with Bti … 7–10 days" and `Bs` formulations "up to 4-week re-treatment intervals".
+  Surface films: "Re-treatment is needed weekly". Insect growth regulators (methoprene briquettes):
+  "slowly release methoprene for up to four months". Organophosphates (temephos granules): "every
+  1 to 3 months". `LARVICIDE_CLASSES` carries one interval per class, and
+  `LARVICIDE_INTERVAL_FLOOR_DAYS` is the shortest of them.
+- **Biting time.** "biting tends to occur between dusk and dawn (and especially during the early
+  hours of the morning …)", and `An. gambiae s.l.` and `An. funestus` "peak biting occurs an hour
+  before dawn". This is why the net reminder is anchored at dusk.
+- **Larval development.** Larvae go from hatching to "metamorphosing into pupae after 5–10 days",
+  which is the window habitat manipulation works in.
+- **The supplement rule.** "larviciding measures should normally be used only as a supplement to
+  the core interventions (ITNs or IRS); larviciding should never be seen as a substitute for ITNs
+  or IRS in areas with significant malaria risk". Reproduced verbatim as `SUPPLEMENT_RULE` and
+  appended to every published notice by the service.
+- **The feasibility condition.** "larviciding will generally be most effective in areas where
+  larval habitats are few, fixed and findable", and "larviciding is most likely to be
+  cost-effective in urban areas … in rural settings, larviciding is not recommended unless there
+  are particular circumstances limiting the larval habitats". Reproduced as `LSM_FEASIBILITY`.
+
+### What the source does not support
+
+- **It states no schedule for a household.** The intervals are for a county re-treating a habitat,
+  not for a person clearing a container. The reminder's interval is derived from the larvicide
+  table so it cannot be shorter than a county's own re-treatment, and that derivation is the
+  repo's choice, not the manual's instruction.
+- **It ranks no larvicide above another.** The manual discusses classes and conditions; the four
+  in `LARVICIDE_CLASSES` are the classes it names, not a preference order, and the model does not
+  imply one.
+- **It states no dusk hour.** "Dusk" is a local astronomical event; `DUSK_HOUR = 18` is the repo's
+  fixed approximation, recorded as such rather than presented as the source's figure.
+
+## FAO Crop Calendar for Kenya — §MON-008's seasonal food availability
+
+§MON-008's "Seasonal food availability" had a field name and a fixed list behind it. The FAO Crop
+Calendar is the published source of Kenyan harvest windows, and it is machine-readable.
+
+**Publisher:** FAO, Global Information and Early Warning System (GIEWS). **Source `lastUpdated`:**
+26/02/2021. **Retrieved:** 2026-10-13.
+**URL:** `https://api-cropcalendar.apps.fao.org/api/v1/countries/KE/cropCalendar`.
+
+### Files
+
+| File | Bytes | SHA-256 (first 16) |
+|---|---|---|
+| `crop-calendar-ke.json` | 286785 | `6e68bbebaca29c40` |
+
+The JSON is the API's own response, saved unmodified: 283 records, one per (crop,
+agro-ecological zone) pair, each carrying `sessions` with `early_harvest`/`late_harvest` as
+`{month, day}` and an `all_year` flag. `SEASONAL_FOODS` is generated from it, not typed: a crop's
+months are the union of its harvest months across all 22 zones.
+
+### What the source supports
+
+- **29 crops with a stated harvest month**, and **5 flagged `all_year: "yes"`** in at least one
+  zone (`Canne à sucre`, `Manioc`, `Noix de cajou`, `Noix de coco`, `Riz`).
+- **The union-across-zones reading is the only one the source admits.** There is no national
+  harvest month in the data.
+
+### What the source does not support
+
+- **It states no national season.** The data is disaggregated by agro-ecological zone, so a month
+  in `SEASONAL_FOODS` means "harvested this month somewhere in Kenya". That is the right
+  granularity for a national app and the wrong one for county advice; the field is used to answer
+  "what is in season", never "what is in season in Siaya".
+- **It covers 30 crops and no others.** `Épinard` carries a record and **no harvest month in any
+  zone**, so it is served nowhere. Avocado, mango, banana, amaranth (*terere*) and fish — all of
+  which `NUTRITION_BY_AGE` names — **are absent from the data entirely**, and are therefore absent
+  from the seasonal table rather than given invented months.
+- **Its crop names are French.** The JSON is FAO's French-language rendering of the Kenyan crop
+  list (`Fève, vert`, `Maïs, sucré`). `SEASONAL_FOODS` carries the source's own name beside the
+  English label so the rendering can be checked; a translation asserted by position alone would be
+  unverifiable.
+- **It is not a nutrition source.** It says when a crop is harvested, not what a child of a given
+  age should eat. The two lists in `NutritionGuidance` are kept apart for exactly this reason.
+
+## FEWS NET Kenya seasonal calendar — the cross-check on the harvest windows
+
+FEWS NET publishes Kenya's seasonal calendar — the long and short rains, their typical onset, and
+the lean periods between harvests. It was consulted to check the FAO harvest months against an
+independent source, and to confirm the two rainy seasons the vector-risk bands are read against.
+
+**Publisher:** FEWS NET (USAID). **Edition:** 2024 (June and October releases). **Retrieved:**
+2026-10-13.
+
+### Files
+
+| File | Bytes | SHA-256 (first 16) |
+|---|---|---|
+| `seasonal-calendar-202406.pdf` | 240846 | `f9fa5c9e234a85a9` |
+| `seasonal-calendar-202410.png` | 1220424 | `ab6490218e3f6ed6` |
+
+The PNG is the calendar graphic itself; the PDF is the release it appeared in. There is no text
+extraction beside these two: the calendar is a figure, and the figure is the artefact.
+
+### What the source supports
+
+- **Two rainy seasons**, the long rains and the short rains, with the lean periods that follow
+  each. This is the seasonal shape the §MON-007 rain bands sit inside.
+
+### What the source does not support
+
+- **It is not disaggregated by crop and carries no per-crop harvest month**, so it could not
+  generate `SEASONAL_FOODS` and is not used to. It is archived as the cross-check, and the check
+  it supports is the *seasonal shape*, not the crop table — the crop months rest on the FAO data
+  alone, which is stated here so the citation is not read as broader than it is.
+
+## Kenya IMAM guideline — §MON-008's therapeutic feeding vocabulary
+
+There is **no OpenStreetMap tag** for a therapeutic feeding centre or a malnutrition treatment
+site. That was established three ways: the `healthcare` key's 31 values include only
+`healthcare=nutrition_counselling`, which is dietary counselling and not treatment; the `amenity`
+key's feeding values are all animal feeding (`feeding_place` for livestock); and a live taginfo
+search for `malnutrition` returns no structured keys. A place-based vocabulary therefore had no
+source, while the national clinical guideline has one.
+
+**Publisher:** Government of Kenya, Ministry of Health, Division of Nutrition and Dietetics.
+**Published:** 2020. **Retrieved:** 2026-10-13.
+
+### Files
+
+| File | Bytes | SHA-256 (first 16) |
+|---|---|---|
+| `imam-guidelines-2020.pdf` | 4201070 | `52f9c3dcd0102349` |
+| `imam-guidelines-2020.txt` | 461630 | `4faa0a3c8df9305d` |
+
+The `.txt` is `pdftotext -layout` over the publisher's PDF, which keeps the abbreviation list and
+the treatment-flow tables in reading order.
+
+### What the source supports
+
+- **The three programme types, as the guideline's own abbreviation list prints them:**
+  `OTP: Out-patient Therapeutic Programme`, `SC: Stabilization Center`,
+  `SFP: Supplementary Feeding Programme`. Body text gives the same vocabulary in full: "the
+  out-patient setting known as Out-Patient Therapeutic care/programme (OTP)".
+- **Who goes where.** "Individuals who present with MAM can be treated within a targeted
+  supplementary feeding programme at the health facility (i.e., MCH clinic) or at an outreach
+  center." Severe acute malnutrition without complications is treated at an OTP; with
+  complications, or in an infant under six months, admission to an SC. `IMAM_PROGRAMMES` carries
+  each definition so a parent can see which door is which.
+- **That the programmes are not interchangeable**, which is why the definitions travel with every
+  site rather than a per-site claim.
+
+### What the source does not support
+
+- **It is not a facility registry.** It states the programme types and the admission criteria; it
+  does not list which facility runs which. `TherapeuticFeedingSite.programmes` is therefore the
+  national vocabulary and not a claim about the site returned beside it — the registry records
+  *that* a facility is a therapeutic feeding site and not which programme it runs, and inventing
+  that per row would be the registry telling a parent something nobody filed.
+- **It supplies no geographic data**, so the finder's distances come from §FND-001's registry, not
+  from this source.
+
+## WHO/UNICEF/WFP/SC joint statement on community-based management of SAM
+
+The joint statement is the origin of the community-based approach the IMAM guideline implements,
+and it is archived because §MON-008's therapeutic feeding bullet is about finding treatment in the
+community rather than at a hospital.
+
+**Publishers:** WHO, UNICEF, WFP and Save the Children. **Published:** 2007. **Retrieved:**
+2026-10-13.
+
+### Files
+
+| File | Bytes | SHA-256 (first 16) |
+|---|---|---|
+| `unicef-cmam-statement.pdf` | 277435 | `b90d834038878917` |
+| `unicef-cmam-statement.txt` | 35016 | `0eacebb7fe4e855c` |
+
+### What the source supports
+
+- **The community-based approach itself:** "The community-based approach involves timely detection
+  of severe acute malnutrition in the community and provision of treatment for those without
+  medical complications with ready-to-use therapeutic foods or other nutrient-dense foods at
+  home."
+
+### What the source does not support
+
+- **It supplies no vocabulary the code uses.** It writes "therapeutic feeding centre" only
+  descriptively, and names no programme types — the programme vocabulary in `IMAM_PROGRAMMES` is
+  the Kenyan guideline's, not this statement's. The statement is archived as the provenance of the
+  community-based model and as a check that the guideline's three programmes are the national
+  rendering of it, **not** as the source of any string served. Said plainly so the citation is not
+  read as carrying more than it does.

@@ -4,17 +4,22 @@ chronic logs, environmental risk, and the 21-day contact monitoring diary.
 Scheduling is pure date arithmetic over an injected `today_iso` so the service stays deterministic
 and testable without a clock.
 """
-from datetime import datetime, timezone
-from typing import Protocol
+from datetime import datetime, timedelta, timezone
+from typing import Any, Protocol
 
+from afya.facilities.service import haversine_km
+from afya.facilities.views import FacilityKind
 from afya.ids import uuid7str
 from afya.logmixin import LogMixin
 from afya.monitoring.views import (
-	CATCH_UP_GRACE_WEEKS, EPI_DUE_WEEKS, REMINDER_LEAD_DAYS, REMINDER_SLOTS, AdherenceEvent,
-	AdherenceReport, AdherenceAction, CampaignNotice, ConditionProfile, FoodSafetyAlert,
-	HouseholdMonitor, ImmunisationAlert, ImmunisationCatchUp, ImmunisationDue, MedSchedule,
-	MonitoringDay, MonitoringReminder, MonitoringVerdict, NutritionGuidance, PeakFlowReading,
-	ReminderSlot, VectorRisk, WeightReading, reminder_times,
+	CATCH_UP_GRACE_WEEKS, DUSK_HOUR, EPI_DUE_WEEKS,
+	LARVICIDE_CLASSES, LARVICIDE_INTERVAL_FLOOR_DAYS, REMINDER_LEAD_DAYS, REMINDER_SLOTS,
+	SEASONAL_CALENDAR_SOURCE, SEASONAL_FOODS, SUPPLEMENT_RULE, THERAPEUTIC_FEEDING_LABEL,
+	AdherenceEvent, AdherenceReport, AdherenceAction, CampaignNotice, ConditionProfile,
+	FoodSafetyAlert, HouseholdMonitor, ImmunisationAlert, ImmunisationCatchUp, ImmunisationDue,
+	LarvicidingNotice, MedSchedule, MonitoringDay, MonitoringReminder, MonitoringVerdict,
+	NutritionGuidance, PeakFlowReading, ProtectionReminder, ReminderSlot, TherapeuticFeedingSite,
+	VectorRisk, WeightReading, reminder_times,
 )
 from afya.alerting.views import FeedItem
 from afya.records.service import RecordsService
@@ -116,6 +121,10 @@ class MonitoringService(LogMixin):
 		self._conditions: dict[str, ConditionProfile] = {}
 		self._breeding: list[dict[str, object]] = []
 		self._food_alerts: list[FoodSafetyAlert] = []
+		# §MON-007's larviciding rounds. Kept, not merely published: the notice reaches the feed and
+		# the *county's* own record of what it is treating has to outlive the feed window, because
+		# the next question is "is this drain being treated" and the feed only answers "what is new".
+		self._larviciding: list[LarvicidingNotice] = []
 		# §MON-003's trend charts need a series, and these two readings had none: `log_peak_flow` and
 		# `log_weight` returned a verdict and stored nothing, so two of the four readings the section
 		# names had no history to chart. Kept per subject, oldest first.
@@ -382,7 +391,7 @@ class MonitoringService(LogMixin):
 
 	def vector_risk(self, county: str, rainfall_mm_72h: float, livestock_adjacent: bool = False) -> VectorRisk:
 		assert rainfall_mm_72h >= 0, 'rainfall non-negative'
-		band = 'flood' if rainfall_mm_72h >= 100 else ('wet' if rainfall_mm_72h >= 50 else ('normal' if rainfall_mm_72h >= 10 else 'dry'))
+		band = self._rainfall_band(rainfall_mm_72h)
 		malaria_season = band in ('wet', 'flood')
 		rvf = livestock_adjacent and band in ('wet', 'flood')
 		if rvf:
@@ -406,10 +415,178 @@ class MonitoringService(LogMixin):
 	def food_alerts(self, county: str) -> list[FoodSafetyAlert]:
 		return [a for a in self._food_alerts if a.county == county]
 
-	def nutrition_guidance(self, age_months: int) -> NutritionGuidance:
+	# --- §MON-007 "larviciding campaign notifications" and "personal protection reminders" -----
+
+	async def publish_larviciding(self, notice: LarvicidingNotice, feed: object) -> LarvicidingNotice:
+		"""§MON-007's "larviciding campaign notifications", published into §ALT-001's feed.
+
+		A larviciding round is a county operation over named habitats, so it is published under the
+		`vector_control` category — which `FEED_PREFERENCE` routes to §ALT-003's "County alerts",
+		the section's own option. No new toggle is invented: the audit row said the feed had no
+		vector category, and the honest fix is a category with a real preference behind it rather
+		than a twelfth switch §ALT-003 never listed.
+
+		Every notice carries `SUPPLEMENT_RULE`, appended here rather than trusted to the caller's
+		`body`. The source is unambiguous that larviciding "should never be seen as a substitute for
+		ITNs or IRS in areas with significant malaria risk", and a county notice is exactly the
+		document in which that sentence goes missing — the round is visible and the nets are not.
+
+		`feed` is the `AlertingService`, typed loosely for the reason every cross-module port here
+		is: the two are wired at the composition root and neither imports the other's class.
+		"""
+		assert notice.first_round_iso, 'a round needs a date'
+		label, interval_days = LARVICIDE_CLASSES[notice.larvicide]
+		body = f'{notice.body} {SUPPLEMENT_RULE}'
+		assert len(body) <= 600, f'a notice body may not exceed 600 characters, got {len(body)}'
+		self._larviciding.append(notice)
+		publish = getattr(feed, 'publish', None)
+		if publish is not None:
+			for county in notice.counties:
+				await publish(FeedItem(
+					item_id=f'{notice.campaign_id}-{county}', category='vector_control', county=county,
+					headline=notice.headline, body=body, source=notice.issued_by,
+					verified=True, published_iso=notice.first_round_iso))
+		self._log_info('larviciding round published', campaign=notice.campaign_id,
+		               larvicide=notice.larvicide, counties=len(notice.counties),
+		               retreatment_days=interval_days)
+		return notice
+
+	def larviciding_rounds(self, county: str, on_iso: str) -> list[LarvicidingNotice]:
+		"""The rounds a county has published — the question the person living beside a drain asks.
+
+		A round is not a window with an end: the manual's intervals are re-treatment intervals, so a
+		round begun before today is still running until the next one is announced. Filtering on an
+		`ends_iso` the model does not carry would answer "nothing is happening" about a programme
+		that is mid-round, which is the one wrong answer here.
+		"""
+		return sorted((n for n in self._larviciding if county in n.counties and n.first_round_iso <= on_iso),
+		              key=lambda n: n.first_round_iso)
+
+	def protection_reminder(self, county: str, rainfall_mm_72h: float, at_iso: str) -> ProtectionReminder:
+		"""§MON-007's "personal protection reminders", as the instants the device schedules.
+
+		`at_iso` is supplied rather than assumed, the same contract §MON-005's `treatment_reminder`
+		keeps: the reminder is anchored to *now*, and a service that picked a time would place the
+		net reminder at an hour the household is not going to bed.
+
+		Two reminders, because the section names two protections and they are not the same kind of
+		act. The net is a nightly habit the manual ties to a fixed time — biting is "between dusk and
+		dawn", with `An. gambiae` and `An. funestus` peaking "an hour before dawn" — so it is placed
+		at the next dusk. Draining containers is habitat manipulation, which the manual calls "a
+		recurrent activity", and its interval is `LARVICIDE_INTERVAL_FLOOR_DAYS`: the shortest
+		re-treatment interval any class in `LARVICIDE_CLASSES` carries, so a household is asked to
+		clear standing water at least as often as a county would re-treat the same water.
+
+		The message changes with the rain band rather than being one string. In the dry band the
+		source's own position is that vector activity is low and the work is preparation before the
+		next rains; in the wet and flood bands the same two acts are urgent. A single string would
+		have to be the wet one, and would then be wrong for half the year.
+		"""
+		assert rainfall_mm_72h >= 0, 'rainfall non-negative'
+		try:
+			at = datetime.fromisoformat(at_iso)
+		except ValueError:
+			raise AssertionError(f'{at_iso!r} is not an instant a reminder can be scheduled for') from None
+		band = self._rainfall_band(rainfall_mm_72h)
+		# The next dusk: biting is a dusk-to-dawn affair, so a reminder anchored at any other hour
+		# is a reminder to do the thing at the wrong time of day.
+		net_due = at.replace(hour=DUSK_HOUR, minute=0, second=0, microsecond=0)
+		if net_due <= at:
+			net_due += timedelta(days=1)
+		container_due = at + timedelta(days=LARVICIDE_INTERVAL_FLOOR_DAYS)
+		if band in ('wet', 'flood'):
+			message = ('Rain has raised the mosquito risk here. Drain or cover every container holding '
+			           'water, and sleep under your net tonight.')
+		else:
+			message = ('Low mosquito activity right now — the time to clear standing water and check '
+			           'your net for holes, before the next rains.')
+		return ProtectionReminder(
+			county=county, rainfall_band=band,
+			net_due_iso=net_due.isoformat(), container_due_iso=container_due.isoformat(),
+			message=message,
+		)
+
+	@staticmethod
+	def _rainfall_band(rainfall_mm_72h: float) -> str:
+		"""The §MON-007 rain bands, in one place because two methods read them.
+
+		`vector_risk` decided this inline and `protection_reminder` needs the same four bands; a
+		second copy is a second definition, and the two would eventually disagree about where `wet`
+		starts — which is the difference between "keep using your net" and "drain the containers
+		now".
+		"""
+		if rainfall_mm_72h >= 100:
+			return 'flood'
+		if rainfall_mm_72h >= 50:
+			return 'wet'
+		return 'normal' if rainfall_mm_72h >= 10 else 'dry'
+
+	def nutrition_guidance(self, age_months: int, month: int | None = None) -> NutritionGuidance:
+		"""§MON-008's "infant feeding guidance" and "Seasonal food availability", together.
+
+		The age band is the section's own, unchanged. What `month` adds is the second half of the
+		`seasonal_foods` field, which had a name and no data behind it: the band's list is the foods
+		appropriate to the age, and the month decides which of the *seasonal* foods are actually
+		around. Passing no month returns the age list alone, which is what a caller with no calendar
+		position can honestly be served — inventing a month would be answering a question nobody
+		asked.
+
+		The two lists are kept apart in the answer rather than merged. A merged list cannot say
+		which entry is the age recommendation and which is the harvest, and the parent reading it is
+		making two different decisions: what to feed this child, and what to buy this week.
+		"""
 		assert 0 <= age_months <= 60, 'paediatric nutrition range'
 		band = max((row for row in NUTRITION_BY_AGE if row[0] <= age_months), key=lambda r: r[0])
-		return NutritionGuidance(age_months=age_months, guidance=band[1], seasonal_foods=list(band[2]))
+		if month is None:
+			return NutritionGuidance(age_months=age_months, guidance=band[1], seasonal_foods=list(band[2]))
+		assert 1 <= month <= 12, f'{month} is not a month'
+		in_season = sorted(
+			label for label, _source_name, months, all_year in SEASONAL_FOODS
+			if month in months or all_year
+		)
+		return NutritionGuidance(
+			age_months=age_months, guidance=band[1], seasonal_foods=list(band[2]),
+			month=month, in_season=in_season, calendar_source=SEASONAL_CALENDAR_SOURCE,
+		)
+
+	def therapeutic_feeding_centres(self, facilities: Any, county: str, lat: float, lon: float,
+	                                limit: int = 5) -> list[TherapeuticFeedingSite]:
+		"""§MON-008's "therapeutic feeding programme locations", over §FND-001's registry.
+
+		The kind is `FacilityKind.therapeutic_feeding` and the vocabulary served with each site is
+		Kenya's own IMAM programme set — `OTP`, `SC`, `SFP` — because this is the one bullet in the
+		section that could *not* be sourced from OpenStreetMap: there is no OSM tag for a therapeutic
+		feeding centre or a malnutrition treatment site. The research established that three ways
+		(the `healthcare` key's 31 values, the `amenity` key's feeding values, which are all animal
+		feeding, and a live taginfo search for `malnutrition` returning no structured keys), so a
+		place-based vocabulary had no source at all while the national guideline has one.
+
+		The programme *definitions* travel with every result rather than being asserted per site.
+		The registry records that a facility is a therapeutic feeding site; it does not record which
+		of the three programmes it runs, and a parent who took an out-patient programme's definition
+		as this site's would bring a child with complications to a queue that cannot admit them. What
+		the payload can honestly say is what the three programmes are, and that is what it says.
+
+		An empty list is a county where nothing is filed, which is a real answer and a different one
+		from "there is no such programme here" — so the caller gets the list and the log records the
+		distinction. `facilities` is the `FacilityService`, typed loosely for the reason the feed port
+		is: the two are wired at the composition root and this module does not import that class.
+		"""
+		assert limit >= 1, 'a finder returning nothing is not a finder'
+		pool = [f for f in facilities.all_facilities()
+		        if f.county == county and f.kind is FacilityKind.therapeutic_feeding]
+		if not pool:
+			self._log_info('no therapeutic feeding site filed', county=county)
+			return []
+		ranked = sorted(((f, haversine_km(lat, lon, f.lat, f.lon)) for f in pool), key=lambda p: p[1])
+		return [
+			TherapeuticFeedingSite(
+				facility_id=f.facility_id, name=f.name, county=f.county,
+				kind=f.kind.value, label=THERAPEUTIC_FEEDING_LABEL,
+				distance_km=round(km, 1), level=f.level.value if f.level else None,
+			)
+			for f, km in ranked[:limit]
+		]
 
 	# --- MON-009 21-day contact monitoring ------------------------------------------------
 

@@ -23,6 +23,13 @@ class FacilityKind(str, Enum):
 	testing_site = 'testing_site'
 	pharmacy = 'pharmacy'
 	vaccination_point = 'vaccination_point'
+	# §MON-008's "therapeutic feeding programme locations". The kind is here rather than in
+	# `ServiceOffered` because that enum's docstring is §FND-001's own printed list of seven, closed,
+	# and a nutrition programme is not one of the seven — widening it would make the filter offer a
+	# service the section never printed. `PlaceKind` was the audit row's other candidate and could
+	# not take it: OpenStreetMap has no tag for a therapeutic feeding centre, so a place vocabulary
+	# could not be sourced (see `sources/kenya-imam-guidelines/`).
+	therapeutic_feeding = 'therapeutic_feeding'
 
 
 class FacilityLevel(str, Enum):

@@ -215,6 +215,120 @@ class BreedingSiteReport(BaseModel):
 	description: str = Field(min_length=3, max_length=200)
 
 
+# --- §MON-007 "larviciding campaign notifications" ---------------------------------------
+#
+# The vocabulary and the figures below are the WHO operational manual's, archived at
+# `sources/who-larval-source-management/`. Two of its statements are load-bearing and are carried
+# as constants rather than paraphrased into the notice text, because a notice that dropped either
+# would be telling people something the source does not:
+#
+#   "larviciding measures should normally be used only as a supplement to the core interventions
+#    (ITNs or IRS); larviciding should never be seen as a substitute for ITNs or IRS in areas with
+#    significant malaria risk"
+#
+#   "larviciding will generally be most effective in areas where larval habitats are few, fixed and
+#    findable ... most likely to be cost-effective in urban areas ... in rural settings, larviciding
+#    is not recommended unless there are particular circumstances limiting the larval habitats"
+#
+# A notice is therefore never served without `SUPPLEMENT_RULE`, and a rural county is served the
+# source's own condition rather than a round that reads as routine.
+SUPPLEMENT_RULE = (
+	'Larviciding supplements treated nets and indoor spraying; it does not replace them. '
+	'Keep using your net every night.'
+)
+
+# What the manual calls the "few, fixed and findable" condition, as the question the county answers.
+LSM_FEASIBILITY = (
+	'Larviciding works best where the breeding sites are few, fixed and easy to find — '
+	'most often in towns and cities. In rural areas WHO does not recommend it unless the '
+	'breeding sites are limited and the county can show it reduces malaria here.'
+)
+
+# The larvicide classes the manual names, as (slug, label, typical interval in days). The interval
+# is the manual's own: "Frequency of re-treatment with bacterial larvicides can range from 1 to 4
+# weeks for Anopheles ... Typical re-treatment intervals with Bti are 7–10 days"; surface films
+# "Re-treatment is needed weekly"; IGR briquettes "slowly release methoprene for up to four
+# months". `None` is a class whose interval the manual states as a range rather than a figure.
+LARVICIDE_CLASSES: dict[str, tuple[str, int | None]] = {
+	'bacterial': ('Bacterial larvicide (Bti, Bs)', 10),
+	'surface_film': ('Surface film or oil', 7),
+	'growth_regulator': ('Insect growth regulator', 28),
+	'organophosphate': ('Organophosphate (temephos)', 42),
+}
+
+# The shortest interval any class above carries, derived rather than typed. §MON-007's household
+# container reminder uses it so a family is asked to clear standing water at least as often as a
+# county would re-treat the same water; a second hand-typed 7 here would be a second definition of
+# "the most frequent interval", and the two would part company the moment a class is added.
+LARVICIDE_INTERVAL_FLOOR_DAYS: int = min(
+	interval for _label, interval in LARVICIDE_CLASSES.values() if interval is not None
+)
+
+# §MON-007's "personal protection reminders": the hour the net reminder is anchored to. The manual
+# puts anopheline biting "between dusk and dawn", so the reminder belongs at dusk rather than at an
+# arbitrary hour — a reminder to sleep under a net is worth nothing at noon.
+DUSK_HOUR = 18
+
+
+class LarvicidingNotice(BaseModel):
+	"""§MON-007's "larviciding campaign notifications" — a round, and who it reaches.
+
+	`campaign_id` and the county list make this the same shape as §MON-001's `CampaignNotice` in the
+	one respect that matters — a notice is addressed to a place — and deliberately *not* the same
+	shape in the other: a campaign notice carries `target_age_months` because it is aimed at
+	children in a band, and a larviciding round has no age band at all. Sharing the model would have
+	meant a required `target_age_months` on a notice that has none, which is how a field that means
+	nothing gets invented.
+
+	`habitats` is the manual's own unit of work: larviciding is applied to *water bodies*, and the
+	person reading the notice is deciding whether the drain outside their gate is being treated.
+	`larvicide` is a `LARVICIDE_CLASSES` key so the label and the re-treatment interval cannot
+	drift apart, and `next_round_iso` is derived from that interval rather than typed in.
+	"""
+
+	model_config = MODEL_CONFIG
+	campaign_id: str = Field(default_factory=lambda: 'LSM-' + uuid7str().replace('-', '')[-8:].upper())
+	counties: list[str]
+	larvicide: str
+	habitats: list[str]
+	first_round_iso: str
+	issued_by: str = Field(pattern=r'^(MoH|PHEOC|County)$')
+	headline: str = Field(max_length=120)
+	body: str = Field(max_length=600)
+
+	@model_validator(mode='after')
+	def _the_vocabulary_is_the_sources(self) -> Self:
+		assert self.counties, 'a larviciding round with no county reaches nobody'
+		assert self.habitats, 'a larviciding round with no habitat treats nothing'
+		assert self.larvicide in LARVICIDE_CLASSES, (
+			f'{self.larvicide!r} is not a larvicide class: {sorted(LARVICIDE_CLASSES)}')
+		return self
+
+
+class ProtectionReminder(BaseModel):
+	"""§MON-007's "personal protection reminders", as the two instants the device schedules.
+
+	The section's own `VectorRisk.advise` already says "drain containers, use nets every night" — as
+	text, on the screen, once. What the bullet asks for is the reminder, and a reminder needs a time.
+
+	`net_due_iso` is the one figure the source fixes: the manual puts anopheline biting "between
+	dusk and dawn (and especially during the early hours of the morning)" and names `An. gambiae`
+	and `An. funestus` peak biting "an hour before dawn", so the net reminder is placed against
+	dusk and the message says why it is an evening reminder rather than a morning one.
+	`container_due_iso` is a *recurrent* activity in the manual's own sense — habitat manipulation
+	is "a recurrent activity including water level manipulation ... keeping drains clear" — and its
+	interval is the shortest re-treatment interval any larvicide class carries, so a household is
+	asked to clear standing water at least as often as a county would re-treat it.
+	"""
+
+	model_config = MODEL_CONFIG
+	county: str
+	rainfall_band: str = Field(pattern=r'^(dry|normal|wet|flood)$')
+	net_due_iso: str
+	container_due_iso: str
+	message: str
+
+
 class FoodSafetyAlert(BaseModel):
 	model_config = MODEL_CONFIG
 	county: str
@@ -224,10 +338,148 @@ class FoodSafetyAlert(BaseModel):
 
 
 class NutritionGuidance(BaseModel):
+	"""§MON-008's "infant feeding guidance" and "Seasonal food availability", in one answer.
+
+	Two lists, deliberately not merged. `seasonal_foods` is the age band's own list — the foods a
+	child of this age can eat — and `in_season` is what is being harvested this month. A parent is
+	making both decisions at once and they are not the same decision, so a merged list would lose
+	which entry was which. `in_season` is empty when the caller named no month, and `calendar_source`
+	says where the harvest months came from, because a seasonal claim with no provenance is a claim
+	a reader cannot check.
+	"""
+
 	model_config = MODEL_CONFIG
 	age_months: int = Field(ge=0, le=60)
 	guidance: str
 	seasonal_foods: list[str]
+	month: int | None = Field(default=None, ge=1, le=12)
+	in_season: list[str] = []
+	calendar_source: str | None = None
+
+
+# --- §MON-008 "Seasonal food availability" ------------------------------------------------
+#
+# Harvest windows per crop, from the FAO Crop Calendar for Kenya, archived at
+# `sources/fao-crop-calendar-kenya/`. Generated from the source's own JSON rather than typed by
+# hand: each crop's months are the union of its early- and late-harvest months across all 22
+# agro-ecological zones the source disaggregates by. `_allyear` is the source's own `all_year`
+# flag, set for the five crops it marks as harvestable throughout the year in at least one zone.
+#
+# Two honest limits, both the source's:
+#
+#  * The FAO data is **disaggregated by agro-ecological zone** and there is no national month. A
+#    month in this table therefore means "harvested in this month somewhere in Kenya", which is the
+#    right granularity for a *national* app and the wrong one for a county advisor. The table is
+#    used to answer "what is in season", not "what is in season in Siaya".
+#  * The source covers 30 crops and the local list below maps only the ones it has. **Avocado,
+#    mango, banana, amaranth (terere) and fish are absent from the FAO data** and are therefore
+#    absent here rather than given invented months — `NUTRITION_BY_AGE` names avocado and small
+#    fish, and this table does not pretend to know when they are harvested.
+SEASONAL_CALENDAR_SOURCE = 'FAO Crop Calendar for Kenya (harvest windows, all agro-ecological zones)'
+
+# (label served, the source's own crop name, harvest months, the source's all-year flag). The
+# source's crop names are French — it is FAO's French-language rendering of the Kenyan crop list —
+# so the served label is an English rendering and the source name is kept beside it. Without the
+# source name the translation would be unverifiable: a reader checking this table against the JSON
+# needs to know that `Fève, vert` is what became `Broad bean`, and a mapping asserted only by
+# position is a mapping nobody can check.
+SEASONAL_FOODS: tuple[tuple[str, str, tuple[int, ...], bool], ...] = (
+	('Bok choy', 'Bok choy', (4, 5, 6, 10, 12), False),
+	('Broad bean', 'Fève, vert', (1, 2, 3, 6, 7, 8, 9, 10, 11, 12), False),
+	('Cabbage', 'Chou, commun', (1, 2, 5, 6, 7, 10, 11, 12), False),
+	('Carrot', 'Carotte', (1, 2, 5, 6, 7, 10, 11), False),
+	('Cashew nut', 'Noix de cajou', (1, 12), True),
+	('Cassava', 'Manioc', (1, 12), True),
+	('Chickpea', 'Pois chiche', (1, 2, 6, 7, 8, 11, 12), False),
+	('Coconut', 'Noix de coco', (7, 8, 9, 12), True),
+	('Cowpea', 'Niébé', (1, 2, 5, 6, 7, 8, 9, 10, 11, 12), False),
+	('Dolichos (lablab)', 'Dolicos lablab', (1, 3, 6, 8), False),
+	('Dry pea', 'Petit pois, sec', (2, 3, 4, 5, 7, 8, 9, 10, 12), False),
+	('Finger millet', 'Millet, sabac', (1, 2, 3, 5, 6, 7, 8, 11), False),
+	('Green gram', 'Pigeon', (1, 2, 4, 7, 8, 9, 10), False),
+	('Groundnut', 'Cacahuète', (1, 2, 3, 6, 7, 8, 11, 12), False),
+	('Kales (sukuma wiki)', 'Kales', (1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12), False),
+	('Maize (sweet corn)', 'Maïs, sucré', (1, 2, 3, 5, 6, 7, 8, 9, 12), False),
+	('Onion', 'Oignon', (1, 2, 3, 4, 7, 8, 9, 10), False),
+	('Potato', 'Pomme de terre', (1, 2, 3, 4, 6, 7, 8, 9, 10, 11), False),
+	('Pumpkin', 'Citrouille', (1, 3, 6, 8), False),
+	('Rice', 'Riz', (8, 9), True),
+	('Sesame', 'Sésame', (1, 2, 3, 6, 7, 8, 9, 11), False),
+	('Sorghum', 'Sorgho', (1, 2, 3, 4, 6, 7, 8, 9, 11, 12), False),
+	('Soybean', 'Soja', (1, 3, 6, 7, 8, 9, 11, 12), False),
+	('Sugar cane', 'Canne à sucre', (1, 2, 3, 4, 5, 6, 12), True),
+	('Sunflower', 'Tournesol', (1, 2, 3, 6, 7, 8, 9, 11, 12), False),
+	('Sweet potato', 'Patate douce', (1, 2, 3, 5, 6, 7, 8, 9, 11, 12), False),
+	('Tomato', 'Tomate', (1, 2, 4, 5, 6, 7, 8, 10, 11, 12), False),
+	('Watermelon', 'Pastèque', (1, 3, 6, 7, 8), False),
+	('Wheat (bread)', 'Pain de blé', (1, 3, 8, 9, 10, 11), False),
+)
+
+# The Kenya IMAM programme types, as (slug, label, the guideline's own definition). These are the
+# three programmes a therapeutic feeding *site* runs, and they are not interchangeable: the
+# guideline's abbreviation list prints `OTP: Out-patient Therapeutic Programme`, `SC: Stabilization
+# Center` and `SFP: Supplementary Feeding Programme`, and its body text says a child with severe
+# acute malnutrition and no complications is treated at an OTP while one with complications — or an
+# infant under six months — is admitted to an SC. A parent sent to the wrong one is turned away.
+#
+# They are served as the national vocabulary, not as a claim about any one site: the facility
+# registry records *that* a facility is a therapeutic feeding site (`FacilityKind.therapeutic_feeding`)
+# and does not record which of the three it runs, and inventing that per row would be the registry
+# telling a parent something nobody filed.
+IMAM_PROGRAMMES: tuple[tuple[str, str, str], ...] = (
+	('otp', 'Out-patient therapeutic programme',
+	 'A child with severe acute malnutrition and no medical complications is treated here and '
+	 'goes home the same day, returning for follow-up.'),
+	('sc', 'Stabilisation centre',
+	 'A child with severe acute malnutrition and medical complications, or an infant under six '
+	 'months, is admitted here as an in-patient.'),
+	('sfp', 'Supplementary feeding programme',
+	 'A child with moderate acute malnutrition — not yet severe — is treated here, at a health '
+	 'facility or an outreach site.'),
+)
+
+# §MON-008's "therapeutic feeding programme locations" is the one bullet in the section that could
+# not be sourced from OpenStreetMap: there is no OSM tag for a therapeutic feeding centre or a
+# malnutrition treatment site (the `healthcare` key's 31 values include none, the `amenity` key's
+# feeding values are all animal feeding, and a live taginfo search for `malnutrition` returns no
+# structured keys). The vocabulary is therefore Kenya's national guideline, archived at
+# `sources/kenya-imam-guidelines/`.
+THERAPEUTIC_FEEDING_LABEL = (
+	'A health facility running a therapeutic feeding programme for acute malnutrition, under '
+	"Kenya's Integrated Management of Acute Malnutrition guidelines"
+)
+THERAPEUTIC_FEEDING_SOURCE = (
+	'Kenya National Guideline for Integrated Management of Acute Malnutrition (IMAM)'
+)
+
+
+class TherapeuticFeedingSite(BaseModel):
+	"""§MON-008's "therapeutic feeding programme locations" — a site, and what it is for.
+
+	`kind` is `FacilityKind`'s slug and `label` the IMAM description of what such a site does, so
+	the screen never holds a second copy of the vocabulary — the same reasoning §REC-006's
+	`DonationCentre` follows for its two OpenStreetMap kinds.
+
+	`programmes` is the national vocabulary of the three programme types, served with every result
+	so a parent can see which door is which. It is deliberately *not* a per-site claim: the registry
+	records that a facility is a therapeutic feeding site and not which programme it runs, and a
+	field asserted per row from nothing would send a child with complications to an out-patient
+	queue.
+	"""
+
+	model_config = MODEL_CONFIG
+	facility_id: str
+	name: str
+	county: str
+	kind: str
+	label: str
+	distance_km: float = Field(ge=0)
+	level: str | None = None
+	phone: str | None = None
+	walk_in: bool = True
+	programmes: list[dict[str, str]] = Field(
+		default_factory=lambda: [{'slug': s, 'label': lab, 'definition': d} for s, lab, d in IMAM_PROGRAMMES])
+	source: str = THERAPEUTIC_FEEDING_SOURCE
 
 
 # --- MON-009: 21-day contact monitoring diary --------------------------------------------

@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict
 from afya.community.views import FOLLOWUP_DAYS
 from afya.location.views import ALERT_ZONE_RADII_M
 from afya.medicine import contraindications
+from afya.monitoring.views import LARVICIDE_CLASSES
 from afya.records.views import WALLET_DOC_KINDS
 from afya.registry.diseases import DISEASES
 from afya.access.views import LANGUAGE_MATRIX
@@ -89,6 +90,10 @@ CHECKIN_METHODS = ['qr', 'nfc', 'manual']
 # `surveillance.CountySignal` did not, and `alerts.AlertKind` had neither `measles` nor `other`.
 VECTOR_DISEASES = list(DISEASES)
 ADHERENCE_ACTIONS = ['taken', 'skipped', 'snoozed']
+# §MON-007's larvicide classes, read off the model so a class added to the table cannot go missing
+# from the form a county fills in — the same reasoning `VECTOR_DISEASES` gives for reading the
+# disease list rather than restating it.
+LARVICIDE_OPTIONS = list(LARVICIDE_CLASSES)
 INTENSITIES = ['low', 'balanced', 'maximum']
 # §LOC-005's "multi-language support for cross-border travellers", as the set a traveller path can
 # actually answer in. `SUPPORTED_LANGS` is the languages with a string table, and it is the honest
@@ -177,7 +182,10 @@ FEATURE_OF: dict[str, str] = {
 	# "My kidney results", not "MON-003".
 	'kidney_result': 'MON-003', 'seizure_log': 'MON-003', 'sickle_crisis': 'MON-003',
 	'trend_chart': 'MON-003', 'appointments': 'MON-003', 'lifestyle_guidance': 'MON-003',
-	'vector_risk': 'MON-007', 'breeding_site': 'MON-007', 'food_alert': 'MON-008', 'food_alerts': 'MON-008', 'nutrition': 'MON-008',
+	'vector_risk': 'MON-007', 'breeding_site': 'MON-007', 'larviciding': 'MON-007',
+	'issue_larviciding': 'MON-007', 'protection_reminder': 'MON-007',
+	'food_alert': 'MON-008', 'food_alerts': 'MON-008', 'nutrition': 'MON-008',
+	'therapeutic_feeding': 'MON-008',
 	'enrol_monitoring': 'MON-009', 'monitoring_day': 'MON-009', 'monitoring_diary': 'MON-009',
 	'monitoring_reminders': 'MON-009', 'monitoring_consent': 'MON-009', 'monitoring_members': 'MON-009',
 	'monitoring_member_diary': 'MON-009', 'monitoring_officer': 'MON-009',
@@ -264,6 +272,10 @@ OPERATOR_SCOPES: dict[str, str] = {
 	# device inside them is told about, the county's fever and hotline counts, and the public
 	# food-safety warning. Each is guarded on the county health team's scope.
 	'food_alert': 'county_aggregate',
+	# §MON-007's larviciding round: a public statement about a place, on the same reasoning as the
+	# food-safety warning above and the §FND-006 slot below. The read (`larviciding`) is public; a
+	# citizen's catalogue must not carry the form that announces a county operation.
+	'issue_larviciding': 'county_aggregate',
 	# §INF-001: a county's risk level is what the county health authority publishes, not something a
 	# citizen asserts. The read (`county_risk`) is public; this is the write behind it.
 	'set_county_risk': 'infrastructure',
@@ -549,9 +561,13 @@ def catalogue() -> list[MobileAction]:
 		# Environment & nutrition
 		_a('vector_risk', 'Is there a mosquito risk here?', 'Environment', 'POST', '/monitoring/vector-risk', [_f('county', 'County'), _f('rainfall_mm_72h', 'Rainfall in the last 3 days (mm)', 'decimal'), _f('livestock_adjacent', 'Do you keep livestock?', 'bool')]),
 		_a('breeding_site', 'Report a mosquito breeding site', 'Environment', 'POST', '/monitoring/breeding-site', [_f('county', 'County'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('description', 'What did you see?', 'textarea')]),
+		_a('larviciding', 'Is my area being sprayed for mosquitoes?', 'Environment', 'GET', '/monitoring/larviciding/{county}', [_f('county', 'County', 'path'), _f('on_iso', 'Which day', ph='optional')]),
+		_a('issue_larviciding', 'Announce a mosquito control round', 'Environment', 'POST', '/monitoring/larviciding', [_auto('campaign_id', 'Round number'), _f('counties', 'Counties', 'list'), _f('larvicide', 'What is being used', 'select', LARVICIDE_OPTIONS), _f('habitats', 'Water bodies being treated', 'list'), _f('first_round_iso', 'First day'), _f('issued_by', 'Issued by', 'select', ['MoH', 'PHEOC', 'County']), _f('headline', 'Headline'), _f('body', 'Message', 'textarea')]),
+		_a('protection_reminder', 'Remind me about mosquitoes', 'Environment', 'GET', '/monitoring/protection-reminder', [_f('county', 'County'), _f('rainfall_mm_72h', 'Rainfall in the last 3 days (mm)', 'decimal'), _f('at_iso', 'What time is it now?', ph='YYYY-MM-DDTHH:MM+03:00')]),
 		_a('food_alert', 'Issue a food safety alert', 'Environment', 'POST', '/monitoring/food-alert', [_f('county', 'County'), _f('kind', 'Kind', 'select', ['aflatoxin', 'recall', 'cholera_food', 'other']), _f('detail', 'Details', 'textarea'), _f('source', 'Source')]),
 		_a('food_alerts', 'Food safety alerts', 'Environment', 'GET', '/monitoring/food-alerts/{county}', [_f('county', 'County', 'path')]),
-		_a('nutrition', 'What should my child eat?', 'Environment', 'GET', '/monitoring/nutrition/{age_months}', [_f('age_months', 'Age in months', 'path')]),
+		_a('nutrition', 'What should my child eat?', 'Environment', 'GET', '/monitoring/nutrition/{age_months}', [_f('age_months', 'Age in months', 'path'), _f('month', 'Which month is it?', 'int', ph='optional')]),
+		_a('therapeutic_feeding', 'Where can a malnourished child get help?', 'Environment', 'GET', '/monitoring/therapeutic-feeding', [_f('county', 'County'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal')]),
 		_a('vaccination_campaigns', 'Any vaccination campaign near me?', 'Children', 'GET', '/monitoring/campaigns', [_f('county', 'County'), _f('on_iso', 'Which day', ph='optional')]),
 		_a('water_advisory', 'Is the water safe?', 'Environment', 'POST', '/environment/water', [_f('county', 'County'), _f('ecoli_detected', 'E. coli detected?', 'bool'), _f('turbidity_ntu', 'Turbidity NTU', 'decimal'), _f('treated_at_iso', 'When you last treated water', ph='YYYY-MM-DDTHH:MM+03:00')]),
 		_a('air_advisory', 'How is the air?', 'Environment', 'POST', '/environment/air', [_f('county', 'County'), _f('location', 'Where you are'), _f('pm25', 'PM2.5 µg/m³', 'decimal'), _f('hourly', 'Today\'s hourly readings', 'list', ph='6=18, 12=34, 18=52')]),
@@ -851,7 +867,11 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'water_advisory': ('Is the water safe?', 'Boil-water advisories for your area, and how to make it safe'),
 	'air_advisory': ('How is the air?', 'The air quality index where you are, and when it is cleanest to go out'),
 	'vector_risk': ('Mosquito and vector risk', 'Seasonal risk from the rain you just had'),
-	'nutrition': ('What should my child eat?', 'Age-appropriate feeding and local foods'),
+	'larviciding': ('Is my area being treated?', 'Mosquito control rounds in your county'),
+	'issue_larviciding': ('Announce a mosquito control round', 'Tell residents where and when spraying happens'),
+	'protection_reminder': ('Remind me about mosquitoes', 'When to use your net, and when to clear standing water'),
+	'nutrition': ('What should my child eat?', 'Age-appropriate feeding and what is in season'),
+	'therapeutic_feeding': ('Where can a malnourished child get help?', 'Therapeutic feeding programmes near you'),
 	'issue_alert': ('Send a public alert', 'Broadcast an official notice to a county'),
 	'price_quote': ('What does it cost?', 'Typical prices per facility'),
 	'data_inventory': ('What do you know about me?', 'Everything stored, and who it was shared with'),

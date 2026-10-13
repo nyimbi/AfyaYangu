@@ -9,7 +9,7 @@ MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_ali
 # The public hazard types a feed item can carry.
 FEED_CATEGORIES: tuple[str, ...] = (
 	'outbreak', 'weather', 'flood', 'fire', 'road', 'security', 'drug_recall', 'water',
-	'food_recall', 'service', 'immunisation',
+	'food_recall', 'service', 'immunisation', 'vector_control',
 )
 
 # Which preference governs each feed category. A feed item and a preference are not the same
@@ -26,6 +26,12 @@ FEED_PREFERENCE: dict[str, str] = {
 	# existed with no producer until the campaign publisher was written — this is the mapping that
 	# makes it deliverable rather than a toggle that switches nothing.
 	'immunisation': 'immunisation_reminders',
+	# §MON-007's larviciding campaign notices. A larviciding round is a *county* operation: it runs
+	# over a named set of habitats on named days, and its audience is everyone living around them,
+	# not an age band — which is why it is not filed under `immunisation` beside §MON-001's campaign
+	# notices. The preference is the section's own "County alerts", so no new toggle is invented for
+	# it and §ALT-003's Options list is not quietly widened.
+	'vector_control': 'county_alerts',
 }
 
 
