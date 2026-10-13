@@ -2506,8 +2506,25 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/environment/air')
-	async def environment_air(a: AirQuality) -> dict[str, str]:
-		return {'advisory': alerts.air_alert(a)}
+	async def environment_air(a: AirQuality, location: str, hourly: str | None = None) -> dict[str, object]:
+		"""§MON-006's air quality, whole: the index, the advisory, the mask, the window and the source.
+
+		`location` is required and is a place name, not a coordinate. The section asks for the AQI
+		"for user's location" and a county is tens of thousands of people; §LOC-002 keeps a person's
+		position on their own device and §SEC-001's ledger governs what leaves it, so the caller
+		names the place rather than the server resolving one.
+
+		`hourly` is `hour=pm25` pairs, comma-separated — the same shape the catalogue's `list` field
+		renders. Omitted, the window is empty and says so: an hour named from a single daily reading
+		would be an hour nobody measured.
+		"""
+		series: list[tuple[int, float]] = []
+		for pair in (hourly or '').split(','):
+			if not pair.strip():
+				continue
+			hour, _, value = pair.partition('=')
+			series.append((int(hour), float(value)))
+		return alerts.air_quality_guidance(a, location, series or None).model_dump(mode='json')
 
 	@app.post('/environment/flood')
 	async def environment_flood(f: FloodReport) -> dict[str, str]:

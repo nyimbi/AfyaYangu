@@ -777,3 +777,113 @@ published report without the archive.
   number.
 - **No document here is Kenyan national guidance.** A county may publish its own treatment
   thresholds, and nothing in the code claims to override them.
+
+## Air quality — §MON-006's index, window and source
+
+§10.2 MON-006 lists five Features and three of them were bullets with no carrier: "AQI for user's
+location", "best times for outdoor activity" and "pollution source information". What existed was
+`air_alert`, which branches on two ad-hoc cuts at 35 and 55 µg/m³ of raw PM2.5. Two things had to be
+answered from a source rather than invented, and they come from two different bodies: the *index* —
+its breakpoints, its interpolation, its categories — and the *reason a time of day is the right
+unit*, plus the categories a source can be named from. Neither document is Kenyan national guidance,
+and neither is the other's substitute.
+
+**Publisher:** World Health Organization (the guidelines); United States Environmental Protection
+Agency, Office of Air Quality Planning and Standards (the AQI technical assistance document).
+**Retrieved:** 2026-10-13.
+
+### `who-global-air-quality-guidelines-2021.pdf`
+
+WHO global air quality guidelines: particulate matter (PM2.5 and PM10), ozone, nitrogen dioxide,
+sulfur dioxide and carbon monoxide. Geneva: World Health Organization; 2021. Licence CC BY-NC-SA
+3.0 IGO. ISBN 978-92-4-003422-8.
+
+- `who-global-air-quality-guidelines-2021.pdf` — SHA-256 `32f3bf1470e20803…` (6.3 MB)
+- `who-global-air-quality-guidelines-2021.txt` — SHA-256 `36a2e120560a84d4…` (`pdftotext -layout`)
+
+**What it supports, and where the code uses it:**
+
+- **Why exposure is concentration × time.** The guidelines state that the health risk from PM "is a
+  product of the pollutant concentration and the time over which a person is in contact with that
+  pollutant". This is the whole justification for a *time of day* answer rather than a number, and it
+  is why `AlertsService.outdoor_window` returns hours and not a threshold.
+- **Why concentrations vary by hour.** The same document attributes the temporal pattern to "the
+  temporal pattern of operation of outdoor sources (e.g. traffic) but also on indoor sources (e.g.
+  the daily cycle of cooking)". This is why a household cooking on charcoal and a road at rush hour
+  are both visible in an hourly series and neither is visible in a daily mean.
+- **The source categories.** The sources-of-emissions discussion names "land, air and water
+  transportation; industry and power generation; and biomass burning, which includes controlled and
+  uncontrolled forest and savannah fires and agricultural waste burning, as well as waste burning in
+  urban areas". `AlertsService.pollution_source` names road traffic, waste or agricultural burning
+  and forest or savannah fire from exactly these. Household fuel combustion is defined as its own
+  source by the same document and is the fourth, which in Kenya is the one a person can act on.
+- **Susceptible populations.** The guidelines define the groups at greater risk (people with
+  pre-existing cardiopulmonary disease, older adults, children, pregnant women), which is what
+  `air_alert`'s "sensitive groups" branches address.
+
+**What it does not support, and where the code says so:**
+
+- **WHO publishes no AQI.** The guidelines give guideline levels and interim targets in µg/m³; they
+  do not define a 0–500 index, categories, or breakpoints. The index in the code is the **EPA's**, and
+  the code and this entry name it as such. Presenting the EPA table as WHO's would be the attribution
+  error this section exists to prevent.
+- **WHO's four interim targets are not the index's bands.** WHO's interim targets for annual and
+  24-hour PM2.5 are a *policy* scale for setting limits; the index's category boundaries are a
+  *communication* scale. They are close in places and are not the same thing, and the code does not
+  merge them.
+- **WHO does not recommend masks.** The guidelines say individual-level interventions "such as the
+  use of personal respiratory protection (e.g. masks, respirators, air purifiers) or behavioural
+  measures, are addressed in another document". So `AlertsService.mask_guidance`'s text is the
+  **repo's own** and is written to state what a mask does not do; the source supports the *absence*
+  of a WHO recommendation, not the recommendation itself.
+- **No national guidance.** A county or the Ministry may publish its own advisory thresholds, and
+  nothing in the code claims to override them.
+
+### `us-epa-aqi-technical-assistance-document-2018.pdf`
+
+*Technical Assistance Document for the Reporting of Daily Air Quality — the Air Quality Index
+(AQI).* EPA-454/B-18-002. U.S. Environmental Protection Agency, Office of Air Quality Planning and
+Standards, Research Triangle Park, NC; December 2018 (supersedes EPA-454/B-06-001).
+
+- `us-epa-aqi-technical-assistance-document-2018.pdf` — SHA-256 `173f8d8668e37bc4…` (2.2 MB)
+- `us-epa-aqi-technical-assistance-document-2018.txt` — SHA-256 `41e5bec4851ec96a…` (`pdftotext -layout`)
+
+**What it supports, and where the code uses it:**
+
+- **The PM2.5 breakpoint table.** Table 5 gives the seven bands and their index ranges, from
+  (0.0–12.0 → 0–50) through (350.5–500.4 → 401–500). `PM25_BREAKPOINTS` in `src/afya/alerts/views.py`
+  is this table row for row, and `test_every_band_boundary_lands_on_its_own_index` reads the code's
+  table rather than a second copy of it.
+- **The interpolation.** The document's linear interpolation, `I = (I_hi − I_lo)/(BP_hi − BP_lo) ×
+  (C − BP_lo) + I_lo`, is what `pm25_aqi` implements. The document also states that the concentration
+  is **truncated to one decimal place before the band is chosen** — its own worked example truncates
+  0.07853333 to 0.078 — which is why `pm25_aqi` truncates before it looks up rather than after.
+  Canary #1 in `tests/ci/canary_mon006.py` removes that truncation and the test catches it at 35.45,
+  the value the boundaries put in the band below.
+- **The categories.** Table 3's six categories and their index ranges are `AQI_CATEGORIES`:
+  good, moderate, unhealthy for sensitive groups, unhealthy, very unhealthy, hazardous. The document
+  also names the sensitive groups each category is about, which is the source for the wording.
+- **The worked example.** The document's own interpolation of 35.9 µg/m³ to index 102 is asserted
+  verbatim in `test_the_index_reproduces_the_sources_own_worked_example` — the one figure in either
+  source that is both a specific input and a specific output, which makes it the arithmetic's check.
+
+**What it does not support, and where the code says so:**
+
+- **It is not Kenyan guidance, and its scale is the US one.** The categories are the EPA's
+  communication scale; a Kenyan bulletin may use different wording or different boundaries. The code
+  carries the EPA's numbers and names them.
+- **The top row carries a footnote the lower rows do not.** Above 250.4 µg/m³ the 24-hour PM2.5
+  standard is not the basis for the band — the document's own Table 5 marks it with a significance
+  note that the upper range extends to the highest index value without a corresponding 24-hour
+  standard. The code carries the row because the scale needs a top, and `AirQuality.pm25` is bounded
+  at `le=500` so the top row is defence in depth rather than the common path.
+- **Nothing above 500.4.** The scale has no answer past the table, and `pm25_aqi` returns 500 rather
+  than extrapolating: an extrapolated index is a number no screen is designed for and no guidance is
+  written against. `test_a_reading_above_the_table_is_capped_rather_than_extrapolated` pins it.
+- **No source information at all.** The AQI is a concentration index; the document does not say where
+  the pollution came from. That is why `pollution_source` names a source only where the *caller*
+  reports evidence for one and serves an empty list with an explanation otherwise — a monitor reads a
+  concentration and cannot read a source.
+- **No hourly forecasting.** The document describes reporting a daily AQI. The hourly window is built
+  from readings the caller supplies, never from a curve the service invents; with no series the window
+  is empty and says so.

@@ -236,7 +236,191 @@ class AirQuality(BaseModel):
 
 	@property
 	def band(self) -> str:
-		return 'alert' if self.pm25 > 55 else ('watch' if self.pm25 > 35 else 'normal')
+		"""The three responses the advisory has, read off the index rather than off the reading.
+
+		The cuts used to be 35 and 55 µg/m³, which are the index's own category boundaries arrived at
+		by a different route and *not quite* the same ones: the index crosses 100 at 35.5 and 150 at
+		55.5, so a reading of 35.2 or 55.2 was served an "AIR ALERT" beside an index that said
+		otherwise. Two answers to one question in one payload is the shape this removes.
+		"""
+		index = self.aqi
+		return 'alert' if index > 150 else ('watch' if index > 100 else 'normal')
+
+	@property
+	def aqi(self) -> int:
+		"""§MON-006's "AQI for user's location": the index a person reads, from the reading.
+
+		The section names an *index*, and the tree had a raw PM2.5 figure with three ad-hoc band
+		cuts at 35 and 55. Those cuts are the index's own category boundaries arrived at by a
+		different route — 35.5 µg/m³ is where the index crosses 100 and 55.5 where it crosses 150 —
+		so the bands were right and the number a person could compare against a news bulletin was
+		missing. `aqi` is derived from the breakpoint table rather than the band being derived from
+		the index, because the band is what the advisory already branched on and changing its
+		arithmetic would change which advisory a reading gets.
+		"""
+		return pm25_aqi(self.pm25)
+
+
+# --- §MON-006: the air quality index ---------------------------------------------------------
+
+# The PM2.5 breakpoints, as `(concentration_low, concentration_high, aqi_low, aqi_high)` in µg/m³.
+# Truncated to one decimal place on the way in, because the source's own worked example truncates
+# before it looks the value up — a reading of 35.49 is in the 12.1-35.4 band, not the one above it,
+# and interpolating on the untruncated figure puts it in the wrong category.
+#
+# The `(250.5, 500.4)` row carries the source's own footnote: it applies "if a different SHL for
+# PM2.5 is promulgated", and the figure is not one of the four interim targets WHO sets. It is here
+# because the index runs to 500 and a reading above 250.4 still needs an answer, and the code says
+# so rather than leaving a hole a caller falls through.
+PM25_BREAKPOINTS: tuple[tuple[float, float, int, int], ...] = (
+	(0.0, 12.0, 0, 50),
+	(12.1, 35.4, 51, 100),
+	(35.5, 55.4, 101, 150),
+	(55.5, 150.4, 151, 200),
+	(150.5, 250.4, 201, 300),
+	(250.5, 350.4, 301, 400),
+	(350.5, 500.4, 401, 500),
+)
+
+# The index's own category names, as the ranges they cover. Separate from `AirQuality.band`, which
+# is the three-way cut the advisory branches on: the index has six categories and the advisory has
+# three responses, and collapsing them would lose the category a screen wants to print.
+AQI_CATEGORIES: tuple[tuple[int, int, str], ...] = (
+	(0, 50, 'good'),
+	(51, 100, 'moderate'),
+	(101, 150, 'unhealthy_for_sensitive_groups'),
+	(151, 200, 'unhealthy'),
+	(201, 300, 'very_unhealthy'),
+	(301, 500, 'hazardous'),
+)
+
+
+def pm25_aqi(pm25: float) -> int:
+	"""The index for a PM2.5 reading, by the source's own linear interpolation.
+
+	Truncation before lookup is the source's, not a rounding convenience: its worked example
+	truncates 0.07853333 to 0.078 before choosing a band, and the band boundaries are inclusive at
+	the top — 35.4 is in one band and 35.5 in the next, with nothing between them. Interpolating on
+	an untruncated value would put 35.45 in the band above the one it belongs to.
+	"""
+	value = int(pm25 * 10) / 10
+	for low, high, aqi_low, aqi_high in PM25_BREAKPOINTS:
+		if low <= value <= high:
+			return round((aqi_high - aqi_low) / (high - low) * (value - low) + aqi_low)
+	# Above the table's top. The index is capped at 500, and a reading past 500.4 is beyond what the
+	# scale expresses — served as 500 rather than extrapolated, because an index of 900 is a number
+	# no screen is designed for and no guidance is written against.
+	return 500
+
+
+class AirQualityReading(BaseModel):
+	"""§MON-006's "AQI for user's location": the index, the category, and which groups it is about.
+
+	`location` is carried because the section says "for user's location" and the reading had only a
+	county: a county is tens of thousands of people, and a person deciding whether to walk to school
+	this morning is asking about their own street. It is a place *name* and not a coordinate — §LOC-002
+	keeps a person's position on their own device, and a server that resolved one would be holding it.
+	"""
+	model_config = MODEL_CONFIG
+	county: str
+	location: str
+	pm25: float = Field(ge=0, le=500)
+	aqi: int = Field(ge=0, le=500)
+	category: str
+
+	@model_validator(mode='after')
+	def _category_matches_the_index(self) -> Self:
+		"""A reading whose index says 180 and whose category says "moderate" is a screen that tells a
+		person the air is fine while the number beside it says otherwise."""
+		expected = next((name for low, high, name in AQI_CATEGORIES if low <= self.aqi <= high), None)
+		assert expected == self.category, (
+			f'an index of {self.aqi} is {expected}, not {self.category}'
+		)
+		return self
+
+	@model_validator(mode='after')
+	def _index_matches_the_reading(self) -> Self:
+		"""The index is derived from the reading and not asserted alongside it, so a caller cannot
+		post a PM2.5 of 200 with an index of 40."""
+		assert self.aqi == pm25_aqi(self.pm25), (
+			f'PM2.5 {self.pm25} is index {pm25_aqi(self.pm25)}, not {self.aqi}'
+		)
+		return self
+
+
+class OutdoorWindow(BaseModel):
+	"""§MON-006's "best times for outdoor activity": the hours of a day, and why they are the best.
+
+	WHO's guidelines give the reason a time of day is the right unit here: exposure "is a product of
+	the pollutant concentration and the time over which a person is in contact with that pollutant",
+	and concentrations follow "the temporal pattern of operation of outdoor sources (e.g. traffic)
+	but also on indoor sources (e.g. the daily cycle of cooking)". So the answer is not a number, it
+	is *when* — and the model takes the day's readings and returns the hours a person can go out.
+
+	`hours` is empty when no hour is better than another, which is a real answer and not a failure:
+	on a uniformly bad day there is no window, and a screen that invented one would send somebody
+	outdoors.
+	"""
+	model_config = MODEL_CONFIG
+	county: str
+	location: str
+	hours: list[int] = []
+	best_aqi: int | None = Field(default=None, ge=0, le=500)
+	advise: str
+
+	@model_validator(mode='after')
+	def _hours_are_hours(self) -> Self:
+		assert all(0 <= h <= 23 for h in self.hours), 'an hour of the day is 0-23'
+		assert self.hours == sorted(self.hours), 'the windows are not in the order a day runs'
+		assert (self.best_aqi is None) == (not self.hours), (
+			'a window was offered with no index behind it, or an index with no window'
+		)
+		return self
+
+
+class PollutionSource(BaseModel):
+	"""§MON-006's "pollution source information": what is likely to be putting it there.
+
+	The categories are WHO's own, from the guidelines' sources-of-emissions section — "land, air and
+	water transportation; industry and power generation; and biomass burning, which includes
+	controlled and uncontrolled forest and savannah fires and agricultural waste burning, as well as
+	waste burning in urban areas" — plus household fuel combustion, which the same document defines
+	separately because in Kenya it is the one a person can act on.
+
+	`likely` is a word and not a certainty, and the field is named for it: a monitor reads a
+	concentration and cannot read a source. What the model does is exclude what the evidence rules
+	out — a source whose own signature is absent — rather than assert what remains.
+	"""
+	model_config = MODEL_CONFIG
+	county: str
+	location: str
+	likely: list[str] = []
+	evidence: str
+	advise: str
+
+	@model_validator(mode='after')
+	def _a_source_list_is_named_or_empty(self) -> Self:
+		assert all(s.strip() for s in self.likely), 'an unnamed source in the list'
+		assert self.likely or self.evidence, (
+			'a source report with nothing likely and nothing said about why'
+		)
+		return self
+
+
+class AirQualityGuidance(BaseModel):
+	"""§MON-006's five Features as one answer, on §MON-005's reasoning: they are one decision.
+
+	The section lists an index, an advisory, mask guidance, a time to go out and a source, and a
+	person reading a screen acts on all five together or on none of them.
+	"""
+	model_config = MODEL_CONFIG
+	county: str
+	location: str
+	reading: AirQualityReading
+	advisory: str
+	mask_guidance: str
+	outdoor: OutdoorWindow
+	source: PollutionSource
 
 
 class FloodReport(BaseModel):

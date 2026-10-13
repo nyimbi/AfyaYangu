@@ -2421,3 +2421,82 @@ WHO International Scheme to Evaluate Household Water Treatment Technologies* (20
 and quoted verbatim in the code but **not** archived, which is recorded as a deliberate departure
 from the two-copy rule in `sources/INDEX.md`. The boiling duration, the storage interval and the
 SODIS exposure times are the repo's own and are named as such there rather than presented as WHO's.
+
+## §MON-006 — a band that disagreed with its own index, and two hours nobody measured
+
+§MON-006 lists five Features under "Air Quality Index". Three of them — "AQI for user's location",
+"best times for outdoor activity" and "pollution source information" — were bullets with no carrier
+at all. What existed was `air_alert`: a string, built from a raw PM2.5 figure the caller supplies,
+branching on two cuts at 35 and 55 µg/m³.
+
+The section is called *Air Quality Index* and there was no index. That is the first defect, and it is
+not cosmetic. An index is the number a person can hold against a bulletin, the category a screen
+prints, and the six-way scale the three bands were an approximation of — and the approximation was
+wrong in a way that only shows up at the boundary.
+
+**The band disagreed with the index it was standing in for.** 35 and 55 are the index's own category
+boundaries arrived at by a different route, and not quite the same ones: the index crosses 100 at
+35.5 µg/m³ and 150 at 55.5. So a reading of 35.2 was served an "AIR ALERT" beside an index that said
+clean, and 55.2 was served an alert beside an index that said watch. Two answers to one question in
+one payload. `AirQuality.band` is now read off `aqi` rather than off the raw figure, so the two cannot
+diverge — `test_the_three_way_band_now_agrees_with_the_index_it_is_read_off` walks the four values
+that used to disagree.
+
+**The index is the EPA's, and the code says so.** WHO publishes guideline levels and interim targets
+in µg/m³ and no AQI at all; the 0–500 scale, its seven PM2.5 bands, its six categories and its linear
+interpolation are the EPA's, from `EPA-454/B-18-002`. `sources/INDEX.md` states this explicitly,
+because a table presented as WHO's that is not WHO's is the attribution error the whole sources
+discipline exists to prevent. The document's own worked example — 35.9 µg/m³ interpolating to index
+102 — is asserted verbatim, which makes the arithmetic checkable against the source rather than
+against itself. The truncation is the source's too: the band is chosen from the value truncated to
+one decimal, which is why 35.45 lands in the band *below* the one it is nearer to.
+
+**"Best times for outdoor activity" is a time of day because of what WHO says about exposure.** The
+guidelines state that risk "is a product of the pollutant concentration and the time over which a
+person is in contact with that pollutant", and that concentrations follow "the temporal pattern of
+operation of outdoor sources (e.g. traffic) but also on indoor sources (e.g. the daily cycle of
+cooking)". A household cooking on charcoal and a road at rush hour are both visible in an hourly
+series and neither is visible in a daily mean. So `outdoor_window` takes `(hour, pm25)` pairs and
+returns the cleanest hours — every hour at the best level, not one, because a person with a fixed
+appointment at nine needs to know whether nine is inside the window.
+
+**The window that is not there.** With no hourly series the window is *empty* and its advice says
+why. Naming an hour from the single daily figure would be naming an hour nobody measured, which is
+exactly the fabrication §MON-006's own Data sources clause — "Reference monitors where available;
+low-cost sensor networks; satellite-derived estimates; crowdsourced visibility reports" — is written
+against. The four other Features do not depend on the series, so a client without one still gets the
+index, the advisory, the mask guidance and the source.
+
+**"Pollution source information" is an exclusion and not a detection.** A monitor reads a
+concentration and cannot read a source, so the field is `likely` and the method is what the evidence
+rules out. The categories are WHO's own — road traffic, waste and agricultural burning, forest and
+savannah fire, household fuel combustion — and the caller supplies the flags, because a market's
+waste burning is something a county team reports and not something a PM2.5 number contains. With
+nothing reported the list is empty and `evidence` says the source is not known. That is the honest
+answer, and it is not a dead end: the advice says an unexplained high reading is often the one worth
+reporting, rather than leaving a person with a number and no action.
+
+**The mask text is the repo's own, and it says what a mask does not do.** WHO's guidelines
+deliberately do not make this recommendation — individual-level measures are "addressed in another
+document" — so what the source supports is the *absence* of a recommendation, not a wording. The text
+therefore names N95/KN95, says a cloth or surgical mask helps much less, and states plainly that a
+mask is not a substitute for staying out of the smoke. Guidance implying otherwise has somebody
+standing in traffic smoke feeling safe.
+
+**Counts: 3 rows left `missing` — 3 to `carried` — 45 → 42.** 493 rows, `carried` 434, `missing` 42,
+`deferred` 17.
+
+**Sources.** `sources/air-quality/` — WHO's *Global air quality guidelines* (2021), and the US EPA's
+*Technical Assistance Document for the Reporting of Daily Air Quality* (EPA-454/B-18-002, 2018), each
+archived with its `pdftotext -layout` copy and both checksums. `sources/INDEX.md` records per source
+what it supports and what it does **not**: WHO gives no index and no mask recommendation; the EPA's
+scale is the US one and its top row carries a footnote the lower rows do not.
+
+**Canaries: 16/16 fired.** The truncation removed before the band is chosen; the top of the scale
+extrapolated instead of capped; the reading and the index free to disagree; the index and the
+category free to disagree; one hour named instead of every hour at the best level; the window
+invented from the daily figure when no series exists; the hours left in the order they arrived; a
+source asserted with no evidence; the mask text losing what a mask does not do; the advisory becoming
+a second wording; the window ceasing to say when no hour is clean; the route dropping its required
+location; the route dropping the hourly series; a window carrying an index with no hours; an unnamed
+source passing the list check; and a day with no readings getting a window instead of a refusal.

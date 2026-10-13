@@ -7,9 +7,10 @@
 # long, which is the failure the storage step exists to prevent.
 REMINDER_INTERVAL_HOURS = 24
 from afya.alerts.views import (
-	CHLORINE_TURBIDITY_LIMIT_NTU, SERVICE_STATUS_KINDS, TREATMENT_CAVEATS, TREATMENT_STEPS,
-	AirQuality, AlertKind, CommunityAlert, FloodReport, ServiceStatus, StorageGuidance,
-	TreatmentGuidance, TreatmentMethod, TreatmentReminder, WaterQuality, WaterSafety,
+	AQI_CATEGORIES, CHLORINE_TURBIDITY_LIMIT_NTU, SERVICE_STATUS_KINDS, TREATMENT_CAVEATS,
+	TREATMENT_STEPS, AirQuality, AirQualityGuidance, AirQualityReading, AlertKind, CommunityAlert,
+	FloodReport, OutdoorWindow, PollutionSource, ServiceStatus, StorageGuidance, TreatmentGuidance,
+	TreatmentMethod, TreatmentReminder, WaterQuality, WaterSafety, pm25_aqi,
 )
 from afya.alerting.views import FeedItem
 from afya.logmixin import LogMixin
@@ -201,6 +202,154 @@ class AlertsService(LogMixin):
 		if a.band == 'watch':
 			return f'Air elevated ({a.county}): PM2.5 {a.pm25:.0f} — sensitive groups take care.'
 		return f'Air quality normal for {a.county}.'
+
+	def air_reading(self, a: AirQuality, location: str) -> AirQualityReading:
+		"""§MON-006's "AQI for user's location": the index, and the category a screen prints.
+
+		`location` is supplied rather than resolved from a coordinate. §LOC-002 keeps a person's
+		position on their own device and §SEC-001's ledger governs what leaves it, so a server that
+		geocoded a reading would be holding a position nobody consented to. A place name is what the
+		screen shows and what a person would say out loud.
+		"""
+		index = a.aqi
+		category = next((name for low, high, name in AQI_CATEGORIES if low <= index <= high), None)
+		assert category is not None, f'index {index} is outside every category the scale defines'
+		return AirQualityReading(
+			county=a.county, location=location, pm25=a.pm25, aqi=index, category=category,
+		)
+
+	def mask_guidance(self, a: AirQuality) -> str:
+		"""§MON-006's "mask guidance", as what to wear and when it is worth wearing.
+
+		WHO's guidelines deliberately do not make this recommendation — they say "individual-level
+		interventions, such as the use of personal respiratory protection (e.g. masks, respirators,
+		air purifiers) or behavioural measures, are addressed in another document" — so the text here
+		is the repo's own, and it is written to say what a mask does *not* do as plainly as what it
+		does. A cloth mask against PM2.5 is a partial reduction and not a protection, and guidance
+		that implied otherwise would have somebody stand in traffic smoke feeling safe.
+		"""
+		if a.band == 'alert':
+			return (
+				'A well-fitting N95 or KN95 mask, if you have one, cuts how much you breathe in. '
+				'A cloth or surgical mask helps much less. A mask is not a substitute for staying '
+				'out of the smoke — the best protection is not being in it.'
+			)
+		if a.band == 'watch':
+			return (
+				'You do not need a mask at this level. If you have a heart or lung condition and you '
+				'must be out for long, an N95 is worth carrying.'
+			)
+		return 'No mask needed at this level.'
+
+	def outdoor_window(self, a: AirQuality, location: str, hourly: list[tuple[int, float]]) -> OutdoorWindow:
+		"""§MON-006's "best times for outdoor activity": the hours, given the day's readings.
+
+		WHO's guidelines are why this is a time of day rather than a number: exposure "is a product of
+		the pollutant concentration and the time over which a person is in contact with that
+		pollutant", and concentrations follow "the temporal pattern of operation of outdoor sources
+		(e.g. traffic) but also on indoor sources (e.g. the daily cycle of cooking)". So a household
+		cooking on charcoal and a road at rush hour are both visible in the hourly series and neither
+		is visible in a daily mean.
+
+		The window is the *best* hours, not the good ones: on a day where every hour is unhealthy the
+		answer is the least bad hour, because a person still has to go out — and the advisory says
+		which it is. `hourly` is `(hour, pm25)` pairs the caller supplies; a service that invented an
+		hourly curve would be inventing the weather.
+		"""
+		assert hourly, 'a day with no hourly readings has no window to name'
+		assert all(0 <= h <= 23 for h, _ in hourly), 'an hour of the day is 0-23'
+		best = min(pm25_aqi(pm25) for _, pm25 in hourly)
+		# Every hour at the best level is offered, not one: a person with a fixed appointment at
+		# nine needs to know whether nine is inside the window, and a single named hour would answer
+		# a question they did not ask.
+		hours = sorted(h for h, pm25 in hourly if pm25_aqi(pm25) == best)
+		index = self.air_reading(a, location)
+		if index.aqi <= 100:
+			advise = 'The air is fine all day; these are simply the cleanest hours.'
+		elif best <= 100:
+			advise = 'Go out in these hours; they are the cleanest of the day.'
+		else:
+			advise = (
+				'No hour today is clean. These are the least bad — keep it short and avoid exertion.'
+			)
+		return OutdoorWindow(
+			county=a.county, location=location, hours=hours,
+			best_aqi=best if hours else None, advise=advise,
+		)
+
+	def pollution_source(self, a: AirQuality, location: str, *,
+			traffic_nearby: bool = False, waste_burning_reported: bool = False,
+			household_fuel_use: bool = False, wildfire_reported: bool = False) -> PollutionSource:
+		"""§MON-006's "pollution source information", as what the evidence rules out and what is left.
+
+		A monitor reads a concentration and cannot read a source, so the field is `likely` and the
+		method is exclusion rather than detection. WHO's guidelines name the categories — "land, air
+		and water transportation; industry and power generation; and biomass burning, which includes
+		controlled and uncontrolled forest and savannah fires and agricultural waste burning, as well
+		as waste burning in urban areas" — and household fuel combustion separately, which the same
+		document defines as its own source.
+
+		Each flag is evidence *for* a source, and the caller supplies it because the service cannot
+		see it: a market's waste burning is something a county team reports, not something a PM2.5
+		number contains. When nothing is reported the list is empty and `evidence` says why, which is
+		the honest answer — "we do not know" is a real thing to tell a person, and a guessed source
+		on a health screen is worse than a blank.
+		"""
+		likely: list[str] = []
+		if traffic_nearby:
+			likely.append('road traffic')
+		if waste_burning_reported:
+			likely.append('waste or agricultural burning')
+		if household_fuel_use:
+			likely.append('household cooking and heating fuel')
+		if wildfire_reported:
+			likely.append('forest or savannah fire')
+		if likely:
+			evidence = (
+				'The sources below are the ones this report can account for, from what has been '
+				'reported around you. Others may be contributing.'
+			)
+			advise = (
+				'Burning of any kind is the part of this you can act on: do not add to it, and keep '
+				'windows closed on the side the smoke is coming from.'
+			)
+		else:
+			evidence = (
+				'No specific source has been reported in your area, so nothing can be named with '
+				'confidence. The reading itself is real; where it is coming from is not known.'
+			)
+			advise = (
+				'A high reading with no known source is often the one worth reporting. If you can '
+				'see or smell smoke, report it to your county public health office.'
+			)
+		return PollutionSource(county=a.county, location=location, likely=likely,
+			evidence=evidence, advise=advise)
+
+	def air_quality_guidance(self, a: AirQuality, location: str,
+			hourly: list[tuple[int, float]] | None = None, **source_flags: bool) -> AirQualityGuidance:
+		"""§MON-006's five Features as one answer, on §MON-005's reasoning: one decision, one payload.
+
+		The advisory is `air_alert`'s own string rather than a second wording — one fact on two
+		surfaces, and the copy that drifts is the one the mobile catalogue does not point at.
+
+		`hourly` is optional because the other four Features do not depend on it: a client with no
+		hourly series still gets the index, the advisory, the mask guidance and the source. With no
+		hourly readings the window is **empty** and says so — a window built from the single daily
+		figure would name an hour nobody measured, which is the fabrication the section's own Data
+		sources clause is about.
+		"""
+		window = (
+			self.outdoor_window(a, location, hourly) if hourly
+			else OutdoorWindow(
+				county=a.county, location=location, hours=[], best_aqi=None,
+				advise='No hourly readings for today, so no time of day can be called better than another.',
+			)
+		)
+		return AirQualityGuidance(
+			county=a.county, location=location, reading=self.air_reading(a, location),
+			advisory=self.air_alert(a), mask_guidance=self.mask_guidance(a),
+			outdoor=window, source=self.pollution_source(a, location, **source_flags),
+		)
 
 	async def flood_alert(self, f: FloodReport) -> tuple[str, str]:
 		assert f.rainfall_mm_72h >= 0, 'rainfall non-negative'
