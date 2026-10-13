@@ -348,6 +348,9 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	# §MON-001's tracker reads and writes the wallet's dose log, so the wallet is built first and
 	# handed to it — the same shape as §EMG-001's ambulance leg wrapping §FND-001's registry.
 	records_svc = RecordsService()
+	# §MON-004's "Works with no data connection" needs one queue that both the sync routes and the
+	# medication tracker enqueue into, so it is built here and shared rather than constructed twice.
+	sync_svc = SyncService(store)
 
 	return {
 		'registry': registry,
@@ -381,11 +384,14 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'insurance': InsuranceService(InlineSHAPort()),
 		'places': PlacesService(),
 		'evidence': EvidenceService(registry, FileSystemEvidenceStore('var/evidence')),
-		'sync': SyncService(store),
+		'sync': sync_svc,
 		# §MON-001's child tracker is a view over the wallet's doses, not a second store: a dose
 		# recorded on the tracker screen has to reach the record that outlives the paper card, or the
 		# certificate and the gap list describe a child the parent has been vaccinating.
-		'monitoring': MonitoringService(records_svc),
+		# §MON-004's "Works with no data connection": a dose taken with no signal has to reach the
+		# sync queue, so the tracker is handed the queue rather than the route doing it separately —
+		# a caller that forgot would lose the dose while the screen said it was recorded.
+		'monitoring': MonitoringService(records_svc, sync_svc),
 		'identity': identity_svc,
 		'community': CommunityService(identity_svc),
 		'alerting': AlertingService(),
@@ -3235,7 +3241,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return [c.model_dump(mode='json') for c in monitoring.campaigns(county, on_iso)]
 
 	@app.post('/monitoring/medication')
-	async def monitoring_medication(sched: MedSchedule, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, str]:
+	async def monitoring_medication(sched: MedSchedule, _subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, object]:
 		# A medication schedule is bound to a member of the caller's own wallet, so a schedule
 		# cannot be filed against a stranger's child.
 		try:
@@ -3243,7 +3249,10 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except AssertionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
 		out = await monitoring.add_schedule(sched)
-		return {'schedule_id': out.schedule_id}
+		# §MON-004's "Multiple daily reminders": the instants are served, not just stored. A schedule
+		# acknowledged with its id alone leaves the client to invent the times, which is the count
+		# this bullet replaced — and two clients would invent two different days.
+		return {'schedule_id': out.schedule_id, 'reminder_times': out.reminder_times}
 
 	@app.post('/monitoring/medication/adherence')
 	async def monitoring_adherence(event: AdherenceEvent) -> dict[str, object]:

@@ -107,6 +107,31 @@ class CampaignNotice(BaseModel):
 
 # --- MON-004: medication reminders -------------------------------------------------------
 
+# §MON-004's "Multiple daily reminders". A day has the times a person actually takes medicine at,
+# and the section's count is not one of them: `times_per_day=2` cannot be notified at. These are
+# the instants a reminder fires, on a 24-hour clock, chosen so that a twice-daily course lands on
+# morning and evening rather than on two arbitrary hours.
+REMINDER_CLOCK: dict[int, tuple[str, ...]] = {
+	1: ('08:00',),
+	2: ('08:00', '20:00'),
+	3: ('08:00', '14:00', '20:00'),
+	4: ('06:00', '12:00', '18:00', '22:00'),
+	5: ('06:00', '10:00', '14:00', '18:00', '22:00'),
+	6: ('06:00', '10:00', '14:00', '18:00', '22:00', '02:00'),
+}
+
+
+def reminder_times(times_per_day: int) -> list[str]:
+	"""The instants to wake somebody for a course of `times_per_day` doses.
+
+	Every schedule has times rather than a count, because a count is not a time. The mapping is a
+	table rather than arithmetic — an even division of 24 hours by 6 gives 04:00 as the first dose,
+	which is a time nobody chose.
+	"""
+	assert 1 <= times_per_day <= 6, f'{times_per_day} doses a day is outside the table'
+	return list(REMINDER_CLOCK[times_per_day])
+
+
 class MedSchedule(BaseModel):
 	model_config = MODEL_CONFIG
 	schedule_id: str = Field(default_factory=lambda: 'MED-' + uuid7str().replace('-', '').upper()[:6])
@@ -117,6 +142,11 @@ class MedSchedule(BaseModel):
 	start_iso: str
 	duration_days: int = Field(ge=1, le=365)
 	refill_at_days_left: int = Field(default=7, ge=1, le=60)
+	# Derived from `times_per_day` by the service, never supplied by a caller — the same reason
+	# `RegistrationOutcome.genuine` is derived: two clients computing their own reminder instants
+	# would eventually disagree about when to wake somebody, and the one that disagrees is the one
+	# that is wrong. Empty until `add_schedule` fills it.
+	reminder_times: list[str] = Field(default_factory=list)
 
 
 class AdherenceAction(str, Enum):

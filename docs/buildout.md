@@ -2824,3 +2824,71 @@ sort order, which does not change any hazard — the resolution direction is bak
 table at emit time — so it MISSED. A canary that passes is a bug in the canary: it now flips the
 actual `Clomipramine + Warfarin` row, and the test asserts that specific pair rather than only the
 count.
+
+## §MON-004 — a count where a time belonged, and a rule for a dataset nothing wrote
+
+§MON-004 prints seven Features. Five had carriers; the two that did not failed in the two ways this
+codebase keeps failing — the fact existed somewhere and nothing acted on it, or the fact existed and
+was the wrong shape.
+
+### `times_per_day` is a count, and a count cannot be notified at
+
+"Multiple daily reminders" was `missing` for a shape reason. `MedSchedule.times_per_day` was `ge=1,
+le=6` and there was no reminder *instant* anywhere in the system, so a client that wanted to wake
+somebody for a twice-daily course had to invent both times — and two clients inventing them invent
+two different days. The dose log would then disagree with the reminders that produced it.
+
+`REMINDER_CLOCK` is a table of the 1–6 frequencies, each with its own 24-hour instants, and
+`reminder_times(times_per_day)` reads it. **A table rather than arithmetic**, and the difference is
+the whole point: dividing 24 hours evenly by six gives `04:00` as the first dose of a four-hourly
+course, a time nobody chose, presented to a patient as the time to take a medicine. The table gives
+`06:00/10:00/14:00/18:00/22:00/02:00` — four-hourly across a day, wrapping once at midnight, which is
+what a four-hourly course is. The service derives the instants in `add_schedule` and overwrites
+anything a caller supplied, and the route returns them with the schedule id: a schedule acknowledged
+with its id alone is the count this bullet replaced.
+
+### A conflict rule with no producer is a rule for a dataset nothing writes
+
+"Works with no data connection" was `missing` for the other reason. `SyncService` already carried
+`ConflictRule(dataset='medication', strategy=lww, rationale='Personal')` in `CONFLICT_RULES` — the
+spec's own rule, in §16.3's table — and nothing in the codebase ever queued a `medication` op. A dose
+could only be recorded through `POST /monitoring/medication/adherence`, so the highest-frequency
+health action anyone takes was the one most likely to be logged with no bars and the one that could
+not be.
+
+`record_adherence` now records the dose locally and queues it, and the dataset name is read from the
+spec's table rather than chosen at the call site, so the strategy applied on replay is §16.3's own.
+The queue is a constructor argument and the **composition root** passes it — the same decision §MON-001
+made about the wallet: a route that had to remember to queue would eventually forget, and the screen
+would say the dose was recorded while the server never learned of it.
+
+The dependency is a `typing.Protocol` (`SyncQueue`) rather than an import of `SyncService`, because
+`sync` imports nothing from `monitoring` and a direct reference would be a cycle. It also lets a test
+pass a queue that records what it was handed instead of standing up the whole sync service.
+
+### The defect this work found
+
+The queue is keyed on `op_id`, and the first version built it from the *head* of a UUID7:
+`uuid7str()[:8]`. A UUID7's leading bytes are its millisecond timestamp, so two doses logged in the
+same millisecond produce the same id and the second silently overwrites the first. Doses arrive in
+bursts — a week of them replayed after an outage is exactly when the collisions cluster — so the
+failure mode is losing adherence data at the moment the offline queue exists to keep it. The suffix
+is the unique part; `CampaignNotice` already took its suffix for this reason.
+
+It was caught by a test that counted two doses in the queue rather than checking one existed, and it
+is now canary #7.
+
+**Counts: §MON-004 2 `missing` → 0**, both `carried` with refs that resolve through `afya.refs.py`.
+Across the repo **445 → 447 `carried`, 31 → 29 `missing`**, 493 rows, `deferred` 17.
+
+**Canaries: 7/7 fired.** The instants divided out of 24 hours instead of read from the table; the
+caller's own times honoured; the route answering with the id alone; the dose recorded and never
+queued; the dose queued under a dataset with no conflict rule; the composition root handing the
+tracker no queue; and the op id taken from the timestamp end of the uuid.
+
+**One canary had to be rewritten, and the reason is worth keeping.** The first version of #1 patched
+the table into arithmetic and MISSED — because the test it named checked only that the instants were
+well-formed `HH:MM` strings, distinct and in order, and arithmetic satisfies all three. A canary that
+passes is a bug in the canary, but the bug was in the *test*: it asserted the shape of the answer and
+not the choice behind it. It now asserts the property `REMINDER_CLOCK`'s own comment gives — a
+twice-daily course is a morning and an evening — which is the thing arithmetic cannot do.

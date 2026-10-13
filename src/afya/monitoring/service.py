@@ -4,17 +4,22 @@ chronic logs, environmental risk, and the 21-day contact monitoring diary.
 Scheduling is pure date arithmetic over an injected `today_iso` so the service stays deterministic
 and testable without a clock.
 """
+from datetime import datetime, timezone
+from typing import Protocol
+
+from afya.ids import uuid7str
 from afya.logmixin import LogMixin
 from afya.monitoring.views import (
 	CATCH_UP_GRACE_WEEKS, EPI_DUE_WEEKS, REMINDER_LEAD_DAYS, REMINDER_SLOTS, AdherenceEvent,
 	AdherenceReport, AdherenceAction, CampaignNotice, ConditionProfile, FoodSafetyAlert,
 	HouseholdMonitor, ImmunisationAlert, ImmunisationCatchUp, ImmunisationDue, MedSchedule,
 	MonitoringDay, MonitoringReminder, MonitoringVerdict, NutritionGuidance, PeakFlowReading,
-	ReminderSlot, VectorRisk, WeightReading,
+	ReminderSlot, VectorRisk, WeightReading, reminder_times,
 )
 from afya.alerting.views import FeedItem
 from afya.records.service import RecordsService
 from afya.records.views import ImmunisationRecord
+from afya.sync.views import SyncOp
 
 # Danger symptoms for a monitored contact (MON-009): any of these, or fever, escalates.
 MONITORING_ALERT_SYMPTOMS: frozenset[str] = frozenset(
@@ -79,12 +84,28 @@ def _days_between(iso_a: str, iso_b: str) -> int:
 	return (b - a).days
 
 
+class SyncQueue(Protocol):
+	"""The one method this service needs from the sync layer.
+
+	A `Protocol` rather than an import of `SyncService`, for the reason the dependency runs one way:
+	`sync` imports nothing from `monitoring`, and a direct reference would make that a cycle. The
+	structural type also keeps a test free to pass a queue that records what it was handed instead of
+	standing up the whole sync service.
+	"""
+
+	async def enqueue(self, op: SyncOp) -> SyncOp: ...
+
+
 class MonitoringService(LogMixin):
-	def __init__(self, wallet: RecordsService | None = None) -> None:
+	def __init__(self, wallet: RecordsService | None = None, sync: SyncQueue | None = None) -> None:
 		# The wallet, so a dose recorded here reaches the record that outlives the paper card. The
 		# dependency runs one way — `records` never imports `monitoring` — which is what makes the
 		# wallet the owner of the dose and the tracker a view over it rather than a second store.
 		self._wallet: RecordsService | None = wallet
+		# §MON-004's "Works with no data connection". A dose taken with no signal is still a dose
+		# taken, so it is queued for the sync layer rather than dropped. Absent when the service is
+		# built without one, and the dose is then recorded locally and not queued.
+		self._sync: SyncQueue | None = sync
 		self._campaigns: list[CampaignNotice] = []
 		self._dob: dict[str, str] = {}
 		self._given: dict[str, set[tuple[str, int]]] = {}
@@ -247,13 +268,46 @@ class MonitoringService(LogMixin):
 
 	async def add_schedule(self, sched: MedSchedule) -> MedSchedule:
 		assert sched.times_per_day * sched.duration_days <= 2190, 'unreasonable total dose count'
+		# §MON-004's "Multiple daily reminders": the schedule's own times, computed once here rather
+		# than by each client. `times_per_day` is a count and a count cannot be notified at; two
+		# clients deriving the instants separately would eventually disagree about when to wake
+		# somebody, so the server derives them and serves them.
+		sched.reminder_times = reminder_times(sched.times_per_day)
 		self._schedules[sched.schedule_id] = sched
 		return sched
 
 	async def record_adherence(self, event: AdherenceEvent) -> AdherenceReport:
 		assert event.schedule_id in self._schedules, 'unknown schedule'
 		self._adherence.append(event)
+		# §MON-004's "Works with no data connection". The dose is recorded locally first — that is
+		# the point of the bullet — and then queued so it reaches the server when there is a signal.
+		# A dose is the highest-frequency health action anyone takes and the one most likely to be
+		# logged with no bars, so it must not depend on the network to be kept.
+		if self._sync is not None:
+			await self._queue_adherence(event)
 		return self.adherence(event.schedule_id)
+
+	async def _queue_adherence(self, event: AdherenceEvent) -> None:
+		"""Hand the dose to the sync queue, under §16.3's `medication` rule.
+
+		The dataset name is the one `CONFLICT_RULES` already carries for this data, so the strategy
+		applied on replay is the spec's own (last-write-wins, "Personal") rather than one chosen here.
+		"""
+		assert self._sync is not None, 'a queue is required to queue a dose'
+		# The *tail* of the id, not the head: a UUID7's first bytes are its millisecond timestamp, so
+		# a prefix collides for two doses logged in the same millisecond and the queue — keyed on
+		# `op_id` — keeps the last and drops the first. Doses arrive in bursts (a week of them replayed
+		# after an outage), which is exactly when a collision costs the most. `CampaignNotice` takes
+		# its suffix for the same reason.
+		op = SyncOp(
+			op_id='OP-' + uuid7str().replace('-', '').upper()[-8:],
+			dataset='medication',
+			client_ts=int(datetime.now(timezone.utc).timestamp() * 1000),
+			payload={'schedule_id': event.schedule_id, 'at_iso': event.at_iso,
+			         'action': event.action.value},
+		)
+		await self._sync.enqueue(op)
+		self._log_info('dose queued for sync', schedule=event.schedule_id, action=event.action.value)
 
 	def adherence(self, schedule_id: str) -> AdherenceReport:
 		sched = self._schedules[schedule_id]

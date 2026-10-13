@@ -277,12 +277,12 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	('MON-003', 'Features', 'Danger thresholds with escalation', 'carried', 'afya.chronic.views:BPReading.stage', '`stage`, `level` and `ALERT_LIMITS` set the thresholds; escalation is a `_log_warn`, which is a server log and not a message to anyone'),
 	# --- §9.1 MON-004: Medication Reminders --------------------------------------------------
 	('MON-004', 'Features', 'Add medication, dose, frequency, duration', 'carried', 'afya.monitoring.views:MedSchedule', 'drug, dose, times_per_day and duration_days'),
-	('MON-004', 'Features', 'Multiple daily reminders', 'missing', None, '`times_per_day` is a count, not a list of times; no reminder instant is carried anywhere'),
+	('MON-004', 'Features', 'Multiple daily reminders', 'carried', 'afya.monitoring.views:reminder_times', '`REMINDER_CLOCK` gives each of the 1-6 frequencies its own instants and the service derives them from `times_per_day`, so a count is never served where a time is needed. A table rather than arithmetic: dividing 24 hours by six gives 04:00 as the first dose, and the route returns the times with the schedule id.'),
 	('MON-004', 'Features', 'Mark as taken / skipped / snooze', 'carried', 'afya.monitoring.views:AdherenceAction', 'taken, skipped, snoozed'),
 	('MON-004', 'Features', 'Adherence history', 'carried', 'afya.monitoring.service:MonitoringService.adherence', 'counts by action over the schedule; `record_adherence` keeps the events'),
 	('MON-004', 'Features', 'Refill alerts when supply is running low', 'carried', 'afya.monitoring.views:MedSchedule', '`adherence` raises `refill_due` from it'),
 	('MON-004', 'Features', 'Support for multiple family members', 'carried', 'afya.monitoring.views:MedSchedule', "keyed per member; the route binds the member to the caller's own wallet"),
-	('MON-004', 'Features', 'Works with no data connection', 'missing', None, '`/monitoring/medication` and `/monitoring/medication/adherence` are HTTP routes; `SyncService` has a `medication` conflict rule and nothing queues a dose through it'),
+	('MON-004', 'Features', 'Works with no data connection', 'carried', 'afya.monitoring.service:MonitoringService.record_adherence', 'a dose is recorded locally and queued through `SyncService.enqueue` under the `medication` dataset §16.3 already carries a rule for, so the strategy on replay is the spec\'s own; the queue is injected by the composition root, so a route cannot record a dose and lose it'),
 	# --- §9.2 REC-001: Family Health Wallet (Basic) ------------------------------------------
 	('REC-001', 'Contents', 'Immunisation cards (photo or digital)', 'carried', 'afya.records.views:ImmunisationRecord', 'the EPI schedule and the doses given are modelled; the card itself is not stored as an image'),
 	('REC-001', 'Contents', 'ANC cards', 'carried', 'afya.maternal.views:ANCRecord', 'the eight ANC contacts are modelled against the visit schedule'),
