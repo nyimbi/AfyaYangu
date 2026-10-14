@@ -1,7 +1,7 @@
 """Women's health: menstrual cycle tracking (period prediction, fertile window, §17.6 adolescent protections)."""
 from pydantic import BaseModel, ConfigDict, Field
 
-from afya.ids import uuid7str
+from afya.ids import ref8
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -62,7 +62,7 @@ class ContraceptionPlan(BaseModel):
 	"""
 
 	model_config = MODEL_CONFIG
-	plan_id: str = Field(default_factory=lambda: 'CP-' + uuid7str().replace('-', '')[-6:].upper())
+	plan_id: str = Field(default_factory=lambda: 'CP-' + ref8())
 	subject_ref: str
 	method: str
 	label: str
@@ -105,7 +105,7 @@ class ReproductiveReferral(BaseModel):
 	"""
 
 	model_config = MODEL_CONFIG
-	referral_id: str = Field(default_factory=lambda: 'RH-' + uuid7str().replace('-', '')[-6:].upper())
+	referral_id: str = Field(default_factory=lambda: 'RH-' + ref8())
 	subject_ref: str
 	reason: str
 	services: list[dict[str, str]]

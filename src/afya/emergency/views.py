@@ -1,7 +1,7 @@
 """Emergency domain models (EMG-001..003)."""
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from afya.ids import uuid7str
+from afya.ids import ref8
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -99,7 +99,7 @@ class SOSEvent(BaseModel):
 	"""
 
 	model_config = MODEL_CONFIG
-	sos_id: str = Field(default_factory=lambda: 'SOS-' + uuid7str().replace('-', '')[-6:].upper())
+	sos_id: str = Field(default_factory=lambda: 'SOS-' + ref8())
 	lat: float = Field(ge=-5, le=6)
 	lon: float = Field(ge=33, le=43)
 	symptoms: list[str] = []

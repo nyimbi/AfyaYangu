@@ -3262,20 +3262,30 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		]
 
 	@app.get('/mobile/actions')
-	async def mobile_actions(county: str | None = None, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
-		"""What this caller may actually do.
+	async def mobile_actions(county: str | None = None, simple_mode: bool | None = None,
+	                         authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+		"""What this caller may actually do, and — if they use simple mode — how little they are asked.
 
-		Two filters, both against showing a control that would refuse. An outbreak capability is shown
-		only if §11.1 activates it for this caller — asked of the activation model per feature, not of
-		the PHEOC declaration alone, because rows 3 and 5 activate the contact diary for *one person*
-		and a person who asked for monitoring would otherwise be shown no diary while the route behind
-		it would have served them. And an operator control is withheld from a caller whose role does
-		not hold the dataset its route checks: a health-information form offered to a citizen token is
-		a 403 waiting to happen, which is the same failure.
+		Three filters, all against showing a control that would refuse. An outbreak capability is
+		shown only if §11.1 activates it for this caller — asked of the activation model per feature,
+		not of the PHEOC declaration alone, because rows 3 and 5 activate the contact diary for *one
+		person* and a person who asked for monitoring would otherwise be shown no diary while the
+		route behind it would have served them. An operator control is withheld from a caller whose
+		role does not hold the dataset its route checks: a health-information form offered to a
+		citizen token is a 403 waiting to happen, which is the same failure. And a form is simplified
+		for a caller who asked for simple mode, which is §ACC-001's other half.
+
+		`simple_mode` is a *third* state, not a boolean: `None` means "whatever this caller's profile
+		says", which is what makes the setting reach the forms without the client having to send it
+		back. §ACC-001's simple mode is a stored `AccessProfile` field, and a client that had to pass
+		it per request would be a second place for the same preference to live — the first place being
+		the one `POST /access/profile` writes. `True`/`False` override it, for a preview or for a
+		caller with no profile yet.
 
 		No token means a citizen: the app's own screens work unauthenticated, so the citizen set is
 		the default rather than a refusal.
 		"""
+		from afya.access.forms import required_fields, simplified
 		from afya.mobile.actions import available
 		scopes: frozenset[str] = frozenset()
 		subject_ref: str | None = None
@@ -3286,13 +3296,15 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			except HTTPException:
 				scopes = frozenset()
 		state = activation.state(county=county, subject_ref=subject_ref)
-		return [
-			act.model_dump(mode='json')
-			for act in available(
-				registry.tier4_active(), scopes,
-				feature_available=lambda fid: activation.feature_available(fid, state),
-			)
-		]
+		acts = available(
+			registry.tier4_active(), scopes,
+			feature_available=lambda fid: activation.feature_available(fid, state),
+		)
+		simple = simple_mode if simple_mode is not None else (
+			subject_ref is not None and access.profile(subject_ref).simple_mode)
+		if simple:
+			acts = simplified(acts, required_fields(app))
+		return [act.model_dump(mode='json') for act in acts]
 
 	@app.get('/places/nearest')
 	async def places_nearest(lat: float, lon: float, kinds: list[str] | None = None, limit: int = 5) -> list[dict[str, object]]:

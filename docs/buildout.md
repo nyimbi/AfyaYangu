@@ -4537,3 +4537,126 @@ format. The 91-day quarter is §22.8's own derivation, the ten-person floor is �
 archived, and the rest is the deployment's choice, recorded as one. `sources/INDEX.md` gains no
 entry: there is no external figure here to archive, and inventing one to fill the table would be
 worse than the gap.
+
+## §ACC-001 — the flag that reached the screens and not the forms
+
+§ACC-001 prints two Features one line apart: *"Simplified forms"* and *"Optional 'simple mode' that
+hides advanced features"*. The second was built — `AccessProfile.simple_mode` is a stored flag and
+`AccessService.screens(simple_mode)` drops the assets marked not visible — and the first was carried
+by nothing. A person who turned simple mode on got fewer screens, and every form on the screens that
+remained asked exactly what it asked everybody else. Same shape as the rest of this repo's gaps:
+every visible part exists and the join does not.
+
+### What closed it
+
+- **`SIMPLE_FORM_DROPS`**, keyed on the catalogue's action id, naming the fields a simple form leaves
+  off. Keyed rather than derived on purpose: an action with no entry is unchanged, so a new action is
+  never shortened by accident, and the list is a curation a person maintains rather than a rule that
+  reads metadata it cannot see.
+- **The list is a curation because a derivation is wrong here, and that was measured rather than
+  assumed.** A pure rule keyed on "optional" drops 156 fields and leaves 16 forms empty. A
+  `required + one-tap` rule still leaves 2. An `ADVANCED_FIELDS` name table of ~180 entries breaks
+  121 body-required occurrences and needs ~133 rescue entries. Nothing in a field's own metadata
+  separates `temperature_c` — optional-with-a-default on `/triage/preliminary` and the input §6.3's
+  malaria trap reads — from `muac_mm` on `/records/growth`, optional in the same way and a refinement
+  most people never measure. A rule would drop the first and keep the second.
+- **`required_fields(app)` reads requiredness off the live routes**, so the list cannot drift from the
+  models it drops from. Three ways a route cannot be called without a value, all three collected: a
+  body field with no default, a scalar parameter with no default, and a **path placeholder** — which
+  FastAPI does not leave in the endpoint signature at all, so a reader that only walked parameters
+  reported `/facilities/{facility_id}/ed-status` as needing nothing.
+- **The walk is recursive.** FastAPI mounts routers, so the paths live on nested `APIRoute`s and a
+  top-level pass finds six routes and calls itself an inventory.
+- **Three gates run in the service, not only in the test.** A dropped field may not be one the route
+  requires (§11.1's "a control the server refuses" read backwards); a simplified form may not be left
+  with nothing drawn; every dropped name must still exist on the action it names, so a rename fails
+  rather than silently simplifying nothing. A deployment must not serve a form that cannot fill its
+  own route even if the suite is the only thing that would have noticed.
+- **`simple_mode` on the route is a third state, not a boolean.** `None` means "whatever this caller's
+  profile says" — which is what makes the stored setting reach the forms without the client sending it
+  back, the second place for one preference to live that §ACC-001 already has one of. `True`/`False`
+  override, for a preview or a caller with no profile yet.
+- **The drop list is cross-cutting.** §ACC-001 is a low-literacy interface, not a citizen one, so the
+  operator forms are in the table — a CHW on a phone benefits identically. The DPIA flags on
+  `dpia_check` and `activate_outbreak_mode` are deliberately absent: on those two forms the flags are
+  the content, and dropping them would record a privacy assessment nobody made.
+
+### The entry the table taught
+
+`symptom_diary` drops only `logged_at_iso`, and the first draft dropped `temperature_c` and
+`red_flags` with it — both optional, both with defaults, and a diary entry reads fine without either.
+They are not droppable, because `/triage/{ref}/diary/trend` computes its direction from exactly those
+two: `delta = last.temperature_c - first.temperature_c`, and a red flag appearing flips the trend to
+`worsening`. Dropping them from the **entry** form leaves every entry at the default 36.5 with no
+flag, so the trend screen answers "no change" — correctly about the data it was given, wrongly about
+the person. No required-field gate can see this: the fields are not required by the route, they are
+read by another screen. A form is not free to drop a field another screen reads.
+
+### The defect this unit found underneath it
+
+Writing the diary test failed with `assert 'unknown' == 'worsening'` and one entry in the store after
+two appends. `DiaryEntry.entry_id` was `'DIARY-' + uuid7str().replace('-', '').upper()[:10]` — and a
+UUID7 is not uniformly random. Its leading 48 bits are a millisecond timestamp, so the first ten hex
+characters are constant across a **256 ms** window: two entries logged in the same breath shared an
+id and the second replaced the first in the service's dict. Two days of symptoms became one.
+
+`SOSEvent.sos_id`, `ContraceptionPlan.plan_id` and `ReproductiveReferral.referral_id` all read a
+UUID7 short at the other end (`[-6:]`, 24 bits of random field, a birthday collision at roughly 4,800
+ids in a process) — the same mistake with a different constant, so all four were fixed together
+rather than only the one the failing test named.
+
+`afya.ids.ref8()` replaces all four: twelve bits drawn once per process so two processes do not march
+in step, and twenty bits of a monotonic counter, so an id cannot repeat until a million have been
+minted. Eight characters, because the point of the short form is that it survives being read aloud.
+`tests/ci/test_ids.py` pins the guarantee and, separately, pins that the **truncated form still
+collides** — a test that only asserts the new thing is distinct would pass against any implementation
+and would not record that there was a defect at all.
+
+### Canaries
+
+`tests/ci/canary_acc001.py`, 13 canaries, **9/13 fired on first run.** Two misses were canaries that
+were not defects and one was a test weaker than its name:
+
+- *"a simplified form drops a required field"* added `subject_ref` to a drop entry. `subject_ref` is
+  `client_supplied` and is not a field on the catalogue action at all — the drop list and the route's
+  required set are keyed on different vocabularies, and the gate asserted `unknown`, which is a
+  different failure. Replaced with `lat`, which `/places/testing-sites` genuinely requires.
+- *"a simplified form is left with nothing drawn"* dropped `subject_ref`/`sos_id` from `sos_countdown`
+  — neither is drawn, so the form still had controls. Replaced with the four it does draw.
+- *"the diary reference is a truncated UUID7 again"* mutated `ref8` to `str(uuid7())[-8:]`, which is
+  32 bits of random field and does not reproduce the collision at all. A mutation has to be the shape
+  of the bug: `str(uuid7())[:8]` is the timestamp slice and fires.
+- The same miss then exposed **`test_the_diary_keeps_the_two_fields_the_trend_screen_reads` as a test
+  weaker than its name** — it built its `DiaryEntry`s directly and asserted on the model, so it passed
+  against a drop list that removed both fields. Rewritten to assert on the *shortened catalogue's*
+  drawn fields first, then drive the entries through the service.
+- *"the reference is drawn rather than counted"* (32 random bits) survived 50,000 draws, twice in a
+  row — at that size it collides about 27% of the time, so the canary was probabilistic and a
+  probabilistic canary is not a gate. Replaced with one that reads the reference off the clock, which
+  must collide over 50,000 calls because they span far more than the window a millisecond timestamp
+  is constant across. The `import time` sits inside the mutated function so the failure is the
+  collision and not a `NameError`, which would read as CAUGHT for the wrong reason.
+
+### Live probe
+
+- `GET /mobile/actions` → 184 actions, 483 fields; `?simple_mode=true` → 184 actions, **443 fields**
+  — the same surface, 40 fewer questions, and not one action gained or lost
+- `sos` drawn fields 10 → 6: `blood_group`, `allergies`, `conditions`, `medications` go, and `lat`,
+  `lon`, `severity`, `symptoms`, `contacts`, `channel` stay
+- `POST /access/profile {"simple_mode": true}` → 200, then `GET /mobile/actions` **with no
+  `simple_mode` query** serves the short form — the stored setting reaches the forms
+- `?simple_mode=false` on the same token → the long form back, so the override works both ways
+- an anonymous caller with no profile → the full form, because the short one is the opt-in
+- two diary entries posted back to back → 2 entries with distinct ids, and `/triage/{ref}/diary/trend`
+  → `worsening`, `['temperature up 2.4 °C', 'a red flag was logged']`
+- no spec feature code in the served payload; `GET /zzz/deep/path` → **404**, so the 200s are not a
+  catch-all stub
+
+**§ACC-001 2 `missing` → 1** (the video-tutorial row is still open — there is no video asset to
+render). Across the repo **472 → 473 `carried`, 8 → 7 `missing`**, 497 rows, `deferred` 17 unchanged,
+`unresolved == []`.
+
+**No new source.** §ACC-001 states no field list and no rule for what counts as advanced; the
+curation is this deployment's judgement, written down as one, and the three gates are what keep a
+judgement from becoming a defect. `sources/INDEX.md` gains no entry: inventing a figure to fill the
+table would be worse than the gap.
