@@ -5839,3 +5839,159 @@ external dependencies §ACC-001 and §ACC-002.
 
 **No new source.** The governing text is this repo's own `docs/spec.md`; the bound is derived from
 the tree's own corpus rather than from a published threshold.
+
+## §CHAN-000 & §CHAN-004 — a live programme with no queue, and content nobody could submit (2026-10-14)
+
+### The finding
+
+Six of the audit's eleven `missing` rows sat in two sections, and **three of the six were the same
+absence printed twice**. §CHAN-0 (Community Radio) prints "Call-in Q&A with a health worker";
+§CHAN-4 (Social Media) prints "Live Q&A with clinicians". Both are a live programme, and a live
+programme needs three things this tree had none of: a **schedule** (when it is on), a **queue**
+(who is asking) and a **record of a call answered** (what a person who missed it reads). The audit
+note said so in its own words on both rows.
+
+The other three were each a *content format* nothing produced: animation ("`illustration` is a
+still SVG, which is a different medium — an explainer that moves is not a picture that does not"),
+"Day in the life" CHW material ("the corpus has no format for first-person CHW material"), and
+user-generated content ("no submission path, no consent record for a testimonial, and no
+moderation"). §CHAN-003 held two more — claims about the audience rather than capabilities.
+
+### One mechanism, two channels
+
+`afya.live` is three models, and each is one of the things the note named absent:
+
+* `LiveSession` — the schedule: `platform` (`radio_callin` | `social_live`), `topic`, `clinician`,
+  `starts_at_iso`, `ends_at_iso`, `status` (`scheduled` | `live` | `ended`).
+* `SessionQuestion` — the queue: the text, the §SEC-004 rotating handle of whoever asked, and the
+  answer once there is one.
+* `SessionTranscript` — the record, built from `TranscriptEntry`, which has **no field for a
+  handle** at all.
+
+The two channels are one mechanism because they *are* one thing. A deployment running the radio
+call-in and the WhatsApp session as two queues would answer one person's question twice, and the
+section's own two entries differ in where the audience is, not in what happens.
+
+**No model here carries a person.** The asker is a §SEC-004 rotating handle derived from the subject
+rather than the subject itself — a queue is read by whoever is running the programme and a
+transcript by anyone at all, so the identifier that reaches either has to stop naming the person
+when the window turns over.
+
+### The queue is fed from the channels that already exist
+
+`ChannelService.absorb_into_live` hands every report the sink already holds to
+`LiveService.absorb_report`. A message arriving while a session is open becomes a queued question
+rather than a second inbox — the same "one backend" rule §CHAN-2's Integration clause states, and
+the mechanism that makes a *radio call-in* a queue rather than a phone.
+
+The absorb is **idempotent on the report id**, and it has to be: the three channel routes walk the
+whole report sink after *every* session, so an absorb with no memory queues a person's question once
+per later programme they open — a subscription to their own report. `mark_absorbed` seeds the set
+with the sink's existing backlog at wiring time, so a report filed before the programme existed is
+never resurrected into one.
+
+### An id built from a UUID7's timestamp collided in the same breath
+
+The first version of `live/views.py` minted both ids as
+`uuid7str().replace('-','').upper()[:10]`. A UUID7's leading bits **are** a millisecond timestamp, so
+that prefix is constant across a **256 ms window** — and a queue is exactly the place two records are
+made in the same breath. Probed live:
+
+      asked a: LQ-01A13C1D8E
+      asked b: LQ-01A13C1D8E
+      store keys: ['LQ-01A13C1D8E']
+
+The second question silently replaced the first. `afya.ids` documents this exact failure and ships
+`ref8()` for it — a counter with a 12-bit per-process prefix. Both ids now use it, and
+`test_a_burst_of_questions_gets_a_burst_of_distinct_ids` asks 200 questions and asserts 200 distinct
+ids.
+
+### Judging an answer is not refusing one
+
+`answer()` runs `judge(surface, answer, Subject.answer)` and **records** the findings on the question
+rather than raising on them. Probed against the tree's own gate: *"It is likely a viral infection."*
+fails `no_action`, and *"Take paracetamol — 500mg."* fails `not_forwardable` (the em dash is outside
+GSM-7). A hard assert-clean gate would refuse ordinary clinical speech, which is the one failure mode
+that gets a gate switched off. `decline()` never calls `judge` at all — there is no answer to judge,
+and the function asserts non-empty text.
+
+The rule that *must* bite is the stigmatising one, and it is the case the test names: an answer
+calling someone "an Ebola victim" reaches a supervisor with the verdict on the row it is on.
+
+### Submitted content: the consent match the handle could never make
+
+`afya.info.submissions` carries `StorySubmission` with **two identifiers kept apart**: `subject_ref`
+does the consent matching and never reaches a screen; `author` is the §SEC-004 handle a reader sees.
+That separation is load-bearing rather than tidy — a handle is a *different value derived from* the
+subject, so a submission carrying only a handle can never match its own consent and the check would
+silently never fire.
+
+`submit()` refuses on four distinct grounds: no record at all, a record belonging to someone else, a
+withdrawn record, and a record filed under a different purpose. It validates the record the caller
+**handed over** rather than calling `has_consent`, which answers an id-less predicate and would
+accept a different record under the same subject.
+
+**`approve()` does not publish.** It drafts a `ContentItem` at `ContentStage.draft` and writes it
+through `upsert_content`, so the story then walks §6.5's existing workflow — draft → clinical review
+→ translation → back-translation → community validation → published. Moderation is not publication;
+the workflow is the gate. It sets `harmony_tag` and runs `content_verdicts` itself, because
+`upsert_content` is not the route and a story written straight through with `harmony_tag=None` would
+pass approve and then **assert at serve time** in `library()` — a 500 rather than a refusal.
+
+### Motion: a rendition, not new clinical copy
+
+`ContentFormat.animation` is the medium the corpus lacked, and `afya.info.explainers.render_explainer`
+produces the asset: a deterministic SVG whose scenes are the **parent item's own sentences**, with a
+per-scene `<animate>` timeline and captions in the item's language. Committed to
+`media/explainers/`, following the `models/` precedent, with the committed file asserted **equal** to
+what the generator produces — so the asset cannot rot away from the source that explains it.
+
+This is deliberately *not* the §ACC-001 move. §ACC-001's video tutorials stay open because a
+generator cannot produce §6.5-cleared clinical content — a tutorial in a local language is new
+clinical copy and the workflow has to clear it. An explainer here is a rendition of text that is
+**already cleared**: the scenes are the parent's own sentences, from a corpus that already carries an
+`owner`, a `reviewer` and a review date. No new clinical sentence is authored. If the generator ever
+starts writing its own copy, that reasoning breaks and the row belongs back in `missing`.
+
+### The vignette's script is here and the master tape is not
+
+`RadioVignette` carries named roles, numbered scenes, attributed lines and §CHAN-000's three themes
+(prevention, care-seeking, stigma) with the runtime matched to the slot, and `schedule_vignette`
+runs §6.2 over the dialogue rather than only the `script` field. The row stays **`deferred`** and the
+note says why: a station records it and a person voices it. §ACC-001 and §ACC-002 both refuse
+synthetic narration in a local language no speaker has validated, so the tree cannot produce one
+either.
+
+### The two §CHAN-003 bullets are conditions on the world, not gaps
+
+"Zero user education required" and "No app store, no storage, no updates" are printed as *reasons the
+channel was chosen* — arguments about the audience, not capabilities a deployment supplies. Both are
+now `deferred` with the phrase the deferred gate requires, which makes the pinned world set grow
+**2 → 5**. That pin got *stronger*, not weaker: a bullet moved into `deferred` to make a gap
+disappear fails there.
+
+### The canary
+
+`tests/ci/canary_chan000.py` — six mutations, all six fired:
+
+| Mutation | Caught by |
+|---|---|
+| the question id is a truncation again | `test_a_burst_of_questions_gets_a_burst_of_distinct_ids` |
+| the absorb forgets the report it already took | `test_the_absorb_is_idempotent_on_the_report_id` |
+| the transcript is built from the queue row and carries the handle | `test_the_transcript_names_no_person_and_counts_what_was_not_answered` |
+| the answer is stored without judging it | `test_a_stigmatising_answer_is_recorded_with_its_verdict_rather_than_refused` |
+| a vignette theme is renamed out of the section's list | `test_the_theme_list_is_the_sections_three_and_only_three` |
+| a line may be spoken by somebody outside the cast | `test_a_line_spoken_by_somebody_outside_the_cast_is_refused` |
+
+Two of the canary's own targets were wrong on the first run and the `assert count == 1` caught both:
+the cast check is a set difference (`unknown = speakers - self.roles`), not the `assert line.speaker
+in self.roles` the file first named, and `Finding` requires a `surface`. The `_node` helper was also
+wrong — keying on `/` sends `test_live.py::x` to `test_chan000.py::test_live.py::x`, which collects
+nothing and reads as a canary that fired.
+
+**Across the repo 539 → 544 `carried`, 11 → 3 `missing`, 17 → 20 `deferred`.** The three that remain
+are §ACC-001's video tutorials, §ACC-002's six-language ASR and §CHAN-005's printed flip chart —
+each open for a reason this unit does not change, and each pinned by a test that asserts it stays
+open.
+
+**No new source.** The governing text is this repo's own `docs/spec.md`.

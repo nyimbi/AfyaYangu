@@ -322,16 +322,22 @@ class ContentFormat(str, Enum):
 	illustration = 'illustration'
 	audio = 'audio'
 	video = 'video'
+	# §CHAN-004's Content types: "Animated explainers on symptoms and prevention." A still
+	# illustration is a different medium from one that moves, which is why this is a member rather
+	# than a synonym for `illustration` — the audit row §CHAN-004 carries is about motion, and a
+	# picture that does not move cannot answer it. Non-text like the other three: an explainer is a
+	# file, and `afya.info.explainers` is what produces it from a parent item's own sentences.
+	animation = 'animation'
 
 	@property
 	def is_text(self) -> bool:
 		"""Whether the format is delivered as prose the item's own `body` carries.
 
 		An article and a short card are both text — the card is shorter, not a different medium — so
-		they are the two that need no `media_ref`. An illustration, an audio version and a video
-		version are renditions of the text, and each is a file somewhere that the item must point at,
-		because "we made an audio version" with nothing to play is the claim §6.2.3 exists to stop one
-		field over.
+		they are the two that need no `media_ref`. An illustration, an audio version, a video version
+		and an animated explainer are renditions of the text, and each is a file somewhere that the
+		item must point at, because "we made an audio version" with nothing to play is the claim
+		§6.2.3 exists to stop one field over.
 		"""
 		return self in (ContentFormat.article, ContentFormat.card)
 

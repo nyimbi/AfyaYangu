@@ -58,6 +58,8 @@ async def test_the_library_route_serves_renditions_under_their_parent() -> None:
 	"""The route, not just the service: `renditions` is a key on each served article, with the format
 	and the file. A client that had to ask a second time would render the text before knowing it had
 	an audio version, which is the reason the two are one payload."""
+	from afya.info.views import ContentFormat
+
 	app = create_app()
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		rows = (await c.get('/info/library?lang=en')).json()
@@ -65,9 +67,12 @@ async def test_the_library_route_serves_renditions_under_their_parent() -> None:
 	assert all('renditions' in r for r in rows), 'every article carries the key, empty or not'
 	with_media = [r for r in rows if r['renditions']]
 	assert with_media, 'at least one article must carry a rendition or the format cells are unserved'
+	# The non-text formats, read off the enum: a hand-written set here would have to be widened every
+	# time a format is added, and the one that is not widened is the one that goes unchecked.
+	non_text = {f.value for f in ContentFormat if not f.is_text}
 	for row in with_media:
 		for rend in row['renditions']:
-			assert rend['format'] in {'illustration', 'audio', 'video'}, rend
+			assert rend['format'] in non_text, rend
 			assert rend['media_ref'] and rend['title'], rend
 			assert 'INF-' not in rend['media_ref'], 'a spec code must not reach a file path'
 

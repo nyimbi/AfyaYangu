@@ -248,6 +248,13 @@ FEATURE_OF: dict[str, str] = {
 	'chw_cases': 'COM-101', 'assign_chw_case': 'COM-101', 'log_chw_activity': 'COM-101', 'chw_activity': 'COM-101',
 	'callback_requests': 'CHAN-001', 'callback_handled': 'CHAN-001',
 	'channel_reports': 'CHAN-002', 'channel_report_handled': 'CHAN-002',
+	# §CHAN-000's call-in and §CHAN-004's clinician Q&A: the queue, the schedule and the record.
+	'live_sessions': 'CHAN-000', 'ask_live_question': 'CHAN-000', 'live_transcript': 'CHAN-000',
+	'schedule_live_session': 'CHAN-000', 'live_queue': 'CHAN-000', 'open_live_session': 'CHAN-000',
+	'close_live_session': 'CHAN-000', 'answer_live_question': 'CHAN-000',
+	'decline_live_question': 'CHAN-000',
+	# §CHAN-004's user-generated content and its moderation queue.
+	'submit_story': 'CHAN-004', 'story_queue': 'CHAN-004', 'moderate_story': 'CHAN-004',
 	'chw_case_load': 'COM-101', 'chw_ppe_reminder': 'COM-101',
 }
 
@@ -285,6 +292,16 @@ OPERATOR_SCOPES: dict[str, str] = {
 	# number and the symptom a person reported from it, which is health data about someone who has
 	# not consented to anything by pressing a menu key.
 	'channel_reports': 'assigned', 'channel_report_handled': 'assigned',
+	# §CHAN-000's call-in queue. Worked by a *health worker* — the section's own wording — and
+	# `assigned` is §17.4's scope for that role. §CHAN-004's clinician is named on the session
+	# rather than holding a token: `clinician` in the table is scoped `consented_patient`, which is
+	# a read of another person's record through a share, and hosting a broadcast is not that.
+	# Scheduling a programme is operations, and §17.4's eight roles hold no broadcaster.
+	'schedule_live_session': 'infrastructure',
+	'live_queue': 'assigned', 'open_live_session': 'assigned', 'close_live_session': 'assigned',
+	'answer_live_question': 'assigned', 'decline_live_question': 'assigned',
+	# §CHAN-004's moderation queue: what people have offered to share, before any reader sees it.
+	'story_queue': 'infrastructure', 'moderate_story': 'infrastructure',
 	'chw_profile': 'assigned', 'log_chw_activity': 'assigned', 'submit_case': 'assigned',
 	'advance_case': 'assigned', 'peer_alert': 'assigned', 'send_exposure_notice': 'assigned',
 	# §10.1's provider-side view. §17.4's clinician row is "Patients who have consented to share",
@@ -438,6 +455,25 @@ def catalogue() -> list[MobileAction]:
 		_a('myth_library', 'What is rumour and what is true?', 'Information', 'GET', '/info/myths', [_f('lang', 'Language', 'select', ['en', 'sw']), _f('q', 'Something you heard', ph='optional')]),
 		_a('ask_about_a_rumour', 'Is it true that…?', 'Information', 'POST', '/info/myths/ask', [_f('claim', 'What did you hear?', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw'])]),
 		_a('hotline_directory', 'Useful phone numbers', 'Information', 'GET', '/info/hotlines', []),
+		# §CHAN-000's call-in and §CHAN-004's clinician Q&A, from the listener's side. A person
+		# hears a programme announced, asks a question on it while it is on air, and reads back what
+		# was answered if they missed it — three controls, and the *asker is the token*, so there is
+		# no field here for a subject: the route derives a §SEC-004 handle from whoever holds it.
+		_a('live_sessions', 'Programmes on air', 'Information', 'GET', '/live/sessions',
+		   [_f('platform', 'Where?', 'select', ['radio_callin', 'social_live']), _f('status', 'When?', 'select', ['scheduled', 'live', 'ended'])]),
+		_a('ask_live_question', 'Ask a question on air', 'Information', 'POST', '/live/sessions/{session_id}/questions',
+		   [_f('session_id', 'Programme', 'path'), _f('text', 'Your question', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw'])]),
+		_a('live_transcript', 'What was answered', 'Information', 'GET', '/live/sessions/{session_id}/transcript',
+		   [_f('session_id', 'Programme', 'path')]),
+		# §CHAN-004's user-generated content. `subject_ref` is carried because the consent match needs
+		# the subject — a §SEC-004 handle is a different value derived from it, so a submission naming
+		# only the handle could never find its own consent and the check would silently never fire.
+		# The route binds it to the token, so a person cannot file a story against someone else's.
+		_a('submit_story', 'Share your experience', 'Information', 'POST', '/info/stories',
+		   [_s(), _f('kind', 'What kind of story?', 'select', ['testimonial', 'day_in_the_life']),
+		    _f('author_role', 'Who are you?', ph='e.g. community health worker, parent, patient'),
+		    _f('text', 'Your story', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw']),
+		    _f('consent_id', 'Consent record', ph='the consent you gave when you agreed to share this')]),
 		_a('county_risk', 'How is my county doing?', 'Information', 'GET', '/info/dashboard/{county}', [_f('county', 'County', 'path')]),
 		_a('set_county_risk', 'Update a county status', 'Information', 'POST', '/info/dashboard/{county}', [_f('county', 'County', 'path'), _f('risk_level', 'Risk level', 'select', ['low', 'moderate', 'high']), _f('active_signals', 'Active signals', 'int'), _f('bulletin', 'What should people do?', 'textarea'), _f('source', 'Source', ph='county health office')]),
 		_a('record_case_counts', 'Record case counts', 'Information', 'POST', '/info/dashboard/{county}/cases', [_f('county', 'County', 'path'), _f('disease', 'Disease', 'select', list(DISEASES)), _f('confirmed', 'Confirmed cases', 'int'), _f('suspected', 'Suspected cases', 'int'), _f('as_of_iso', 'Counted up to (date)', ph='YYYY-MM-DD')]),
@@ -781,6 +817,31 @@ def catalogue() -> list[MobileAction]:
 		_a('callback_handled', 'Mark a call back as done', 'Channels', 'POST', '/channels/callbacks/{request_id}/handled', [_f('request_id', 'Request number', 'path')]),
 		_a('channel_reports', 'Symptoms reported by phone', 'Channels', 'GET', '/channels/reports', [_f('channel', 'Which channel?', 'select', ['ussd', 'sms', 'whatsapp', 'app']), _f('unhandled_only', 'Only those not yet read?', 'bool')]),
 		_a('channel_report_handled', 'Mark a report as read', 'Channels', 'POST', '/channels/reports/{report_id}/handled', [_f('report_id', 'Report number', 'path')]),
+		# §CHAN-000's call-in, from the side of the person working the queue. The queue holds
+		# callers' words and their handles, so it is `assigned` — the same scope and the same reason
+		# as the callback queue above it. Scheduling a programme is operations rather than a
+		# broadcaster's, because §17.4's eight roles hold no such scope and inventing a ninth is not
+		# a thing a route may do.
+		_a('schedule_live_session', 'Put a programme on the schedule', 'Channels', 'POST', '/live/sessions',
+		   [_f('platform', 'Where?', 'select', ['radio_callin', 'social_live']), _f('topic', 'What is it about?'),
+		    _f('clinician', 'Who is answering?', ph='the name they are announced under'),
+		    _f('starts_at_iso', 'Starts at', ph='YYYY-MM-DDTHH:MM:SSZ'), _f('ends_at_iso', 'Ends at', ph='YYYY-MM-DDTHH:MM:SSZ'),
+		    _f('lang', 'Language', 'select', ['en', 'sw']), _f('venue', 'Where from?', ph='optional')]),
+		_a('live_queue', 'Questions waiting on air', 'Channels', 'GET', '/live/sessions/{session_id}/queue',
+		   [_f('session_id', 'Programme', 'path'), _f('pending_only', 'Only those not yet answered?', 'bool')]),
+		_a('open_live_session', 'Start a programme', 'Channels', 'POST', '/live/sessions/{session_id}/open',
+		   [_f('session_id', 'Programme', 'path')]),
+		_a('close_live_session', 'End a programme', 'Channels', 'POST', '/live/sessions/{session_id}/close',
+		   [_f('session_id', 'Programme', 'path')]),
+		_a('answer_live_question', 'Answer a question', 'Channels', 'POST', '/live/questions/{question_id}/answer',
+		   [_f('question_id', 'Question', 'path'), _f('answer', 'Your answer', 'textarea')]),
+		_a('decline_live_question', 'Say a question will not be taken', 'Channels', 'POST', '/live/questions/{question_id}/decline',
+		   [_f('question_id', 'Question', 'path'), _f('reason', 'Why not?', 'textarea')]),
+		# §CHAN-004's moderation queue: what people have offered to share, before anyone sees it.
+		_a('story_queue', 'Stories waiting to be checked', 'Channels', 'GET', '/info/stories/pending', []),
+		_a('moderate_story', 'Check a story', 'Channels', 'POST', '/info/stories/{story_id}/moderate',
+		   [_f('story_id', 'Story', 'path'), _f('decision', 'Decision', 'select', ['approve', 'decline']),
+		    _f('note', 'Note for the record', 'textarea', ph='optional when approving')]),
 		_a('complete_chw_task', 'Complete a task', 'Channels', 'POST', '/channels/chw/tasks/{task_id}/done', [_f('task_id', 'Task number', 'path')]),
 		_a('send_sms', 'Send a free text message', 'Channels', 'POST', '/channels/sms', [_f('to_msisdn', 'Phone number'), _f('body', 'Message')]),
 		_a('channel_costs', 'Will this cost me airtime?', 'Channels', 'GET', '/channels/cost', []),
@@ -892,6 +953,19 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'record_community_validation': ('Record community validation', 'Write down who took the text to the community, and what they said'),
 	'content_localisation': ('How was this translated?', 'Each translated item, who checked it, and what is still missing'),
 	'hotline_directory': ('Useful phone numbers', 'Hotlines and offices you can call'),
+	# §CHAN-000's call-in and §CHAN-004's clinician Q&A, in the words a listener would use.
+	'live_sessions': ('Is anything on air?', 'Programmes where you can put a question to a health worker'),
+	'ask_live_question': ('Ask on air', 'Put your question to whoever is answering, while the programme runs'),
+	'live_transcript': ('What was answered', 'Read back the questions that were taken, if you missed it'),
+	'submit_story': ('Share your experience', 'Tell others how it went for you — we ask your permission first'),
+	'schedule_live_session': ('Put a programme on air', 'Announce a call-in or a live question session'),
+	'live_queue': ('Questions waiting', 'What people have asked on the programme you are running'),
+	'open_live_session': ('Start the programme', 'Open the lines and begin taking questions'),
+	'close_live_session': ('End the programme', 'Close the lines, and see what was left unanswered'),
+	'answer_live_question': ('Answer a question', 'Reply to one person, on air'),
+	'decline_live_question': ('Set a question aside', 'Say why this one will not be taken, so the record shows it'),
+	'story_queue': ('Stories to check', 'What people have offered to share, before anyone else sees it'),
+	'moderate_story': ('Check a story', 'Approve it into the content workflow, or turn it down with a reason'),
 	'medicine_registry': ('Which medicines are approved?', 'Check a medicine against the national register'),
 	'find_stock': ('Where can I get this medicine?', 'Which nearby places have it, and how long ago someone checked'),
 	'stock_availability': ('Is it in stock right now?', 'The latest report for one medicine at one place'),

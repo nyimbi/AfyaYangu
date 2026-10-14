@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 405" width="720" height="405" lang="en" xml:lang="en" role="img" font-family="system-ui, sans-serif">
+<title>Ebola basics (en)</title>
+<rect x="0" y="0" width="720" height="405" fill="#0b1220"/>
+<rect x="0" y="0" width="720" height="88" fill="#111c33"/>
+<text x="40" y="56" font-size="30" font-weight="600" fill="#f8fafc">Ebola basics (en)</text>
+<g opacity="0"><animate attributeName="opacity" begin="0.0s" dur="0.4s" values="0;1" fill="freeze"/><animateTransform attributeName="transform" type="translate" begin="0.0s" dur="0.5s" values="0,16;0,0" fill="freeze"/><animate attributeName="opacity" begin="6.0s" dur="0.4s" values="1;0" fill="freeze"/><circle cx="52" cy="140" r="8" fill="#38bdf8"><animate attributeName="r" begin="0.0s" dur="6.0s" values="8;13;8" repeatCount="indefinite"/></circle><text x="84" y="150" font-size="28" fill="#e2e8f0">EVD symptoms appear 2-21 days after</text><text x="84" y="190" font-size="28" fill="#e2e8f0">exposure: fever, severe headache, muscle</text><text x="84" y="230" font-size="28" fill="#e2e8f0">pain, sore throat, vomiting, diarrhoea.</text><text x="680" y="396" text-anchor="end" font-size="16" fill="#94a3b8">1/2</text></g>
+<g opacity="0"><animate attributeName="opacity" begin="6.0s" dur="0.4s" values="0;1" fill="freeze"/><animateTransform attributeName="transform" type="translate" begin="6.0s" dur="0.5s" values="0,16;0,0" fill="freeze"/><circle cx="52" cy="140" r="8" fill="#38bdf8"><animate attributeName="r" begin="6.0s" dur="3.0s" values="8;13;8" repeatCount="indefinite"/></circle><text x="84" y="150" font-size="28" fill="#e2e8f0">Call 719 immediately with fever plus</text><text x="84" y="190" font-size="28" fill="#e2e8f0">contact risk.</text><text x="680" y="396" text-anchor="end" font-size="16" fill="#94a3b8">2/2</text></g>
+<rect x="40" y="368" width="640" height="8" rx="4" fill="#1f2937"/>
+<rect x="40" y="368" width="0" height="8" rx="4" fill="#38bdf8"><animate attributeName="width" begin="0.0s" dur="9.0s" values="0.0;426.7;640.0" keyTimes="0.0000;0.6667;1.0000" calcMode="linear" fill="freeze"/></rect>
+</svg>

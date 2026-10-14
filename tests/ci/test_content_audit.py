@@ -621,25 +621,21 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§ACC-001': 1,
 		'§ACC-002': 1,
 		# The nine sections §5 and §14.9 print and the reader could not see until it was widened.
-		# Every one of these is a *content* gap rather than a device-side capability: §CHAN-0's
-		# call-in and drama vignette are programmes nobody has produced, §CHAN-1's follow-up SMS is
-		# a message nothing sends, and §CHAN-3's two are claims about the world (near-universal
-		# reach, no app store) that no code closes. §SENS-010 has left this dict: its four NFC
-		# applications name four objects that did not exist and now do, through one binding in
-		# `afya.sensors.tags` — the tag names a target and the target resolves.
-		'§CHAN-000': 2,
-		# §CHAN-001's two were the follow-up SMS after a USSD report and the "plain language" bound.
-		# Both closed and the section left this dict: the follow-up is composed at filing and sent by
-		# the route through the one outbound path, and the plain-language bound measures all 183
-		# outbound strings — and found one over the line (§SEC-004's pseudonym caveat, 31 words in one
-		# sentence), which was fixed rather than accommodated.
-		'§CHAN-003': 2,
-		'§CHAN-004': 4,
-		# §CHAN-005's two were the printed flip chart and the training. The training closed: the
-		# content is `afya.chw.views:TRAINING_MODULES` and the per-person record is
-		# `Intermediary.trained`, which `programme()` now reports as `untrained` — it was set by the
-		# enrol route and read by nothing, so a programme could train nobody and every report was
-		# silent. The flip chart stays: a printed artefact is genuinely not code.
+		# Four of them have left this dict. §SENS-010 went first: its four NFC applications name four
+		# objects that did not exist and now do, through one binding in `afya.sensors.tags` — the tag
+		# names a target and the target resolves. §CHAN-1's two closed when the follow-up SMS got a
+		# composer at filing and the plain-language bound started measuring. §CHAN-0's and §CHAN-4's
+		# five closed together because three of them were one absence — a live session with a
+		# schedule, a queue and a transcript — printed on two channels, and the other two got a
+		# submission path with a real consent match and an animation format with a generator behind
+		# it. What is left below is the residue the spec itself conditions on something this tree
+		# does not own: §ACC-001's video tutorials in a local language are *new clinical copy* a
+		# generator may not author, §ACC-002's six-language ASR needs a corpus no one has recorded,
+		# and §CHAN-005's flip chart is a printed artefact.
+		# §CHAN-005's second row was the training. It closed: the content is
+		# `afya.chw.views:TRAINING_MODULES` and the per-person record is `Intermediary.trained`,
+		# which `programme()` now reports as `untrained` — it was set by the enrol route and read by
+		# nothing, so a programme could train nobody and every report was silent.
 		'§CHAN-005': 1,
 		# §LOC-002 and §SEC-006's open-source rows were the same absence seen from two sections and
 		# both closed when the owner chose a licence. The note on §LOC-002 had the reasoning right
@@ -691,16 +687,20 @@ def test_tri_003_names_four_exposures_and_the_input_carries_them() -> None:
 
 
 def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world() -> None:
-	"""Seventeen bullets are deferred and they are two kinds, neither a gap. Fifteen are device
+	"""Twenty bullets are deferred and they are two kinds, neither a gap. Fifteen are device
 	actions — a maps app, a dialler, a barcode reader, a camera, a call-log and location permission,
 	the SOS button and its auto-dial, the accelerometer stream and its "Are you OK?" prompt, a QR or
 	NFC scan, the always-on microphone loop, the handset's own encrypted store and its OS keystore,
 	and §MED-001's photo of the packaging — which the coverage gate's `ON_DEVICE` set already lists
-	as client-side by design. The other two are conditions on the world rather than on this tree:
-	TRI-003's vaccination input, written "if a vaccine is available and deployed", and ALT-002's
-	check-in prompt, written "during a declared emergency in the user's area". Kept out of `missing`
-	because reporting them as gaps would put a fact about vaccine deployment or about whether an
-	outbreak has been declared in a defect list.
+	as client-side by design. The other five are conditions on the world rather than on this tree:
+	TRI-003's vaccination input, written "if a vaccine is available and deployed", ALT-002's
+	check-in prompt, written "during a declared emergency in the user's area", and §CHAN-3's three
+	that arrived with this unit — the drama vignette, whose master tape a station records and a
+	person voices, and §CHAN-3's two claims about the audience (that it needs no education to use
+	WhatsApp, and that it carries no app store to update from). Kept out of `missing` because
+	reporting them as gaps would put a fact about vaccine deployment, about whether an outbreak has
+	been declared, about who has a radio studio or about what a person already knows how to do in a
+	defect list.
 
 	The packaging photo is the one of the fifteen that was a `missing` row until §MED-001 was worked,
 	and the reason it moved is worth stating: §MED-001's own Privacy clause says a scan is not
@@ -709,17 +709,22 @@ def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world()
 	photo does travel is a report, and that path carries its hash.
 
 	The count is asserted rather than the two kinds being described, so a bullet that moves into
-	`deferred` to make a gap disappear fails here. The two world-conditioned ones are named
-	individually because a deferral on a *world state* is the kind most easily abused: it is the one
-	that can be claimed for a bullet that is simply unbuilt.
+	`deferred` to make a gap disappear fails here. The world-conditioned ones are named individually
+	because a deferral on a *world state* is the kind most easily abused: it is the one that can be
+	claimed for a bullet that is simply unbuilt. §CHAN-3's two are the closest call in this set and
+	the reason they are here rather than `missing` is that the section prints them as *reasons the
+	channel was chosen* — arguments about the audience — not as capabilities a deployment supplies.
 	"""
 	from afya.content_audit.service import FEATURE_CONTENT
 	deferred = [(f, b, n) for f, _, b, k, _, n in FEATURE_CONTENT if k == 'deferred']
-	assert len(deferred) == 17, deferred
+	assert len(deferred) == 20, deferred
 	world = {(f, b) for f, b, n in deferred if n is not None and 'fact about the world' in n}
 	assert world == {
 		('TRI-003', 'Vaccination status (if a vaccine is available and deployed)'),
 		('ALT-002', "Automatic check-in prompts during a declared emergency in the user's area"),
+		('CHAN-000', 'Pre-recorded drama vignettes on prevention, care-seeking, and stigma'),
+		('CHAN-003', 'Zero user education required'),
+		('CHAN-003', 'No app store, no storage, no updates'),
 	}, world
 	for _, _, note in deferred:
 		assert note is not None

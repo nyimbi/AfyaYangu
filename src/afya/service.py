@@ -115,7 +115,10 @@ from afya.auth.service import AuthService
 from afya.auth.views import PKCEStart, PKCETokenRequest, StaffProvision, TokenRequest
 from afya.auth.views import now_ms as clock_ms
 from afya.chw.service import ChwService
+from afya.live.service import LiveService
+from afya.live.views import AnswerIn, DeclineIn, LivePlatform, LiveSession, LiveStatus, QuestionIn
 from afya.intermediaries.service import IntermediaryService
+from afya.info.submissions import STORY_PURPOSE, StoryIn, StoryModerationIn, StoryService
 from afya.chw.views import ActivityLogEntry, ChwCase, ChwProfile
 from afya.intermediaries.views import Incentive, Intermediary, Referral
 from afya.community.service import CommunityService
@@ -412,6 +415,18 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	# constructions would be two clients with two connection pools, and a share sent through one
 	# would be invisible to the health check reading the other.
 	adam_svc = AdamClient(cfg.adam_url, client, cfg.adam_api_key, cfg.adam_cert())
+	# §CHAN-000's call-in and §CHAN-004's clinician Q&A. Built here rather than inline in the dict
+	# because the channel service has to be handed it: the queue is fed from §5.4's one report sink,
+	# and a second reader of that sink would be a second inbox. The backlog is marked before the
+	# routes exist, so a report filed before any programme was scheduled is not resurrected as a
+	# question in the first session that opens.
+	live_svc = LiveService()
+	live_svc.mark_absorbed(r.report_id for r in channels_svc.channel_reports())
+	channels_svc.attach_live(live_svc)
+	# §CHAN-004's submissions. It needs both collaborators as locals for the same reason the two
+	# above do: the dict is one expression, and a story is refused against §SEC-001's consent ledger
+	# and approved into §6.5's content workflow.
+	story_svc = StoryService(privacy_svc, info_svc)
 
 	return {
 		'registry': registry,
@@ -436,9 +451,16 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# handed the telco client's rules rather than a boolean. A deployment with no telco
 		# configured passes nothing and reports every free claim as unverified.
 		'channels': channels_svc,
+		# §CHAN-000's call-in queue and §CHAN-004's clinician Q&A. Its own entry rather than a
+		# collaborator of `channels` because the two read the same report sink in opposite
+		# directions: the channel service files a report, and a programme on air reads it back as a
+		# question. `channels_svc` holds the same object so the absorb happens on the routes that
+		# already walk the sink.
+		'live': live_svc,
 		'crypto': crypto_svc,
 		'emergency': emergency_svc,
 		'info': info_svc,
+		'stories': story_svc,
 		'records': records_svc,
 		'women': WomenService(),
 		'maternal': MaternalService(),
@@ -569,6 +591,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	personas: PersonaService = svc['personas']  # type: ignore[assignment]
 	security: SecurityService = svc['security']  # type: ignore[assignment]
 	chw: ChwService = svc['chw']  # type: ignore[assignment]
+	live: LiveService = svc['live']  # type: ignore[assignment]
+	stories: StoryService = svc['stories']  # type: ignore[assignment]
 	intermediaries: IntermediaryService = svc['intermediaries']  # type: ignore[assignment]
 	auth: AuthService = svc['auth']  # type: ignore[assignment]
 	# §18: the national systems. `jali` may be the offline port, which is why it is typed as the
@@ -2346,6 +2370,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		for report in channels.channel_reports():
 			await channels.emit_report_signal(report)
 			await channels.send_follow_up(report)
+			await channels.absorb_into_live(report)
 		return out
 
 	@app.post('/channels/whatsapp')
@@ -2368,6 +2393,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		for report in channels.channel_reports():
 			await channels.emit_report_signal(report)
+			await channels.absorb_into_live(report)
 		return out
 
 	@app.post('/channels/whatsapp/voice')
@@ -2418,6 +2444,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		for report in channels.channel_reports():
 			await channels.emit_report_signal(report)
 			await channels.send_follow_up(report)
+			await channels.absorb_into_live(report)
 		return envelope
 
 	@app.get('/channels/reports')
@@ -5875,6 +5902,205 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		names that the product does not carry. Scoped like `/rollout/readiness` because it is the
 		same kind of answer: the build's own gaps, not a user-facing fact."""
 		return personas.coverage().model_dump(mode='json')
+
+	# --- §CHAN-000's call-in and §CHAN-004's clinician Q&A --------------------------------------
+	# A live programme is the one §5 content format that is not a document: it has a schedule, a
+	# queue and a record of what was answered, and this tree had none of the three. The routes below
+	# are those three, and the guard on each follows the dataset it serves rather than the feature it
+	# belongs to — the *queue* holds callers' words and their handles, so it is scoped like the
+	# callback queue; the *transcript* is the published record and holds no person, so it is open.
+	#
+	# The queue is worked by a *health worker*, which is §CHAN-000's own wording — and §17.4 gives
+	# that role `assigned`, "the people and tasks allocated to it". §CHAN-004's clinician is named
+	# on the session (`LiveSession.clinician`) rather than holding a token of their own: `clinician`
+	# in §17.4's table is scoped `consented_patient`, which is a read of *another person's record*
+	# through a share, and hosting a broadcast is not that. Widening either role would put a
+	# patient-record scope on a queue, so the guard is the one scope the section actually names.
+	@app.post('/live/sessions')
+	async def live_schedule(session: LiveSession, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Put a programme on the schedule. Scoped as content publishing is: §17.4's eight roles hold
+		no "broadcaster", and putting a clinician on air is operations, not a ninth role."""
+		try:
+			scheduled = await live.schedule(session)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return scheduled.model_dump(mode='json')
+
+	@app.get('/live/sessions')
+	async def live_sessions(platform: str | None = None, status: str | None = None) -> dict[str, object]:
+		"""The schedule as a listener reads it — what is on, and when. No token, no person in it.
+
+		Open for the reason `/info/library` is: an announcement of a call-in programme is the thing
+		that makes it a call-in programme, and one behind a token reaches nobody.
+		"""
+		try:
+			wanted_platform = LivePlatform(platform) if platform else None
+			wanted_status = LiveStatus(status) if status else None
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=f'unknown session filter: {exc}') from exc
+		rows = live.sessions(wanted_platform, wanted_status)
+		return {'sessions': [s.model_dump(mode='json') for s in rows], 'count': len(rows)}
+
+	@app.post('/live/sessions/{session_id}/open')
+	async def live_open(session_id: str,
+                    _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+		"""Start the programme. This is the instant the queue becomes writable."""
+		try:
+			return (await live.open(session_id)).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/live/sessions/{session_id}/close')
+	async def live_close(session_id: str,
+                     _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+		"""End the programme, and report how many questions were left unanswered on it.
+
+		The count is in the response rather than left to a later read because it is the number the
+		clinician closing the session is the last person able to do anything about.
+		"""
+		try:
+			closed = await live.close(session_id)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		left = [q for q in live.queue(session_id, pending_only=True)]
+		return {**closed.model_dump(mode='json'), 'left_unanswered': len(left)}
+
+	@app.get('/live/sessions/{session_id}/queue')
+	async def live_queue(session_id: str, pending_only: bool = False,
+	                     _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+		"""The queue as the clinician running the programme reads it, oldest first.
+
+		Scoped `assigned` for the reason `/channels/callbacks` is: this is the one read of a live
+		session that holds what people said. The handle is a weaker disclosure than a name rather
+		than no disclosure, and a weaker disclosure is still one that needs a role.
+		"""
+		try:
+			rows = live.queue(session_id, pending_only=pending_only)
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+		return {'questions': [q.model_dump(mode='json') for q in rows], 'count': len(rows)}
+
+	@app.post('/live/sessions/{session_id}/questions')
+	async def live_ask(session_id: str, body: QuestionIn,
+	                   subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		"""Ask a question on a live programme. The asker is the token, and there is no field to lie in.
+
+		`names_subject=False` because the body names no subject and there is nothing to compare — the
+		route binds the asker to the token itself. The handle is then *derived* from that subject, so
+		what the queue carries is a §SEC-004 rotating name rather than the person: the same asker
+		carries a different handle next month, and a reader of the queue cannot assemble a question
+		history out of it.
+		"""
+		try:
+			asked = await live.ask(session_id, live.handle_for(subject, clock_ms()), body.text,
+			                       at_ms=clock_ms(), lang=body.lang)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		# The handle is not in the response: the asker already knows who they are, and a response
+		# body is the easiest place for an identifier to end up somewhere it was never meant to go.
+		return {'question_id': asked.question_id, 'session_id': asked.session_id, 'status': asked.status.value}
+
+	@app.post('/live/questions/{question_id}/answer')
+	async def live_answer(question_id: str, body: AnswerIn,
+                      subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+		"""Answer one queued question, with §6.2's finding on the answer carried rather than raised.
+
+		The verdicts come back in the response so the screen the clinician is typing on can show
+		them, which is the same reason `InfoService.content_verdicts` returns rather than raises. The
+		answer is *recorded* either way: §6.2 would refuse ordinary clinical speech — "it is likely a
+		viral infection" names no action, and an em dash is outside GSM-7 — so a gate that rejected on
+		the finding would refuse correct medicine from a doctor answering live. What a supervisor can
+		act on is the stigmatising sentence, and that is on the row it is on.
+		"""
+		try:
+			answered = await live.answer(question_id, body.answer, subject, clock_ms())
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return answered.model_dump(mode='json')
+
+	@app.post('/live/questions/{question_id}/decline')
+	async def live_decline(question_id: str, body: DeclineIn,
+                       _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+		"""Decline a question, with the reason recorded. §6.2 is not consulted: there is no answer."""
+		try:
+			return (await live.decline(question_id, body.reason, clock_ms())).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/live/sessions/{session_id}/transcript')
+	async def live_transcript(session_id: str) -> dict[str, object]:
+		"""§CHAN-000's "record of a call answered", published.
+
+		Open, and that is the point of the row: the audit note's absence was "no record of a call
+		answered", and a record behind a token is a record of a call answered that the person who
+		missed the programme cannot read. It holds no person — the entries are built from
+		`TranscriptEntry`, which has no field for a handle — so there is nothing here for a scope to
+		protect.
+		"""
+		try:
+			return live.transcript(session_id).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	# --- §CHAN-004: user-generated content, with consent and moderation ------------------------
+	# The section prints one bullet — "User-generated content from satisfied users (with consent)"
+	# — and the two halves of it are two guards. A submission is filed *by* the person whose words
+	# they are, so the route carries `subject_ref` and `require_self` binds it to the token: a story
+	# filed against someone else's consent is the defect the guard exists to stop, and the model
+	# compares the subject because a §SEC-004 handle is a different value derived from the subject
+	# and a check written against the handle would silently never fire.
+	#
+	# Moderation is not publication. `approve` drafts a `ContentItem` and hands it to §6.5's
+	# existing workflow, so a story still walks clinical review, translation, back-translation and
+	# community validation — which is why the moderation queue is `infrastructure` (content ops, as
+	# publishing is) rather than a scope of its own.
+	@app.post('/info/stories')
+	async def info_story_submit(body: StoryIn,
+	                            subject: str = Depends(require_self())) -> dict[str, object]:
+		"""File a story. Refused without a real consent record behind it, by `submit`.
+
+		`require_self()` with `names_subject` at its default, because the body *does* name
+		`subject_ref` and the guard compares it to the token: a story filed against someone else's
+		consent is the defect the comparison exists to stop. The author handle is derived from the
+		token's own subject rather than sent, so the queue cannot be filled under another name.
+		"""
+		story = body.as_submission(live.handle_for(subject, clock_ms()))
+		try:
+			filed = stories.submit(story, privacy.consent_record(story.consent_id))
+		except PermissionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
+		except AssertionError as exc:
+			raise HTTPException(status_code=409, detail=str(exc)) from exc
+		return filed.model_dump(mode='json')
+
+	@app.get('/info/stories/pending')
+	async def info_stories_pending(
+			_subject: str = Depends(require_scope('infrastructure'))) -> list[dict[str, object]]:
+		"""The moderation queue. It holds people's own words, so it is content ops."""
+		return [s.model_dump(mode='json') for s in stories.pending()]
+
+	@app.post('/info/stories/{story_id}/moderate')
+	async def info_story_moderate(story_id: str, body: StoryModerationIn,
+	                              subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Approve into §6.5's draft stage, or decline with a reason. Neither publishes.
+
+		Approval returns the drafted item's id rather than the story, because the thing that changed
+		is a `ContentItem` in the workflow and a caller told "approved" would reasonably think a
+		reader can now see it. A story that is approved and not yet published is invisible to
+		`library()`, and the response says which stage it is at. Who moderated is the token, so the
+		record names an actor the caller could not have typed.
+		"""
+		try:
+			if body.decision == 'approve':
+				item = await stories.approve(story_id, subject, body.at_ms)
+				return {'story_id': story_id, 'approved': True, 'content_id': item.item_id,
+				        'stage': item.stage.value, 'published': False}
+			declined = stories.decline(story_id, subject, body.note or '', body.at_ms)
+			return declined.model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+		except PermissionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 	# --- §15.5 versioning: `/v1/` beside the bare paths --------------------------------------
 	# Both spellings reach the same routes. `v1` is the only version, so pinning it changes

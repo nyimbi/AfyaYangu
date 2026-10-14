@@ -31,7 +31,7 @@ from afya.info.health_education import (
 	report,
 )
 from afya.info.service import InfoService
-from afya.info.views import ContentItem
+from afya.info.views import ContentFormat, ContentItem
 
 
 def _spec_section(heading: str) -> str:
@@ -136,7 +136,7 @@ def test_the_formats_the_sections_print_are_delivered() -> None:
 	# The rendition formats are the ones that carry a file, and the model refuses one without it, so
 	# this is a count over servable renditions rather than over claims to have made them.
 	renditions = [i for i in items if i.media_ref is not None]
-	assert {i.format.value for i in renditions} <= {'illustration', 'audio', 'video'}
+	assert {i.format.value for i in renditions} <= {f.value for f in ContentFormat if not f.is_text}
 	assert renditions, 'a format table with no rendition behind it is a format table'
 
 

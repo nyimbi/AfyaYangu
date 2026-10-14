@@ -70,6 +70,83 @@ MANDATORY_NOTIFICATION_PURPOSES: frozenset[str] = frozenset({
 	'case_report', 'disease_notification', 'notification', 'idsr_report',
 })
 
+# The purposes this tree files that are **not** one of §SEC-001's eight categories, with the words a
+# person reading their own consent history is shown instead of the raw slug.
+#
+# §SEC-001's eight categories are a closed set and this is deliberately not a ninth: it is a second
+# *kind* of purpose the ledger already holds. `ConsentRecord.purpose` is a bare `str`, so a caller
+# may file a grant under any purpose — the legal-obligation path files the four mandatory
+# notification purposes, and §CHAN-004's story path files `publish_story`. Without a row here,
+# `_label` falls back to the purpose itself, and a person reading back what they agreed to is shown
+# `publish_story` — a slug, on the one screen whose whole purpose is that they understand it.
+#
+# §SEC-001's eight categories are untouched: `CONSENT_CATALOGUE` still asserts its eight, and the
+# assert below refuses a row here that names one of them. `STORY_PURPOSE` lives in
+# `afya.info.submissions` and is not imported here — the info package reaches back into privacy, so
+# the two would cycle; the test asserts the key sets agree in both directions instead.
+EXTRA_CONSENT_PURPOSES: dict[str, dict[str, dict[str, str]]] = {
+	'en': {
+		'publish_story': {
+			'label': 'Publish my story',
+			'on_withdrawal': 'Your story is taken down and is not published again.',
+		},
+		'case_report': {
+			'label': 'Case report to health authorities',
+			'on_withdrawal': 'The report was filed under a legal duty and cannot be withdrawn.',
+		},
+		'disease_notification': {
+			'label': 'Disease notification',
+			'on_withdrawal': 'The notification was filed under a legal duty and cannot be withdrawn.',
+		},
+		'notification': {
+			'label': 'Outbreak notification',
+			'on_withdrawal': 'The notification was filed under a legal duty and cannot be withdrawn.',
+		},
+		'idsr_report': {
+			'label': 'IDS report to the Ministry',
+			'on_withdrawal': 'The report was filed under a legal duty and cannot be withdrawn.',
+		},
+	},
+	'sw': {
+		'publish_story': {
+			'label': 'Kuchapisha hadithi yangu',
+			'on_withdrawal': 'Hadithi yako inaondolewa na haitachapishwa tena.',
+		},
+		'case_report': {
+			'label': 'Ripoti ya kesi kwa mamlaka ya afya',
+			'on_withdrawal': 'Ripoti iliwasilishwa kwa wajibu wa kisheria, hivyo haiwezi kuondolewa.',
+		},
+		'disease_notification': {
+			'label': 'Taarifa ya ugonjwa',
+			'on_withdrawal': 'Taarifa iliwasilishwa kwa wajibu wa kisheria, hivyo haiwezi kuondolewa.',
+		},
+		'notification': {
+			'label': 'Taarifa ya mlipuko',
+			'on_withdrawal': 'Taarifa iliwasilishwa kwa wajibu wa kisheria, hivyo haiwezi kuondolewa.',
+		},
+		'idsr_report': {
+			'label': 'Ripoti ya IDSR kwa Wizara',
+			'on_withdrawal': 'Ripoti iliwasilishwa kwa wajibu wa kisheria, hivyo haiwezi kuondolewa.',
+		},
+	},
+}
+
+# One language translated further than another is a person who reads her history half in Swahili,
+# and a row missing a sentence is a blank where the consequence should be — both invisible in any
+# count of "how many purposes do we label". The completeness half (every purpose the tree files
+# outside the eight has a row) is asserted in `tests/ci/test_submissions.py`, because it needs
+# `STORY_PURPOSE` and importing that here would put the info package on this module's import path.
+assert set(EXTRA_CONSENT_PURPOSES['en']) == set(EXTRA_CONSENT_PURPOSES['sw']), (
+	'an extra consent purpose is translated in one language and not the other'
+)
+assert all(
+	set(row) == {'label', 'on_withdrawal'} and all(row.values())
+	for table in EXTRA_CONSENT_PURPOSES.values() for row in table.values()
+), 'an extra consent purpose is missing its label or its withdrawal consequence'
+assert not (set(EXTRA_CONSENT_PURPOSES['en']) & {c.value for c in ConsentCategory}), (
+	'EXTRA_CONSENT_PURPOSES names one of §SEC-001\'s eight categories; those are the catalogue\'s'
+)
+
 # Appendix D question 7's cap, named rather than left as a literal at the assert that applies it.
 # The spec states the number in one place only — the appendix row "Retention policy per data type
 # needs ODPC sign-off (24-month cap assumed in code)" — and until this constant existed the code
@@ -325,6 +402,17 @@ class PrivacyService(LogMixin):
 		)
 		return out
 
+	def consent_record(self, consent_id: str) -> ConsentRecord | None:
+		"""The record behind an id, or `None` when there is none.
+
+		`has_consent` answers a *predicate* — "is there any grant for this subject and purpose" — and
+		a caller that has to check the record a person actually pointed at cannot use it: the
+		predicate is satisfied by a different record under the same subject, so a submission naming
+		one consent could be validated against another. §CHAN-004's story carries a `consent_id` for
+		exactly that reason, and this is the read that makes the id mean something.
+		"""
+		return self._consents.get(consent_id)
+
 	# --- §SEC-001 consent categories ------------------------------------------------------------
 
 	@staticmethod
@@ -561,8 +649,16 @@ class PrivacyService(LogMixin):
 		The language is the record's, not the reader's. A grant made in Swahili is logged in the
 		Swahili the person read; a log that rendered it in the language of whoever asked would
 		misdescribe the conversation, which is the one thing a consent log exists to get right.
+
+		`EXTRA_CONSENT_PURPOSES` is consulted **before** the raw-slug fallback, so a purpose the tree
+		files outside the eight (§CHAN-004's `publish_story`, the four mandatory notification
+		purposes) reads as words rather than as `publish_story`. A purpose with no row anywhere is
+		still returned as itself, which is the honest answer for a grant the ledger holds and no
+		table describes.
 		"""
 		head = purpose.split(':', 1)[0]
+		if ':' not in purpose and head in EXTRA_CONSENT_PURPOSES['en']:
+			return EXTRA_CONSENT_PURPOSES[answerable(lang)][head]['label']
 		try:
 			category = ConsentCategory(head)
 		except ValueError:
@@ -576,6 +672,8 @@ class PrivacyService(LogMixin):
 	def _consequence(purpose: str, lang: str = 'en') -> str:
 		"""What the person was told withdrawing it would cost, in the language she was told it."""
 		head = purpose.split(':', 1)[0]
+		if ':' not in purpose and head in EXTRA_CONSENT_PURPOSES['en']:
+			return EXTRA_CONSENT_PURPOSES[answerable(lang)][head]['on_withdrawal']
 		try:
 			category = ConsentCategory(head)
 		except ValueError:

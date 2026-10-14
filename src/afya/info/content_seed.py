@@ -146,6 +146,17 @@ _RENDITIONS: tuple[tuple[str, str, str, ContentFormat, str], ...] = (
 	('INF-003-audio-3', 'Prevention (audio)', 'prevention', ContentFormat.audio, 'media/ebola/prevention.mp3'),
 	('INF-003-video-1', 'Handwashing in 30 seconds (video)', 'prevention', ContentFormat.video, 'media/ebola/prevention-30s.mp4'),
 	('INF-003-video-2', 'What Ebola is (video)', 'ebola-basics', ContentFormat.video, 'media/ebola/what-is-ebola.mp4'),
+	# §CHAN-004's "Animated explainers on symptoms and prevention." Unlike the rows above, these are
+	# not hand-authored files: `afya.info.explainers` generates each from the *parent item's own*
+	# sentences, so the asset adds motion to copy §6.5 has already cleared rather than introducing new
+	# clinical text. Symptoms (`ebola-basics`) and prevention (`prevention`) are the two subjects the
+	# bullet names. Both parents are `ebola-library` articles — English, like every row in this table,
+	# because `rendition_rows` stamps each row `en` — and the generator reads the *parent's* `lang` for
+	# the captions rather than the row's, so a Swahili parent would be captioned in Swahili without a
+	# second row here (and without a second asset the slug-keyed `renditions_of` would hand to both
+	# languages of the article at once).
+	('INF-003-anim-1', 'Ebola symptoms (animated explainer)', 'ebola-basics', ContentFormat.animation, 'media/explainers/ebola-basics.svg'),
+	('INF-003-anim-2', 'Ebola prevention (animated explainer)', 'prevention', ContentFormat.animation, 'media/explainers/prevention.svg'),
 	# §INF-008's Format cell: "Short cards, 30-second videos, audio clips." The cards are the
 	# `tips`-tagged `_ROWS` — a card is prose, not a rendition — so these are the video and the audio.
 	('INF-008-video-1', 'Hand hygiene in 30 seconds (video)', 'health-tips', ContentFormat.video, 'media/tips/hygiene-30s.mp4'),
@@ -190,7 +201,16 @@ def myth_rows() -> list[ContentItem]:
 def rendition_rows() -> list[ContentItem]:
 	"""The non-text renditions, as items. Empty body by construction: a rendition's content is the
 	file at `media_ref`, and a body here would be a second copy of the parent's text that nothing
-	keeps in step with it."""
+	keeps in step with it.
+
+	Every row is `en`, and that is a limitation rather than a claim: the parents these renditions hang
+	off are English articles, and a `sw` parent would need its own row and its own asset. It matters
+	where a rendition *speaks* — an explainer's captions are in a language — and the language is read
+	off the parent item by `afya.info.explainers`, never off this row, so a Swahili parent cannot be
+	captioned in English by a row that says `en`. What a `sw` row would add is a *second* asset, which
+	the slug-keyed `renditions_of` would then hand to both languages of the article at once — so the
+	per-language rendition is a change to the lookup, not a line in this table.
+	"""
 	return [
 		ContentItem(
 			item_id=i, title=t, body='', lang='en', harmony_tag=_PARENT_TAG[parent],

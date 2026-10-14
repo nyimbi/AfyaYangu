@@ -51,10 +51,13 @@ ON_DEVICE: dict[str, str] = {
 	# bound to a typed target in `afya.sensors.tags`, with a register behind the equipment target —
 	# and each of §SENS-010's four applications has its own action, so the entry came off.
 	'EMG-002': 'fall auto-alert is the device arming the SOS it already has an action for',
-	# Broadcast channels. The radio and social programmes are run by the communications team and
-	# the audience receives them on a radio or a social feed, never through this app.
-	'CHAN-000': 'radio is a broadcast programme, not a client action',
-	'CHAN-004': 'social media publishing is run outside the app',
+	# §CHAN-000 and §CHAN-004 were here as "radio is a broadcast programme, not a client action"
+	# and "social media publishing is run outside the app". The *broadcast* still is — a person
+	# listens on a radio and reads a feed outside this app — but the sections' content programme is
+	# now a server capability with routes behind it: a live session with a schedule, a queue and a
+	# published transcript, and a submission path with a consent check and a moderation queue. The
+	# audience half is a client fact and the programme half is not, and only the second is what this
+	# list is for, so the two entries came off.
 	# Feature ids whose capability is served under a sibling id the catalogue already covers.
 	# Each is a spec duplicate rather than a missing route; the alias table in the registry records
 	# the divergence, and these are the pairs where two ids name one thing.

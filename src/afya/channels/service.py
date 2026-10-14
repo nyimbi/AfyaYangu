@@ -7,8 +7,8 @@ from afya.channels.cost import ChannelCostVerdict, ZeroRatingRule, cost_report, 
 from afya.channels.outbound import follow_up_message
 from afya.access.views import LANGUAGE_MATRIX, VoiceAudioRequest, VoiceResult
 from afya.channels.views import (
-	CallbackRequest, ChannelReport, ChwTask, PushPayload, RadioBulletin, SmsOut, UssdRequest,
-	UssdResponse, WhatsAppIn, WhatsAppOut,
+	CallbackRequest, ChannelReport, ChwTask, PushPayload, RadioBulletin, RadioVignette, SmsOut,
+	UssdRequest, UssdResponse, WhatsAppIn, WhatsAppOut,
 )
 from afya.identity.service import IdentityService
 from afya.integrations.gateways import AtUssdCallback
@@ -126,6 +126,13 @@ class ChannelService(LogMixin):
 		self._follow_ups: dict[str, str] = {}
 		self._followed_up: set[str] = set()
 		self._chw_tasks: list[ChwTask] = []
+		# §CHAN-000's call-in queue, attached after construction rather than passed in, because the
+		# live service is built *from* this one's sink — it marks the reports already filed as read
+		# before it is handed over. A constructor parameter would have to be built first, and the
+		# backlog it must skip does not exist until this sink does. Held as a protocol-shaped object
+		# so the channels layer does not import the live layer, the same late binding `_record_signal`
+		# uses: a deployment with no live sessions still files reports and still answers callers.
+		self._live: object | None = None
 		# Every payload handed to `push`. Held rather than fired and forgotten for §16.1's reason:
 		# the delivery path is a transport, and what the deployment owes a person must be readable
 		# after the transport has had its say.
@@ -584,6 +591,45 @@ class ChannelService(LogMixin):
 		               county=report.county)
 		return True
 
+	# --- §CHAN-000's call-in queue, fed from §5.4's one sink -------------------------------------
+
+	def attach_live(self, live: object) -> None:
+		"""Hand over the live-session queue this sink feeds. Called once, at wiring time.
+
+		A setter rather than a constructor parameter because the live service is built *from* this
+		object's reports — it marks the backlog already filed as read before it is attached. Two
+		objects that must each see the other cannot both be constructed first, and the alternative
+		(a channel service that reads `services['live']`) is the ordering dependency the services
+		dict is deliberately written to avoid.
+
+		Refuses a second attach: two live services reading one sink would queue every question twice,
+		and the one that answered it would be the one the clinician is not looking at.
+		"""
+		assert self._live is None, 'the call-in queue is attached once'
+		self._live = live
+		self._log_info('live queue attached to the channel sink')
+
+	async def absorb_into_live(self, report: ChannelReport) -> str | None:
+		"""Offer one filed report to §CHAN-000's queue, and say whether it became a question.
+
+		Called on the routes that already walk the sink, beside `emit_report_signal` and
+		`send_follow_up`, for the same reason: the walk is where a filed report is turned into
+		whatever else it is owed, and the queue is one of those things. Returns the question id, or
+		`None` when there is no programme on air for this channel or the report carries no words —
+		both of which are ordinary and neither of which is an error.
+
+		The absorb is idempotent inside the live service, on the report id. It has to be: the walk
+		covers the whole sink on every request, so a person who texted one question would otherwise
+		have it queued again each time they opened the USSD menu afterwards.
+		"""
+		if self._live is None:
+			return None
+		absorb = getattr(self._live, 'absorb_report', None)
+		if absorb is None:
+			return None
+		question = await absorb(report, now_ms())
+		return getattr(question, 'question_id', None) if question is not None else None
+
 	async def send_follow_up(self, report: ChannelReport) -> SmsOut | None:
 		"""Send the §CHAN-1 follow-up for one report, once.
 
@@ -696,6 +742,46 @@ class ChannelService(LogMixin):
 	async def schedule_bulletin(self, b: RadioBulletin) -> RadioBulletin:
 		assert len(b.script) <= 300 * b.duration_s, 'script too long for slot'
 		return b
+
+	async def schedule_vignette(self, v: RadioVignette) -> RadioVignette:
+		"""§CHAN-000's drama vignette, run through §6.2 and refused when it fails.
+
+		**This is a hard gate, unlike the live answer one section over.** A live answer is spoken
+		once by a clinician and the verdicts are carried rather than raised, because refusing to
+		answer a caller's question mid-programme helps nobody and there is no second reader. A
+		vignette is the opposite on both counts: it is *written*, and it is reviewed before a station
+		ever broadcasts it. Refusing costs nothing but a rewrite, and the failure it prevents is the
+		one this row's own theme list invites — a vignette about stigma that itself calls somebody
+		"an Ebola victim" is a segment that teaches the audience the exact word the section forbids.
+
+		The rules that bite are §6.2's universal ones — `_stigma` (§6.2.9), `_directives` (§6.2.5)
+		and `_reader_facing` (§3.3 principle 9) — and *not* the answer-only pair. A vignette is a
+		scene between characters, so it is `Subject.content` and not `Subject.answer`: §6.2.1's
+		action rule and §6.2.6's forwardability are about an *answer* to a question, and demanding
+		an imperative verb of every line of dialogue would refuse a correct script. `_low_literacy`
+		still runs and still only flags for review; a long line of dialogue is a writer's choice, not
+		a defect, and the review flags are logged rather than raised.
+
+		The script judged is the assembled dialogue — every line's text with its speaker — and not
+		the free-text `script` field alone, because a stigmatising word spoken by a character is
+		stigmatising whoever typed it, and the `script` field is the narration around the dialogue
+		rather than the dialogue itself.
+		"""
+		# Imported here rather than at module scope: `afya.info.principles` imports `GSM7` from this
+		# module, so a top-level import would be a cycle. The same late binding `_triage_for` and the
+		# live-session sink use, and for the same reason — this method is the only place in the
+		# channels layer that needs §6.2.
+		from afya.info.principles import Finding, Subject, judge
+		spoken = ' '.join(line.text for scene in v.scenes for line in scene.lines)
+		finding: Finding = judge(f'vignette:{v.vignette_id}', spoken, Subject.content)
+		failures = finding.failures()
+		assert not failures, (
+			f'{v.vignette_id} fails §6.2 and cannot be broadcast: '
+			+ '; '.join(f'{verdict.rule} — {verdict.detail}' for verdict in failures)
+		)
+		self._log_info('vignette scheduled', vignette=v.vignette_id, theme=v.theme.value,
+		               lang=v.lang, reviews=len(finding.reviews()))
+		return v
 
 	async def assign_chw_task(self, task: ChwTask) -> ChwTask:
 		self._chw_tasks.append(task)

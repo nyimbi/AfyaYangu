@@ -1,4 +1,5 @@
 """Channel domain models (spec §5, CHAN-000..006)."""
+from enum import Enum
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
@@ -6,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 from afya.channels.outbound import PlainLanguageReading, plain_language
 from afya.derived import DerivedFields
 from afya.ids import uuid7str
+from afya.strings import LANGUAGE_NAME_FOR
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -96,6 +98,142 @@ class RadioBulletin(BaseModel):
 	air_date: str
 	duration_s: int = Field(ge=15, le=3600)
 	script: str
+
+
+# §CHAN-000's `300 chars/sec` bound, the one `schedule_bulletin` already asserts. It is the same
+# number here rather than a second one, because a vignette and a bulletin are read at the same
+# pace by the same presenter on the same station, and two bounds would drift the first time a
+# script ran long.
+VIGNETTE_CHARS_PER_SECOND = 300
+
+
+class VignetteTheme(str, Enum):
+	"""§CHAN-000's three themes, and only those three.
+
+	The section prints "Pre-recorded drama vignettes on prevention, care-seeking, and stigma" — a
+	closed list, so the enum is the list. A theme the section does not name is a segment somebody
+	decided to write, and an open string field would let one into the tree under this feature's
+	name.
+	"""
+	prevention = 'prevention'
+	care_seeking = 'care-seeking'
+	stigma = 'stigma'
+
+
+class VignetteLine(BaseModel):
+	"""One spoken line of a drama vignette, attributed to a character.
+
+	`speaker` is free text here and is checked against the cast one level up, in `VignetteScene`
+	and again on the whole `RadioVignette`. A line whose speaker is not in `roles` is the exact
+	defect a vignette model exists to catch: a voice on the radio that belongs to no one in the
+	story, which is a script that cannot be recorded without somebody improvising a character the
+	writer never wrote.
+	"""
+	model_config = MODEL_CONFIG
+	speaker: str = Field(min_length=1)
+	text: str = Field(min_length=1)
+
+
+class VignetteScene(BaseModel):
+	"""One numbered scene: where it happens, and who says what.
+
+	Scenes are numbered rather than ordered by list position because the recording session is run
+	off a printed script — a director calls "scene 3" and a model whose only ordering is the index
+	in a list cannot answer which scene that is.
+	"""
+	model_config = MODEL_CONFIG
+	number: int = Field(ge=1)
+	setting: str = Field(min_length=1)
+	lines: list[VignetteLine] = Field(min_length=1)
+
+	@model_validator(mode='after')
+	def _every_line_names_a_speaker(self) -> Self:
+		"""A line with a blank speaker is not an unattributed line, it is a corrupt one: an empty
+		string would pass a `speaker in roles` check the moment somebody put `''` in the cast."""
+		assert all(line.speaker.strip() for line in self.lines), (
+			'a scene has a line with no speaker — an unattributed line is not a vignette'
+		)
+		return self
+
+
+class RadioVignette(DerivedFields, BaseModel):
+	"""§CHAN-000's "Pre-recorded drama vignettes on prevention, care-seeking, and stigma".
+
+	**The recording is not in this model, and that is the point.** A vignette is a produced audio
+	asset; what the tree can build and review is the *script*, and this model is the script. The
+	audit row stays `deferred` rather than `carried` on exactly that distinction: `RadioBulletin`
+	already carries a `script` and no recording, so claiming this row carried would be claiming to
+	have produced audio with nothing to play. The RECORDING is the broadcaster's, and §ACC-001 and
+	§ACC-002 both refuse synthetic narration in a local language no speaker has validated — the
+	same reason the row one above them refuses a synthetic voice. The script, though, is buildable
+	and reviewable before a station ever sees it, which is what makes the deferral honest rather
+	than an excuse.
+
+	**Why this is not a `RadioBulletin` with a longer script.** §CHAN-000 lists the drama vignette
+	beside the situation update and the myth-busting segment as a *different* format, and the
+	difference is structure: a bulletin is one voice reading a script, and a vignette is dialogue
+	between named characters across numbered scenes. Collapsing the two would let a monologue be
+	filed as a drama, and the checks below — a cast, numbered scenes, every line attributed to
+	somebody in it — are the checks that tell the two apart.
+
+	**The three asserts here are the format.** A vignette with no cast is a monologue; a vignette
+	whose scenes are not numbered is a transcript; a vignette with a line spoken by someone not in
+	the cast is a script that cannot be recorded as written. All three are runtime checks at
+	construction, in the same spirit as `schedule_bulletin`'s slot bound, because a script is
+	written once and read by a station that has no way to know the model would have refused it.
+
+	`lang` is checked against §CHAN-000's own language coverage — the codes in
+	`afya.access.views:LANGUAGE_MATRIX`, the same registry the SMS prefix and the voice matrix read
+	— so a vignette cannot declare a language the section does not list.
+	"""
+
+	model_config = MODEL_CONFIG
+	vignette_id: str = Field(default_factory=lambda: 'VIG-' + uuid7str().replace('-', '').upper()[:8])
+	station: str = Field(min_length=1)
+	air_date: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+	duration_s: int = Field(ge=15, le=3600)
+	theme: VignetteTheme
+	# §CHAN-000's coverage list, by its own codes. The section names the languages in prose
+	# ("Swahili, Dholuo, Luhya (Bukusu, Maragoli), Kalenjin, Kikuyu, Kamba, Somali, Maasai, Turkana,
+	# Kisii, Taita, Pokomo, and others"); `LANGUAGE_NAME_FOR` is the code side of the registry the
+	# rest of the tree reads, so the model refuses a code no surface can serve.
+	lang: str
+	# The cast. A set, so a character cannot be in it twice, and non-empty, because a vignette with
+	# no cast is a monologue wearing a drama's name.
+	roles: set[str] = Field(min_length=1)
+	scenes: list[VignetteScene] = Field(min_length=1)
+	script: str = Field(min_length=1)
+
+	def model_post_init(self, _context: object) -> None:
+		assert self.lang in LANGUAGE_NAME_FOR, (
+			f'{self.lang!r} is not a §CHAN-000 language; the section lists '
+			f'{sorted(LANGUAGE_NAME_FOR)}'
+		)
+		assert all(role.strip() for role in self.roles), 'a cast member has no name'
+		# Numbered, and consecutive from 1: a script whose scenes skip a number is a script with a
+		# missing scene, and the director reads the numbers off the page.
+		assert [s.number for s in self.scenes] == list(range(1, len(self.scenes) + 1)), (
+			'§CHAN-000 vignette scenes are numbered from 1 without gaps'
+		)
+		speakers = {line.speaker for scene in self.scenes for line in scene.lines}
+		unknown = speakers - self.roles
+		assert not unknown, (
+			f'{sorted(unknown)} speak in this vignette but are not in its cast — a line attributed '
+			f'to a character who is not in `roles` cannot be recorded as written'
+		)
+		assert len(self.script) <= VIGNETTE_CHARS_PER_SECOND * self.duration_s, (
+			'script too long for slot'
+		)
+
+	@computed_field  # type: ignore[prop-decorator]
+	@property
+	def cast(self) -> list[str]:
+		"""The cast in a stable order, for a printed script.
+
+		`roles` is a set, and a set has no order a caller can print. This is the reading order, not
+		a second source of truth — it is derived from `roles`, so the two cannot disagree.
+		"""
+		return sorted(self.roles)
 
 
 class ChwTask(BaseModel):
