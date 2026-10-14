@@ -6184,3 +6184,83 @@ exists for. A canary that passes is a bug in the canary, and this one was a bug 
 
 The governing text is `docs/spec.md`'s §CHAN-5 bullet, already transcribed in
 `afya.intermediaries.views:TOOLS_PROVIDED`.
+
+---
+
+## §CHAN-2 / §LOC-001 / §CHAN-005 — four sentences that named a fact their boolean did not establish (2026-10-15)
+
+### The finding
+
+One defect class, four surfaces, and in each the code computes a **correct** boolean and then renders
+a sentence asserting *one* of the two or three facts that reach the same branch:
+
+1. **§CHAN-2's closing USSD screen.** `_ussd_close` served "Your location was shared." when the first
+   prompt was answered `1`. That is the **consent** the prompt collected, not a transmission — a USSD
+   session carries no coordinates, and `afya.channels.views:CallbackRequest`'s own docstring says
+   `location_shared` "is the *consent* §CHAN-2's first prompt asks for, not a position". The sentence
+   and the model contradicted each other, and the model was right. This is the widest audience of the
+   three: `/channels/ussd` is unguarded, and the people on it are the ones §4.1 gives the channel to.
+2. **§LOC-001's privacy note, on an open route.** `logged=False` is reached by a person who switched
+   alerts off *and* by a caller with no subject at all. `/surveillance/geofences-at` is open and passes
+   no subject, so an anonymous caller was told "Alerts are off" — a setting they do not have. The
+   service's own docstring already drew the distinction for the boolean ("an anonymous caller is
+   treated as a person who has never opted in"); the sentence did not.
+3. **`ChwService.activity_summary`.** `period` was echoed into the response and otherwise ignored, so
+   the supervision note was decided by a **lifetime** count — while the mobile catalogue offers this
+   screen as "My activity this week". A CHW who logged ten visits in September and none since read
+   "Good coverage this period" in October.
+4. **The route above it, one level up.** `GET /chw/{chw_ref}/activity` defaulted `period` to the
+   **literal** `'2026-W41'`, so the same screen read week 41 for the life of the deployment — a title
+   that is a week and a number that is a constant. Fixing the filter without the default would have
+   left the screen scoped correctly to the wrong week.
+
+Each is the same shape as §CHAN-001's cost sentence, one level down: the boolean was right either way;
+the prose is what a person reads.
+
+### The fixes, each the smallest one that removes the false claim
+
+1. `USSD_CLOSE`'s `location`/`no_location` pair now names the **agreement** — "You agreed to share your
+   location if a health worker asks for it." / "You did not agree to share your location." The sentence
+   reads the same whether or not a callback was requested, because it is about the agreement rather
+   than about a record: the consent reaches `CallbackRequest.location_shared` only when a callback *was*
+   asked for, so promising a record on the other path would be the same defect the other way round.
+2. `zone_privacy_note` takes keyword-only `anonymous`, and `GEOFENCE_ALERT_STRINGS`'s `not_logged` splits
+   into `not_logged_off` and `not_logged_anonymous`, in both languages. `zones_at` computes
+   `anonymous = subject_ref is None` and threads it through `_zone_event` to both call sites. No new
+   model field: the note is a sentence, and the state it describes is derived where the event is built.
+3. `_in_period(at_iso, period)` filters the rows before they are counted. It accepts the two shapes the
+   tree already writes — an ISO week (`2026-W41`, as `/ai/early-warning` takes) and a calendar month
+   (`2026-10`) — because a monthly supervision summary is the same question asked over a month. ISO
+   weeks rather than a rolling seven days, for the reason `afya.ai.service._iso_week` gives: a boundary
+   that moves with the query makes two runs of the same question disagree. An `at_iso` that cannot be
+   parsed is **excluded**, because counting it would put one undated row into every period at once.
+4. The route computes the running ISO week from the clock when `period` is omitted — the same thing
+   `/ai/early-warning` does one route up, so the two routes that ask "how are we doing" answer about
+   the same week. An explicit period is still honoured; the default did not replace the parameter.
+
+### What was *not* changed, and why
+
+`/surveillance/geofences-at` stays open and stays subjectless. The route is §LOC-001's Tier 1
+behaviour — a person at the edge of a zone is warned whether or not they have an account — and the
+privacy note is the one place the payload speaks to them. Closing it would be the fix that removes the
+feature; naming the state correctly is the fix that keeps it.
+
+### The canaries
+
+`tests/ci/canary_served_sentences.py` adds four, each reverting to the exact pre-fix
+code so the test written for the defect fails on the code the defect was in. All four fired:
+
+| # | Mutation | Caught by |
+|---|---|---|
+| 1 | the USSD close claims the location was shared | `test_the_closing_screen_reports_the_consent_rather_than_a_transmission` |
+| 2 | the privacy note names an alerts choice an anonymous caller never made | `test_the_note_tells_an_anonymous_caller_they_never_opted_in` |
+| 3 | the activity summary ignores the period it names | `test_the_summary_is_scoped_to_the_period_it_names` |
+| 4 | the activity route defaults to a fixed week rather than the running one | `test_the_activity_route_defaults_to_the_week_it_is_running_in` |
+
+The USSD assertion is a **blocklist of the claim** (`was shared`, `was sent`, `was recorded`) rather
+than a pin on the new wording, because the defect is a sentence asserting a transmission and any
+future phrasing that does so is the same bug wearing different words. All four answers to the two
+prompts are walked: the consent sentence is composed before the callback sentence is chosen, so a fix
+applied to only one path would leave the other claiming the same thing.
+
+**No new source.** The governing text is this repo's own `docs/spec.md`.

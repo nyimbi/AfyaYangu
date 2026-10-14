@@ -33,6 +33,10 @@ async def main() -> None:
 	menu = ch.ussd(UssdRequest(session_id='ss1', msisdn='+254711222333', text=''))
 	print('USSD menu:\n' + (menu.menu or ''))
 	print(ch.ussd(UssdRequest(session_id='ss1', msisdn='+254711222333', text='3')).end_text)
+	# §CHAN-2's closing screen reports the *consent* the first prompt collected, not a transmission:
+	# a USSD session carries no coordinates.
+	print('consent declined:', ch.ussd(UssdRequest(
+		session_id='ss2', msisdn='+254711222333', text='1*1*2*2')).end_text)
 
 	# §CHAN-1's follow-up: composed when the report is filed, sent by the route once per report.
 	ch.ussd(UssdRequest(session_id='ss1', msisdn='+254711222333', text='1*1*1*2'))

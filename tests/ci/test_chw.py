@@ -180,7 +180,7 @@ async def test_activity_summary_counts_by_type_and_changes_supervision_note() ->
 	other = svc.activity_summary('CHW-7', '2026-10')
 	assert other.total == 1 and other.by_activity == {'training': 1}
 
-	for i in range(5):
+	for _ in range(5):
 		await svc.log_activity(ActivityLogEntry(
 			chw_ref='CHW-6', at_iso='2026-10-07T08:00:00Z', activity='referral', community='Gede',
 		))
@@ -189,3 +189,80 @@ async def test_activity_summary_counts_by_type_and_changes_supervision_note() ->
 	assert good.by_activity == {'report': 3, 'followup': 2, 'referral': 5}
 	assert 'Good coverage this period' in good.supervision_note
 	assert good.supervision_note != light.supervision_note
+
+
+async def test_the_summary_is_scoped_to_the_period_it_names() -> None:
+	"""`period` was echoed into the response and otherwise ignored, so a lifetime count decided a
+	period's sentence.
+
+	The mobile catalogue offers this as "My activity this week". A CHW who logged ten visits in
+	September and none since read "Good coverage this period" in October — the sentence was about a
+	week and the number behind it was about a career. The two shapes the tree already writes are
+	asserted here, because `/ai/early-warning` takes an ISO week while a supervision summary is the
+	same question asked over a month.
+	"""
+	svc = ChwService()
+	await svc.provision(_profile('CHW-6'))
+	for at in ('2026-09-08T08:00:00Z',) * 10 + ('2026-10-06T08:00:00Z',) * 2:
+		await svc.log_activity(ActivityLogEntry(
+			chw_ref='CHW-6', at_iso=at, activity='report', community='Gede'))
+
+	# The week that holds the two October entries, and the month that holds the same two.
+	week = svc.activity_summary('CHW-6', '2026-W41')
+	assert week.total == 2, 'a lifetime total is not this week'
+	assert 'Light activity logged' in week.supervision_note
+	month = svc.activity_summary('CHW-6', '2026-10')
+	assert month.total == 2 and month.period == '2026-10'
+	# September's ten are the ones that must not leak forward.
+	assert svc.activity_summary('CHW-6', '2026-09').total == 10
+	assert svc.activity_summary('CHW-6', '2026-09').supervision_note != week.supervision_note
+	# A period nothing was logged in is empty rather than everyone's lifetime.
+	assert svc.activity_summary('CHW-6', '2026-W40').total == 0
+	assert svc.activity_summary('CHW-6', '2026-11').total == 0
+	assert svc.activity_summary('CHW-6', '2026-W41').by_activity == {'report': 2}
+	# An undated row is a data defect, not a fact about any period: counting it would put it in every
+	# one of them at once, which is the same "a lifetime total wearing a period's name" failure.
+	await svc.log_activity(ActivityLogEntry(
+		chw_ref='CHW-6', at_iso='not-a-date', activity='report', community='Gede'))
+	expected = {'2026-09': 10, '2026-10': 2, '2026-W41': 2, '2026-11': 0}
+	assert {p: svc.activity_summary('CHW-6', p).total for p in expected} == expected, (
+		'an unparseable date was counted into a period'
+	)
+
+
+async def test_the_activity_route_defaults_to_the_week_it_is_running_in(tmp_path) -> None:
+	"""The catalogue's title is "My activity this week", and the route's default was a literal week.
+
+	`period: str = '2026-W41'` meant the screen read week 41 for the life of the deployment — a
+	title that is a week and a number that is a constant. The period is now computed from the clock,
+	the way `/ai/early-warning` does it one route up, so leaving the parameter out cannot be pointed
+	at a stale week. The assertion is against the clock rather than against a fixture date, because
+	a test pinned to `2026-W41` is the same bug wearing a test's clothes.
+	"""
+	import base64
+	import datetime
+	import hashlib
+
+	import httpx
+
+	from afya.service import build_services, create_app
+
+	app = create_app(build_services(db_path=str(tmp_path / 'afya.db')))
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		verifier = 'v' * 43
+		challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
+		authz = (await c.post('/auth/pkce/authorize', json={
+			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': challenge,
+			'state': 'state-1234'})).json()
+		tok = (await c.post('/auth/pkce/token', params={'role': 'chw'}, json={
+			'authorization_code': authz['authorization_code'], 'client_id': 'app',
+			'redirect_uri': 'afya://cb', 'code_verifier': verifier})).json()
+		headers = {'Authorization': f'Bearer {tok["access_token"]}'}
+
+		year, week, _ = datetime.datetime.now(datetime.timezone.utc).date().isocalendar()
+		today = f'{year}-W{week:02d}'
+		now = (await c.get('/chw/CHW-9/activity', headers=headers)).json()
+		assert now['period'] == today, f'the default period is the running week, not {now["period"]}'
+		# And an explicit period is still honoured, so the default did not replace the parameter.
+		asked = (await c.get('/chw/CHW-9/activity', headers=headers, params={'period': '2026-09'})).json()
+		assert asked['period'] == '2026-09'

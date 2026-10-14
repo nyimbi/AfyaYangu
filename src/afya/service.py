@@ -5097,7 +5097,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.get('/chw/{chw_ref}/activity')
-	async def chw_activity_summary(chw_ref: str, period: str = '2026-W41', _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	async def chw_activity_summary(chw_ref: str, period: str | None = None, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+		"""One CHW's activity in a period, defaulting to the week the deployment is running in.
+
+		The default used to be the **literal** `'2026-W41'`, so the catalogue's "My activity this week"
+		read week 41 for the life of the deployment — a screen whose title is a week and whose number
+		is a fixed one. The period is computed from the clock rather than stored, for the reason
+		`/ai/early-warning` gives one route up: leaving the parameter out cannot then be pointed at a
+		stale period, and the two routes that ask "how are we doing" answer about the same week.
+		"""
+		if not period:
+			iso_year, iso_week, _ = datetime.now(timezone.utc).date().isocalendar()
+			period = f'{iso_year}-W{iso_week:02d}'
 		return chw.activity_summary(chw_ref, period).model_dump(mode='json')
 
 	# --- §CHAN-5 the intermediary programme --------------------------------------------------

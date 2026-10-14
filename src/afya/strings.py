@@ -258,9 +258,21 @@ GEOFENCE_ALERT_STRINGS: dict[str, dict[str, str]] = {
 		# the person rather than only checkable in the payload. A person who turned alerts off is owed
 		# the fact that nothing was kept, and a person who left them on is owed the fact that
 		# something was: both are answers to "what do you know about where I have been".
-		'not_logged': (
+		#
+		# `not_logged` is split in two, because `logged=False` is reached by two opposite facts and
+		# this sentence is served on an **open** route. `/surveillance/geofences-at` passes no
+		# subject at all, so an anonymous caller reaches this branch having never made an alerts
+		# choice — and the single sentence told them "Alerts are off", which is a setting they do not
+		# have. `location/service.py:zones_at`'s own docstring makes the distinction for the boolean
+		# ("an anonymous caller is treated as a person who has never opted in"); the sentence now
+		# makes it too.
+		'not_logged_off': (
 			'Your entry was not recorded. Alerts are off, so nothing about where you go is kept on '
 			'this phone or sent anywhere.'
+		),
+		'not_logged_anonymous': (
+			'Your entry was not recorded. You are not signed in and no alerts are set up on this '
+			'device, so nothing about where you go is kept or sent anywhere.'
 		),
 		'logged': 'Your entry was recorded on this phone so the 21-day window can be followed up.',
 	},
@@ -276,9 +288,14 @@ GEOFENCE_ALERT_STRINGS: dict[str, dict[str, str]] = {
 			'Umetoka {place}. Kipindi cha siku 21 cha kufuatilia dalili kilichoanza ulipoingia '
 			'kinaendelea — endelea kujiangalia na piga 719 kama unajihisi mgonjwa.'
 		),
-		'not_logged': (
+		'not_logged_off': (
 			'Kuingia kwako hakukurekodiwa. Tahadhari zimezimwa, hivyo hakuna kinachohifadhiwa '
 			'kuhusu unakoenda kwenye simu hii wala kutumwa popote.'
+		),
+		'not_logged_anonymous': (
+			'Kuingia kwako hakukurekodiwa. Hujoingia kwenye akaunti na hakuna tahadhari '
+			'zilizowekwa kwenye kifaa hiki, hivyo hakuna kinachohifadhiwa kuhusu unakoenda wala '
+			'kutumwa popote.'
 		),
 		'logged': 'Kuingia kwako kulirekodiwa kwenye simu hii ili kipindi cha siku 21 kifuatiliwe.',
 	},
@@ -310,15 +327,24 @@ def geofence_alert(lang: str, place_label: str | None = None, county: str = '') 
 	return table['alert'].format(place=zone_place(lang, place_label, county))
 
 
-def zone_privacy_note(lang: str, logged: bool) -> str:
+def zone_privacy_note(lang: str, logged: bool, *, anonymous: bool = False) -> str:
 	"""§LOC-001's Privacy line, addressed to the person rather than to a reader of the payload.
 
 	Both answers are owed. A person who turned alerts off is told nothing was kept, and a person who
 	left them on is told something was — a feature that said only the reassuring half would be
-	describing the switch as a preference when it is a consent decision."""
+	describing the switch as a preference when it is a consent decision.
+
+	`anonymous` separates the two ways `logged` comes out False, because they are opposite facts and
+	this sentence is served on an open route. `/surveillance/geofences-at` passes no subject, so an
+	anonymous caller reaches `logged=False` having never made an alerts choice; telling them "Alerts
+	are off" names a setting they do not have. The default is `False` so a caller that has already
+	established a subject — the guarded `/location/zones/{subject_ref}` — reads as before.
+	"""
 	assert isinstance(lang, str) and lang, 'lang required'
 	table = GEOFENCE_ALERT_STRINGS[answerable(lang)]
-	return table['logged'] if logged else table['not_logged']
+	if logged:
+		return table['logged']
+	return table['not_logged_anonymous'] if anonymous else table['not_logged_off']
 
 
 # §SEC-001's "consent audit log visible to the user" needs three sentences, and they are three
@@ -746,16 +772,24 @@ USSD_LANGUAGE_SET: dict[str, str] = {
 # because the prompts replaced the screen it was on, and what was recorded is named because a person
 # who asked for a callback needs to know one was requested — "no callback" is different news from
 # "nothing happened", and a single closing sentence for both would blur them.
+#
+# The location pair says **consent**, not transmission, and the distinction is the whole of it: a
+# USSD session carries no coordinates (§CHAN-2's first prompt asks permission, and
+# `afya.channels.views:CallbackRequest` records `location_shared` as "the *consent* … not a
+# position"). The old wording — "Your location was shared." — asserted a completed act that neither
+# the boolean nor any code path performs, and it was false twice over: no position exists on this
+# channel, and on the `2`-to-the-callback-prompt path the answer is not recorded anywhere at all.
+# A caller who pressed `1` consented to share; that is what they are told.
 USSD_CLOSE: dict[str, dict[str, str]] = {
 	'en': {
-		'location': 'Your location was shared.',
-		'no_location': 'Your location was not shared.',
+		'location': 'You agreed to share your location if a health worker asks for it.',
+		'no_location': 'You did not agree to share your location.',
 		'callback': 'A health worker will call you. {recommendation}',
 		'no_callback': 'No callback was requested; call 719 if you need one. {recommendation}',
 	},
 	'sw': {
-		'location': 'Mahali ulipo pameshirikiwa.',
-		'no_location': 'Mahali ulipo hakushirikiwa.',
+		'location': 'Ulikubali kushiriki mahali ulipo ikiwa mhudumu wa afya ataomba.',
+		'no_location': 'Hukukubali kushiriki mahali ulipo.',
 		'callback': 'Mhudumu wa afya atakupigia. {recommendation}',
 		'no_callback': 'Hukuomba kupigiwa simu; piga 719 kama unahitaji. {recommendation}',
 	},

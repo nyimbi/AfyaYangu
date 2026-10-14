@@ -93,11 +93,18 @@ def test_a_callback_request_is_recorded_and_readable() -> None:
 
 def test_answering_no_requests_nothing() -> None:
 	"""The load-bearing default. `2` is a person who was asked and declined, and a queue that filled
-	on a declined prompt would have the whole country requesting a call."""
+	on a declined prompt would have the whole country requesting a call.
+
+	The location half asserts *consent*, not transmission, which is what the prompt collects: a USSD
+	session carries no coordinates, and `CallbackRequest.location_shared`'s own docstring says so.
+	The old wording — "Your location was not shared" — asserted an act, and on the path where the
+	callback prompt is also declined the answer is recorded nowhere at all, so the sentence was
+	false in a second way as well.
+	"""
 	svc = _svc()
 	_walk(svc, '1*1*2*2')
 	assert svc.callback_requests() == []
-	assert 'not shared' in (_walk(svc, '1*2*2*2').end_text or '').lower()
+	assert 'did not agree to share your location' in (_walk(svc, '1*2*2*2').end_text or '').lower()
 
 
 def test_the_closing_screen_says_which_of_the_two_happened() -> None:
@@ -112,6 +119,33 @@ def test_the_closing_screen_says_which_of_the_two_happened() -> None:
 	assert 'call you' in asked.lower(), asked
 	assert 'No callback was requested' in declined, declined
 	assert asked != declined
+
+
+def test_the_closing_screen_reports_the_consent_rather_than_a_transmission() -> None:
+	"""The USSD session carries no coordinates, so no sentence may say a location was sent.
+
+	`CallbackRequest.location_shared`'s own docstring calls it "the *consent* §CHAN-2's first prompt
+	asks for, not a position", and the screen said "Your location was shared" — an act the channel
+	cannot perform, contradicted by the tree's own model. The assertion is a *blocklist of the claim*
+	rather than a pin on the new wording, because the defect is a sentence asserting a transmission
+	and any future phrasing that does so is the same bug wearing different words.
+
+	Both answers to the first prompt are walked, and both halves of the closing screen are read: the
+	consent sentence is composed before the callback sentence is chosen, so a fix applied only to the
+	callback-requested path would leave the other one claiming the same thing.
+	"""
+	svc = _svc()
+	for walk in ('1*1*1*1', '1*1*1*2', '1*1*2*1', '1*1*2*2'):
+		screen = (_walk(svc, walk).end_text or '').lower()
+		assert screen, walk
+		assert 'was shared' not in screen and 'was sent' not in screen and 'was recorded' not in screen, (
+			f'{walk}: the channel does not transmit a position and does not keep one without a callback'
+		)
+		assert 'agree' in screen, f'{walk}: the prompt collected an agreement and the screen must name it'
+	# A caller who agreed is told what they agreed to, and one who declined is told so plainly.
+	agreed = (_walk(svc, '1*1*1*1').end_text or '').lower()
+	refused = (_walk(svc, '1*1*2*2').end_text or '').lower()
+	assert 'did not agree' not in agreed and 'did not agree' in refused
 
 
 def test_a_handled_request_leaves_the_default_read() -> None:

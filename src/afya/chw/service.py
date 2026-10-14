@@ -3,11 +3,41 @@
 A CHW account exists only if a county team provisioned it and the national registry verified
 it — the trust layer is worthless if anyone can self-enrol as a health worker.
 """
+from datetime import date
+
 from afya.chw.views import (
 	JOB_AID_TITLES, JOB_AIDS, TRAINING_MODULES, ActivityLogEntry, ActivitySummary, ChwCase, ChwProfile,
 	JobAidSheet,
 )
 from afya.logmixin import LogMixin
+
+
+def _in_period(at_iso: str, period: str) -> bool:
+	"""Whether a timestamp falls inside `period`, which is an ISO week or a calendar month.
+
+	Both shapes are read because the tree already writes both: `/ai/early-warning` takes
+	`2026-W41` and the activity route's own default was a week, while a monthly supervision
+	summary is the same question asked over a month. ISO weeks are used rather than a rolling
+	seven days for the reason `afya.ai.service._iso_week` gives — a boundary that moves with the
+	query makes two runs of the same question disagree. A date that cannot be parsed is **not** in
+	the period: counting it would inflate every period, and an undated row is a data defect rather
+	than a fact about this week.
+	"""
+	assert isinstance(period, str) and period, 'a period is required'
+	try:
+		at = date(*(int(p) for p in at_iso[:10].split('-')))
+	except (ValueError, TypeError):
+		return False
+	if '-W' in period:
+		year, _, week = period.partition('-W')
+		try:
+			iso_year, iso_week, _ = at.isocalendar()
+			return (iso_year, iso_week) == (int(year), int(week))
+		except ValueError:
+			return False
+	if len(period) == 7 and period[4] == '-':
+		return at.isoformat().startswith(period)
+	return False
 
 
 class ChwService(LogMixin):
@@ -95,7 +125,17 @@ class ChwService(LogMixin):
 		return entry
 
 	def activity_summary(self, chw_ref: str, period: str) -> ActivitySummary:
-		rows = [e for e in self._activity if e.chw_ref == chw_ref]
+		"""One CHW's logged activity inside `period`, by type, with a supervision note.
+
+		`period` used to be echoed into the response and otherwise ignored, which made the summary a
+		**lifetime** count wearing a period's name — and the mobile catalogue offers this as "My
+		activity this week", so a CHW read a period-scoped sentence that a lifetime total decided.
+		The filter is now applied, and it accepts the two shapes the tree already writes: an ISO week
+		(`2026-W41`, as `/ai/early-warning` takes) and a calendar month (`2026-10`). An entry whose
+		`at_iso` cannot be read is excluded rather than counted, because a row with no date cannot be
+		in any period and counting it would inflate every one.
+		"""
+		rows = [e for e in self._activity if e.chw_ref == chw_ref and _in_period(e.at_iso, period)]
 		by_activity: dict[str, int] = {}
 		for e in rows:
 			by_activity[e.activity] = by_activity.get(e.activity, 0) + 1

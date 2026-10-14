@@ -328,6 +328,35 @@ def test_the_privacy_note_is_served_both_ways() -> None:
 	assert 'recorded on this phone' in on.privacy_note
 
 
+def test_the_note_tells_an_anonymous_caller_they_never_opted_in() -> None:
+	"""`logged=False` is reached by two opposite facts, and this route serves both.
+
+	`/surveillance/geofences-at` is open and passes no subject, so an anonymous caller reaches the
+	same branch as a person who switched alerts off — and the single sentence that used to sit there
+	told them "Alerts are off", which is a setting they do not have. Naming a choice nobody made is
+	the same defect as naming a transmission nobody performed: the sentence asserts something the
+	boolean does not establish. All three states are asserted together so a future edit that
+	collapses two of them fails here rather than in the field.
+	"""
+	svc = _svc(_fence('G1', label='Kasese market', county='Busia'))
+	svc.set_zone_alerts('U-1', False)
+	svc.set_zone_alerts('U-2', True)
+	anonymous = svc.zones_at(*INSIDE)[0]
+	off = svc.zones_at(*INSIDE, subject_ref='U-1')[0]
+	on = svc.zones_at(*INSIDE, subject_ref='U-2')[0]
+	assert (anonymous.logged, off.logged, on.logged) == (False, False, True)
+	assert anonymous.privacy_note == zone_privacy_note('en', False, anonymous=True)
+	assert len({anonymous.privacy_note, off.privacy_note, on.privacy_note}) == 3, (
+		'the three states are three sentences: two of them are a choice and one is the absence of one'
+	)
+	assert 'Alerts are off' not in anonymous.privacy_note, (
+		'an open route may not tell a caller about a switch they never touched'
+	)
+	assert 'not signed in' in anonymous.privacy_note
+	# Swahili carries the same split rather than falling back to one sentence for both.
+	assert zone_privacy_note('sw', False, anonymous=True) != zone_privacy_note('sw', False)
+
+
 def test_the_event_carries_the_21_day_window_it_names() -> None:
 	"""The sentence says "21 days" and the client has to schedule against the same number. A second
 	copy typed into the client is one that drifts from the string, so the window is a field."""

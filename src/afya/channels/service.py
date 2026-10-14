@@ -306,6 +306,18 @@ class ChannelService(LogMixin):
 		they asked for — the rule `answerable` establishes everywhere else. A caller who asked for a
 		callback is told one was requested; a caller who did not is told what to do instead, because
 		"no callback" is not the same news as "nothing happened".
+
+		`location` is the **consent** the first prompt collected, not a transmission, and the sentence
+		names it as one. The pair used to read "Your location was shared", which asserted a completed
+		act this channel cannot perform: a USSD session carries no coordinates, and `afya.channels.
+		views:CallbackRequest`'s own docstring says `location_shared` "is the *consent* §CHAN-2's first
+		prompt asks for, not a position". The sentence and the docstring contradicted each other, and
+		the docstring was right.
+
+		The sentence therefore reads the same whether or not a callback was requested, because it is
+		about the agreement rather than about a record — which matters, since the consent reaches
+		`CallbackRequest.location_shared` only when a callback was asked for. Promising a record on the
+		path that keeps none would be the same defect the other way round.
 		"""
 		key = 'callback' if callback else 'no_callback'
 		recorded = USSD_CLOSE[served]['location' if location else 'no_location']

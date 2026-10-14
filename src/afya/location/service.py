@@ -604,11 +604,14 @@ class LocationService(LogMixin):
 
 		An anonymous caller is treated as a person who has never opted in: every zone is an entry,
 		nothing is remembered, and `logged` is False. Nothing about the caller is recorded, which is
-		§LOC-001's Privacy line and the reason this route is open.
+		§LOC-001's Privacy line and the reason this route is open. The privacy note is told *which*
+		of the two states it is in rather than being handed the boolean, because "you turned alerts
+		off" and "you never had alerts" are opposite facts and only one of them is true here.
 		"""
 		assert isinstance(lat, (int, float)) and isinstance(lon, (int, float)), 'a position is required'
 		assert isinstance(lang, str) and lang, 'lang required'
 		watch = self._watches.get(subject_ref) if subject_ref else None
+		anonymous = subject_ref is None
 		now_inside = self._fences_at(lat, lon)
 		now_ids = {f.geofence_id for f in now_inside}
 		for fence in now_inside:
@@ -618,29 +621,33 @@ class LocationService(LogMixin):
 		events: list[ZoneEvent] = []
 		for fence in now_inside:
 			if fence.geofence_id not in was_inside:
-				events.append(self._zone_event(fence, 'entry', logging, lang))
+				events.append(self._zone_event(fence, 'entry', logging, lang, anonymous=anonymous))
 		for fence_id in sorted(was_inside - now_ids):
 			left = self._seen_fences.get(fence_id)
 			if left is not None:
-				events.append(self._zone_event(left, 'exit', logging, lang))
+				events.append(self._zone_event(left, 'exit', logging, lang, anonymous=anonymous))
 		if logging and watch is not None:
 			self._watches[watch.subject_ref] = watch.model_copy(
 				update={'inside': sorted(f.geofence_id for f in now_inside)})
 		return events
 
 	@staticmethod
-	def _zone_event(fence: Geofence, event: str, logging: bool, lang: str) -> ZoneEvent:
+	def _zone_event(fence: Geofence, event: str, logging: bool, lang: str, *, anonymous: bool = False) -> ZoneEvent:
 		# `county` is passed to both string calls, not just the alert: an exit names the place it left
 		# too, and a zone whose label nobody set has only its county to be named by.
 		# `lang` on the event is the language the sentence was actually composed in, not the one that
 		# was asked for: §ACC-002's rule is that a caller answered in English *knows* it was English,
 		# and an event carrying `luo` beside an English alert tells the person the opposite.
+		#
+		# `anonymous` is carried to the privacy note because `logging` is False for two opposite
+		# facts and the note is served on an open route: a caller with no subject has never made an
+		# alerts choice, and the sentence may not name one they do not have.
 		alert = geofence_alert(lang, fence.place_label, fence.county)
 		return ZoneEvent(
 			event=event, geofence_id=fence.geofence_id, place_label=fence.place_label or '',
 			county=fence.county, risk_type=fence.risk_type, alert_level=fence.alert_level,
 			alert=alert, message=zone_transition(lang, event, fence.place_label, alert, fence.county),
-			privacy_note=zone_privacy_note(lang, logging),
+			privacy_note=zone_privacy_note(lang, logging, anonymous=anonymous),
 			logged=logging, lang=answerable(lang),
 		)
 
