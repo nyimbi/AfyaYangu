@@ -28,6 +28,15 @@ class ConsentRecord(BaseModel):
 	# are one record — and `record_consent_for_phone` writes through the same door, so without this
 	# the log cannot say which session a line came from.
 	channel: str = Field(pattern='^(app|ussd|sms|whatsapp|chw|unknown)$', default='app')
+	# The language the person was given the explanation in. §SEC-001's first Feature bullet is
+	# "plain-language explanations in local languages", and the log's whole design is that an event
+	# carries the words the person was shown *then* rather than looking them up now — so it has to
+	# record which language those words were in, or a Swahili grant is logged as an English one and
+	# the person's own history misdescribes the conversation they had.
+	#
+	# It is also evidence about the consent itself: DPA 2019 requires consent to be *informed*, and
+	# a record that cannot say whether the person could read what she agreed to is a weaker record.
+	lang: str = Field(default='en', min_length=2, max_length=8)
 
 
 class ConsentCategory(str, Enum):
@@ -85,6 +94,14 @@ class ConsentToggle(BaseModel):
 	sensors: dict[str, bool] = {}
 	separate_from_core: bool = False
 	revocable: bool = True
+	# The language `label`, `explains` and `on_withdrawal` are actually in, and whether that is not
+	# the one asked for. §SEC-001's first Feature bullet is "plain-language explanations in *local
+	# languages*", and `TriageResult.served_in` established the rule this follows: a language with
+	# no table is served English and *told so*, rather than shown English a client renders as
+	# Dholuo. On this screen that matters more than anywhere else — a person who cannot read the
+	# explanation cannot give informed consent to what it describes.
+	served_in: str = 'en'
+	language_fallback: bool = False
 
 
 class ConsentEvent(BaseModel):
@@ -114,6 +131,12 @@ class ConsentEvent(BaseModel):
 	category: str
 	label: str
 	consequence: str
+	# The language the label and consequence are in. The event copies the catalogue's words so a
+	# reworded catalogue cannot rewrite a person's history; this field is the other half of that,
+	# because a copy of the *English* sentence is not what a person who read the Swahili one was
+	# shown. A log that could not say which language a line was in would misdescribe the consent it
+	# is the record of.
+	lang: str = Field(default='en', min_length=2, max_length=8)
 	# Where the grant was made. §SEC-001's ledger spans channels — a USSD grant and an app grant are
 	# one record — so the log has to say which one this was, or a person cannot tell the session
 	# they do not remember from the one they do.

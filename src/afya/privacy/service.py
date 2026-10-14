@@ -13,39 +13,50 @@ from afya.privacy.views import (
 	LegalBasis, ObligationKind, PrincipleImplementation, RBACRole, RegulatoryInstrument,
 	RegulatoryReport, _SCOPE,
 )
-from afya.strings import consent_history_note
+from afya.strings import (
+	CONSENT_SCOPE_STRINGS, answerable, consent_history_note, consent_scope_text,
+)
 from afya.refs import resolves
 
 # §SEC-001's eight categories. `explains` is the plain-language sentence beside the toggle and
 # `on_withdrawal` is the consequence §SEC-001 requires be stated — both are data so a toggle cannot
 # ship without them, and neither carries a spec code.
-CONSENT_CATALOGUE: tuple[ConsentScope, ...] = (
-	ConsentScope(category=ConsentCategory.symptom_storage, label='Keep my symptom history',
-		explains='We store the symptoms you log so you and your health worker can see how you have been.',
-		on_withdrawal='Your symptom history stops being used and is deleted on the next clean-up.'),
-	ConsentScope(category=ConsentCategory.location_tracking, label='Use my location',
-		explains='We use your area to find the nearest clinic and to show risk alerts where you are.',
-		on_withdrawal='You can still use the app, but you will type your area by hand and alerts will be less precise.'),
-	ConsentScope(category=ConsentCategory.proximity_logging, label='Nearby contact log',
-		explains='The app can note when it is close to another app user, without either of you being identified.',
-		on_withdrawal='Close-contact alerts cannot reach you if you are exposed.'),
-	ConsentScope(category=ConsentCategory.sensor_monitoring, label='Phone sensors',
-		explains='Your phone can measure things like breathing, coughing and falls. Each one is a separate choice.',
-		on_withdrawal='The sensors you switch off stop measuring immediately and their readings are deleted.',
-		per_sensor=True),
-	ConsentScope(category=ConsentCategory.share_health_authorities, label='Share with health authorities',
-		explains='Counts of illness, with no names, go to the Ministry so they can see where an outbreak is moving.',
-		on_withdrawal='Your data is left out of the counts the Ministry sees.'),
-	ConsentScope(category=ConsentCategory.share_chw, label='Share with my health worker',
-		explains='Your community health worker can see your record so they can follow up with you.',
-		on_withdrawal='Your health worker will not be able to see your record or follow up.'),
-	ConsentScope(category=ConsentCategory.cloud_backup, label='Back up my data',
-		explains='A copy of your record is kept so you do not lose it if you change or lose your phone.',
-		on_withdrawal='Your record stays only on this phone. If you lose it, the record goes with it.'),
-	ConsentScope(category=ConsentCategory.research, label='Allow research use',
-		explains='De-identified data may be used to study how illness spreads. This is never required.',
-		on_withdrawal='Your data is not used in research. Nothing else about the app changes.',
-		separate_from_core=True),
+# The sentences are built from `afya.strings`, not written here. §SEC-001's first Feature bullet is
+# "Plain-language explanations in local languages", and while the catalogue held English literals
+# the only way to serve a second language was a second copy of the sentence — two sources for one
+# claim, drifting on the first edit. `CONSENT_SCOPE_STRINGS` is the single table; this is the
+# English member of it, so the text a toggle serves and the text a log copies are one fact.
+#
+# `separate_from_core` and `per_sensor` stay here rather than moving to the table: they are
+# properties of the category's *structure* — which of the eight may be bundled and which needs a
+# per-sensor grant — and a translator has no business choosing them.
+_CATALOGUE_STRUCTURE: tuple[tuple[ConsentCategory, bool, bool], ...] = (
+	(ConsentCategory.symptom_storage, False, False),
+	(ConsentCategory.location_tracking, False, False),
+	(ConsentCategory.proximity_logging, False, False),
+	(ConsentCategory.sensor_monitoring, False, True),
+	(ConsentCategory.share_health_authorities, False, False),
+	(ConsentCategory.share_chw, False, False),
+	(ConsentCategory.cloud_backup, False, False),
+	(ConsentCategory.research, True, False),
+)
+
+CONSENT_CATALOGUE: tuple[ConsentScope, ...] = tuple(
+	ConsentScope(
+		category=category, separate_from_core=separate, per_sensor=per_sensor,
+		**consent_scope_text(category.value),
+	)
+	for category, separate, per_sensor in _CATALOGUE_STRUCTURE
+)
+
+# Every category §SEC-001 names has a sentence in the table, and every sentence in the table names a
+# category. Asserted both ways at import: a category with no translation would render a blank toggle,
+# and a translation for a category the enum does not have is a sentence nobody can ever be shown.
+assert {c.category for c in CONSENT_CATALOGUE} == set(ConsentCategory), (
+	'the catalogue and §SEC-001\'s category enum disagree'
+)
+assert {s.value for s in ConsentCategory} == set(CONSENT_SCOPE_STRINGS['en']), (
+	'the string table and the category enum disagree'
 )
 
 _CATALOGUE_BY_CATEGORY: dict[ConsentCategory, ConsentScope] = {c.category: c for c in CONSENT_CATALOGUE}
@@ -288,7 +299,8 @@ class PrivacyService(LogMixin):
 		self._consents[record.consent_id] = record
 		self._consent_events.append(self._event(
 			record, action='granted', category=record.purpose, channel=record.channel,
-			label=self._label(record.purpose), consequence=self._consequence(record.purpose),
+			label=self._label(record.purpose, record.lang),
+			consequence=self._consequence(record.purpose, record.lang), lang=record.lang,
 		))
 		if self._store is not None:
 			await self._store.save_consent(record)
@@ -341,22 +353,33 @@ class PrivacyService(LogMixin):
 		]
 
 	def consent_toggles(self, granted: dict[str, bool] | None = None,
-	                    sensors: dict[str, bool] | None = None) -> list[ConsentToggle]:
-		"""The catalogue resolved against what a subject has actually granted.
+	                    sensors: dict[str, bool] | None = None,
+	                    lang: str = 'en') -> list[ConsentToggle]:
+		"""The catalogue resolved against what a subject has actually granted, in `lang`.
 
 		§SEC-001 wants granular toggles, one-tap revocation and a log the user can see. `granted` is
 		keyed by category value; a category absent from it is off, because consent is opt-in and a
 		default of on is not consent.
+
+		`lang` is the section's *first* Feature bullet rather than a nicety: "plain-language
+		explanations in local languages". The sentences come from `afya.strings` through
+		`consent_scope_text`, and a language with no table is served English — with `served_in`
+		carrying which one it got, so a Swahili speaker is never shown English believing it is
+		Swahili on the one screen where comprehension is the whole point.
 		"""
 		granted = granted or {}
 		sensors = sensors or {}
+		served = answerable(lang)
 		from afya.sensors.service import SENSORS
 		out: list[ConsentToggle] = []
 		for scope in CONSENT_CATALOGUE:
+			words = consent_scope_text(scope.category.value, lang)
 			row = ConsentToggle(
-				category=scope.category, label=scope.label, explains=scope.explains,
-				on_withdrawal=scope.on_withdrawal, separate_from_core=scope.separate_from_core,
+				category=scope.category, separate_from_core=scope.separate_from_core,
 				granted=bool(granted.get(scope.category.value, False)),
+				served_in=served, language_fallback=served != lang,
+				label=words['label'], explains=words['explains'],
+				on_withdrawal=words['on_withdrawal'],
 			)
 			if scope.per_sensor:
 				row.sensors = {s.slug: bool(sensors.get(s.slug, False)) for s in SENSORS}
@@ -442,7 +465,8 @@ class PrivacyService(LogMixin):
 
 	async def record_consent_for_phone(self, msisdn: str, category: ConsentCategory,
 	                                   retention_days: int = 365,
-	                                   channel: str = 'unknown') -> ConsentRecord:
+	                                   channel: str = 'unknown',
+	                                   lang: str = 'en') -> ConsentRecord:
 		"""A grant made on a channel, written to the one registry the app reads.
 
 		The subject is resolved through the identity model, so a person who grants on USSD and then
@@ -453,6 +477,11 @@ class PrivacyService(LogMixin):
 		this door is reached by a webhook and the caller may not know which channel it came from, and
 		a log line that guessed "app" would tell the person their grant was made in a session they
 		have no memory of.
+
+		`lang` is the language the session ran in, and it is written onto the record rather than left
+		to the log's read time — the same reason the label and consequence are copied onto the event.
+		A person who granted over USSD read a menu in some language, and the record of that grant
+		should be able to say which one.
 		"""
 		if self._identity is None:
 			raise RuntimeError('the privacy service has no identity model wired; §5.4 requires the shared one')
@@ -460,6 +489,7 @@ class PrivacyService(LogMixin):
 		return await self.record_consent(ConsentRecord(
 			subject_ref=subject, purpose=category.value, data_types=[category.value],
 			retention_days=retention_days, legal_basis=LegalBasis.consent, channel=channel,
+			lang=lang,
 		))
 
 	def sensor_consented(self, subject_ref: str, sensor: str) -> bool:
@@ -487,7 +517,8 @@ class PrivacyService(LogMixin):
 		rec.withdrawn = True
 		self._consent_events.append(self._event(
 			rec, action='withdrawn', category=rec.purpose, channel=rec.channel,
-			label=self._label(rec.purpose), consequence=self._consequence(rec.purpose),
+			label=self._label(rec.purpose, rec.lang),
+			consequence=self._consequence(rec.purpose, rec.lang), lang=rec.lang,
 		))
 		if self._store is not None:
 			await self._store.save_consent(rec)
@@ -518,14 +549,18 @@ class PrivacyService(LogMixin):
 	# --- §SEC-001's consent log, as the person reads it ---------------------------------------
 
 	@staticmethod
-	def _label(purpose: str) -> str:
-		"""The catalogue's label for a purpose, or the purpose itself where it is not a category.
+	def _label(purpose: str, lang: str = 'en') -> str:
+		"""The catalogue's label for a purpose, in `lang`, or the purpose itself where it is not one.
 
 		A per-sensor grant is `sensor_monitoring:gps`, which is not a category — the catalogue covers
 		the eight §SEC-001 names and a sensor is a member of one of them. Falling back to the sensor
 		slug rather than to the parent category's label is deliberate: a log line that said "Phone
 		sensors" for both a gps grant and a microphone grant would tell the person nothing about which
 		one they switched on.
+
+		The language is the record's, not the reader's. A grant made in Swahili is logged in the
+		Swahili the person read; a log that rendered it in the language of whoever asked would
+		misdescribe the conversation, which is the one thing a consent log exists to get right.
 		"""
 		head = purpose.split(':', 1)[0]
 		try:
@@ -535,32 +570,35 @@ class PrivacyService(LogMixin):
 		scope = _CATALOGUE_BY_CATEGORY.get(category)
 		if scope is None or ':' in purpose:
 			return purpose
-		return scope.label
+		return consent_scope_text(category.value, lang)['label']
 
 	@staticmethod
-	def _consequence(purpose: str) -> str:
-		"""What the person was told withdrawing it would cost, at the time of the event."""
+	def _consequence(purpose: str, lang: str = 'en') -> str:
+		"""What the person was told withdrawing it would cost, in the language she was told it."""
 		head = purpose.split(':', 1)[0]
 		try:
-			scope = _CATALOGUE_BY_CATEGORY.get(ConsentCategory(head))
+			category = ConsentCategory(head)
 		except ValueError:
-			scope = None
-		return scope.on_withdrawal if scope is not None else ''
+			return ''
+		if category not in _CATALOGUE_BY_CATEGORY:
+			return ''
+		return consent_scope_text(category.value, lang)['on_withdrawal']
 
 	@staticmethod
 	def _event(record: ConsentRecord, *, action: str, category: str, channel: str,
-	           label: str, consequence: str) -> ConsentEvent:
+	           label: str, consequence: str, lang: str = 'en') -> ConsentEvent:
 		"""One log line, carrying the catalogue's words as they stood rather than a reference to them.
 
 		A person reading back a grant made six months ago is owed what they were told *then*. The
 		catalogue can be reworded; a log that looked its sentences up at read time would silently
-		rewrite the person's own history.
+		rewrite the person's own history. The same reasoning applies to the language: the words are
+		copied as the person read them, and `lang` records which language that was.
 		"""
 		assert action in ('granted', 'withdrawn', 'sensor_granted', 'sensor_withdrawn', 'purged'), action
 		assert category, 'a consent event names what it was about'
 		return ConsentEvent(
 			subject_ref=record.subject_ref, at_ms=now_ms(), action=action, category=category, label=label,
-			consequence=consequence, channel=channel,
+			consequence=consequence, channel=channel, lang=answerable(lang),
 			retention_days=record.retention_days, legal_basis=record.legal_basis,
 		)
 
@@ -709,7 +747,8 @@ class PrivacyService(LogMixin):
 			self._consents.pop(c.consent_id)
 			self._consent_events.append(self._event(
 				c, action='purged', category=c.purpose, channel=c.channel,
-				label=self._label(c.purpose), consequence=self._consequence(c.purpose),
+				label=self._label(c.purpose, c.lang),
+				consequence=self._consequence(c.purpose, c.lang), lang=c.lang,
 			))
 		return len(gone)
 

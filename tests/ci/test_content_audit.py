@@ -330,7 +330,6 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§ACC-001': 1,
 		'§ACC-002': 1,
 		'§LOC-002': 1,
-		'§SEC-001': 1,
 		'§SEC-006': 1,
 		# §EMG-003, §FND-001, §FND-002, §FND-003, §FND-004, §FND-005, §TRI-001, §TRI-002 and
 		# §TRI-003 are audited and carry nothing missing: every Content, Access clause, filter

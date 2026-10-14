@@ -1062,6 +1062,42 @@ Standards, Research Triangle Park, NC; December 2018 (supersedes EPA-454/B-06-00
   from readings the caller supplies, never from a curve the service invents; with no series the window
   is empty and says so.
 
+## Kenya Data Protection Act 2019 — the statute §SEC-001's consent rests on
+
+§12.6 SEC-001's first Feature is "plain-language explanations in local languages", and the reason that
+bullet is load-bearing rather than decorative is the Act: consent a person cannot read is not
+*informed* consent, and the Act recognises only consent that is informed. The code leans on that
+property in `src/afya/privacy/service.py`'s `REGULATORY_INSTRUMENTS`, which is the spec's §17 table
+reproduced.
+
+**The Act is not archived here, and four attempts to archive it failed.** Recorded rather than left as
+an unexplained gap in this file:
+
+- `https://www.odpc.go.ke/data-protection-act/` → **404**
+- `https://www.odpc.go.ke/downloads` → **404**
+- `https://www.odpc.go.ke/regulatory-framework/` → **404**
+- `https://kenyalaw.org/kl/fileadmin/pdfdownloads/Acts/2019/TheDataProtectionAct_No24of2019.pdf`
+  and `https://new.kenyalaw.org/akn/ke/act/2019/24/eng@2019-11-08/source.pdf` → **403**, to both a
+  fetch and a `curl` carrying a browser user agent
+
+`https://www.odpc.go.ke/` itself answers: it states the Office's mandate, cites "section 25 of the
+Act" for the data-protection principles, reproduces no text of the Act, and offers **no Kiswahili
+version** of anything.
+
+**What this file therefore does not support.** No section number and no quoted wording of the
+informed-consent requirement is recorded here, because none was read from a primary source in this
+repo. The claim in the code is a citation the repo has not independently archived, and it should be
+read that way. The consequence for §SEC-001 is bounded: the unit does not rest on a figure from the
+Act — the consent sentences are this repo's own, and no external source states a Kenyan consent
+explanation in Dholuo, which is the §LOC-005 decision again. What is *not* claimed is that the Act was
+read. A future pass that can reach the text should archive it and record the section number here.
+
+**Why not fetch it through a mirror.** A second-hand copy of a statute is a citation that points at
+something other than the law, and a summary of a consent provision is exactly the kind of source this
+file exists to refuse. Better an honest gap than a paraphrase presented as the Act.
+
+---
+
 ## Border and point-of-entry — §LOC-005's traveller language tables
 
 §11.5 LOC-005's sixth Feature is "multi-language support for cross-border travellers" and it had no

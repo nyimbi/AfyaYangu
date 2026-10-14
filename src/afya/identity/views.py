@@ -57,6 +57,13 @@ class PhoneConsent(BaseModel):
 	# grant is a session they may not remember, so the carrier says which it was rather than the
 	# log guessing. Defaults to `unknown`, never to `app`.
 	channel: str = Field(pattern='^(app|ussd|sms|whatsapp|chw|unknown)$', default='unknown')
+	# The language the session ran in, so the log records what the person was actually told. A USSD
+	# grant is made by pressing a key after reading a menu, and the menu's language is the language
+	# the explanation was in — §CHAN-2's own menu offers "English / Kiswahili / Dholuo / ...".
+	# Defaults to English because a carrier that does not say is more likely to have served it than
+	# to have served Dholuo, and a default of the minority language would be the log inventing a
+	# fact about the session.
+	lang: str = Field(default='en', min_length=2, max_length=8)
 
 
 class PseudonymPolicy(BaseModel):

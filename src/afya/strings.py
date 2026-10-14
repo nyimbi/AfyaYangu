@@ -354,6 +354,159 @@ def consent_history_note(has_events: bool, has_live: bool, lang: str = 'en') -> 
 	return table['live'] if has_live else table['all_off']
 
 
+# §SEC-001's first Feature bullet is *"Plain-language explanations in local languages"*, and the
+# catalogue lived in `privacy/service.py` as English literals — so a person met a screen of English
+# sentences at the one moment the product asks her to decide something about her own health data.
+# The English is here now rather than there, because a translation kept beside an English literal
+# is two sources for one sentence and they drift on the first edit; `CONSENT_CATALOGUE` is built
+# from this table, so the sentence a toggle serves and the sentence a log copies are one fact.
+#
+# The language set is the honest one, and it is the same rule `SUPPORTED_LANGS` applies. Only `en`
+# and `sw` have tables, and every other language §ACC-002 names falls back to English *and is told
+# so* through `served_in`, rather than being served a sentence that pretends to be Dholuo. A
+# machine-translated consent explanation would report this row closed while making the one screen
+# where comprehension is the entire point unreadable — worse than an honest English one, and the
+# same refusal the triage tables' own docstring already makes for recommendations.
+#
+# All three fields are translated and not only the label. A Swahili label over an English
+# consequence tells a person what she is switching off in her own language and what it will cost
+# her in a language she may not read, which is the half-translated screen this exists to prevent.
+CONSENT_SCOPE_STRINGS: dict[str, dict[str, dict[str, str]]] = {
+	'en': {
+		'symptom_storage': {
+			'label': 'Keep my symptom history',
+			'explains': 'We store the symptoms you log so you and your health worker can see how you have been.',
+			'on_withdrawal': 'Your symptom history stops being used and is deleted on the next clean-up.',
+		},
+		'location_tracking': {
+			'label': 'Use my location',
+			'explains': 'We use your area to find the nearest clinic and to show risk alerts where you are.',
+			'on_withdrawal': 'You can still use the app, but you will type your area by hand and alerts will be less precise.',
+		},
+		'proximity_logging': {
+			'label': 'Nearby contact log',
+			'explains': 'The app can note when it is close to another app user, without either of you being identified.',
+			'on_withdrawal': 'Close-contact alerts cannot reach you if you are exposed.',
+		},
+		'sensor_monitoring': {
+			'label': 'Phone sensors',
+			'explains': 'Your phone can measure things like breathing, coughing and falls. Each one is a separate choice.',
+			'on_withdrawal': 'The sensors you switch off stop measuring immediately and their readings are deleted.',
+		},
+		'share_health_authorities': {
+			'label': 'Share with health authorities',
+			'explains': 'Counts of illness, with no names, go to the Ministry so they can see where an outbreak is moving.',
+			'on_withdrawal': 'Your data is left out of the counts the Ministry sees.',
+		},
+		'share_chw': {
+			'label': 'Share with my health worker',
+			'explains': 'Your community health worker can see your record so they can follow up with you.',
+			'on_withdrawal': 'Your health worker will not be able to see your record or follow up.',
+		},
+		'cloud_backup': {
+			'label': 'Back up my data',
+			'explains': 'A copy of your record is kept so you do not lose it if you change or lose your phone.',
+			'on_withdrawal': 'Your record stays only on this phone. If you lose it, the record goes with it.',
+		},
+		'research': {
+			'label': 'Allow research use',
+			'explains': 'De-identified data may be used to study how illness spreads. This is never required.',
+			'on_withdrawal': 'Your data is not used in research. Nothing else about the app changes.',
+		},
+	},
+	'sw': {
+		'symptom_storage': {
+			'label': 'Hifadhi historia yangu ya dalili',
+			'explains': 'Tunahifadhi dalili unazoandika ili wewe na mhudumu wako wa afya muone jinsi umekuwa.',
+			'on_withdrawal': 'Historia yako ya dalili haitatumika tena na itafutwa wakati wa usafishaji unaofuata.',
+		},
+		'location_tracking': {
+			'label': 'Tumia mahali nilipo',
+			'explains': 'Tunatumia eneo lako kupata kituo cha afya cha karibu na kuonyesha tahadhari za hatari mahali ulipo.',
+			'on_withdrawal': 'Unaweza kuendelea kutumia programu, lakini utaandika eneo lako kwa mkono na tahadhari hazitakuwa sahihi.',
+		},
+		'proximity_logging': {
+			'label': 'Kumbukumbu ya mtu wa karibu',
+			'explains': 'Programu inaweza kubaini inapokuwa karibu na mtumiaji mwingine, bila yeyote wenu kutambuliwa.',
+			'on_withdrawal': 'Tahadhari za kuwa karibu na mtu mgonjwa hazitaweza kukufikia ikiwa umeambukizwa.',
+		},
+		'sensor_monitoring': {
+			'label': 'Vihisi vya simu',
+			'explains': 'Simu yako inaweza kupima mambo kama kupumua, kukohoa na kuanguka. Kila kimoja ni uamuzi wake.',
+			'on_withdrawal': 'Vihisi unavyozima vinaacha kupima mara moja na vipimo vyake hufutwa.',
+		},
+		'share_health_authorities': {
+			'label': 'Shiriki na mamlaka ya afya',
+			'explains': 'Idadi ya wagonjwa, bila majina, huenda kwa Wizara ili waone ugonjwa unakoenea.',
+			'on_withdrawal': 'Taarifa zako hazitahesabiwa katika idadi ambayo Wizara inaona.',
+		},
+		'share_chw': {
+			'label': 'Shiriki na mhudumu wangu wa afya',
+			'explains': 'Mhudumu wako wa afya ya jamii anaweza kuona kumbukumbu yako ili aweze kukufuatilia.',
+			'on_withdrawal': 'Mhudumu wako wa afya hataweza kuona kumbukumbu yako wala kukufuatilia.',
+		},
+		'cloud_backup': {
+			'label': 'Hifadhi nakala ya taarifa zangu',
+			'explains': 'Nakala ya kumbukumbu yako huhifadhiwa ili usipoteze ukibadilisha au ukipoteza simu yako.',
+			'on_withdrawal': 'Kumbukumbu yako inabaki kwenye simu hii pekee. Ukiipoteza, kumbukumbu inaenda nayo.',
+		},
+		'research': {
+			'label': 'Ruhusu matumizi ya utafiti',
+			'explains': 'Taarifa zisizotambulisha mtu zinaweza kutumika kuchunguza jinsi ugonjwa huenea. Hili halihitajiki kamwe.',
+			'on_withdrawal': 'Taarifa zako hazitatumika katika utafiti. Hakuna kingine kinachobadilika.',
+		},
+	},
+}
+
+CONSENT_LANGS: frozenset[str] = frozenset(CONSENT_SCOPE_STRINGS)
+
+# One language translated further than another is a toggle that goes half-English for the people
+# who need it most, and it is invisible in any count of "how many languages do we serve". The two
+# key sets are asserted equal rather than assumed, so a category added to one and not the other
+# fails at import instead of on a screen.
+assert set(CONSENT_SCOPE_STRINGS['en']) == set(CONSENT_SCOPE_STRINGS['sw']), (
+	'a consent category is translated in one language and not the other'
+)
+
+
+def _check_consent_tables() -> None:
+	"""Every row carries all three sentences, and none of them is empty.
+
+	A helper rather than a module-level loop so the iteration variables do not become module
+	attributes — `del` after the loop reads as a leak being tidied, and Pyright is right that the
+	names are unbound if the loop body never runs.
+	"""
+	for lang, table in CONSENT_SCOPE_STRINGS.items():
+		for slug, row in table.items():
+			assert set(row) == {'label', 'explains', 'on_withdrawal'}, f'{lang}/{slug} is incomplete'
+			assert all(row.values()), f'{lang}/{slug} has an empty sentence'
+
+
+_check_consent_tables()
+
+# The fallback is `answerable`'s, and this is what keeps it so: the consent tables cover exactly
+# the languages with a triage table. A language gaining one and not the other is a person who reads
+# her recommendation in Dholuo and her consent explanation in English.
+assert CONSENT_LANGS == SUPPORTED_LANGS, (
+	f'consent is served in {sorted(CONSENT_LANGS)} and the product answers in {sorted(SUPPORTED_LANGS)}'
+)
+
+
+def consent_scope_text(slug: str, lang: str = 'en') -> dict[str, str]:
+	"""One §SEC-001 category's label, explanation and withdrawal consequence, in `lang`.
+
+	Served in the language asked for where there is a table and in English where there is not, the
+	same rule as every other string here — the caller passes the request's language and reads
+	`served_in` off the toggle to know which it got.
+
+	An unknown slug raises rather than returning a placeholder: a category with no sentence is a
+	defect to fix, and a silent empty dict would render a toggle with nothing beside it on the one
+	screen where the person is deciding whether to hand over her health data.
+	"""
+	assert slug in CONSENT_SCOPE_STRINGS['en'], f'unknown consent category {slug}'
+	return CONSENT_SCOPE_STRINGS[answerable(lang)][slug]
+
+
 # §SEC-004's "optional pseudonymous profile": the sentence that tells a person what the handle is
 # for, and — the part that matters — what it does *not* protect against. The second half is not
 # decoration: a handle that rotated forever would still be re-identifiable in a small enough group,

@@ -4852,3 +4852,114 @@ sections, `deferred` 17 unchanged, `unresolved == []`.
 **No new source.** Nothing here is a figure taken from a published table: the contract is this repo's
 own statements, and the backoff cap is the server's existing function, asserted against it rather than
 restated.
+
+## §SEC-001 — a sentence that existed in one language (2026-10-14)
+
+§12.6's Consent Management prints five Features. Four were carried. The fifth was `missing`, and the
+audit row had the reason exactly right: *"`ConsentScope.explains` is a plain-language sentence but
+exists in English only; nothing carries a per-language consent explanation"*.
+
+The shape is the one this run keeps finding — every visible part present and the join absent. There
+was a catalogue of eight categories, a plain-language sentence beside each one, a route serving it and
+a log copying it onto every event. What there was not, was any way for the sentence to be in a
+language other than English. `consent_toggles` took no language, the route took no language, and
+`ConsentRecord` recorded that a grant happened without recording what the person could read.
+
+That matters more here than anywhere else in the product. Consent a person cannot read is not
+informed consent, and DPA 2019 recognises only consent that is informed — so the section's first
+Feature bullet is not a nicety bolted onto the screen, it is what makes the record behind it worth
+anything.
+
+### What closed it
+
+**The sentences moved into `afya.strings`.** `CONSENT_SCOPE_STRINGS` holds all eight categories in
+English and Swahili, each with its `label`, `explains` and `on_withdrawal`, and `consent_scope_text`
+is the accessor. `CONSENT_CATALOGUE` is now *built* from that table rather than restating it: the
+alternative — a Swahili dict sitting beside the English literals in `privacy/service.py` — would have
+made two sources for one sentence, and they drift on the first edit.
+
+**The language set stays at two, deliberately.** `CONSENT_LANGS == SUPPORTED_LANGS` is asserted at
+import, so a language gaining a triage table and not a consent one fails at startup rather than on a
+screen. Widening the table to the six languages §ACC-002 names, with machine-translated sentences,
+would have reported this row closed while making the one screen where comprehension is the entire
+point unreadable — the failure `afya.strings`' own docstring already refuses for triage
+recommendations, and the one `test_personas.py` pins for §ACC-002. §ACC-002's six-language bullet
+therefore **stays open**, and this section does not borrow from it.
+
+**The fallback is served visibly.** Every `ConsentToggle` carries `served_in` and
+`language_fallback`, and the route returns `lang` / `language_fallback` beside the toggles, following
+`TriageResult`'s established rule: a person shown English is *told* it is English, so a client can add
+its own preamble instead of rendering English as though it were Dholuo. `answerable` is the only
+path, so there is one fallback rule in the product rather than two.
+
+**The record carries the language, not just the words.** `ConsentRecord.lang` and `ConsentEvent.lang`
+follow the module's existing reasoning about copying the catalogue's words onto the event: a person
+reading back a grant made six months ago is owed what she was told *then*, and a copy of the English
+sentence is not what someone who read the Swahili one was shown. `_label`, `_consequence` and `_event`
+take the *record's* language rather than the reader's, so the history renders in the language the
+conversation happened in. `PhoneConsent.lang` carries a USSD session's language through the carrier
+door, where §CHAN-2's own menu offers "English / Kiswahili / Dholuo / …".
+
+**A second defect in the same section.** `GET /privacy/consent` served the explanation and **no
+catalogue action pointed at it** — a client could record a grant and withdraw one, and had no screen
+for the question the bullet is about. `consent_choices` is the action, with the `lang` field on it and
+on `record_consent`. The route had been reachable and unreached since it was written; this is the join
+the row was missing twice over.
+
+### Canaries
+
+`tests/ci/canary_sec001_lang.py`, 10 canaries, **10/10 fired** — reported as `[test]` or `[collect]`
+so a reader can tell an assertion in the named node from a module that refused to import.
+
+The four worth reading as a set:
+
+- **a Swahili sentence is the English one** — one field left holding the English string. The table
+  still has two languages, every count still says two, and the person reads English under a Swahili
+  heading. This is the mutation that makes the row *look* closed while leaving it exactly as open as
+  it was.
+- **the fallback stops going through `answerable`** — a language with no table raises instead of
+  serving English, so the toggle screen 500s for exactly the speakers the bullet is about.
+- **the log renders in the reader's language, not the record's** — a grant made in Swahili displays in
+  English to anyone who opens the history, and the log's whole design is that it says what the person
+  was told at the time.
+- **the toggle screen has no catalogue action** — the route keeps serving the explanation and no
+  client can reach it. No service-level test can see this one.
+
+Two missed on the first run and both were bugs in the canary, not the gate: one patched the toggle
+construction while its named test asserts on `CONSENT_CATALOGUE`, which is built in a different
+expression; the other weakened an `assert` instead of diverging the table, so nothing failed. A canary
+whose mutation does not reach the code its node reads is a canary that did not run.
+
+### Live probe
+
+`GET /privacy/consent?lang=sw` → eight toggles with `served_in: "sw"`, `language_fallback: false`,
+and Swahili `label` / `explains` / `on_withdrawal`. The same route with `lang=luo` → `lang: "en"`,
+`language_fallback: true`, and the real English sentences. `GET /mobile/actions` Privacy group →
+"What am I agreeing to?", with a language field and no feature code anywhere in the payload.
+
+### Verified
+
+- `uv run pytest -q -p no:randomly tests/ci/test_sec001_consent_language.py` → **14 passed**
+- `uv run pytest -q -p no:randomly tests/ci/test_content_audit.py tests/ci/test_sec001_history.py` → **39 passed**
+- `uv run pyright` → **0 errors, 0 warnings, 0 informations**
+- `uv run python tests/ci/canary_sec001_lang.py` → **10/10**
+
+**§SEC-001 1 `missing` → 0.** Across the repo **475 → 476 `carried`, 5 → 4 `missing`**, `deferred` 17
+unchanged, `unresolved == []`.
+
+**No new source, deliberately.** `sources/` is for figures taken from a published table, and there is
+no such figure here: the sentences are this repo's own, and no source states a Kenyan consent
+explanation in Dholuo. The one external fact the unit leans on — that DPA 2019 requires consent to be
+*informed* — is a property of the Act rather than a figure, and **the Act itself is not archived in
+this repo.** Four fetches were attempted for it and all failed: `odpc.go.ke/data-protection-act/`,
+`odpc.go.ke/downloads` and `odpc.go.ke/regulatory-framework/` each returned 404, and KenyaLaw's
+`TheDataProtectionAct_No24of2019.pdf` returned 403 to both WebFetch and a `curl` with a browser user
+agent. ODPC's landing page answered and offers no Kiswahili version. So nothing was archived rather
+than something being archived to fill the row — the same decision §LOC-005 recorded, and the gap is
+stated in `sources/INDEX.md` rather than papered over. The claim in `src/afya/privacy/service.py` is
+the spec's own (§17's regulatory table), and it is a citation the repo has not independently archived.
+
+**The Kotlin and Swift suites are not run by CI** — no Android or iOS build runs in this repo's
+workflow — so the native clients' rendering of `served_in` is unverified here. The server-side table is
+what the audit row cites, and the clients are opaque to the response shape: they fetch `/mobile/actions`
+and execute what the catalogue says.

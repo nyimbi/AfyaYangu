@@ -2966,6 +2966,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.get('/privacy/consent')
 	async def privacy_consent_catalogue(
+		lang: str = 'en',
 		authorization: str | None = Header(default=None),
 	) -> dict[str, object]:
 		"""§SEC-001's categories as toggles, with the consequence each withdrawal carries.
@@ -2978,7 +2979,15 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		A `subject_ref` parameter would have been the obvious shape and is the wrong one — the route
 		has no guard, because the catalogue is public, so any subject parameter would be a reference
 		a stranger could type. The token is the only subject this route reads.
+
+		`lang` is §SEC-001's own first Feature bullet — "plain-language explanations in *local
+		languages*" — and it is a parameter here rather than a header because the sentence is the
+		whole content of the response. A language with no table is served English and every toggle
+		says so through `served_in`, the rule `TriageResult` established: an explanation a person
+		cannot read is not an explanation, and silently substituting English for Dholuo would make
+		the consent look informed when it was not.
 		"""
+		from afya.strings import answerable
 		caller: str | None = None
 		if authorization:
 			try:
@@ -2990,8 +2999,11 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		sensor_grants = {str(r['sensor']): True for r in privacy.sensor_consents()
 		                 if caller is not None and privacy.sensor_consented(caller, str(r['sensor']))}
 		return {
-			'toggles': [t.model_dump(mode='json') for t in privacy.consent_toggles(granted, sensor_grants)],
+			'toggles': [t.model_dump(mode='json')
+			            for t in privacy.consent_toggles(granted, sensor_grants, lang)],
 			'sensors': privacy.sensor_consents(),
+			'lang': answerable(lang),
+			'language_fallback': answerable(lang) != lang,
 		}
 
 	@app.get('/privacy/consent/history')
@@ -4776,7 +4788,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except ValueError as exc:
 			raise HTTPException(status_code=422, detail=f'unknown consent category {grant.category!r}') from exc
 		try:
-			rec = await privacy.record_consent_for_phone(grant.msisdn, category, channel=grant.channel)
+			rec = await privacy.record_consent_for_phone(grant.msisdn, category,
+			                                             channel=grant.channel, lang=grant.lang)
 		except (AssertionError, RuntimeError, ValueError) as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return {'consent_id': rec.consent_id, 'category': rec.purpose}

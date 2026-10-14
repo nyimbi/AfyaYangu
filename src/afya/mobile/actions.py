@@ -202,8 +202,8 @@ FEATURE_OF: dict[str, str] = {
 	'send_sms': 'CHAN-001', 'whatsapp_send': 'CHAN-003', 'ussd_menu': 'CHAN-002',
 	'channel_costs': 'CHAN-001',
 	'queue_sync_op': 'CHAN-006', 'flush_sync': 'CHAN-006', 'offline_state': 'ACC-003',
-	'record_consent': 'SEC-001', 'dpia_check': 'SEC-001', 'consent_history': 'SEC-001',
-	'withdraw_consent': 'SEC-001',
+	'record_consent': 'SEC-001', 'consent_choices': 'SEC-001', 'dpia_check': 'SEC-001',
+	'consent_history': 'SEC-001', 'withdraw_consent': 'SEC-001',
 	# §SEC-004's optional pseudonymous profile. The two are one feature because they are one setting:
 	# the handle a person is shown and the handle they may choose are the same value.
 	'my_pseudonym': 'SEC-004', 'choose_pseudonym': 'SEC-004',
@@ -679,7 +679,14 @@ def catalogue() -> list[MobileAction]:
 		# recorded review, so the form offers the processing to assess and nothing to assert.
 		_a('activate_outbreak_mode', 'Activate outbreak mode', 'Outbreak', 'POST', '/tier4/activate', [_f('authorized_by_pheoc', 'PHEOC authorised?', 'bool'), _f('flag_enabled', 'Switch on?', 'bool'), _f('raw_sensor_data_retained', 'Keeping raw sensor data?', 'bool'), _f('location_tracking', 'Tracking location?', 'bool'), _f('proximity_logging', 'Proximity logging?', 'bool'), _f('contact_tracing', 'Contact tracing?', 'bool'), _f('automated_decisions', 'Automatic decisions?', 'bool'), _f('data_sharing_with_authorities', 'Sharing with health authorities?', 'bool'), _f('children_data', "Children's data?", 'bool'), _f('cross_border_transfer', 'Data leaving the country?', 'bool')]),
 		# Privacy & transparency
-		_a('record_consent', 'Record my consent', 'Privacy', 'POST', '/privacy/consent', [_s(), _f('purpose', 'What for?'), _f('data_types', 'Which data?', 'list'), _f('retention_days', 'Keep for how many days', 'int'), _f('legal_basis', 'Why are we allowed to?', 'select', ['consent', 'legal_obligation', 'legitimate_interest'])]),
+		# §SEC-001's eight categories, as the person reads them before deciding. The route served
+		# this and no action reached it: `record_consent` writes a grant and `withdraw_consent` ends
+		# one, and the screen that *explains what is being asked for* — the one §SEC-001's first
+		# Feature bullet is about — was reachable by no client at all. `lang` because the explanation
+		# is the entire content of the response, and a language with no table is served English with
+		# the toggle saying so.
+		_a('consent_choices', 'What am I agreeing to?', 'Privacy', 'GET', '/privacy/consent', [_f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
+		_a('record_consent', 'Record my consent', 'Privacy', 'POST', '/privacy/consent', [_s(), _f('purpose', 'What for?'), _f('data_types', 'Which data?', 'list'), _f('retention_days', 'Keep for how many days', 'int'), _f('legal_basis', 'Why are we allowed to?', 'select', ['consent', 'legal_obligation', 'legitimate_interest']), _f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
 
 		# §SEC-001's consent audit log, visible to the person it is about. No `subject_ref` field: the
 		# route binds the subject to the token (`names_subject=False`), so a form drawing one would be
