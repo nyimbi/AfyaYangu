@@ -2,7 +2,7 @@
 from afya.surveillance.service import SurveillanceService, estimate_breath_rate
 from afya.surveillance.views import CountySignal, Geofence, ProximityToken
 
-from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from httpx import AsyncClient
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -4496,11 +4496,19 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.get('/access/compatibility/{platform}')
-	async def access_compat(platform: str) -> dict[str, object]:
+	async def access_compat(platform: str, smallest_width_dp: int = Query(default=320, ge=1)) -> dict[str, object]:
+		"""§ACC-005's device answer. `smallest_width_dp` is the caller's own shorter side, which is
+		what selects the screen layout; it defaults to the 320dp reference handset because a narrow
+		layout renders correctly on a large screen and the reverse is not true."""
 		try:
-			return access.compatibility(platform).model_dump(mode='json')
+			return access.compatibility(platform, smallest_width_dp).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.get('/access/screen-layouts')
+	async def access_screen_layouts() -> list[dict[str, object]]:
+		"""Every screen bucket, so a designer can lay out for the 320dp handset they are not holding."""
+		return [s.model_dump(mode='json') for s in access.screen_layouts()]
 
 	# --- retention, encryption, transparency (§17, SEC-003/005/006) ---
 	@app.get('/retention/policy')

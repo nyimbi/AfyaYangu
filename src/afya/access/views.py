@@ -23,6 +23,48 @@ LANGUAGE_MATRIX: dict[str, dict[str, object]] = {
 
 MIN_TOUCH_TARGET_DP = 48
 
+# §ACC-005's "support for low-resolution screens", in the unit Android defines so that a phone does
+# not have to be named. `smallestWidth` is the shorter of the two sides in dp, so it is the same
+# number in portrait and landscape — which is why Android's own compatibility attributes are keyed on
+# it rather than on width. The three rows are the three figures Android's documentation states:
+# a typical handset is 320dp, a 7-inch tablet 600dp, a 10-inch tablet 720dp.
+#
+# `narrow` is the bucket the bullet is about, and it is the one the reference handset sits in: 320dp
+# is where a four-column keypad and a 48dp target compete for the same row. 600dp is the tablet
+# boundary. Both are the platform's numbers, not this deployment's — see
+# `sources/android-screen-compatibility/`, which archives the page each one comes from.
+NARROW_WIDTH_DP = 320
+TABLET_WIDTH_DP = 600
+SCREEN_BUCKETS: tuple[tuple[str, int], ...] = (('narrow', NARROW_WIDTH_DP), ('regular', TABLET_WIDTH_DP))
+
+
+class ScreenLayout(BaseModel):
+	"""What one bucket's layout does differently, so the claim is data a client renders.
+
+	The bullet is "support for low-resolution screens", and a boolean saying it is supported would be
+	the `charging_adaptive` defect again: a field with no referent. These are the parts that change,
+	and each one is a decision rather than a restatement of the bucket's width.
+	"""
+	model_config = MODEL_CONFIG
+	bucket: str = Field(pattern=r'^(narrow|regular)$')
+	smallest_width_dp: int = Field(ge=1)
+	# "One column, everything scrolls" against "two panes side by side" — the layout response a
+	# narrow screen needs and a tablet does not.
+	columns: int = Field(ge=1, le=4)
+	scrolls: bool
+	# The pictogram and the touch target, which are the two things a small screen cannot afford at
+	# their regular size. The target stays at or above §ACC-001's floor in both buckets, and a test
+	# asserts it: shrinking a control to fit a small screen is the failure this whole section is
+	# against, and it is the obvious thing to do when the screen is the constraint.
+	pictogram_dp: int = Field(ge=1)
+	touch_target_dp: int = Field(ge=MIN_TOUCH_TARGET_DP)
+	# §ACC-001's read-aloud text is a sentence per screen; a narrow screen wraps it over more lines,
+	# so the client is told how many to reserve rather than discovering it mid-render.
+	label_lines: int = Field(ge=1)
+	# What the layout does *not* do, in the words the settings screen shows. Empty for a bucket that
+	# gives up nothing.
+	degrades: str
+
 
 class AccessProfile(BaseModel):
 	model_config = MODEL_CONFIG
@@ -156,3 +198,8 @@ class DeviceCompatibility(BaseModel):
 	min_ram_mb: int
 	on_demand_modules: dict[str, float]
 	missing_sensor_fallbacks: dict[str, str]
+	# §ACC-005's "support for low-resolution screens". Carried on the compatibility answer because it
+	# is the same question — what does this device get — and because a screen bucket is a property of
+	# the handset the caller is asking about, not of the profile.
+	smallest_width_dp: int = Field(ge=1)
+	screen_layouts: list[ScreenLayout]

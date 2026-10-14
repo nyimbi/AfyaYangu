@@ -232,6 +232,7 @@ FEATURE_OF: dict[str, str] = {
 	'access_profile': 'ACC-001', 'ui_screens': 'ACC-001', 'languages': 'ACC-002', 'voice': 'ACC-002',
 	'voice_audio': 'ACC-002', 'whatsapp_voice': 'ACC-002',
 	'battery_profile': 'ACC-004', 'compatibility': 'ACC-005', 'sensor_capabilities': 'ACC-005',
+	'screen_layouts': 'ACC-005',
 	'retention_policy': 'SEC-005', 'record_holding': 'SEC-006', 'record_share': 'SEC-006',
 	'data_inventory': 'SEC-006', 'export_my_data': 'SEC-005', 'delete_my_data': 'SEC-005', 'purge_expired': 'SEC-005',
 	'encryption_posture': 'SEC-003', 'transparency_report': 'SEC-006',
@@ -716,7 +717,8 @@ def catalogue() -> list[MobileAction]:
 		# rather than asking — but they are fields, not `server_assigned`, because a form that cannot
 		# reach them would leave the adaptive rate unreachable from the one screen that shows it.
 		_a('battery_profile', 'Battery use', 'Access', 'GET', '/access/battery', [_s(), _f('intensity', 'Monitoring level', 'select', INTENSITIES), _f('battery_saver', 'Battery saver', 'bool'), _f('charging', 'On charge?', 'bool'), _f('stationary', 'Phone still?', 'bool'), _f('hour', 'Hour of the day', 'int'), _f('on_call', 'On a call?', 'bool'), _f('do_not_monitor', 'Pause monitoring?', 'bool')]),
-		_a('compatibility', 'Will it work on my phone?', 'Access', 'GET', '/access/compatibility/{platform}', [_f('platform', 'Phone type', 'path')]),
+		_a('compatibility', 'Will it work on my phone?', 'Access', 'GET', '/access/compatibility/{platform}', [_f('platform', 'Phone type', 'path'), _f('smallest_width_dp', 'Screen width in dp', 'int', ph='320')]),
+		_a('screen_layouts', 'How the app fits my screen', 'Access', 'GET', '/access/screen-layouts', []),
 		_a('sensor_capabilities', 'What my phone can measure', 'Access', 'GET', '/sensors/capabilities', []),
 		_a('model_cards', 'How the AI works', 'Access', 'GET', '/ai/models', []),
 		_a('fairness_audit', 'Check an AI model is fair', 'Access', 'POST', '/ai/fairness-audit', [_f('model_id', 'Model'), _f('axes', 'Axes tested', 'list'), _f('unmet_axes', 'Failures found', 'list')]),

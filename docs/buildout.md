@@ -4660,3 +4660,84 @@ render). Across the repo **472 → 473 `carried`, 8 → 7 `missing`**, 497 rows,
 curation is this deployment's judgement, written down as one, and the three gates are what keep a
 judgement from becoming a defect. `sources/INDEX.md` gains no entry: inventing a figure to fill the
 table would be worse than the gap.
+
+## §ACC-005 — a Target with no field behind it
+
+§ACC-005 lists eight Targets and seven were carried. The eighth, *"Support for low-resolution
+screens"*, had nothing: no flag on `DeviceCompatibility`, no bucket on `UI_SCREENS`, no code
+anywhere that recorded or handled a screen constraint. The section prints no dimension for it
+either, which is why the gap read as unclosable rather than as a gap — there was no number to
+implement against.
+
+### What closed it
+
+- **The boundaries are the platform's, not this deployment's.** Android's own documentation states
+  "a typical handset screen has a `smallestWidth` of 320dp, a 7-inch tablet has a `smallestWidth` of
+  600dp, and a 10-inch tablet has a `smallestWidth` of 720dp". Two buckets use the first two;
+  the third is deliberately unused, because §ACC-005 names no tablet tier and a third bucket would be
+  a commitment the section does not make. `sources/android-screen-compatibility/` archives the page
+  each figure comes from, with the extraction beside it and both checksums in `sources/INDEX.md`.
+- **Keyed on the shorter side, because that is the same number in both orientations.** A layout
+  keyed on width would give a phone two columns in landscape and one in portrait — the app
+  re-arranging itself on rotation for a reason that has nothing to do with the space available.
+  `screen_bucket` takes exactly one parameter, and a test asserts the signature, so there is no
+  orientation input for it to acquire.
+- **The narrow layout differs in more than its width.** One column instead of two, a 32dp pictogram
+  instead of 48, the label reserved over two lines instead of one. A bucket that changed nothing but
+  a number would be `charging_adaptive` again: a field with no referent, asserted `True` with nothing
+  reading it.
+- **The touch target is 56dp against 64dp, and both are above §ACC-001's 48dp floor.** This is the
+  assertion the section needs and not the one it invites. Shrinking a control is how a small screen
+  is usually accommodated, and it is the failure §ACC-001's whole bullet list is against: the person
+  who cannot see the screen well is the person most likely to be on it. An import-time assert holds
+  it as well as the test, so a deployment cannot serve it.
+- **`GET /access/screen-layouts` serves every bucket**, so a designer building for the 320dp handset
+  they are not holding gets the row rather than a description of it — the same rule the sensor
+  fallback table follows.
+- **The Android client selects from `Configuration.smallestScreenWidthDp`** and applies 56dp or 64dp
+  as a minimum height on its inputs and its submit button. The client's number is not verified by
+  anything in this repo — no Android build runs in CI — so this is a rendering of the served table
+  and not an independently checked claim; the audit row cites the server-side table.
+
+### A 500 the live probe found
+
+`/access/compatibility/android?smallest_width_dp=0` answered **500 with a stack trace**. The model
+field is `ge=1`, and the `ValidationError` pydantic raised inside `compatibility` is not the
+`AssertionError` the route catches — so a value a client can trivially send walked past the handler
+and out of the front door. The parameter is now `Query(default=320, ge=1)` and the answer is a
+**422**. A refusal a person can act on is an answer; a traceback is not.
+
+### Canaries
+
+`tests/ci/canary_acc005.py`, 9 canaries, **9/9 fired on first run** — the first clean sweep in this
+run of units, and the reason is that each mutation was chosen as a defect rather than as a change:
+the narrow row made identical to the regular one (the defect this unit is about, one level down), the
+target shrunk below the floor (the move the section invites and forbids), the boundary made
+exclusive, the key made orientation-dependent, the table left unreachable, the boundaries restated as
+local numbers, the width moved onto the profile, the layouts dropped from the answer, and the
+boundary check removed. The last one is the live-probe finding, pinned.
+
+### Live probe
+
+- `GET /access/compatibility/android` with no width → `smallest_width_dp: 320`, layouts
+  `[('narrow', 1 column, 56dp, 2 lines), ('regular', 2 columns, 64dp, 1 line)]`
+- `?smallest_width_dp=720` → the width is carried back unchanged; both buckets are still served, so a
+  tablet is told about the phone layout as well as its own
+- `GET /access/screen-layouts` → `[('narrow', 320, 1, 32, 56, 2), ('regular', 600, 2, 48, 64, 1)]`
+- `GET /access/compatibility/ios?smallest_width_dp=600` → `ios`, 600, both buckets
+- `?smallest_width_dp=0` → **422**; `/access/compatibility/windows` → **404**; `/zzz/deep/path` →
+  **404**, so the 200s are not a catch-all stub
+- `GET /mobile/actions` carries `screen_layouts` as `GET /access/screen-layouts` titled "How the app
+  fits my screen", and the compatibility form asks for the width — a caller on a tablet has a way to
+  say so
+- no spec feature code in the served payload
+
+**§ACC-005 1 `missing` → 0.** Across the repo **473 → 474 `carried`, 7 → 6 `missing`**, 497 rows,
+`deferred` 17 unchanged, `unresolved == []`.
+
+**New source, archived.** `sources/android-screen-compatibility/` — three Android Developers pages
+(the `supports-screens` element, window size classes, the density table), each with a text extraction
+and both checksums in `sources/INDEX.md`, plus a note on what the source does and does not support:
+it gives no pixel minimum, no physical size in inches, and no definition of a low-resolution *screen*
+beyond the `smallestWidth` figure, so no pixel dimension appears in the code and `smallest_width_dp`
+is the only axis recorded.

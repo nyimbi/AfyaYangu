@@ -34,6 +34,7 @@ five ways to spell a source is the same defect as the internal-link checker that
 | WHO fact sheet, Ebola disease (24 April 2025); CDC, About Ebola Disease | `afya.triage` — §11.2 TRI-003's exposure routes and the 21-day incubation window | `ebola-transmission/` |
 | Befrienders Kenya, UN Women and the operators' own pages for the GBV and child helplines | `afya.info.service.HOTLINES` — §INF-006's helpline rows | `helpline-directory/` |
 | WHO household water treatment guidance and the Round II report of the International Scheme to Evaluate Household Water Treatment Technologies | `afya.alerts.service.AlertsService.water_safety`, `afya.alerts.views.TreatmentMethod` — §MON-005's treatment, storage and reminder guidance | `water-treatment/` |
+| Android Developers: the `supports-screens` element (the 320dp / 600dp / 720dp `smallestWidth` figures), window size classes, and the density bucket table | `afya.access.views.SCREEN_BUCKETS`, `afya.access.service.SCREEN_LAYOUTS` — §ACC-005's "support for low-resolution screens" | `android-screen-compatibility/` |
 
 Every source is stored as the published artefact **and** as layout-preserving text (`pdftotext
 -layout`), with both checksums recorded. The text copy is what a tool reads: an agent given a PDF
@@ -1616,3 +1617,53 @@ community rather than at a hospital.
   community-based model and as a check that the guideline's three programmes are the national
   rendering of it, **not** as the source of any string served. Said plainly so the citation is not
   read as carrying more than it does.
+
+## `android-screen-compatibility/` — §ACC-005's screen buckets
+
+§ACC-005's Target is "Support for low-resolution screens" and the section states no dimension for
+it. A bucket boundary invented here would be a figure this deployment made up and then had to live
+with, so the two boundaries are Android's own published numbers.
+
+| File | What it is | SHA-256 (first 16) |
+|---|---|---|
+| `supports-screens-element.html` | `<supports-screens>`: the `smallestWidth` figures — "a typical handset screen has a `smallestWidth` of 320dp, a 7-inch tablet has a `smallestWidth` of 600dp, and a 10-inch tablet has a `smallestWidth` of 720dp" | `325654dd14cd04ae` |
+| `use-window-size-classes.html` | The window size class breakpoints, width and height separately (compact / medium / expanded, and the large and extra-large additions) | `700474ac616853fa` |
+| `screendensities.html` | The density bucket table (ldpi–xxxhdpi) and the definition of dp | `7c7a1eff0331cb46` |
+
+Retrieved 2026-10-14 from `developer.android.com`. Each `.html` has a `.txt` extraction beside it
+(`supports-screens-element.txt` `376dca50a1704ce4`, `use-window-size-classes.txt` `657bba508a0682e7`,
+`screendensities.txt` `7e1427892cd5da6e`) — HTML rather than PDF, so the extraction is a tag strip
+rather than `pdftotext -layout`, and the quoted sentences were checked against it rather than
+against the rendered page.
+
+**What the source does and does not support.**
+
+- It states **320dp** for a typical handset and **600dp** for a 7-inch tablet, and those are the two
+  boundaries `SCREEN_BUCKETS` uses. It states **720dp** for a 10-inch tablet, which this table does
+  **not** use: §ACC-005 names no tablet tier, and adding a third bucket would be a commitment the
+  section does not make. Above 600dp the regular layout is served, which is what the page's own
+  window-size-class guidance implies — a layout that fits a narrow window renders correctly in a
+  wide one, and not the reverse.
+- The page gives **no** minimum resolution in pixels, no physical size in inches for "low
+  resolution", and no definition of what a low-resolution *screen* is beyond the `smallestWidth`
+  figure. `smallest_width_dp` is therefore the only axis recorded, and no pixel dimension appears in
+  the code.
+- `smallestWidth` is the **shorter** of the two sides and is orientation-independent. That is the
+  page's own property and the reason the bucket is keyed on it: a layout keyed on width would give a
+  phone two columns in landscape and one in portrait.
+- The window size class page's breakpoints are stated for **width and height separately** and it
+  says explicitly that they "are not determined by physical device screen size" and can change
+  during an app's lifetime (rotation, multitasking, folding). This code does **not** use them for
+  layout selection — it uses the static `smallestWidth`, because the bucket has to be answerable
+  server-side for a device the server is not running on, and a class that changes mid-session cannot
+  be. The page is archived because it is the modern statement of the same axis and because it is
+  where the "don't reason from physical hardware" caution comes from.
+- The density table is archived for the **definition of dp** ("roughly equal to one pixel on a
+  medium-density screen (160 dpi, or the 'baseline' density)") and for the ldpi bucket at ~120 dpi,
+  which is what makes "low resolution" legible as a density claim as well as a size one. The code
+  records no dpi and picks no density bucket: §ACC-001's targets are already in dp, which is the
+  unit that makes density irrelevant.
+- The Android client reads `Configuration.smallestScreenWidthDp` and selects 56dp or 64dp from it.
+  **The client's own number is not verified by anything in this repo** — no Android build runs in CI
+  — so the client change is a rendering of the served table and not an independently checked claim.
+  The server-side table is what the audit row cites.

@@ -7,8 +7,9 @@ not a paragraph in a document that nobody enforces.
 from pathlib import Path
 
 from afya.access.views import (
-	LANGUAGE_MATRIX, MIN_TOUCH_TARGET_DP, AccessProfile, BatteryProfile, DeviceCompatibility,
-	SamplingContext, UIAsset, VoiceAudioRequest, VoiceRequest, VoiceResult,
+	LANGUAGE_MATRIX, MIN_TOUCH_TARGET_DP, NARROW_WIDTH_DP, SCREEN_BUCKETS, TABLET_WIDTH_DP,
+	AccessProfile, BatteryProfile, DeviceCompatibility, SamplingContext, ScreenLayout, UIAsset,
+	VoiceAudioRequest, VoiceRequest, VoiceResult,
 )
 from afya.logmixin import LogMixin
 from afya.sensors.views import SenseKind
@@ -46,6 +47,26 @@ SPEC_FALLBACK_ROWS: tuple[tuple[str, str, str], ...] = (
 	('thermometer', 'No biometric sensor', 'Manual temperature entry'),
 	('wearable', 'No wearable', 'Manual health data entry'),
 )
+
+# §ACC-005's "support for low-resolution screens", as the layout each bucket gets. The narrow row is
+# not a smaller copy of the regular one: it is one column instead of two, a smaller pictogram, and
+# the label reserved over more lines. The touch target is 56 against 64 — still above §ACC-001's
+# 48 dp floor, because a screen that is small is exactly the screen where a thumb misses, and
+# shrinking the control to make room is the move that looks like an answer and is not.
+SCREEN_LAYOUTS: tuple[ScreenLayout, ...] = (
+	ScreenLayout(bucket='narrow', smallest_width_dp=NARROW_WIDTH_DP, columns=1, scrolls=True,
+	             pictogram_dp=32, touch_target_dp=56, label_lines=2, degrades=''),
+	ScreenLayout(bucket='regular', smallest_width_dp=TABLET_WIDTH_DP, columns=2, scrolls=True,
+	             pictogram_dp=48, touch_target_dp=64, label_lines=1, degrades=''),
+)
+# Above the tablet bucket nothing degrades and nothing is claimed: a device wider than the layout
+# needs gets the regular layout, because inventing a "wide" row would be a commitment §ACC-005 does
+# not make.
+assert {row.bucket for row in SCREEN_LAYOUTS} == {b for b, _ in SCREEN_BUCKETS}, \
+	'every bucket needs a layout'
+assert all(row.touch_target_dp >= MIN_TOUCH_TARGET_DP for row in SCREEN_LAYOUTS), \
+	'a screen bucket may not shrink a control below the §ACC-001 floor'
+
 
 # Screen contracts the native clients render. Touch targets are asserted at >= 48 dp.
 UI_SCREENS: tuple[UIAsset, ...] = (
@@ -325,7 +346,53 @@ class AccessService(LogMixin):
 			context=key, context_reason=reason, sampling_duty=duty,
 		)
 
-	def compatibility(self, platform: str) -> DeviceCompatibility:
+	@staticmethod
+	def screen_bucket(smallest_width_dp: int) -> str:
+		"""Which bucket a device's shorter side falls in, read off `SCREEN_BUCKETS`.
+
+		Keyed on `smallestWidth` rather than on width because the shorter side is the same number in
+		portrait and landscape: a phone that fits in a pocket does not become a tablet when it is
+		turned, and a layout that changed columns on rotation for that reason would be answering a
+		question nobody asked.
+		"""
+		assert smallest_width_dp >= 1, 'a screen has a positive width'
+		chosen = SCREEN_BUCKETS[0][0]
+		for bucket, floor in SCREEN_BUCKETS:
+			if smallest_width_dp >= floor:
+				chosen = bucket
+		assert chosen in {row.bucket for row in SCREEN_LAYOUTS}, 'every bucket has a layout'
+		return chosen
+
+	def layout_for(self, smallest_width_dp: int) -> ScreenLayout:
+		"""§ACC-005's "support for low-resolution screens", as the layout that device gets.
+
+		The width the caller reported is carried back with the bucket's row rather than the row's own
+		floor, so a client can tell 360dp from 320dp within the same layout instead of reading the
+		answer as "you are exactly on the boundary".
+		"""
+		bucket = self.screen_bucket(smallest_width_dp)
+		row = next(r for r in SCREEN_LAYOUTS if r.bucket == bucket)
+		assert row.touch_target_dp >= MIN_TOUCH_TARGET_DP, 'below the §ACC-001 floor'
+		return row.model_copy(update={'smallest_width_dp': smallest_width_dp})
+
+	@staticmethod
+	def screen_layouts() -> list[ScreenLayout]:
+		"""Every bucket, so a client can lay out for a phone it is not running on.
+
+		§ACC-001's screen contracts are rendered by the *native* clients, and a designer building for
+		the 320dp handset is usually holding something larger. Serving the narrow row rather than
+		describing it in a document is the same rule the fallback table follows.
+		"""
+		rows = list(SCREEN_LAYOUTS)
+		assert len(rows) == len(SCREEN_BUCKETS), 'one layout per bucket'
+		return rows
+
+	def compatibility(self, platform: str, smallest_width_dp: int = NARROW_WIDTH_DP) -> DeviceCompatibility:
+		"""What this device gets. `smallest_width_dp` defaults to the reference handset, not to the
+		tablet: a caller who does not say what they are holding is assumed to be on the smaller
+		device, because the narrow layout renders correctly on a large screen and the reverse is not
+		true.
+		"""
 		assert platform in ('android', 'ios'), 'known platform'
 		if platform == 'android':
 			return DeviceCompatibility(
@@ -333,12 +400,14 @@ class AccessService(LogMixin):
 				no_play_services=True, min_ram_mb=512,
 				on_demand_modules={'tier3': 8.0, 'lidar': 4.0, 'acoustic': 6.0, 'medicine_registry': 25.0, 'content_library': 15.0, 'facility_cache': 5.0},
 				missing_sensor_fallbacks=dict(SENSOR_FALLBACKS),
+				smallest_width_dp=smallest_width_dp, screen_layouts=self.screen_layouts(),
 			)
 		return DeviceCompatibility(
 			platform='ios', os_min='14.0', apk_base_mb=12.0, go_edition_supported=False,
 			no_play_services=False, min_ram_mb=1024,
 			on_demand_modules={'tier3': 8.0, 'lidar': 4.0, 'acoustic': 6.0, 'medicine_registry': 25.0, 'content_library': 15.0, 'facility_cache': 5.0},
 			missing_sensor_fallbacks=dict(SENSOR_FALLBACKS),
+			smallest_width_dp=smallest_width_dp, screen_layouts=self.screen_layouts(),
 		)
 
 	@staticmethod

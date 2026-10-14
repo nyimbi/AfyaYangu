@@ -71,15 +71,26 @@ class ActionsActivity : Activity() {
 	private fun openForm(a: CatalogueAction) {
 		val inputs = LinkedHashMap<String, android.view.View>()
 		val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+		// §ACC-005's "support for low-resolution screens". The layout is chosen from the device's own
+		// smallest width, in dp, so a 320dp handset gets one column and a 56dp target while a tablet
+		// gets two — the same numbers the server serves for the bucket, applied where they matter.
+		// `smallestScreenWidthDp` is the shorter side and is the same in portrait and landscape,
+		// which is why the choice does not flip when the phone is turned.
+		val smallestWidthDp = resources.configuration.smallestScreenWidthDp
+		val narrow = smallestWidthDp < 600
+		val minTargetPx = ((if (narrow) 56 else 64) * resources.displayMetrics.density).toInt()  // dp -> px
 		box.addView(TextView(this).apply { text = a.title; textSize = 16f; setPadding(16, 12, 16, 4) })
 		// A client-supplied field is the device's own subject, filled by the client. It is not drawn:
 		// the catalogue marks it because the route binds it to the token, so a field asking "who is
 		// this for?" would offer a control the server refuses by construction. The only honest thing
 		// to show is nothing.
 		// Neither a subject the client holds nor a reference the server mints is a question.
-		for (f in a.fields) if (!f.clientSupplied && !f.serverAssigned) box.addView(fieldView(f, inputs))
+		for (f in a.fields) if (!f.clientSupplied && !f.serverAssigned) box.addView(fieldView(f, inputs, minTargetPx))
 		box.addView(Button(this).apply {
 			text = if (a.method == "GET") "Run" else "Submit"
+			// Never below §ACC-001's 48dp floor. A small screen is where a thumb misses, so the
+			// control is the last thing to shrink, not the first.
+			minHeight = minTargetPx
 			setOnClickListener { submit(a, inputs) }
 		})
 		(out.parent as? ViewGroup)?.removeView(out)
@@ -88,7 +99,7 @@ class ActionsActivity : Activity() {
 		setContentView(ScrollView(this).apply { addView(box) })
 	}
 
-	private fun fieldView(f: ActionField, inputs: MutableMap<String, android.view.View>): LinearLayout {
+	private fun fieldView(f: ActionField, inputs: MutableMap<String, android.view.View>, minTargetPx: Int): LinearLayout {
 		val row = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(16, 8, 16, 0) }
 		if (f.type != "bool") {
 			val label = f.label + if (f.required) " *" else ""
@@ -106,6 +117,7 @@ class ActionsActivity : Activity() {
 		}
 		inputs[f.name] = view
 		row.addView(view, ViewGroup.LayoutParams(MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+		if (view is EditText || view is Spinner) view.minHeight = minTargetPx
 		return row
 	}
 
