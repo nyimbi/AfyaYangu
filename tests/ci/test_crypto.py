@@ -218,3 +218,20 @@ def test_the_key_persists_across_a_restart(tmp_path) -> None:
 	sidecar = pathlib.Path(f'{db}.key')
 	assert sidecar.exists()
 	assert oct(sidecar.stat().st_mode & 0o777) == '0o600', 'the key is not world-readable'
+
+
+def test_an_in_memory_database_writes_no_key_sidecar(tmp_path, monkeypatch) -> None:
+	"""An in-memory database has no file to protect, so it must leave no key on disk.
+
+	`:memory:` is not a path, it is SQLite's marker for a database that never touches the filesystem.
+	`Path(':memory:.key')` is a perfectly valid *relative* filename, so the sidecar logic wrote a
+	persistent 0600 file literally named `:memory:.key` into the working directory — one per test run,
+	read back by the next, so a fixture that asked for an ephemeral database was keyed by whatever
+	happened to be lying in the CWD. This asserts the marker is recognised and nothing is written.
+	"""
+	from afya.service import build_services
+	monkeypatch.chdir(tmp_path)
+	build_services(db_path=':memory:')
+	# Scoped to the sidecar, not to "the directory is empty": the service legitimately creates its own
+	# data directories, and an assertion that forbids those would fail for a reason unrelated to keys.
+	assert not (tmp_path / ':memory:.key').exists(), 'an in-memory database left a key on disk'

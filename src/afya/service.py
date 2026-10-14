@@ -258,7 +258,11 @@ def _at_rest_key_for(db_path: str | None) -> bytes:
 	rather than claiming AES-256 has closed it.
 	"""
 	assert db_path is None or db_path, 'a path is either absent or a real path'
-	if db_path is None:
+	# An in-memory database has no file to protect and no directory to hold a sidecar. Without this,
+	# `db_path=':memory:'` — which every test fixture passes — writes a persistent 0600 file literally
+	# named `:memory:.key` into the working directory, one per run, and reads it back on the next, so
+	# the "ephemeral" database is keyed by whatever is lying in the CWD.
+	if db_path is None or db_path == ':memory:' or db_path.startswith('file::memory:'):
 		return os.urandom(KEY_BYTES)
 	sidecar = Path(f'{db_path}.key')
 	if sidecar.exists():
