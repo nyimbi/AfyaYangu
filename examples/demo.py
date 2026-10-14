@@ -3,10 +3,13 @@ Run: uv run python examples/demo.py
 """
 import asyncio
 
+from afya.channels.outbound import plain_language_report
 from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import UssdRequest
 from afya.emergency.service import EmergencyService, Inline719Port
 from afya.emergency.views import SOSEvent
+from afya.identity.service import IdentityService
+from afya.privacy.views import DPIARecord
 from afya.registry.service import FeatureRegistry, Tier4Activation
 from afya.surveillance.service import SurveillanceService
 from afya.sync.service import SyncService
@@ -18,7 +21,8 @@ from afya.triage.views import TriageInput
 async def main() -> None:
 	registry = FeatureRegistry()
 	tr = TriageService(registry)
-	ch = ChannelService(AfricaTalkingSmsPort('https://api.africastalking.com', 'demo'))
+	ch = ChannelService(AfricaTalkingSmsPort('https://api.africastalking.com', 'demo'),
+	                    triage=tr, identity=IdentityService())
 	em = EmergencyService(Inline719Port())
 	sync = SyncService()
 	surv = SurveillanceService(registry)
@@ -26,6 +30,15 @@ async def main() -> None:
 	menu = ch.ussd(UssdRequest(session_id='ss1', msisdn='+254711222333', text=''))
 	print('USSD menu:\n' + (menu.menu or ''))
 	print(ch.ussd(UssdRequest(session_id='ss1', msisdn='+254711222333', text='3')).end_text)
+
+	# §CHAN-1's follow-up: composed when the report is filed, sent by the route once per report.
+	ch.ussd(UssdRequest(session_id='ss1', msisdn='+254711222333', text='1*1*1*2'))
+	report = ch.channel_reports()[-1]
+	follow_up = await ch.send_follow_up(report)
+	print('follow-up:', follow_up.body if follow_up else None)
+	print('follow-up again:', await ch.send_follow_up(report))  # None — once per report, not per session
+	print('plain:', follow_up.plain.model_dump(mode='json') if follow_up else None)
+	print('plain-language report:', [r.surface for r in plain_language_report()][:3], '...')
 
 	print('fever-only:', tr.assess(TriageInput(symptoms=['fever'], temperature_c=38.6)).recommendation)
 	print('fever+contact:', tr.assess(TriageInput(symptoms=['fever', 'headache'], temperature_c=38.4, ebola_contact=True)).recommendation)
@@ -36,8 +49,13 @@ async def main() -> None:
 	await sync.enqueue(SyncOp(op_id='OP-DEMOAAA123', dataset='symptom_logs', client_ts=100, payload={'fever': '1'}))
 	print('sync flush:', (await sync.flush(0)).model_dump(mode='json'))
 
+	# §17.3's three-key gate. The `dpia_review` key is *derived* from a recorded review rather than
+	# passed, so this example has to record one — `dpia_reviewed=True` is no longer a key a caller can
+	# hold by saying so, which is the defect the parameter used to be.
 	print('tier4 dormant:', await surv.activate_tier4(False, True))  # no review recorded, so the key stays shut
-	print('tier4 active:', await surv.activate_tier4(True, True, bulletin='PHEOC activation'))
+	review = DPIARecord(reviewed_at_iso='2026-10-14T09:00:00Z', reviewed_by='DPO', processing_id='evd_contact_tracing',
+	                    fingerprint='demo', topics=['contact tracing'], risks=['re-identification'], blocked=False)
+	print('tier4 active:', await surv.activate_tier4(True, True, bulletin='PHEOC activation', review=review))
 	print('TRI-003 now available:', tr.assess_evd(TriageInput(symptoms=['fever'], temperature_c=39.3, ebola_contact=True)).risk_level.value)
 
 

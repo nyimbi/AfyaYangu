@@ -202,6 +202,9 @@ FEATURE_OF: dict[str, str] = {
 	'assign_chw_task': 'CHAN-005', 'chw_open_tasks': 'CHAN-005', 'complete_chw_task': 'CHAN-005',
 	'send_sms': 'CHAN-001', 'whatsapp_send': 'CHAN-003', 'ussd_menu': 'CHAN-002',
 	'channel_costs': 'CHAN-001',
+	# §CHAN-1's "plain language", read by the content team: the rows name strings and the sentences
+	# that overran the ceiling, which is editorial state. The same scope the other content reads take.
+	'plain_language': 'CHAN-001',
 	'queue_sync_op': 'CHAN-006', 'flush_sync': 'CHAN-006', 'offline_state': 'ACC-003',
 	'record_consent': 'SEC-001', 'consent_choices': 'SEC-001', 'dpia_check': 'SEC-001',
 	'consent_history': 'SEC-001', 'withdraw_consent': 'SEC-001',
@@ -262,6 +265,7 @@ OPERATOR_SCOPES: dict[str, str] = {
 	'content_localisation': 'audit_logs',
 	'content_governance': 'audit_logs',
 	'content_errors': 'audit_logs',
+	'plain_language': 'audit_logs',
 	# Publishing a community alert or a feed item is what the Ministry says, to everyone. A CHW
 	# holds `assigned` (§17.4), which is the role that carries a worker's reports up; a citizen
 	# holds `self` and can read the feed but not write it.
@@ -780,6 +784,7 @@ def catalogue() -> list[MobileAction]:
 		_a('complete_chw_task', 'Complete a task', 'Channels', 'POST', '/channels/chw/tasks/{task_id}/done', [_f('task_id', 'Task number', 'path')]),
 		_a('send_sms', 'Send a free text message', 'Channels', 'POST', '/channels/sms', [_f('to_msisdn', 'Phone number'), _f('body', 'Message')]),
 		_a('channel_costs', 'Will this cost me airtime?', 'Channels', 'GET', '/channels/cost', []),
+		_a('plain_language', 'Is our message plain enough?', 'Channels', 'GET', '/channels/plain-language', []),
 		_a('ussd_menu', 'USSD menu', 'Channels', 'POST', '/channels/ussd', [_f('session_id', 'Session'), _f('msisdn', 'Phone number'), _f('text', 'Selection')]),
 		_a('whatsapp_send', 'WhatsApp reply', 'Channels', 'POST', '/channels/whatsapp', [_f('from_msisdn', 'Phone number'), _f('body', 'Message')]),
 		_a('whatsapp_voice', 'Send a WhatsApp voice note', 'Channels', 'POST', '/channels/whatsapp/voice', [_f('from_msisdn', 'Phone number'), _f('voice_note_lang', 'Language', 'select', VOICE_LANGS), _f('file', 'Voice note', 'file')]),

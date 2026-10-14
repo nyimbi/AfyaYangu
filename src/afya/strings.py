@@ -516,7 +516,7 @@ PSEUDONYM_STRINGS: dict[str, dict[str, str]] = {
 	'en': {
 		'derived': 'This is the name shown on shared screens instead of your details. It changes every {days} days.',
 		'chosen': 'You chose this name. It is shown on shared screens instead of your details, and it stays the same until you change it.',
-		'caveat': 'A name like this hides your details, but if only a few people are reporting from the same place at the same time, someone may still work out who you are. Do not put anything in a public report you would not want read back to you.',
+		'caveat': 'A name like this hides your details. But if only a few people are reporting from the same place at the same time, someone may still work out who you are. Do not put anything in a public report you would not want read back to you.',
 	},
 	'sw': {
 		'derived': 'Hili ni jina linaloonyeshwa kwenye skrini za umma badala ya taarifa zako. Hubadilika kila siku {days}.',

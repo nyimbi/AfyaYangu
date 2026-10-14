@@ -23,6 +23,7 @@ from afya.crypto.service import KEY_BYTES, CryptoService
 from afya.persistence.service import SqliteStore
 from afya.channels.cost import ZeroRatingRule, parse_rules, zero_rating_gaps
 from afya.channels.attention import attention_report
+from afya.channels.outbound import MAX_SENTENCE_WORDS, MAX_WORD_CHARS, MESSAGE_CHARS, plain_language_report
 from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import ChwTask, SmsOut, UssdRequest, WhatsAppIn
 from afya.emergency.service import EmergencyService, FacilityAmbulancePort, Inline719Port, _sms_dialable
@@ -2300,6 +2301,24 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		"""
 		return attention_report()
 
+	@app.get('/channels/plain-language')
+	async def channels_plain_language(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§CHAN-1's Format bullet — "plain language" — measured over every outbound string table.
+
+		Scoped `audit_logs`, which is the scope §17.4 gives the content team and the one every other
+		content-governance read takes. The rows name the strings and the sentences that overran the
+		ceiling, which is editorial state rather than anything about a person, so it is a governance
+		read and not a citizen one — the same reading `content_errors` takes.
+		"""
+		rows = plain_language_report()
+		return {
+			'surfaces': [r.model_dump(mode='json') for r in rows],
+			'measured': sum(r.strings for r in rows),
+			'over_the_ceiling': sum(len(r.over_the_ceiling) for r in rows),
+			'ceiling': {'sentence_words': MAX_SENTENCE_WORDS, 'word_chars': MAX_WORD_CHARS,
+			            'message_chars': MESSAGE_CHARS},
+		}
+
 	@app.post('/channels/sms')
 	async def channels_sms(to_msisdn: str, body: str) -> dict[str, object]:
 		try:
@@ -2317,10 +2336,16 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		The signal emit is here for the reason it is on the carrier callback: the walk is synchronous
 		and the ledger write is not. A completed report is counted on the request that completed it,
 		which for this route is the one carrying the final `*` answer.
+
+		§CHAN-1's "Follow-up after a USSD report" is sent on the same walk and for the same reason —
+		the walk composes the sentence and a send is I/O. It is the route that sends it rather than the
+		walk, and `send_follow_up` is idempotent per report, so the whole-sink walk below texts a
+		person once for the report they made rather than once per session they open afterwards.
 		"""
 		out = channels.ussd(req, lang).model_dump(mode='json')
 		for report in channels.channel_reports():
 			await channels.emit_report_signal(report)
+			await channels.send_follow_up(report)
 		return out
 
 	@app.post('/channels/whatsapp')
@@ -2392,6 +2417,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		envelope = channels.ussd_carrier_callback(cb, lang)
 		for report in channels.channel_reports():
 			await channels.emit_report_signal(report)
+			await channels.send_follow_up(report)
 		return envelope
 
 	@app.get('/channels/reports')

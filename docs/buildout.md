@@ -5705,3 +5705,137 @@ follow-up SMS and plain-language bound (2), §CHAN-003's two claims about the wo
 printed flip chart (1), and the two deliberately open external dependencies §ACC-001 and §ACC-002.
 
 **No new source.** The governing text is this repo's own `docs/spec.md`.
+
+## §CHAN-001 — the wording was checked and the sentence was never sent (2026-10-14)
+
+### The finding
+
+§5.3 CHAN-1's Format line is four properties — "160 characters, plain language, local language
+option via keyword". Three were `carried`: `segment_sms` does the 160 arithmetic, `SmsOut.body`
+bounds the body, `sms_language` reads the prefix. The fourth was **a claim in a comment**.
+`escalation._summary` calls itself "one sentence an operator can act on, in plain language", several
+composers say the same in a docstring, and no gate refused a message a person cannot read.
+
+The section's Outbound list ends "Follow-up after a USSD report", and **nothing sent one**. A USSD
+session ends with a screen; a screen is read once and gone. A person could report a fever, be told
+"a health worker will call you", and hear nothing again.
+
+### The bound is derived from what this product already sends
+
+Not invented — that is the rule the `sources/INDEX.md` note states, and it applies to a threshold as
+much as to a table. Measured over §CHAN-1's five printed examples, §5.1's and §5.2's prose, and
+every outbound string table in `afya.strings`:
+
+* the section's own examples run to **7 words a sentence**, **9 characters a word**, **66 characters
+  a body**;
+* the widest sentence any table in the tree actually sent was §SEC-004's pseudonym caveat at **31
+  words**, and the longest single word is `kinachofuatiliwa` at **16 characters** — Swahili, and
+  agglutinative, so a long word there is the language and not jargon.
+
+Ceiling: **25 words a sentence, 18 characters a word**. Below the point where a sentence stops being
+readable in one pass, above everything correct the tree writes. §CHAN-1's own **160** is carried
+beside them as the body size and *reported rather than enforced* — `SmsOut` permits ten segments on
+purpose and §LOC-005's traveller advisory is two, so refusing on length would trade a shilling for a
+case.
+
+### The gate found a defect in content that had already shipped
+
+`plain_language_report()` walks `afya.strings` and measured §SEC-004's pseudonym caveat at **31
+words in a single sentence** — a screen-reader's paragraph served under a handle, and the one place
+in the tree where the plain-language claim was false. **The string was fixed, not the bound**: it is
+three sentences now and says the same thing. A ceiling set to fit the widest sentence already written
+is a description of the status quo wearing a bound's clothes.
+
+### The walker that enumerated one of the ways a table can be written
+
+The first version handled flat `{key: sentence}` dicts. `afya.strings` carries three nesting shapes —
+flat (`CALLBACK_ACK`), `{lang: {key: sentence}}` (`TRAVELLER_STRINGS`), `{lang: {int: sentence}}`
+(`USSD_MENU_ANSWERS`) — so it reported **15 tables and 30 strings** against the true **30 and 181**,
+silently skipping the fifteen that carry the clinical advice. A gate losing 151 of its 181 subjects
+without failing, written and caught inside this unit. The recursion is now asserted in both
+directions by a canary that reverts it.
+
+`LANGUAGE_NAME_FOR` is a vocabulary rather than a message and is admitted by the "a message holds a
+space" property (`Luhya (Bukusu)`), so it is named in `NOT_A_MESSAGE` with the staleness check
+`test_ui_vocabulary.py` applies to `UNGATED_WRITES`: every name must exist, and every name must be a
+table the property would otherwise have admitted. A named exception asserted both ways is a
+different thing from a filter nobody re-reads.
+
+### The follow-up: composed at filing, sent by the route, once per report
+
+`record_report` composes the sentence, because that is where the menu item and the callback answer
+are both in hand; the route sends it, because the walk is synchronous and a send is not — the split
+`emit_report_signal` already uses. It is composed for the **USSD channel only**: §CHAN-3's WhatsApp
+router answers inside the conversation the person is already in, so an SMS on top of that reply
+would be two messages for one report.
+
+Idempotent by report id, like the signal emit, and the routes rely on it: they emit by walking the
+whole report sink after every session, so a send with no memory would text a person once per later
+session — not a follow-up, a subscription to their own report.
+
+### Canaries
+
+Eight. **Three went MISSED on the first run and two of those were bugs in the tests**, which is the
+finding worth recording:
+
+	CAUGHT  the follow-up is re-sent on every walk
+	CAUGHT  the follow-up is composed for every channel
+	CAUGHT  the callback promise is dropped from the follow-up
+	CAUGHT  the bound is loosened to fit rather than the string fixed   (MISSED, then CAUGHT)
+	CAUGHT  the walker stops recursing into the nested tables           (MISSED, then CAUGHT)
+	CAUGHT  a real message table is exempted as not-a-message
+	CAUGHT  the plain-language reading leaves the message               (MISSED, then CAUGHT)
+	CAUGHT  the body size is read as illegibility
+
+* **The bound canary** went MISSED because the test computed its input as `MAX_SENTENCE_WORDS + 3` —
+  so loosening the ceiling loosened the test with it. A tautology wearing an assertion. The input is
+  a literal now, and a second test pins the ceiling between the 31-word caveat that was split and the
+  24-word maximum the tables carry.
+* **The reading canary** went MISSED because the test asserted `plain is True` on a body already
+  known to be plain, which a hardcoded reading satisfies. It now exercises both sides of the line.
+* **The walker canary** went MISSED because the *mutation* was wrong, not the gate: disabling the
+  list branch still recurses every dict, and every table the test names is dict-nested. A canary
+  whose mutation is not disjoint from what the predicate looks for is a canary that never ran.
+
+### The full suite found an ordering dependence the targeted run hid
+
+`test_chan001.py` passed alone and **two tests failed in the full suite**:
+`asyncio.get_event_loop().run_until_complete(...)` inside a *sync* test raises `RuntimeError: There
+is no current event loop` once any earlier test has called `asyncio.run`, which closes the loop and
+sets the policy's `_set_called`. Alone, the async tests in the file ran last and the loop was still
+there. Both are plain `async def` now — the repo's own convention, which exists for this reason.
+
+### Verified
+
+- `uv run pytest -q tests/ci` (full suite checkpoint) → **2185 passed, 2 failed**; both failures were
+  the ordering dependence above, fixed, and the suite is green on the re-run
+- `uv run pyright` → **0 errors, 0 warnings, 0 informations**
+- Live over a socket, through `uvicorn`, with the telco port injected as a recorder:
+
+      ussd '1*1'      -> 200
+      ussd '1*1*1'    -> 200
+      ussd '1*1*1*2'  -> 200
+      outbound sent: 1
+        -> +254711222333 | zero_rated True | plain True | segs 1
+           Afya Yangu: we recorded your report of Fever. Call 719 if you feel worse.
+
+  Two complete sessions for the same person, **one** message. The follow-up is zero-rated through the
+  same `send_sms` path every other outbound message uses, so §CHAN-1's Critical requirement is
+  resolved on it rather than beside it.
+
+      no token  -> 401
+      citizen   -> 403
+      auditor   -> 200   measured 181 | surfaces 30 | over 0
+                         ceiling {'sentence_words': 25, 'word_chars': 18, 'message_chars': 160}
+                         worst: afya.strings:PSEUDONYM_STRINGS 24 words, `kinachofuatiliwa`
+
+- Canary reverts done from a `cp` backup with `__pycache__` cleared — a `cp` revert can leave the
+  canary's bytecode live when the patch and the original are the same length
+
+**Across the repo 537 → 539 `carried`, 13 → 11 `missing`.** The 11 that remain are §CHAN-004's
+social-media content programme (4), §CHAN-000's call-in and drama vignettes (2), §CHAN-003's two
+claims about the world (2), §CHAN-005's printed flip chart (1), and the two deliberately open
+external dependencies §ACC-001 and §ACC-002.
+
+**No new source.** The governing text is this repo's own `docs/spec.md`; the bound is derived from
+the tree's own corpus rather than from a published threshold.

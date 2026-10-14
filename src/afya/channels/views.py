@@ -1,27 +1,40 @@
 """Channel domain models (spec §5, CHAN-000..006)."""
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
+from afya.channels.outbound import PlainLanguageReading, plain_language
+from afya.derived import DerivedFields
 from afya.ids import uuid7str
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 
-class SmsOut(BaseModel):
-	"""One outbound SMS, with whether the person receiving it is charged.
+class SmsOut(DerivedFields, BaseModel):
+	"""One outbound SMS, with whether the person receiving it is charged and how plain it reads.
 
 	`zero_rated` has no default. It used to default to `True`, which meant every message the system
 	sent was stamped free whether or not any carrier agreement existed — a claim nothing could make
 	false, checked only by an assert on the value it had just been handed. It is now resolved from
 	§5.2's cost table and §18.8's pulled billing rules (`afya.channels.cost`), so a caller that does
 	not know has to say so by omission rather than by inheriting "free".
+
+	`plain` is §5.3 CHAN-1's Format bullet — "plain language" — carried on the message rather than
+	measured in a report beside it, so the property travels with every body the channel sends. It is a
+	computed field over `body` and cannot be set, which is why the model mixes in `DerivedFields`: a
+	client that reads a message back and posts it would otherwise be refused for a key it never wrote.
 	"""
+
 	model_config = MODEL_CONFIG
 	to_msisdn: str = Field(pattern=r'^\+254\d{9}$')
 	body: str = Field(max_length=1600)
 	segments: int = Field(ge=1, le=10)
 	zero_rated: bool
+
+	@computed_field  # type: ignore[prop-decorator]
+	@property
+	def plain(self) -> PlainLanguageReading:
+		return plain_language(self.body)
 
 
 class UssdRequest(BaseModel):

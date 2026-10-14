@@ -4,6 +4,7 @@ from typing import Awaitable, Callable, Protocol
 
 from afya.auth.views import now_ms
 from afya.channels.cost import ChannelCostVerdict, ZeroRatingRule, cost_report, cost_verdict
+from afya.channels.outbound import follow_up_message
 from afya.access.views import LANGUAGE_MATRIX, VoiceAudioRequest, VoiceResult
 from afya.channels.views import (
 	CallbackRequest, ChannelReport, ChwTask, PushPayload, RadioBulletin, SmsOut, UssdRequest,
@@ -118,6 +119,12 @@ class ChannelService(LogMixin):
 		# number of reports, which is the worst possible failure for a detector whose whole job is to
 		# notice a rise. Emission is idempotent by this set, not by the caller remembering.
 		self._signalled: set[str] = set()
+		# §CHAN-1's "Follow-up after a USSD report", composed at filing and sent by the route. Keyed
+		# by report id so the send is idempotent per report for the same reason `_signalled` is: the
+		# route walks the whole sink, and a walk that re-sent on every request would text a person
+		# once per subsequent session — a follow-up that arrives twenty times is worse than none.
+		self._follow_ups: dict[str, str] = {}
+		self._followed_up: set[str] = set()
 		self._chw_tasks: list[ChwTask] = []
 		# Every payload handed to `push`. Held rather than fired and forgotten for §16.1's reason:
 		# the delivery path is a transport, and what the deployment owes a person must be readable
@@ -264,7 +271,8 @@ class ChannelService(LogMixin):
 			# report — which the engine has no word for — is still a record of what was chosen rather
 			# than an empty list the deployment cannot read.
 			label = USSD_SYMPTOMS[sub - 1][1]
-			self.record_report(req.msisdn, 'ussd', symptoms, lang=served, symptom_label=label)
+			self.record_report(req.msisdn, 'ussd', symptoms, lang=served, symptom_label=label,
+			                   callback_requested=callback)
 			return UssdResponse(session_id=req.session_id,
 				end_text=self._ussd_close(served, recommendation, location, callback))
 		# Every other path ends: the two leaves answer, and a third segment has nowhere to go.
@@ -454,7 +462,8 @@ class ChannelService(LogMixin):
 	# --- §5.4's "single case-report backend", on the channels that had no writer ------------------
 
 	def record_report(self, msisdn: str, channel: str, symptoms: list[str], lang: str = 'en',
-	                  symptom_label: str | None = None, county: str | None = None) -> ChannelReport:
+	                  symptom_label: str | None = None, county: str | None = None,
+	                  callback_requested: bool = False) -> ChannelReport:
 		"""File one channel report into §5.4's single backend, from whichever channel heard it.
 
 		The single writer, for the reason `record_callback` is: the USSD walk and the WhatsApp router
@@ -491,6 +500,14 @@ class ChannelService(LogMixin):
 		self._reports.append(report)
 		self._log_info('channel report filed', channel=channel, symptoms=len(symptoms),
 		               placed=county is not None, stored=report.consent_to_store)
+		# §CHAN-1's "Follow-up after a USSD report". Composed here, at filing, because this is where
+		# the menu item and the callback answer are both in hand; sent by the route, because the walk
+		# is synchronous and a send is not. Composed for the USSD channel only — §CHAN-3's WhatsApp
+		# router replies inside the conversation the person is already in, so an SMS on top of that
+		# reply would be two messages for one report, and an SMS report already arrives as one.
+		if channel == 'ussd':
+			self._follow_ups[report.report_id] = follow_up_message(
+				symptom_label, lang=report.lang, callback_requested=callback_requested)
 		return report
 
 	def channel_reports(self, msisdn: str | None = None, channel: str | None = None,
@@ -566,6 +583,35 @@ class ChannelService(LogMixin):
 		self._log_info('channel report counted into the signal ledger', report=report.report_id,
 		               county=report.county)
 		return True
+
+	async def send_follow_up(self, report: ChannelReport) -> SmsOut | None:
+		"""Send the §CHAN-1 follow-up for one report, once.
+
+		Returns `None` for every report that has no follow-up to send, which is every report from a
+		channel other than USSD and every report already followed up. `None` is the honest answer and
+		not an error: §CHAN-1's bullet is one entry in a list of six outbound use cases and names the
+		USSD channel, so a report that arrives with no session behind it is a report the bullet does
+		not cover.
+
+		The send goes through `send_sms`, which is the point. A follow-up composed here and pushed at
+		the gateway would be a second outbound path, and the cost flag — the §CHAN-1 Critical
+		requirement that decides whether adoption holds — is resolved on the one path that exists. A
+		second path is a second place for a message to go out charged.
+
+		**Idempotent by report id, like the signal emit, and the route relies on it.** The USSD route
+		walks the whole sink after every session, so without this a person who reported a fever once
+		would be texted again on every later session — which is not a follow-up, it is a subscription
+		to their own report.
+		"""
+		assert report.report_id, 'a follow-up is sent for a report that exists'
+		body = self._follow_ups.get(report.report_id)
+		if body is None or report.report_id in self._followed_up:
+			return None
+		self._followed_up.add(report.report_id)
+		out = await self.send_sms(report.msisdn, body)
+		self._log_info('follow-up sent', report=report.report_id, segments=out.segments,
+		               plain=out.plain.plain)
+		return out
 
 	def route_whatsapp_voice(self, msg: WhatsAppIn, note: Path) -> VoiceResult:
 		"""§ACC-002's "voice note triage on WhatsApp", as a transcription and then a triage.

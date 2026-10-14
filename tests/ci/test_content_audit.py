@@ -628,7 +628,11 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		# applications name four objects that did not exist and now do, through one binding in
 		# `afya.sensors.tags` — the tag names a target and the target resolves.
 		'§CHAN-000': 2,
-		'§CHAN-001': 2,
+		# §CHAN-001's two were the follow-up SMS after a USSD report and the "plain language" bound.
+		# Both closed and the section left this dict: the follow-up is composed at filing and sent by
+		# the route through the one outbound path, and the plain-language bound measures all 183
+		# outbound strings — and found one over the line (§SEC-004's pseudonym caveat, 31 words in one
+		# sentence), which was fixed rather than accommodated.
 		'§CHAN-003': 2,
 		'§CHAN-004': 4,
 		# §CHAN-005's two were the printed flip chart and the training. The training closed: the
