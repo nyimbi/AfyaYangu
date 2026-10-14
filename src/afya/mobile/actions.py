@@ -29,7 +29,10 @@ from typing import Callable, Literal, TypeAlias, cast
 from pydantic import BaseModel, ConfigDict
 
 from afya.community.views import FOLLOWUP_DAYS
-from afya.location.views import ALERT_ZONE_RADII_M
+from afya.location.views import (
+	ALERT_ZONE_RADII_M, CHECKIN_KINDS as CHECKIN_KINDS_SPEC,
+	CHECKIN_METHODS as CHECKIN_METHODS_SPEC,
+)
 from afya.medicine import contraindications
 from afya.monitoring.views import LARVICIDE_CLASSES
 from afya.records.views import WALLET_DOC_KINDS
@@ -83,8 +86,8 @@ ISSUE_KINDS = ['broken_water_point', 'open_sewage', 'illegal_dumping', 'mosquito
 CASE_STATUSES = ['reported', 'investigated', 'lab_result', 'closed']
 CONTACT_SETTINGS = ['home', 'work', 'transport', 'worship', 'market', 'social', 'other']
 MISINFO_MEDIA = ['text', 'voice', 'screenshot', 'whatsapp_forward']
-CHECKIN_KINDS = ['border_post', 'health_facility', 'isolation_unit', 'vaccination_point', 'school', 'workplace', 'event']
-CHECKIN_METHODS = ['qr', 'nfc', 'manual']
+CHECKIN_KINDS = list(CHECKIN_KINDS_SPEC)
+CHECKIN_METHODS = list(CHECKIN_METHODS_SPEC)
 # §3.3 principle 12's vocabulary, read from the one module that carries it. This was a fourth copy
 # of the list, and the copies had already drifted: this one and `community.CaseReport` had `measles`,
 # `surveillance.CountySignal` did not, and `alerts.AlertKind` had neither `measles` nor `other`.
@@ -216,6 +219,7 @@ FEATURE_OF: dict[str, str] = {
 	'rotate_ebid': 'LOC-002', 'log_encounter': 'LOC-002', 'declare_exposure': 'LOC-002', 'check_exposure': 'LOC-002',
 	'enable_location_history': 'LOC-003', 'log_location': 'LOC-003', 'location_report': 'LOC-003', 'purge_location': 'LOC-003',
 	'register_checkin_point': 'LOC-004', 'check_in': 'LOC-004', 'checkin_points': 'LOC-004', 'checkin_list': 'LOC-004',
+	'checkin_followup': 'LOC-004',
 	'register_border': 'LOC-005', 'border_status': 'LOC-005', 'travel_advisory': 'INF-005', 'traveller_declare': 'LOC-005',
 	'traveller_prompt': 'LOC-005', 'traveller_report': 'LOC-005',
 	'hotspots': 'AI-001', 'risk_score': 'AI-002', 'early_warning': 'AI-003',
@@ -319,7 +323,7 @@ DORMANT_SLUGS: frozenset[str] = frozenset({
 	# Proximity log (LOC-002), location history (LOC-003), check-in points (LOC-004), border (LOC-005)
 	'rotate_ebid', 'log_encounter', 'declare_exposure', 'check_exposure',
 	'enable_location_history', 'log_location', 'location_report', 'purge_location',
-	'register_checkin_point', 'check_in', 'checkin_points', 'checkin_list',
+	'register_checkin_point', 'check_in', 'checkin_points', 'checkin_list', 'checkin_followup',
 	'register_border', 'border_status', 'traveller_declare', 'traveller_prompt', 'traveller_report',
 	# Outbreak AI (AI-001..003)
 	'hotspots', 'risk_score', 'early_warning', 'signal_scan', 'signal_report',
@@ -644,6 +648,10 @@ def catalogue() -> list[MobileAction]:
 		_a('purge_location', 'Delete my location diary', 'Outbreak', 'DELETE', '/location/history/{subject_ref}', [_s('path')]),
 		_a('checkin_points', 'Check-in points near me', 'Outbreak', 'GET', '/location/checkin/points', [_f('county', 'County', ph='optional')]),
 		_a('checkin_list', 'Where I checked in', 'Outbreak', 'GET', '/location/checkin/{subject_ref}', [_s('path')]),
+		# §LOC-004's fourth Behaviour bullet, on the same route family as the two above it: what the
+		# check-ins on file are *for*. `lang` is offered because the follow-up question is a sentence
+		# a person reads, and the two above carry no prose at all.
+		_a('checkin_followup', 'What happens after I check in?', 'Outbreak', 'GET', '/location/checkin/{subject_ref}/follow-up', [_s('path'), _f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
 		_a('register_checkin_point', 'Set up a check-in point', 'Outbreak', 'POST', '/location/checkin/point', [_f('point_id', 'Point number'), _f('kind', 'What kind of place?', 'select', CHECKIN_KINDS), _f('label', 'Name'), _f('county', 'County'), _f('token', 'Check-in code')]),
 		_a('check_in', 'Check in here', 'Outbreak', 'POST', '/location/checkin', [_f('checkin_id', 'Check-in number'), _f('point_token', 'Check-in code'), _s(), _f('method', 'How?', 'select', CHECKIN_METHODS), _f('at_iso', 'When'), _f('share_with_authority', 'Share with the health team?', 'bool')]),
 		_a('register_border', 'Set up a border post', 'Outbreak', 'POST', '/location/border', [_f('post_id', 'Post number'), _f('name', 'Name'), _f('county', 'County'), _f('country_pair', 'Between which countries?'), _f('queue_minutes', 'Queue in minutes', 'int'), _f('screening_required', 'Screening required?', 'bool'), _f('mobile_lab', 'Is there a mobile lab here?', 'bool'), _f('lab_turnaround_hours', 'Results in how many hours?', 'int'), _f('lab_tests', 'Which tests can it run?', 'list', ph='e.g. mRDT, Ebola PCR')]),

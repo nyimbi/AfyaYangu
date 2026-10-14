@@ -333,7 +333,6 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§ACC-004': 1,
 		'§ACC-005': 1,
 		'§LOC-002': 1,
-		'§LOC-004': 1,
 		'§SEC-001': 2,
 		'§SEC-002': 1,
 		'§SEC-004': 1,

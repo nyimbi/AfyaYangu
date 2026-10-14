@@ -4055,6 +4055,21 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def location_checkins(subject_ref: str, _subject: str = Depends(require_self())) -> list[dict[str, object]]:
 		return [c.model_dump(mode='json') for c in location.checkins_for(subject_ref)]
 
+	@app.get('/location/checkin/{subject_ref}/follow-up')
+	async def location_checkin_follow_up(subject_ref: str, lang: str = 'en', now_ms: int | None = None,
+	                                     _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§LOC-004's fourth Behaviour bullet: attendance, the follow-up schedule, the window.
+
+		`now_ms` is the caller's clock for the same reason `/location/check` takes one — the window's
+		elapsed days are arithmetic against an instant, and a view that can only read the wall clock
+		cannot be asked what a person's record looked like on the day a prompt fell due.
+
+		`self`-scoped, not an aggregate. A check-in is where one person was on one day, which is the
+		most identifying row this module holds; a county-level reading of it would be an aggregate
+		surface §LOC-004 does not ask for and §17.4 gives no role.
+		"""
+		return location.follow_up(subject_ref, now_ms, lang).model_dump(mode='json')
+
 	@app.post('/location/border')
 	async def location_border(post: BorderPost) -> dict[str, bool]:
 		await location.register_border(post)

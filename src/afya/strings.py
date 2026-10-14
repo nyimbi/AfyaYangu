@@ -147,6 +147,81 @@ def traveller(lang: str, key: str, **fields: object) -> str:
 	return TRAVELLER_STRINGS[answerable(lang)][key].format(**fields)
 
 
+# --- §11.5 LOC-004's check-in follow-up strings -------------------------------------------------
+#
+# §LOC-004's fourth Behaviour bullet is that a check-in is *used*: attendance, a follow-up schedule
+# and an exposure window. The schedule is a set of questions, and a question is a string — the same
+# finding §LOC-005's `prompt` closed for a traveller, on the surface a person reaches by scanning a
+# code at a gate. The days are the same days (§MON-009's 21-day window), so the sentence is the same
+# sentence; what differs is the noun, and a school screening point is not a border post.
+#
+# The window's closing line says what the source says. The WHO fact sheet gives the incubation
+# period as a range with a lower bound — "varies from 2 to 21 days" — and a line that promised the
+# person they were clear would be this code making a claim the source does not. So the line reports
+# the window's end and leaves the clinical reading to the person and to 719.
+CHECKIN_STRINGS: dict[str, dict[str, str]] = {
+	'en': {
+		'prompt': (
+			'Day {day} of 21: have you had a fever, a headache, muscle pain, vomiting or unusual '
+			'bleeding? Call 719 at once if you have, and say where you checked in.'
+		),
+		'window_open': (
+			'Your check-in at {place} on {day} opened a 21-day symptom watch. It has {remaining} '
+			'days left, to {closes}. Call 719 if you feel unwell.'
+		),
+		'window_closed': (
+			'The 21-day symptom watch from your check-in at {place} on {day} ended on {closes}. '
+			'Call 719 if you feel unwell at any time.'
+		),
+		'no_checkins': (
+			'No check-ins are on file, so nothing is being followed up. Scan the code at a check-in '
+			'point to start.'
+		),
+		# Distinct from `no_checkins` because the two read identically on a screen and are different
+		# facts: a person who scanned in at an office has a record and no watch, and telling them
+		# nothing is on file contradicts the screen they are looking at.
+		'no_watch': (
+			'Your check-ins are on file. None of them is at a point that opens a symptom watch, so '
+			'no follow-up is scheduled. Call 719 if you feel unwell.'
+		),
+	},
+	'sw': {
+		'prompt': (
+			'Siku {day} kati ya 21: umekuwa na homa, kichwa kuuma, maumivu ya misuli, kutapika au '
+			'kutoka damu isiyo ya kawaida? Piga 719 mara moja kama unayo, na useme ulipoingia.'
+		),
+		'window_open': (
+			'Kuingia kwako katika {place} siku ya {day} kulianzisha kipindi cha siku 21 cha '
+			'kufuatilia dalili. Zimesalia siku {remaining}, hadi {closes}. Piga 719 kama unajihisi '
+			'mgonjwa.'
+		),
+		'window_closed': (
+			'Kipindi cha siku 21 cha kufuatilia dalili kutoka kuingia kwako katika {place} siku ya '
+			'{day} kiliisha {closes}. Piga 719 wakati wowote kama unajihisi mgonjwa.'
+		),
+		'no_checkins': (
+			'Hakuna kuingia kulikorekodiwa, hivyo hakuna kinachofuatiliwa. Skani msimbo katika kituo '
+			'cha kuingia ili kuanza.'
+		),
+		'no_watch': (
+			'Kuingia kwako kumerekodiwa. Hakuna kulikofanyika katika kituo kinachofungua kipindi cha '
+			'kufuatilia dalili, hivyo hakuna ufuatiliaji uliopangwa. Piga 719 kama unajihisi mgonjwa.'
+		),
+	},
+}
+
+
+def checkin(lang: str, key: str, **fields: object) -> str:
+	"""A §LOC-004 check-in string in `lang`, or in English where there is no table for it.
+
+	The same rule as `traveller` above and for the same reason: `answerable` is one function, so the
+	fallback cannot differ between two paths that both serve a person at a gate. An unknown key
+	raises — a missing string is a screen that renders blank where a question should be.
+	"""
+	assert key in CHECKIN_STRINGS['en'], f'unknown check-in string {key}'
+	return CHECKIN_STRINGS[answerable(lang)][key].format(**fields)
+
+
 # §LOC-001's **Alert content** is printed in the spec as one exact sentence and it had no home: the
 # geofence route emitted a near-verbatim line built inline, nothing resolved to it, and the section's
 # own `[specific location]` placeholder was replaced by the words "the named location" — so the one

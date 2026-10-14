@@ -628,6 +628,20 @@ unit introduced no new external fact — the incubation window was already archi
 alert's wording is the specification's. Said plainly so the absence of a new source directory is not
 read as a missing citation.
 
+**§LOC-004's check-in follow-up is the same 21 days, and a third consumer of it.** `LocationService`
+(`afya.location.service:LocationService.follow_up`) derives the symptom watch from the check-in
+instant over `LOCATION_WINDOW_DAYS = 21`, and schedules its asks on
+`EXPOSURE_FOLLOWUP_DAYS = (1, 3, 7, 14, 21)`. The **window** is the WHO fact sheet's range above; the
+**days** are the same five §LOC-005's enrolment states and §COM-102's peer alert carries, so three
+sections schedule one window and this is where the number is read from. One consequence is load-
+bearing and is why the note a closed window prints does not say the person is clear: the source gives
+a **range with a lower bound**, so the app can say when its own watch ends and cannot say the person
+was never exposed. `window_closed` therefore reports the closing date and says to call 719 if unwell
+at any time. No new archive directory was added for §LOC-004 for the same reason as §LOC-001 — the
+unit introduced no new external fact. The archive holds the fact sheet as `.html`, not as a PDF with
+a `pdftotext` extraction beside it; the quotations above are from that HTML copy, checksummed at the
+top of this section.
+
 **Where §ALT-002's SMS check-in comes from, and where it does not.** The family safety check-in's
 "works over SMS when data is unavailable" is carried by `afya.alerting.service:AlertingService.check_in`
 (the fan-out) and `:check_in_by_msisdn` (the inbound message), and the strings it prints are

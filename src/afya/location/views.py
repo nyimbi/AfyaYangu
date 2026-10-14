@@ -13,6 +13,41 @@ EBID_ROTATION_MINUTES = 15
 LOCATION_WINDOW_DAYS = 21
 LOCATION_WINDOW_MAX_DAYS = 28
 
+# The days a person is asked about symptoms after something put them on watch. Day 1 is the event
+# day itself — the same counting §COM-102's `_alert_day` uses (`(seen - issued).days + 1`) — so a
+# check-in on the 1st is followed up on the 1st, 3rd, 7th, 15th and 22nd.
+#
+# One tuple for both §LOC-004's check-in and §LOC-005's traveller arrival, because they are the same
+# fact: a border post check-in and an arrival declaration are one event seen twice, and the section
+# that schedules the follow-up is §MON-009's 21-day window either way. Two tuples would be two
+# answers to "which days do we ask", and the second would be the one nobody re-read.
+EXPOSURE_FOLLOWUP_DAYS: tuple[int, ...] = (1, 3, 7, 14, 21)
+
+# §LOC-004's six Deployment points plus the screening point, which the section names in
+# "Health facilities and screening points". One tuple, because the client's picker and the model's
+# pattern are the same fact: `afya.mobile.actions` carried a hand-typed second copy of this list,
+# which is the copy that goes stale the first time a point kind is added.
+CHECKIN_KINDS: tuple[str, ...] = (
+	'border_post', 'health_facility', 'isolation_unit', 'vaccination_point', 'school', 'workplace',
+	'event',
+)
+
+# Which check-in points open a 21-day symptom watch. The set is not a clinical taxonomy invented
+# here: it is the set §LOC-004's own guidance already speaks a 21-day sentence about, and a point
+# that opens a window the app never mentioned would be the app following something up in silence.
+# `LocationService` asserts this set and its `GUIDANCE` agree at import, so the two cannot drift.
+WATCH_KINDS: tuple[str, ...] = ('border_post', 'event')
+
+assert set(WATCH_KINDS) <= set(CHECKIN_KINDS), 'a watched kind must be a kind a point can be'
+# The model's pattern is built from the tuple rather than written out beside it: a second hand-typed
+# alternation is the copy that keeps validating a kind the picker no longer offers.
+CHECKIN_KIND_PATTERN = '^(' + '|'.join(CHECKIN_KINDS) + ')$'
+
+# How the code was read. The client reports it and the server records it; §LOC-004's own first
+# Behaviour bullet is the scan, and §SENS-010's coverage gate is where the reading itself lives.
+CHECKIN_METHODS: tuple[str, ...] = ('qr', 'nfc', 'manual')
+CHECKIN_METHOD_PATTERN = '^(' + '|'.join(CHECKIN_METHODS) + ')$'
+
 # §COM-102's geofenced alert zones — "500 m, 1 km, 5 km — configurable by county" — and §8.6
 # LOC-001's alert radii, which are the same three numbers. Kept here rather than in the location
 # *service* because the peer-alert model validates against the set: a zone the section does not
@@ -87,7 +122,7 @@ class LocationReport(BaseModel):
 class CheckInPoint(BaseModel):
 	model_config = MODEL_CONFIG
 	point_id: str
-	kind: str = Field(pattern=r'^(border_post|health_facility|isolation_unit|vaccination_point|school|workplace|event)$')
+	kind: str = Field(pattern=CHECKIN_KIND_PATTERN)
 	label: str
 	county: str
 	token: str = Field(pattern=r'^[A-Z0-9]{6,16}$')
@@ -98,7 +133,7 @@ class CheckIn(BaseModel):
 	checkin_id: str = Field(pattern=r'^CHK-[A-Z0-9]{8,}$')
 	point_token: str = Field(pattern=r'^[A-Z0-9]{6,16}$')
 	subject_ref: str
-	method: str = Field(pattern=r'^(qr|nfc|manual)$')
+	method: str = Field(pattern=CHECKIN_METHOD_PATTERN)
 	at_iso: str
 	share_with_authority: bool = False
 
@@ -110,6 +145,102 @@ class CheckInReceipt(BaseModel):
 	guidance: str
 	logged_locally: bool
 	shared: bool
+
+
+class CheckInAttendance(BaseModel):
+	"""One check-in, joined to the point it names and counted against the person's own record.
+
+	`CheckIn` carries a `point_token` and nothing else about the place: a receipt names the label
+	once, at the moment of the scan, and after that the token is a string that resolves to nothing a
+	reader can act on. §LOC-004's fourth Behaviour bullet is that check-ins are *used* — attendance
+	is the join this record is, and it is a join nobody could make from the stored shape.
+
+	`visit_no` is 1-based over the person's own check-ins *at this point*, in time order, so three
+	scans at one school screening point are one place attended three times rather than three places.
+	`day` is the date half of `at_iso`, which is the field the window arithmetic reads; the instant
+	is carried too, because a check-in is a moment and the day is a reading of it.
+	"""
+
+	model_config = MODEL_CONFIG
+	checkin_id: str
+	point_id: str
+	point_label: str
+	kind: str
+	county: str
+	at_iso: str
+	day: str
+	visit_no: int = Field(ge=1)
+	method: str
+	shared: bool
+
+
+class FollowUpStep(BaseModel):
+	"""One scheduled ask, and whether it is behind the clock, on it, or still ahead.
+
+	`due` and `past` are two booleans rather than one tri-state string because "today" is the case
+	the screen acts on and both neighbours are different from it: a step that is `due and not past`
+	is the one being asked now. Neither reads an answer — no answer is stored on this path. The
+	answer lives on §LOC-005's traveller route, where `PostArrivalReport` is filed against a day;
+	reporting a check-in step as "missed" would be this code inventing a prompt nobody sent.
+	"""
+
+	model_config = MODEL_CONFIG
+	day: int = Field(ge=1)
+	due_iso: str
+	due: bool
+	past: bool
+	question: str
+
+
+class ExposureWindow(BaseModel):
+	"""The 21-day window a check-in opens, and how far into it the caller's clock is.
+
+	The window is derived from `CheckIn.at_iso` and not stored: a stored end date is wrong the day
+	after it is written, and §LOC-004's whole point is that the check-in is the timestamp.
+
+	`elapsed_days` is clamped to the window, so a check-in eight months old reports `21` and not
+	`240`. The clamp is the window's own arithmetic — a day past the end is not a day of it — and
+	`remaining_days` is `0` for every one of them, which is the fact that matters.
+	"""
+
+	model_config = MODEL_CONFIG
+	opened_iso: str
+	closes_iso: str
+	window_days: int = Field(ge=1, le=LOCATION_WINDOW_MAX_DAYS)
+	elapsed_days: int = Field(ge=0)
+	remaining_days: int = Field(ge=0)
+	open: bool
+	note: str
+
+
+class CheckInFollowUp(BaseModel):
+	"""What §LOC-004's fourth bullet asks for, derived from the check-ins on file.
+
+	Three answers, and they are three because the bullet names three uses: which points the person
+	attended and when (`attendance`), which symptom questions are owed (`schedule`), and whether the
+	21-day exposure window from the most recent check-in is still open (`window`).
+
+	`attendance: null` and `window: null` are not "nothing happened" — they are "there is no
+	check-in to derive from", and `note` says so in words. A person with no check-ins is owed the
+	fact that the app is not following anything up, not an empty list that reads like a clean
+	record, which is the same distinction `DoseResult.unknown` draws.
+
+	`served_in` is the language the strings were actually built in, and it is the same rule
+	`TriageResult.served_in` follows: `answerable` accepts every language §ACC-002 lists and falls
+	back to English where there is no table, and a fallback nobody is told about is a Dholuo speaker
+	reading English believing it is Dholuo. `lang` is the request; this is the answer.
+	"""
+
+	model_config = MODEL_CONFIG
+	subject_ref: str
+	attendance: list[CheckInAttendance] | None
+	schedule: list[FollowUpStep]
+	window: ExposureWindow | None
+	points_attended: int = Field(ge=0)
+	checkins: int = Field(ge=0)
+	next_due_iso: str | None
+	served_in: str
+	note: str
 
 
 # --- LOC-005 border and point-of-entry ---------------------------------------------------

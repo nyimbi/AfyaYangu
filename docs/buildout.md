@@ -3968,3 +3968,110 @@ pass, on roughly three runs in four. Verified pre-existing against a clean `HEAD
 runs aborted there with the same message and the same all-passed summary), so it is an
 interpreter-shutdown fault in a dependency, not a regression here. Noted rather than fixed, because
 the fix belongs to whatever holds the mutex.
+
+## §LOC-004 — a check-in nothing read
+
+§LOC-004's fourth Behaviour bullet — *"Used for attendance tracking, follow-up scheduling, and
+exposure window determination"* — was the same shape as §COM-103 and §COM-104: every visible part
+present, the join absent. `CheckIn` stored a `point_token`; `CheckInPoint` stored the label, the kind
+and the county; `check_in` joined them **once** to build a `CheckInReceipt` and the receipt was not
+kept. After that the token was a string that resolved to nothing a reader could act on.
+
+Three joins were missing, one per use the bullet names:
+
+| | |
+|---|---|
+| `attendance` | `CheckIn.point_token` → its `CheckInPoint`, with `visit_no` counted **per point**, so three scans at one school are one place attended three times |
+| `schedule` | the asks, on `EXPOSURE_FOLLOWUP_DAYS = (1, 3, 7, 14, 21)` from the check-in instant, each carrying the question it asks |
+| `window` | arithmetic on `CheckIn.at_iso` over §MON-009's 21 days — derived, never stored |
+
+### The window is opened by the guidance, not by the check-in
+
+The decision worth recording is the one that stops the app inventing a watch. A check-in at a
+workplace or a school is a visit; a check-in at a border post is a visit *and* the start of a
+symptom watch. `WATCH_KINDS = ('border_post', 'event')` is not a clinical taxonomy chosen here — it
+is the set of kinds §LOC-004's own `GUIDANCE` already prints a 21-day sentence for, and the class
+asserts the two are one set at import:
+
+```python
+assert {k for k, text in GUIDANCE.items() if '21 days' in text} == set(WATCH_KINDS), (
+	'the kinds whose guidance names a 21-day watch and the kinds that open one are one set'
+)
+```
+
+Without it, adding a kind to `WATCH_KINDS` starts a clock nobody was told about, and adding a
+guidance line that promises one while the kind is absent from the set breaks a promise already on the
+screen. The assert is the only place both facts are visible at once.
+
+### Two refusals, and both say which they are
+
+`attendance: null` with a note is not "nothing happened" — it is "there is no check-in to derive
+from", the same distinction `DoseResult.unknown` draws. And a person who *has* check-ins at points
+that open no watch is a third case again, so it gets its own string (`no_watch`) rather than the
+no-check-ins one: a screen that says nothing is on file while the record beside it lists four visits
+contradicts itself. The canary for that is #11.
+
+`served_in` travels with the answer for the reason `TriageResult.served_in` does. `answerable`
+accepts every language §ACC-002 lists and serves English where there is no table; a Dholuo speaker
+reads English *and is told so*, rather than believing it is Dholuo.
+
+### Duplicates collapsed
+
+Two hand-typed copies of `CHECKIN_KINDS` and `CHECKIN_METHODS` lived in `afya.mobile.actions` beside
+the model's own alternations — four spellings of two lists. The catalogue now aliases
+`afya.location.views`, and the model's patterns are built from the same tuples
+(`'^(' + '|'.join(CHECKIN_KINDS) + ')$'`), so a kind added in one place is added in all of them. The
+fifth copy of date arithmetic was avoided the same way: `iso_add_days` went into `afya.info.recency`
+beside `midnight_ms`, its inverse, rather than becoming a fifth private `_add_days`.
+
+### Canaries
+
+**19/19 fired.** A point that names no watch opens one; `visit_no` global instead of per point; an
+unresolvable point dropped from the count instead of asserted; the window run from the *oldest*
+check-in; `elapsed_days` unclamped; `remaining_days` allowed negative; a closed window reporting
+itself open; no step ever due; the schedule off by one; a watched-out subject served the no-check-ins
+string; no check-ins answered with an empty list; the language fallback bypassed; an unknown string
+returning a placeholder; the route losing its guard; the route ignoring the clock it is given; every
+day asking the same question; a kind dropped from `WATCH_KINDS`; a guidance line promising a window
+no kind opens; the served language not reported.
+
+Seven of the first eighteen **missed**, and each miss was a defect in the test rather than in the
+canary — which is the reason to run them. Two are worth naming:
+
+- *"visits are numbered globally"* missed because the test used **one** point, and with one point a
+  global counter and a per-point counter are arithmetically identical. The test now uses two points
+  and asserts `[1, 1, 2]`, which no global counter can produce.
+- *"the route ignores the clock it is given"* missed because the wall clock on the day the test ran
+  produced the same closing date and the same schedule days as the injected instant. Only
+  `elapsed_days`/`remaining_days` distinguish the two, and the test now asserts them.
+
+Two more were retargeted rather than fixed: canary #18 mutated `CHECKIN_KIND_PATTERN` to a literal
+alternation and was **not** caught, because the guidance/watch assert compares `GUIDANCE` against
+`WATCH_KINDS` and never reads the pattern. That canary was asserting a drift the test does not claim
+to catch; it now mutates `WATCH_KINDS` (caught at collection) with its mirror — a guidance line
+gaining a 21-day promise — beside it, which is the same guard from the other side.
+
+### Live probe
+
+Through `uvicorn --factory afya.service:create_app --port 8731`:
+
+- point registered, check-in posted, follow-up read → **200**, `attendance[0].point_label` is the
+  point's own label, five schedule days, `window.closes_iso` **2026-10-22**
+- `?lang=sw` → the day-3 question and the window note both in Kiswahili
+- `?lang=luo` → English, `served_in: "en"` — the fallback, reported
+- eight months on → `open: false`, `elapsed_days: 21` (clamped), `remaining_days: 0`, and the note
+  says the watch ended rather than that the person is clear
+- another subject's `subject_ref` → **403**; no token → **401**; `/zzz/deep/path` → **404**, so the
+  route is genuinely served rather than the stub that answers everything 200
+- a subject with no check-ins → `attendance: null`, `window: null`, the note in words
+- no `LOC-\d{3}` string anywhere in any served payload
+
+**§LOC-004 1 `missing` → 0.** Across the repo **466 → 467 `carried`, 14 → 13 `missing`**, 497 rows,
+`deferred` 17 unchanged, `unresolved == []`. The one remaining non-carried row in the section is the
+`deferred` "Scan QR or tap NFC" — the scan is the device's, and the server records the `method` the
+client reports.
+
+**No new source directory.** §LOC-004 introduced no new external fact: the 21-day window is the WHO
+fact sheet's incubation range already archived under `sources/ebola-transmission/`, and
+`sources/INDEX.md` now records this module as a third consumer of it alongside §MON-009 and §COM-102,
+with the reason the closed-window note cannot tell a person they are clear.

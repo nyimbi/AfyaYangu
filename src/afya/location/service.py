@@ -6,10 +6,11 @@ Design commitments carried in code, not policy:
   * LOC-004 check-ins are local unless the user flips `share_with_authority`.
   * LOC-005 pairs a pre-travel advisory with the same 21-day window as MON-009.
 """
+from datetime import datetime, timezone
 from typing import Protocol
 
 from afya.info.counties import COUNTIES
-from afya.info.recency import UNDATED_MS, instant_iso
+from afya.info.recency import DAY_MS, UNDATED_MS, instant_iso, iso_add_days, midnight_ms
 # §INF-005's county half reads §INF-001's risk rows rather than keeping a second table. The import is
 # a plain one and not a `TYPE_CHECKING`-guarded name, because the protocol below has to name the
 # return type at class-creation time; it is safe because `afya.info.service` reaches nothing in
@@ -26,15 +27,18 @@ from afya.location.advisories import (
 	CountryRow, POST_TRAVEL_STEPS, row_for,
 )
 from afya.location.views import (
-	ALERT_ZONE_RADII_M, EBID_ROTATION_MINUTES, LOCATION_WINDOW_DAYS, BorderPost, CheckIn,
-	CheckInPoint, CheckInReceipt, EncounterToken, EphemeralId, ExposureDeclaration, ExposureMatch,
-	LocationHistory, LocationPoint, LocationReport, PlaceAdvisory, PostArrivalReport,
+	ALERT_ZONE_RADII_M, EBID_ROTATION_MINUTES, EXPOSURE_FOLLOWUP_DAYS, LOCATION_WINDOW_DAYS,
+	WATCH_KINDS, BorderPost, CheckIn, CheckInAttendance, CheckInFollowUp, CheckInPoint,
+	CheckInReceipt, EncounterToken, EphemeralId, ExposureDeclaration, ExposureMatch, ExposureWindow,
+	FollowUpStep, LocationHistory, LocationPoint, LocationReport, PlaceAdvisory, PostArrivalReport,
 	PostArrivalVerdict, PostTravelStep, RiskBand, TravellerEnrolment, TravelerDeclaration,
 	TravelAdvisoryReport, ZoneEvent, ZoneWatch,
 )
 from afya.logmixin import LogMixin
 from afya.monitoring.service import MONITORING_ALERT_SYMPTOMS
-from afya.strings import answerable, geofence_alert, traveller, zone_privacy_note, zone_transition
+from afya.strings import (
+	answerable, checkin, geofence_alert, traveller, zone_privacy_note, zone_transition,
+)
 
 
 # Geofenced alert zones — county-configurable radii (§COM-102: 500 m, 1 km, 5 km). Re-exported
@@ -219,6 +223,16 @@ class LocationService(LogMixin):
 		'event': 'Gathering check-in logged. Watch for symptoms for 21 days.',
 	}
 
+	# The guidance is where a person is told what their check-in means, so it is where the watch is
+	# stated to them. `follow_up` opens a window only for `WATCH_KINDS`, and these are one claim
+	# rather than two: a point whose guidance promises 21 days must open one, and a point that opens
+	# one must have said so. Asserted here because both facts are this class's, and because the
+	# alternative — a kind added to `WATCH_KINDS` with a guidance line that mentions no window — is
+	# the app starting a clock it never told the person about.
+	assert {k for k, text in GUIDANCE.items() if '21 days' in text} == set(WATCH_KINDS), (
+		'the kinds whose guidance names a 21-day watch and the kinds that open one are one set'
+	)
+
 	async def check_in(self, checkin: CheckIn) -> CheckInReceipt:
 		point = self._points.get(checkin.point_token)
 		assert point is not None, 'unknown check-in point'
@@ -235,6 +249,118 @@ class LocationService(LogMixin):
 
 	def points(self) -> list[CheckInPoint]:
 		return list(self._points.values())
+
+	def follow_up(self, subject_ref: str, now_ms: int | None = None,
+	              lang: str = 'en') -> CheckInFollowUp:
+		"""§LOC-004's fourth Behaviour bullet: what the check-ins on file are *for*.
+
+		Three derivations, because the bullet names three uses, and each was a join nothing made:
+
+		* **Attendance.** `CheckIn.point_token` is stored and `CheckInPoint` is stored, and nothing
+		  put them together — so "where was this person on the 3rd" was a question the record could
+		  not answer. `check_in` joins them once, for the receipt, and the receipt is not kept.
+		* **Follow-up scheduling.** The window opens on the check-in instant and the asks fall on
+		  `EXPOSURE_FOLLOWUP_DAYS`, which is the same set §LOC-005's enrolment states and §COM-102's
+		  peer alert carries. Nothing read any of them for a check-in.
+		* **Exposure window.** `CheckIn.at_iso` is the timestamp and no code did arithmetic on it.
+
+		**The window is opened only by a point that puts someone on watch.** A workplace check-in
+		logs a visit and starts no 21-day clock, because §LOC-004's own guidance for it says the
+		check-in is "logged for follow-up scheduling" and says nothing about symptoms — so a window
+		derived from every check-in would be this code inventing a watch the app never told the
+		person about, and the guidance and the schedule would disagree about the same scan.
+
+		**A refusal is reported, not returned as an empty list.** A subject with no check-ins gets
+		`attendance=None`, `window=None` and a `note` saying so: a clean empty record and a person
+		nothing is being followed up for read identically on a screen, and only one of them is true.
+		"""
+		assert subject_ref, 'a subject is required to derive a follow-up'
+		mine = self.checkins_for(subject_ref)
+		now = now_ms if now_ms is not None else int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+		today = instant_iso(now)[:10]
+		if not mine:
+			return CheckInFollowUp(
+				subject_ref=subject_ref, attendance=None, schedule=[], window=None,
+				points_attended=0, checkins=0, next_due_iso=None, served_in=answerable(lang),
+				note=checkin(lang, 'no_checkins'),
+			)
+
+		attendance = self._attendance(mine)
+		# The most recent watch-opening check-in is the one the window runs from. A later scan at a
+		# school does not close a border post's window, and an earlier one does not reopen it.
+		watching = [c for c in mine if self._opens_watch(c)]
+		window = self._window(max(watching, key=lambda c: c.at_iso), now, lang) if watching else None
+		schedule = self._schedule(window, today, lang)
+		next_due = next((s.due_iso for s in schedule if not s.past), None)
+		assert len(attendance) == len(mine), 'every check-in is attended to, none invented'
+		return CheckInFollowUp(
+			subject_ref=subject_ref, attendance=attendance, schedule=schedule, window=window,
+			points_attended=len({a.point_id for a in attendance}), checkins=len(mine),
+			next_due_iso=next_due, served_in=answerable(lang),
+			note=window.note if window is not None else checkin(lang, 'no_watch'),
+		)
+
+	def _opens_watch(self, checkin: CheckIn) -> bool:
+		"""Whether this check-in's point is one §LOC-004's guidance already puts a window around."""
+		point = self._points.get(checkin.point_token)
+		return point is not None and point.kind in WATCH_KINDS
+
+	def _attendance(self, mine: list[CheckIn]) -> list[CheckInAttendance]:
+		"""Every check-in joined to its point, in time order, numbered per point."""
+		seen: dict[str, int] = {}
+		rows: list[CheckInAttendance] = []
+		for c in sorted(mine, key=lambda c: (c.at_iso, c.checkin_id)):
+			point = self._points.get(c.point_token)
+			# `check_in` refuses an unknown token, so a stored check-in always resolves. Asserted
+			# rather than skipped: a `continue` here would drop a visit from the attendance count
+			# and report the person had attended fewer places than they had.
+			assert point is not None, f'check-in {c.checkin_id} names an unregistered point'
+			seen[point.point_id] = seen.get(point.point_id, 0) + 1
+			rows.append(CheckInAttendance(
+				checkin_id=c.checkin_id, point_id=point.point_id, point_label=point.label,
+				kind=point.kind, county=point.county, at_iso=c.at_iso, day=c.at_iso[:10],
+				visit_no=seen[point.point_id], method=c.method, shared=c.share_with_authority,
+			))
+		return rows
+
+	def _window(self, opened: CheckIn, now_ms: int, lang: str) -> ExposureWindow:
+		"""The 21-day window a watch-opening check-in opens, and how far into it the caller is."""
+		point = self._points[opened.point_token]
+		start_ms = midnight_ms(opened.at_iso)
+		closes_ms = start_ms + LOCATION_WINDOW_DAYS * DAY_MS
+		elapsed = max(0, (now_ms - start_ms) // DAY_MS)
+		remaining = max(0, LOCATION_WINDOW_DAYS - elapsed)
+		open_ = now_ms < closes_ms
+		note = checkin(lang, 'window_open' if open_ else 'window_closed', place=point.label,
+		               day=opened.at_iso[:10], remaining=remaining, closes=instant_iso(closes_ms)[:10])
+		assert (remaining == 0) == (not open_), 'an open window with nothing left is not a state'
+		return ExposureWindow(
+			opened_iso=opened.at_iso, closes_iso=instant_iso(closes_ms)[:10],
+			window_days=LOCATION_WINDOW_DAYS, elapsed_days=min(elapsed, LOCATION_WINDOW_DAYS),
+			remaining_days=remaining, open=open_, note=note,
+		)
+
+	def _schedule(self, window: ExposureWindow | None, today: str,
+	              lang: str) -> list[FollowUpStep]:
+		"""The asks the window owes, each with the day it falls on and whether it has passed.
+
+		No answer is read, because none is stored on this path: §LOC-005's traveller route is where a
+		report is filed against a day. So a step is `due` when its day is today and `past` when the
+		day is behind the clock — and neither of those is "missed", which would be this code
+		reporting a prompt nobody sent as a prompt somebody ignored.
+		"""
+		if window is None:
+			return []
+		start = window.opened_iso[:10]
+		steps: list[FollowUpStep] = []
+		for day in EXPOSURE_FOLLOWUP_DAYS:
+			due = iso_add_days(start, day - 1)
+			steps.append(FollowUpStep(
+				day=day, due_iso=due, due=due == today, past=due < today,
+				question=checkin(lang, 'prompt', day=day),
+			))
+		assert len(steps) == len(EXPOSURE_FOLLOWUP_DAYS), 'one step per scheduled day'
+		return steps
 
 	# --- LOC-005 border module ------------------------------------------------------------
 

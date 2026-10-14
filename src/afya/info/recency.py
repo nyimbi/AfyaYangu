@@ -31,7 +31,7 @@ someone can see beats a message that misleads.
 The automated staleness alert §23.2 asks for is §6.5's review cadence and is not restated here. Two
 definitions of stale would disagree the first time either one moved.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -120,6 +120,23 @@ def midnight_ms(iso: str) -> int:
 	server's timezone, the same choice `afya.operations.service._instant` makes for §24.8's deadlines.
 	"""
 	return int(datetime.fromisoformat(iso[:10]).replace(tzinfo=timezone.utc).timestamp() * 1000)
+
+
+def iso_add_days(iso: str, days: int) -> str:
+	"""A civil date or instant shifted by whole days, as a bare `YYYY-MM-DD`.
+
+	The inverse of `midnight_ms`, and the pair is why this lives here rather than in a fifth copy:
+	`afya.monitoring`, `afya.maternal`, `afya.chronic` and `afya.women` each keep a private
+	`_iso_add_days`/`_add_days`, which is four answers to "what is 21 days after this date". A
+	schedule is a date arithmetic problem, and the module that already converts between the two
+	representations of a day is where the arithmetic belongs.
+
+	Day-granular and timezone-free on purpose: `days` is a count of *days of a window*, not of
+	24-hour periods, so a window that opens at 23:00 and one that opens at 01:00 on the same date
+	ask their day-3 question on the same date. That is what a person reading "day 3" understands.
+	"""
+	year, month, day = (int(part) for part in iso[:10].split('-'))
+	return (datetime(year, month, day) + timedelta(days=days)).strftime('%Y-%m-%d')
 
 
 def age_label(at_ms: int, now_ms: int, lang: str = 'en') -> str:
