@@ -99,14 +99,51 @@ class VoiceResult(BaseModel):
 	recogniser: str | None = None
 
 
+class SamplingContext(BaseModel):
+	"""§ACC-004's "context (charging, stationary, time of day)".
+
+	The section names the contexts and prints no rate, so a context selects a **duty multiplier** on
+	the device's own sampling baseline — not an absolute Hz, which would be a figure invented to fill
+	a table. The device multiplies; the server decides by how much and says why.
+
+	§14.2 names two further suppressions in its own words — "disabled when on a call, in a meeting,
+	or when the user sets 'do not monitor'" — and they are contexts rather than settings, so they sit
+	here beside the three §ACC-004 prints rather than in a separate model.
+	"""
+	model_config = MODEL_CONFIG
+	charging: bool = False
+	stationary: bool = False
+	hour: int = Field(default=12, ge=0, le=23)
+	on_call: bool = False
+	do_not_monitor: bool = False
+
+
 class BatteryProfile(BaseModel):
 	model_config = MODEL_CONFIG
 	subject_ref: str
 	intensity: str = Field(pattern=r'^(low|balanced|maximum)$')
+	# §13.1 sensor slugs the intensity switches on. Derived from `INTENSITY_READINGS` through the
+	# sensor-to-feature table, because the six entries this used to hold — `fall`, `cough`, `ppg`,
+	# `respiration`, `sleep`, `ambient` — are `SenseKind` *reading* kinds, and not one of them was a
+	# sensor §13.1 has a row for. A screen titled "sensors on" was listing six things the app cannot
+	# measure with, and the client that switched hardware on by these names switched on nothing.
 	sensors_enabled: list[str]
+	# The reading kinds those sensors produce — what the client actually collects. Both lists travel
+	# because they answer different questions: which hardware is on, and what comes back from it.
+	readings_enabled: list[str]
 	estimated_daily_pct: float = Field(ge=0, le=100)
+	# True because the module demonstrably responds to the charging state: the duty and the drain
+	# both move when `SamplingContext.charging` is set, and a test asserts the two rates differ. It
+	# was a hardcoded `True` with nothing reading a charging state, which is a claim with no
+	# referent.
 	charging_adaptive: bool
 	battery_saver: bool
+	# Which context was applied and why, in words a person reads in settings.
+	context: str
+	context_reason: str
+	# The multiplier on the device's sampling baseline. Unitless on purpose: §ACC-004 prints no
+	# rate, so this is the part the server owns and the baseline is the handset's.
+	sampling_duty: float = Field(ge=0, le=4)
 
 
 class DeviceCompatibility(BaseModel):

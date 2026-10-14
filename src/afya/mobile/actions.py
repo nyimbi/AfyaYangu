@@ -699,7 +699,10 @@ def catalogue() -> list[MobileAction]:
 		_a('languages', 'Languages', 'Access', 'GET', '/access/languages', [_f('tier', 'Priority tier', 'int')]),
 		_a('voice', 'Speak to the app', 'Access', 'POST', '/access/voice', [_s(), _f('lang', 'Language'), _f('utterance', 'What you said'), _f('purpose', 'Symptoms or a note?', 'select', VOICE_PURPOSES), _f('offline', 'No network?', 'bool')]),
 		_a('voice_audio', 'Send a recording', 'Access', 'POST', '/access/voice/audio', [_s(), _f('lang', 'Language', 'select', VOICE_LANGS), _f('purpose', 'Symptoms or a note?', 'select', VOICE_PURPOSES), _f('file', 'Recording', 'file')]),
-		_a('battery_profile', 'Battery use', 'Access', 'GET', '/access/battery', [_s(), _f('intensity', 'Monitoring level', 'select', INTENSITIES), _f('battery_saver', 'Battery saver', 'bool')]),
+		# §ACC-004's context flags. The device knows them, so the client fills them from its own state
+		# rather than asking — but they are fields, not `server_assigned`, because a form that cannot
+		# reach them would leave the adaptive rate unreachable from the one screen that shows it.
+		_a('battery_profile', 'Battery use', 'Access', 'GET', '/access/battery', [_s(), _f('intensity', 'Monitoring level', 'select', INTENSITIES), _f('battery_saver', 'Battery saver', 'bool'), _f('charging', 'On charge?', 'bool'), _f('stationary', 'Phone still?', 'bool'), _f('hour', 'Hour of the day', 'int'), _f('on_call', 'On a call?', 'bool'), _f('do_not_monitor', 'Pause monitoring?', 'bool')]),
 		_a('compatibility', 'Will it work on my phone?', 'Access', 'GET', '/access/compatibility/{platform}', [_f('platform', 'Phone type', 'path')]),
 		_a('sensor_capabilities', 'What my phone can measure', 'Access', 'GET', '/sensors/capabilities', []),
 		_a('model_cards', 'How the AI works', 'Access', 'GET', '/ai/models', []),

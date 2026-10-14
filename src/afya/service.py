@@ -100,7 +100,7 @@ from afya.triage.views import EBOLA_SYMPTOMS, DiaryEntry, RiskLevel, TriageInput
 
 # spec-coverage domains (§9.1, §9.6, §10.2-10.4, §11.4-11.5, §12, §17, §19)
 from afya.access.service import AccessService
-from afya.access.views import AccessProfile, VoiceAudioRequest, VoiceRequest
+from afya.access.views import AccessProfile, SamplingContext, VoiceAudioRequest, VoiceRequest
 from afya.ai.service import AIService
 from afya.analytics.service import AnalyticsService
 from afya.analytics.views import DASHBOARDS, DashboardId
@@ -4422,9 +4422,22 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			path.unlink(missing_ok=True)
 
 	@app.get('/access/battery')
-	async def access_battery(subject_ref: str = 'U1', intensity: str = 'balanced', battery_saver: bool = False, _subject: str = Depends(require_self())) -> dict[str, object]:
+	async def access_battery(subject_ref: str = 'U1', intensity: str = 'balanced', battery_saver: bool = False,
+	                         charging: bool = False, stationary: bool = False, hour: int = 12,
+	                         on_call: bool = False, do_not_monitor: bool = False,
+	                         _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§ACC-004's battery impact display, with the *context* the section names.
+
+		The five context flags are query parameters because the device is what knows them — it is
+		charging or it is not, the accelerometer says whether it is still, and the clock says the
+		hour. §ACC-004 wants no background polling, so the handset reports its own state with the
+		request rather than the server guessing it. Every default is the un-adaptive one, so a client
+		that sends nothing gets exactly the profile the section's plain target describes.
+		"""
+		ctx = SamplingContext(charging=charging, stationary=stationary, hour=hour,
+		                      on_call=on_call, do_not_monitor=do_not_monitor)
 		try:
-			return access.battery_profile(subject_ref, intensity, battery_saver).model_dump(mode='json')
+			return access.battery_profile(subject_ref, intensity, battery_saver, ctx).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 

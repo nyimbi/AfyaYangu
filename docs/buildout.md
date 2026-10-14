@@ -4167,3 +4167,98 @@ Through `uvicorn --factory afya.service:create_app --port 8792`:
 names all eight categories, the per-sensor split and the audit log itself. Nothing here rests on an
 external document, so `sources/INDEX.md` gains no entry for this unit, and that absence is the
 statement: every fact in the module is quoted from `docs/spec.md` §12.2.
+
+---
+
+## §ACC-004 — a rate that never moved
+
+§ACC-004's second bullet — *"Adaptive sensor sampling rates based on context (charging, stationary,
+time of day)"* — was absent the way §LOC-004 and §SEC-001 were: every visible part present and the
+join absent. `BatteryProfile.charging_adaptive` was a hardcoded `True`, and nothing in the tree read
+a charging state, a motion state or the hour. The field described a behaviour the module did not
+have, so the rate never moved.
+
+Writing the test found the second half, and it was worse than the first.
+
+### `sensors_enabled` named six things the app cannot measure with
+
+`INTENSITY_SENSORS` held `['fall']`, `['fall', 'cough', 'ppg']` and so on under a field called
+`sensors_enabled`. Those are `SenseKind` **reading kinds** — `SenseIngest.kind` — and **not one of
+them resolves to any of §13.1's eighteen sensor rows**. A settings screen titled "sensors on" listed
+six measurements the app cannot take, and a client switching hardware on by those names switched on
+nothing.
+
+The join existed in three tables that nothing crossed:
+
+```
+SenseIngest.kind  →  _INGEST_FEATURE  →  SensorSpec.primary_features  →  §13.1's slug
+     fall              SENS-003              accelerometer, gyroscope
+```
+
+`INTENSITY_SENSORS` is now derived through it (`_sensors_for`), so a sensor added to §13.1 for a
+kind a level collects appears at that level without anyone editing a second list. The profile carries
+**both** lists, because they answer different questions: `sensors_enabled` is which hardware is on
+and `readings_enabled` is what comes back from it.
+
+### The rate is a multiplier, because the section prints no rate
+
+`CONTEXT_DUTY` holds §ACC-004's three contexts plus §14.2's two in its own words — *"disabled when on
+a call, in a meeting, or when the user sets 'do not monitor'"* — each with a duty multiplier on the
+handset's own sampling baseline and the sentence a person reads in settings. A multiplier and not an
+absolute Hz: the section states no sampling rate, and a figure invented here would be a commitment
+the spec never made.
+
+`CONTEXT_ORDER` is data rather than a chain of `if`s, so a context added to the table without a place
+in the order fails an import assert instead of being silently unreachable. The order puts the
+person's own "do not monitor" first and a call above a charger: the app must not argue with its user
+about their own phone.
+
+### The number that looked like compliance
+
+The first draft clamped the served figure at the section's budget, so `maximum` on a charger reported
+**5.0%** while costing **9.2%**. That is a lie in the reassuring direction — the settings screen
+would show the target instead of the drain — and §ACC-004's `<5%` is a *daily* budget, which sampling
+faster while charging is precisely the case where exceeding costs nothing. The figure is served
+unclamped; the assert is on the base intensity, which is what the target is about.
+
+Battery saver is the person switching sensors off, so it zeroes the duty — there is no sampling rate
+for a context to adapt — but keeps its residual 0.4%, which is the app's own cost and not sensor
+sampling. A saver reporting 0.0% would say the app costs nothing to run.
+
+### Canaries
+
+**15/15 fired.** The reading kinds served as sensors (the defect as found); the join keyed on one
+kind so every level enables the same hardware; the profile losing what it collects; the join
+returning a sensor per kind; a kind with no sensor yielding an empty list instead of refusing; "do
+not monitor" out of first place; the context computed and never applied; the night window not
+applied; **the daily cost reported clamped**; the saver losing to the charger; a context with no
+sentence; a client that sends nothing served an adaptive rate; the route ignoring the context it is
+given; the catalogue dropping the context fields; the two §ACC-004/§14.2 budgets collapsing into one.
+
+Two canaries missed on the first run and one of them was a no-op: `readings_enabled: list[str] = []`
+on the *model* changes nothing while the service still passes the field, so the mutation was applied
+and the behaviour was untouched. Retargeted at the service's assignment. The other pointed at a test
+that reads the table rather than the profile — the table was still correct, the profile was serving
+the wrong list. Same class as the two §SEC-001 misses: a canary aimed at a node that does not assert
+the mutated behaviour has not run.
+
+### Live probe
+
+Through `uvicorn --factory afya.service:create_app --port 8796`:
+
+- `intensity=maximum` → `context: "day"`, `sampling_duty: 1.0`, `estimated_daily_pct: 4.6`, and
+  `sensors_enabled` is ten §13.1 slugs while `readings_enabled` is the six `SenseKind` members
+- `&charging=true` → `duty: 2.0`, `9.2%` — over the daily budget, reported rather than clamped
+- `&hour=2` → `context: "night"`, `duty: 0.5`, `2.3%`, with the sentence a person reads
+- `&do_not_monitor=true&charging=true&on_call=true` → `context: "do_not_monitor"`, `duty: 0.0`
+- `intensity=turbo` → **422**; no token → **401**; `/zzz/deep/path` → **404**, so the route is
+  genuinely served
+- no `(CHAN|…|ACC|SEC)-\d{3}` string anywhere in the payload
+
+**§ACC-004 1 `missing` → 0.** Across the repo **468 → 469 `carried`, 12 → 11 `missing`**, 497 rows,
+`deferred` 17 unchanged, `unresolved == []`.
+
+**No new source directory.** §ACC-004 names its own contexts and §14.2 its own two, and the sampling
+rates are deliberately absent from both — the multiplier is the server's own arithmetic on a baseline
+the handset owns, so there is no external figure to archive. `sources/INDEX.md` gains no entry, and
+that absence is the statement: every fact here is quoted from `docs/spec.md` §12.1 and §14.2.

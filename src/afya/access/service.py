@@ -8,9 +8,10 @@ from pathlib import Path
 
 from afya.access.views import (
 	LANGUAGE_MATRIX, MIN_TOUCH_TARGET_DP, AccessProfile, BatteryProfile, DeviceCompatibility,
-	UIAsset, VoiceAudioRequest, VoiceRequest, VoiceResult,
+	SamplingContext, UIAsset, VoiceAudioRequest, VoiceRequest, VoiceResult,
 )
 from afya.logmixin import LogMixin
+from afya.sensors.views import SenseKind
 from afya.strings import SYMPTOM_WORDS, answerable
 
 # §13.2 graceful degradation — missing sensor -> the path that still works.
@@ -91,12 +92,62 @@ VOICE_UNRECOGNISED: dict[str, str] = {
 	'sw': 'Sikusikia vizuri. Jaribu kusema: homa, tafuta matibabu, au msaada.',
 }
 
-INTENSITY_SENSORS: dict[str, list[str]] = {
+# §ACC-004's Low / Balanced / Maximum, as the *reading kinds* each level collects. These are
+# `SenseKind` members, not §13.1 sensor slugs — the predecessor held them under a field called
+# `sensors_enabled` and not one resolved to a sensor the app has, so the screen listing "sensors
+# on" named six things nothing measures with. `INTENSITY_SENSORS` below is the join.
+INTENSITY_READINGS: dict[str, list[str]] = {
 	'low': ['fall'],
 	'balanced': ['fall', 'cough', 'ppg'],
 	'maximum': ['fall', 'cough', 'ppg', 'respiration', 'sleep', 'ambient'],
 }
 INTENSITY_BATTERY: dict[str, float] = {'low': 0.8, 'balanced': 2.5, 'maximum': 4.6}
+
+# §14.2's "target: <2% per day" for acoustic monitoring alone, against §ACC-004's <5% for
+# everything. Kept as the section prints them so a reader can see the two budgets are different
+# claims about different sets of sensors.
+ACOUSTIC_DAILY_PCT = 2.0
+
+
+def _sensors_for(kinds: list[str]) -> list[str]:
+	"""The §13.1 sensors that carry a set of reading kinds, in §13.1's own order.
+
+	The join the module was missing. `SenseIngest` classifies each reading as a `SenseKind` and
+	`_INGEST_FEATURE` maps each kind to the sensor feature that produces it; §13.1 maps that feature
+	to the sensor rows. Three tables already existed and nothing crossed them, so the intensity
+	level and the hardware were two independent lists that happened to be spelled similarly.
+	"""
+	from afya.sensors.service import _INGEST_FEATURE, SENSORS
+	wanted = {_INGEST_FEATURE[SenseKind(kind)] for kind in kinds}
+	slugs = [spec.slug for spec in SENSORS if wanted & set(spec.primary_features)]
+	assert slugs, f'no §13.1 sensor carries {kinds}'
+	return slugs
+
+
+INTENSITY_SENSORS: dict[str, list[str]] = {
+	level: _sensors_for(kinds) for level, kinds in INTENSITY_READINGS.items()
+}
+
+# §ACC-004's context axis. The section names three ("charging, stationary, time of day") and §14.2
+# names two more in its own words ("disabled when on a call, in a meeting, or when the user sets
+# 'do not monitor'"). The values are multipliers on the device's sampling baseline: the spec prints
+# no rate, so a context choosing an absolute Hz would be inventing a figure. Every entry carries
+# the sentence a person reads in settings.
+CONTEXT_DUTY: dict[str, tuple[float, str]] = {
+	'do_not_monitor': (0.0, 'Monitoring is off because you asked it to stay off.'),
+	'on_call': (0.0, 'Monitoring pauses while you are on a call, so the microphone stays free.'),
+	'charging': (2.0, 'Sampling runs faster while the phone is charging, because the battery is not the constraint.'),
+	'stationary': (1.5, 'Sampling runs faster while the phone is still, because movement is not confusing the reading.'),
+	'night': (0.5, 'Sampling runs slower at night to save battery while you sleep.'),
+	'day': (1.0, 'Sampling runs at the normal rate.'),
+}
+# The order the contexts are tested in, most specific first: a person who asked for no monitoring
+# gets no monitoring whatever else is true, and a call outranks a charger.
+CONTEXT_ORDER: tuple[str, ...] = (
+	'do_not_monitor', 'on_call', 'charging', 'stationary', 'night', 'day',
+)
+NIGHT_HOURS = (22, 23, 0, 1, 2, 3, 4, 5)
+assert set(CONTEXT_ORDER) == set(CONTEXT_DUTY), 'every context needs a rate and a reason'
 
 
 class AccessService(LogMixin):
@@ -208,13 +259,71 @@ class AccessService(LogMixin):
 			'recogniser': f'whisper-tiny/{req.lang}',
 		})
 
-	def battery_profile(self, subject_ref: str, intensity: str = 'balanced', battery_saver: bool = False) -> BatteryProfile:
-		assert intensity in INTENSITY_SENSORS, 'unknown intensity'
+	@staticmethod
+	def _context_key(ctx: SamplingContext | None) -> str:
+		"""Which of §ACC-004's contexts applies, most specific first.
+
+		A person who set "do not monitor" gets no monitoring whatever else is true, and a call
+		outranks a charger — the order is the rule, and it is data (`CONTEXT_ORDER`) rather than a
+		chain of `if`s so a context added to the table without a place in the order fails the import
+		assert rather than being silently unreachable.
+		"""
+		if ctx is None:
+			return 'day'
+		state = {
+			'do_not_monitor': ctx.do_not_monitor,
+			'on_call': ctx.on_call,
+			'charging': ctx.charging,
+			'stationary': ctx.stationary,
+			'night': ctx.hour in NIGHT_HOURS,
+		}
+		for key in CONTEXT_ORDER:
+			if state.get(key):
+				return key
+		return 'day'
+
+	def battery_profile(self, subject_ref: str, intensity: str = 'balanced', battery_saver: bool = False,
+	                    context: SamplingContext | None = None) -> BatteryProfile:
+		"""§ACC-004's intensity level, its battery saver, and the *context* the section names.
+
+		The context is the part that was absent. `charging_adaptive` was hardcoded `True` and nothing
+		read a charging state, a motion state or the hour, so "adaptive sensor sampling rates based on
+		context" described a field with no referent — the rate never moved.
+
+		The rate is a **duty multiplier** on the handset's own baseline rather than an absolute Hz:
+		§ACC-004 prints no sampling rate, and a figure invented here would be a commitment the spec
+		never made. What the server owns is which context applies, by how much it scales, and the
+		sentence the person reads.
+		"""
+		assert intensity in INTENSITY_READINGS, 'unknown intensity'
+		key = self._context_key(context)
+		duty, reason = CONTEXT_DUTY[key]
+		readings = [] if battery_saver else list(INTENSITY_READINGS[intensity])
 		sensors = [] if battery_saver else list(INTENSITY_SENSORS[intensity])
 		pct = 0.4 if battery_saver else INTENSITY_BATTERY[intensity]
+		if battery_saver:
+			# Battery saver is the person switching the sensors off, so there is no sampling rate for
+			# a context to adapt. A saver that let a charger scale the rate back up would be the phone
+			# overriding the person who asked for it.
+			duty = 0.0
+			reason = 'Battery saver is on, so the sensors are off and nothing is being sampled.'
 		assert pct <= 5.0, 'battery budget is <5% per day with all Tier 4 sensors on (§ACC-004)'
-		return BatteryProfile(subject_ref=subject_ref, intensity=intensity, sensors_enabled=sensors,
-			estimated_daily_pct=pct, charging_adaptive=True, battery_saver=battery_saver)
+		# The context scales the drain as well as the rate: a profile that ran sampling at 2x while
+		# reporting the un-scaled figure would be the settings screen lying about the cost of the
+		# setting it just applied. The scaled figure is reported **unclamped** — §ACC-004's <5% is a
+		# *daily* budget, and sampling faster while charging is precisely the case where exceeding it
+		# costs nothing, so capping the number at 5 would be a lie in the reassuring direction. The
+		# assert is on the base intensity, which is the figure the section's target is about.
+		# The saver's residual figure is the app's own cost, not sensor sampling, so the duty must not
+		# scale it: a saver reporting 0.0% would say the app costs nothing to run.
+		scaled = pct if battery_saver else round(pct * duty, 2)
+		assert INTENSITY_BATTERY[intensity] <= 5.0, 'the §ACC-004 budget is <5% per day'
+		return BatteryProfile(
+			subject_ref=subject_ref, intensity=intensity, sensors_enabled=sensors,
+			readings_enabled=readings, estimated_daily_pct=scaled,
+			charging_adaptive=True, battery_saver=battery_saver,
+			context=key, context_reason=reason, sampling_duty=duty,
+		)
 
 	def compatibility(self, platform: str) -> DeviceCompatibility:
 		assert platform in ('android', 'ios'), 'known platform'
