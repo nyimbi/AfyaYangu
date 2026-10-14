@@ -741,7 +741,7 @@ def catalogue() -> list[MobileAction]:
 		_a('offline_state', 'Is my work saved?', 'Sync', 'GET', '/sync/state', []),
 		_a('sensor_ingest', 'Save a reading', 'Sensors', 'POST', '/sensors/ingest', [_f('kind', 'Reading type', 'select', SENS_KINDS), _s(), _f('value', 'Value', 'decimal'), _f('county', 'County')]),
 		_a('analyse_cough', 'Check a cough recording', 'Sensors', 'POST', '/ml/cough/analyze', [_f('file', 'Recording', 'file')]),
-		_a('submit_evidence', 'Send a photo for review', 'Sensors', 'POST', '/evidence', [_f('file', 'Photo', 'file'), _f('kind', 'What is it?', 'select', EVIDENCE_KINDS), _f('note', 'What did you notice?', 'textarea')]),
+		_a('submit_evidence', 'Send a photo for review', 'Sensors', 'POST', '/evidence', [_f('file', 'Photo', 'file'), _f('kind', 'What is it?', 'select', EVIDENCE_KINDS), _f('note', 'What did you notice?', 'textarea'), _f('consent', 'I agree to share this photo', 'bool')]),
 		# Insurance
 		_a('file_price', 'Tell us what a procedure cost', 'Insurance', 'POST', '/insurance/prices', [_f('facility_id', 'Facility'), _f('procedure', 'Procedure', 'select', PROCEDURES), _f('kes', 'Cost in KES', 'int'), _f('sha_covered', 'Covered by SHA?', 'bool')]),
 		_a('price_quote', 'What does it cost?', 'Insurance', 'GET', '/insurance/quote/{facility_id}/{procedure}', [_f('facility_id', 'Facility', 'path'), _f('procedure', 'Procedure', 'path')]),

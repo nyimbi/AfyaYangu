@@ -23,8 +23,13 @@ from afya.registry.service import FeatureRegistry
 # These are capabilities the device performs or the deployment holds, not screens a person opens;
 # naming them here is what makes the gap a decision rather than an oversight.
 ON_DEVICE: dict[str, str] = {
-	# §SEC-002's on-device processing has no call to make: the raw data never reaches a route.
-	'SEC-002': 'on-device processing means the raw data never reaches a route',
+	# §SEC-002's on-device processing has no call to make: the raw data never reaches a route. That
+	# is still the section's shape for the LiDAR, audio, PPG and location bullets, and it is no
+	# longer the whole of it: "Photos encrypted and only shared with explicit per-item consent" is
+	# a *server-side* obligation, because the photo does leave the device — the encryption and the
+	# consent both happen on the way in. It is enforced on `POST /evidence`, which is SENS-004's
+	# action, so the section still has no action of its own; the reason now names what it does have.
+	'SEC-002': 'the raw signals never reach a route; the photo bullet is enforced on the evidence route',
 	# §SEC-004 was here as "pseudonymous use is the absence of an account, not an action". That was
 	# true of the *anonymity* half and false of the pseudonymity half: the section's third feature is
 	# an optional profile, which is a thing a person sets, and the public report feed was publishing

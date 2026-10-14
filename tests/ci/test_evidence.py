@@ -2,6 +2,7 @@ import hashlib
 
 import pytest
 
+from afya.crypto.service import CryptoService, new_key
 from afya.evidence.service import EvidenceService, FileSystemEvidenceStore
 from afya.evidence.views import EvidenceKind, EvidenceSubmission
 from afya.registry.service import FeatureRegistry, Tier4Activation
@@ -14,14 +15,14 @@ def fake_jpeg() -> bytes:
 @pytest.fixture
 def svc(tmp_path) -> EvidenceService:
 	reg = FeatureRegistry(Tier4Activation(authorized_by_pheoc=True, dpia_review_id='r1', flag_enabled=True))
-	return EvidenceService(reg, FileSystemEvidenceStore(str(tmp_path / 'evidence')))
+	return EvidenceService(reg, FileSystemEvidenceStore(str(tmp_path / 'evidence')), CryptoService(new_key()))
 
 
 def _sub(kind: EvidenceKind, blob: bytes) -> EvidenceSubmission:
 	return EvidenceSubmission(
 		submission_id='EV-TEST0000001', kind=kind, subject_ref='U1', county='Nairobi',
 		image_sha256=hashlib.sha256(blob).hexdigest(), mime='image/jpeg', size_bytes=len(blob),
-		note=' rash on forearms since this morning ',
+		note=' rash on forearms since this morning ', consent=True,
 	)
 
 
@@ -29,10 +30,14 @@ async def test_photo_and_note_accepted(svc: EvidenceService, tmp_path) -> None:
 	blob = fake_jpeg()
 	receipt = await svc.submit(_sub(EvidenceKind.rash, blob), blob)
 	assert receipt.gated and receipt.storage_ref.endswith('EV-TEST0000001.blob')
+	assert receipt.cipher == 'aes-256-gcm', 'the receipt names what the bytes are under'
 	view = svc.view(receipt.submission_id)
 	assert view.note == 'rash on forearms since this morning'  # stripped, linked to image
 	with open(receipt.storage_ref, 'rb') as fh:
-		assert fh.read() == blob
+		stored = fh.read()
+	# §SEC-002's "photos encrypted": what reached the object store is not the picture. The JPEG
+	# header is the first thing a plaintext write would leave behind.
+	assert stored != blob and not stored.startswith(bytes.fromhex('FFD8')), 'the store holds plaintext'
 
 
 async def test_hash_mismatch_rejected(svc: EvidenceService) -> None:
@@ -44,7 +49,8 @@ async def test_hash_mismatch_rejected(svc: EvidenceService) -> None:
 
 
 async def test_tier4_gating_blocks_epi_photo_when_dormant(tmp_path) -> None:
-	svc = EvidenceService(FeatureRegistry(), FileSystemEvidenceStore(str(tmp_path / 'evidence')))
+	svc = EvidenceService(FeatureRegistry(), FileSystemEvidenceStore(str(tmp_path / 'evidence')),
+	                      CryptoService(new_key()))
 	blob = fake_jpeg()
 	with pytest.raises(PermissionError):
 		await svc.submit(_sub(EvidenceKind.rash, blob), blob)
@@ -61,5 +67,5 @@ async def test_mime_whitelist() -> None:
 	with pytest.raises(Exception):
 		_sub(EvidenceKind.rash, fake_jpeg()).model_validate_json('{}') if False else EvidenceSubmission(
 			submission_id='EV-TEST0000002', kind=EvidenceKind.rash, subject_ref='U1', county='N',
-			image_sha256='a' * 64, mime='image/tiff', size_bytes=2000, note='',
+			image_sha256='a' * 64, mime='image/tiff', size_bytes=2000, note='', consent=True,
 		)

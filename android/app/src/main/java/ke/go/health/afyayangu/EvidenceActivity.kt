@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -20,6 +21,7 @@ class EvidenceActivity : Activity() {
 	private val client = lazy { BackendClient(this) }
 	private lateinit var out: TextView
 	private var pending: ByteArray? = null
+	private var sharePhoto = false
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
@@ -37,12 +39,19 @@ class EvidenceActivity : Activity() {
 				startActivityForResult(Intent.createChooser(intent, "Select evidence photo"), 42)
 			}
 		}
+		val consent = CheckBox(this).apply {
+			text = "I agree to share this photo"
+			setOnCheckedChangeListener { _, checked -> sharePhoto = checked }
+		}
 		val submit = Button(this).apply {
 			text = "Submit photo + note"
 			setOnClickListener {
 				val data = pending ?: run { out.text = "Attach a photo first"; return@setOnClickListener }
+				// §SEC-002: the server refuses the photo without per-item consent, so the button
+				// says what is missing here rather than letting the request come back rejected.
+				if (!sharePhoto) { out.text = "Tick the box to agree to share this photo"; return@setOnClickListener }
 				Thread {
-					val res = runCatching { client.value.uploadEvidence(kinds[0].let { kindBtn.text.toString().removePrefix("Type: ") }, note.text.toString(), data) }
+					val res = runCatching { client.value.uploadEvidence(kinds[0].let { kindBtn.text.toString().removePrefix("Type: ") }, note.text.toString(), data, sharePhoto) }
 					post { out.text = res.fold({ "Stored ✓ $it" }, { "Rejected: ${it.message}" }) }
 				}.start()
 			}
@@ -53,6 +62,7 @@ class EvidenceActivity : Activity() {
 				addView(kindBtn)
 				addView(note)
 				addView(pick)
+				addView(consent)
 				addView(submit)
 				addView(out)
 			})

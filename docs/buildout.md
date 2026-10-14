@@ -4357,3 +4357,98 @@ rotation window — every number here (30 days, twenty words) is the server's ow
 explicitly and recorded as a choice rather than presented as the section's. `sources/INDEX.md` gains
 no entry, and that absence is the statement: there is no external figure to archive, and inventing
 one to fill a table would be worse than the gap.
+
+## §SEC-002 — a photograph the store could read
+
+§SEC-002's fourth bullet, *"Photos encrypted and only shared with explicit per-item consent"*, was the
+last `missing` row in the on-device-processing section, and like every row before it the audit note
+read like a missing field: *"the pipeline has a route, a model, an object-storage port and a tier-4
+gate, and neither half of the sentence"*. It was that, and the two halves lived in different files.
+
+### The join that was absent, and where it went
+
+`POST /evidence` read the bytes, computed the SHA-256, built an `EvidenceSubmission` and called
+`EvidenceService.submit`, which handed `blob` — the JPEG as it arrived — to `FileSystemEvidenceStore`.
+Nothing in the path named a cipher and nothing asked the person anything: `EvidenceSubmission` had
+`submission_id`, `kind`, `subject_ref`, `county`, `image_sha256`, `mime`, `size_bytes` and `note`.
+The receipt had a `gated` flag for the dark-feature refusal and no field for what happened to the
+picture.
+
+So the bullet's two claims were both false and both invisible, which is the shape §COM-103, §COM-104,
+§LOC-004, §SEC-001, §ACC-004 and §SEC-004 all had. The difference here is that the *label* was the
+temptation: `FileSystemEvidenceStore` is an object-storage port with a docstring, the route has a
+tier-4 gate, and every part reads as a pipeline that had been thought about.
+
+### What closed it
+
+- **The consent is a `model_validator` on `EvidenceSubmission`**, not a check in the route. There is
+  more than one way in — the route, the offline sync queue, any future caller — and a check at one
+  door is a check the others walk past. The same reasoning that put §SEC-004's guard on the token
+  rather than the body. `consent: bool = False`, so a submission that says nothing shares nothing, and
+  the refusal names what is missing in the register a person reads: *"this photo is shared only if you
+  agree to share it — tick the consent box for this submission, or send the note without the
+  picture"*.
+- **`submit` re-asserts it**, because the model is the gate for anything built through pydantic and
+  `submit` is the gate for a `model_construct`-ed object or a queue replay. Both are cheap and neither
+  is the other's substitute: the model refuses a request, this refuses a store.
+- **The seal happens before the store, and there is no fallback.** `CryptoService.seal(blob)` →
+  `store.put(submission, sealed.ciphertext)`. A deployment with no key raises `RuntimeError` rather
+  than writing the bytes it was given, because a pipeline that writes plaintext when no key is wired
+  looks identical from every test that supplied one — the fallback *is* the failure mode.
+- **`EvidenceReceipt.cipher`** is `str = Field(pattern=r'^aes-256-gcm$')`. There is no `none`: a
+  receipt exists only for ciphertext, so `cipher='none'` would be a label on plaintext, which is the
+  finding this row records.
+- **`EvidenceService.encrypted`** reports `self._crypto is not None and self._crypto.available` — the
+  posture is read off the deployment, never asserted, because the audit row's own failure was a
+  posture claiming a control the code did not apply.
+- **Both native clients hand-write the multipart body**, so neither gets the field for free: the iOS
+  `Toggle("I agree to share this photo", …)` and the Android `CheckBox` both gate the upload and send
+  `consent`. The `submit_evidence` catalogue action carries the field too, so no form can post a photo
+  without asking.
+
+### The ordering of the refusals
+
+`EvidenceService.gate(kind)` is public and the route calls it **before** building the submission.
+Order is not cosmetic: a Tier-4 feature is dark whatever the caller does next, so answering "you did
+not consent" to a symptom photo sent while the response is dormant would send someone to a checkbox
+that changes nothing — §11.1's refused control wearing a consent label. `submit` calls `gate` too, so
+the ordering holds for every door and not only for the route that remembered.
+
+The missing key is answered **503, not 422**. No request the caller could send would succeed, and
+"your request was bad" would put the operator's omission on the person holding the phone.
+
+### Canaries
+
+`tests/ci/canary_sec002.py`, 14 canaries, **14/14 fired first run** — the first clean sweep in this
+sequence. The set is built around the cheap ways to have the parts without the join: the store handed
+the plaintext (the defect exactly as found); the seal computed and discarded, so the receipt says
+`aes-256-gcm` over a store holding the JPEG (the audit row's own failure mode, and why the test opens
+the file rather than reading the field); a keyless deployment storing in the clear; the consent field
+carried and never enforced; the service's own lock removed so `model_construct` reaches the store;
+consent defaulting to allowed; the receipt able to say `none`; `encrypted` a constant; the route
+dropping the form field; the gate running after the consent check; the deployment fault reported as
+the caller's mistake; the catalogue dropping the field; and each native uploader dropping it.
+
+Three bugs were found while writing `test_the_native_uploaders_send_the_consent_field`, and all three
+were in the test. Android escapes the quotes inside its Kotlin string, so `'"consent"' in src` never
+matched; the corrected regex matched Android but not iOS, which writes `field("consent", …)`; and
+`setOnCheckedChangeListener` lives in `EvidenceActivity.kt`, not `BackendClient.kt`, so the UI
+assertion was reading the transport class. The docstring now records that `'consent' in src` alone
+would pass over a body that never sends the field — the superstring mistake this repo has made before.
+
+### Live probe
+
+- `POST /evidence` `kind=scene_photo`, no `consent` → **422**, the refusal naming the checkbox
+- same with `consent=true` → **200**, `cipher: "aes-256-gcm"`, and the stored file is 3,020 bytes for
+  a 3,004-byte upload with the JPEG magic number **absent** — the bytes on disk are not the photo
+- `kind=rash` while the response is dormant → **403**, *"photo review for symptoms opens when the
+  outbreak response is activated"* — the dormancy refusal, not the consent one, with `consent=true`
+  sent
+- no token → **401**; `GET /zzz/deep/path` → **404**, so the 200s are not a catch-all stub
+
+**§SEC-002 1 `missing` → 0.** Across the repo **470 → 471 `carried`, 10 → 9 `missing`**, 497 rows,
+`deferred` 17 unchanged, `unresolved == []`.
+
+**No new source.** §SEC-002 states no key size, no cipher and no consent wording; the cipher is
+§SEC-003's, already archived, and the rest is the deployment's own choice, recorded as a choice. An
+external figure invented to fill this section's table would be worse than the gap.

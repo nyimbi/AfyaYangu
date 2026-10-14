@@ -419,7 +419,11 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'alerts': AlertsService(),
 		'insurance': InsuranceService(InlineSHAPort()),
 		'places': PlacesService(),
-		'evidence': EvidenceService(registry, FileSystemEvidenceStore('var/evidence')),
+		# §SEC-002's "photos encrypted": the pipeline is handed the deployment's key, so a photo is
+		# sealed before it reaches the object store. Wired here rather than inside the evidence
+		# module for the reason every other service takes its crypto this way — one key, one place
+		# it is read, and a deployment with no key refuses to store rather than storing in the clear.
+		'evidence': EvidenceService(registry, FileSystemEvidenceStore('var/evidence'), crypto_svc),
 		'sync': sync_svc,
 		# §MON-001's child tracker is a view over the wallet's doses, not a second store: a dose
 		# recorded on the tracker screen has to reach the record that outlives the paper card, or the
@@ -2273,12 +2277,22 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		subject_ref: str = Form('U1'),
 		county: str = Form('Nairobi'),
 		note: str = Form(''),
+		# §SEC-002's "explicit per-item consent", as a form field because the client that uploads a
+		# photo writes a multipart body — the same reason `kind` is a `Form` and not a query
+		# parameter. Defaults False, and the model refuses a submission without it: a photo that
+		# arrives with nothing said about consent is not stored.
+		consent: bool = Form(False),
 		_subject: str = Depends(require_self()),
 	) -> dict[str, object]:
 		blob = await file.read()
 		import hashlib
 		from uuid6 import uuid7
 		try:
+			# The feature gate runs before the submission is built, so a symptom photo sent while
+			# the response is dormant is refused as dormant rather than as a consent problem the
+			# person could fix and which would fix nothing. The kind is the caller's own claim, so
+			# this consults exactly what the body says and the model below re-checks the rest.
+			evidence.gate(kind)
 			# Built inside the try: the model's size and mime contracts are part of the request
 			# validation, so a violation is the caller's 422, not an unhandled 500.
 			submission = EvidenceSubmission(
@@ -2287,11 +2301,16 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 				# No fallback mime: the model's `image/(jpeg|webp|png)` contract is the check, and a
 				# default of `image/jpeg` would let any content type through under a false label.
 				image_sha256=hashlib.sha256(blob).hexdigest(), mime=file.content_type or '',
-				size_bytes=len(blob), note=note,
+				size_bytes=len(blob), note=note, consent=consent,
 			)
 			receipt = await evidence.submit(submission, blob)
 		except PermissionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
+		except RuntimeError as exc:
+			# The deployment holds no key. A 503 rather than a 422: nothing the caller sends would
+			# succeed, and answering "your request was bad" would put the operator's omission on
+			# the person holding the phone.
+			raise HTTPException(status_code=503, detail=str(exc)) from exc
 		except (AssertionError, ValidationError) as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return receipt.model_dump(mode='json')

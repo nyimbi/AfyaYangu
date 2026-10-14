@@ -341,13 +341,18 @@ async def test_the_symptom_photo_gate_cannot_be_encoded_around() -> None:
 		as_query = await c.post('/evidence?kind=rash&subject_ref=U1&county=Nairobi',
 		                        files={'file': ('p.jpg', blob, 'image/jpeg')}, headers=auth)
 		assert as_query.status_code == 422, as_query.text
-		# And the community kind still passes while dormant, because COM-005 is Tier 3.
+		# And the community kind still passes while dormant, because COM-005 is Tier 3 — with the
+		# per-item consent §SEC-002 conditions the photo on. Without it the same upload is a 422,
+		# which the model asserts on its own in `test_sec002.py`; here it is the control that proves
+		# the *gate* being tested did not become a catch-all.
 		scene = await c.post('/evidence', files={'file': ('p.jpg', blob, 'image/jpeg')},
-		                     data={'kind': 'scene_photo', 'subject_ref': 'U1', 'county': 'Nairobi'}, headers=auth)
+		                     data={'kind': 'scene_photo', 'subject_ref': 'U1', 'county': 'Nairobi',
+		                           'consent': 'true'}, headers=auth)
 		assert scene.status_code == 200, scene.text
 		# A content type outside the model's contract is refused, not silently relabelled.
 		bad_mime = await c.post('/evidence', files={'file': ('p.txt', blob, 'text/plain')},
-		                        data={'kind': 'scene_photo', 'subject_ref': 'U1', 'county': 'Nairobi'}, headers=auth)
+		                        data={'kind': 'scene_photo', 'subject_ref': 'U1', 'county': 'Nairobi',
+		                              'consent': 'true'}, headers=auth)
 		assert bad_mime.status_code == 422, bad_mime.text
 
 

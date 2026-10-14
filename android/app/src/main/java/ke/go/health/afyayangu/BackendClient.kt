@@ -198,7 +198,7 @@ class BackendClient(private val context: Context) {
 		val v = JSONObject(request("sensors/ingest", body))
 		return v.getString("band") + ": " + v.getString("detail")
 	}
-	fun uploadEvidence(kind: String, note: String, blob: ByteArray): String {
+	fun uploadEvidence(kind: String, note: String, blob: ByteArray, consent: Boolean): String {
 		val boundary = "afya-" + System.currentTimeMillis()
 		val conn = URL(BASE + "evidence").openConnection() as HttpURLConnection
 		conn.requestMethod = "POST"
@@ -212,6 +212,9 @@ class BackendClient(private val context: Context) {
 			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"subject_ref\"\r\n\r\n${subjectRef()}\r\n").toByteArray())
 			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"county\"\r\n\r\nNairobi\r\n").toByteArray())
 			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\n$note\r\n").toByteArray())
+			// §SEC-002's per-item consent. The server refuses the photo without it, so a client
+			// that left this out would draw a button that always fails.
+			os.write(("--$boundary\r\nContent-Disposition: form-data; name=\"consent\"\r\n\r\n$consent\r\n").toByteArray())
 			os.write("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".toByteArray())
 			os.write(blob)
 			os.write("\r\n--$boundary--\r\n".toByteArray())
