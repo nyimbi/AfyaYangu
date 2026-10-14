@@ -6,6 +6,7 @@ import asyncio
 from afya.channels.outbound import plain_language_report
 from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import UssdRequest
+from afya.chw.service import ChwService
 from afya.emergency.service import EmergencyService, Inline719Port
 from afya.emergency.views import SOSEvent
 from afya.identity.service import IdentityService
@@ -100,6 +101,12 @@ async def main() -> None:
 	drafted = await story_svc.approve('ST-DEMO', 'MoH content ops', 0)
 	print('story approved ->', drafted.stage.value, '| in library:', any(
 		i.item_id == drafted.item_id for i in info.library('en')))
+
+	# §CHAN-5's printed job aids. The aid text and the PDF writer were both here and nothing joined
+	# them, so a job aid was a string a screen showed and nothing a worker could carry.
+	sheet = ChwService.job_aid_sheet('safe_burial')
+	raw = sheet.content.encode('latin-1')
+	print('job aid printed ->', sheet.filename, '|', len(raw), 'bytes | pdf:', raw.startswith(b'%PDF-1.4'))
 
 
 if __name__ == '__main__':

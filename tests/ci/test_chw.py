@@ -1,8 +1,11 @@
 """Behavioural tests for the CHW trust layer (spec §5 CHAN-005, §11.4 COM-101)."""
+import re
+
 import pytest
 
 from afya.chw.service import ChwService
 from afya.chw.views import JOB_AIDS, TRAINING_MODULES, ActivityLogEntry, ChwCase, ChwProfile
+from afya.records.pdf import CHARS_PER_LINE
 
 
 def _profile(chw_ref: str, *, registry_verified: bool = True, provisioned_by: str = 'County') -> ChwProfile:
@@ -94,6 +97,59 @@ def test_job_aid_returned_for_known_topic_and_refused_for_unknown() -> None:
 
 def test_ppe_reminder_is_the_donning_aid() -> None:
 	assert ChwService.ppe_reminder() == JOB_AIDS['ppe_donning']
+
+
+def test_every_job_aid_renders_as_a_printable_sheet() -> None:
+	"""§CHAN-5's "Printed job aids" — the half of the bullet this tree can carry.
+
+	The module held both halves and joined neither: `JOB_AIDS` is the text and `afya.records.pdf` is
+	the writer, so a job aid was a string a screen showed and nothing a worker could carry. The sheet
+	is checked structurally — a PDF header, a trailer, and the aid's own words wrapped into the
+	stream — because a `.pdf` filename with the raw string inside it is the claim-with-nothing-behind
+	it the records module keeps finding.
+	"""
+	svc = ChwService()
+	for topic in JOB_AIDS:
+		sheet = svc.job_aid_sheet(topic)
+		raw = sheet.content.encode('latin-1')
+		assert sheet.topic == topic and sheet.media_type == 'application/pdf'
+		assert sheet.filename == f'job-aid-{topic}.pdf'
+		assert raw.startswith(b'%PDF-1.4'), f'{topic} is not a PDF'
+		assert raw.rstrip().endswith(b'%%EOF'), f'{topic} has no trailer'
+		# cp1252, not latin-1: the aids carry em dashes, and the writer's font declares
+		# `/WinAnsiEncoding`, which is the encoding that gives those bytes glyphs.
+		assert sheet.title.encode('cp1252') in raw, f'{topic} lost its title'
+		# Every word of the aid must survive the wrap, or the printed sheet is not the aid.
+		for word in JOB_AIDS[topic].split():
+			assert word.encode('cp1252') in raw, f'{topic} lost the word {word!r}'
+		# And every drawn line must fit the column. `render` draws one line per element and clips
+		# nothing, so an aid passed unwrapped becomes a single line running past the margin and off
+		# the page — legible in the byte stream (all the words are there) and illegible on paper.
+		drawn = [line for line in raw.split(b'\n') if line.endswith(b') Tj')]
+		assert len(drawn) > 1, f'{topic} was not wrapped: one drawn line for a {len(JOB_AIDS[topic])}-char aid'
+		for line in drawn:
+			assert len(line) - len(b'() Tj') <= CHARS_PER_LINE, (
+				f'{topic} has a drawn line past the {CHARS_PER_LINE}-char column: {line[:40]}...'
+			)
+
+
+def test_the_job_aid_titles_are_the_aids_and_name_no_spec_code() -> None:
+	"""Every aid has a printable title, the title set is exactly the aid set, and no title carries a
+	spec id — a printed sheet is read by a person, and §3.3 principle 9 governs it as much as a
+	screen does."""
+	from afya.chw.views import JOB_AID_TITLES
+
+	assert set(JOB_AID_TITLES) == set(JOB_AIDS), (
+		f'aid/title mismatch: {set(JOB_AID_TITLES) ^ set(JOB_AIDS)}'
+	)
+	for topic, title in JOB_AID_TITLES.items():
+		assert title.strip() and title != topic, f'{topic} has no human title'
+		assert not re.search(r'\b(?:CHAN|COM|REC|INF|SEN|ACC)-\d{3}\b', title), title
+
+
+def test_an_unknown_topic_has_no_printable_sheet() -> None:
+	with pytest.raises(AssertionError, match='no job aid for'):
+		ChwService.job_aid_sheet('ebola_airborne_protocol')
 
 
 def test_training_covers_required_modules() -> None:

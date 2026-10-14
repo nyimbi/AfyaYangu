@@ -631,7 +631,9 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		# it. What is left below is the residue the spec itself conditions on something this tree
 		# does not own: §ACC-001's video tutorials in a local language are *new clinical copy* a
 		# generator may not author, §ACC-002's six-language ASR needs a corpus no one has recorded,
-		# and §CHAN-005's flip chart is a printed artefact.
+		# and §CHAN-005's flip chart is a *picture*. The bullet names two artefacts and only the
+		# pictorial half stays open: the tree holds pictogram names with no geometry behind them,
+		# while the printed job-aid half is carried by `ChwService.job_aid_sheet`.
 		# §CHAN-005's second row was the training. It closed: the content is
 		# `afya.chw.views:TRAINING_MODULES` and the per-person record is `Intermediary.trained`,
 		# which `programme()` now reports as `untrained` — it was set by the enrol route and read by

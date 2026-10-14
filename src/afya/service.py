@@ -5050,6 +5050,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+	@app.get('/chw/job-aid/{topic}/print')
+	async def chw_job_aid_print(topic: str) -> dict[str, object]:
+		"""§CHAN-5's "Printed job aids" — the same aid as a printable PDF.
+
+		Public like the aid itself: a job aid is reference material a CHW opens, not personal data,
+		and the printed sheet carries the same words the screen already serves.
+		"""
+		try:
+			return chw.job_aid_sheet(topic).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
 	@app.get('/chw/ppe-reminder')
 	async def chw_ppe() -> dict[str, str]:
 		return {'reminder': chw.ppe_reminder()}

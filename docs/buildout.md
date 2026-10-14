@@ -6122,3 +6122,65 @@ unrenderable.
 
 The governing text is `afya.records.pdf`'s own module docstring and the PDF specification's
 StandardEncoding/WinAnsiEncoding definitions, both already in the repo's dependency-free scope.
+
+---
+
+## §CHAN-005 — the job aids were printable and nobody printed them (2026-10-15)
+
+### The finding
+
+§CHAN-5's "Tools provided" prints *Printed job aids and flip charts*, and the audit filed it `missing`
+with the reason **"a printed artefact is not code"**. That reason is false, and a row in the same
+table refutes it: §REC-001's "PDF export" is `carried` *because* `afya.records.pdf` renders a
+printable document. A reason a reader can check is a reason that goes stale, and this one had been
+wrong for as long as the PDF writer had existed.
+
+The tree held **both halves** of the job-aid part and joined neither:
+
+- `afya.chw.views:JOB_AIDS` — six aid texts (IDSR case definition, PPE donning and doffing, isolation,
+  safe burial, reporting flow), each a single long sentence.
+- `afya.records.pdf:render` — a deterministic, dependency-free PDF writer.
+
+So a job aid was a string `GET /chw/job-aid/{topic}` served to a screen, and nothing a worker could
+carry into a village. The bullet says *printed*.
+
+### What is carried, and what genuinely is not
+
+The bullet names **two** artefacts, and they are different objects:
+
+- **The printed job aid** — text a worker carries and reads. Now carried:
+  `ChwService.job_aid_sheet(topic)` wraps the aid and renders it through the same writer, served at
+  `GET /chw/job-aid/{topic}/print`. Verified at the front door: a real `%PDF-1.4` … `%%EOF` document,
+  the aid's words wrapped into the column, a 404 on an unknown topic.
+- **The flip chart** — a *pictorial* sheet for a low-literacy audience. Still not producible here, and
+  the reason is the picture, not the paper: `UIAsset.pictogram` is `'house'`, `'siren'`,
+  `'hospital-cross'` — a **name with no geometry behind it** — and the only vector primitives anywhere
+  in the tree are the explainer's rectangles and circles. Drawing the artwork is the MoH Health
+  Promotion Unit's.
+
+So the row stays `missing`, now for a reason that survives checking. `TOOLS_PROVIDED` records the
+section's bullet **whole** rather than splitting it into two, because splitting it would invent a tool
+the section does not list.
+
+### The canary this module never had
+
+`tests/ci/test_chw.py` had no canary, which is how a module holding both halves of a bullet went on
+reporting the bullet unimplemented. `tests/ci/canary_chw.py` adds four:
+
+| # | Mutation | Caught by |
+|---|---|---|
+| 1 | the sheet is the raw aid text with a PDF filename | `test_every_job_aid_renders_as_a_printable_sheet` |
+| 2 | the aid is passed to the writer unwrapped | `test_every_job_aid_renders_as_a_printable_sheet` |
+| 3 | one topic is rendered with another topic's text | `test_every_job_aid_renders_as_a_printable_sheet` |
+| 4 | the printable title is the internal topic key | `test_the_job_aid_titles_are_the_aids_and_name_no_spec_code` |
+
+**Canary 2 missed on its first run, and the miss is the finding.** The test checked that every *word*
+of the aid survived into the stream — and an unwrapped line contains every word. The words are all
+present; they are simply drawn off the page, because `render` draws one line per element and clips
+nothing. The test now asserts the drawn lines fit `CHARS_PER_LINE`, which is the property the wrap
+exists for. A canary that passes is a bug in the canary, and this one was a bug in the test.
+
+### No new source
+
+The governing text is `docs/spec.md`'s §CHAN-5 bullet, already transcribed in
+`afya.intermediaries.views:TOOLS_PROVIDED`.

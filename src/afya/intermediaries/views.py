@@ -90,7 +90,15 @@ TOOLS_PROVIDED: tuple[str, ...] = (
 # halves are: the content is `afya.chw.views:TRAINING_MODULES` (a 120-minute orientation and a PPE
 # refresher, which is what "2 hours and refresher content" names) and §24.4's matrix carries the
 # audience, format and duration; the per-person record is `Intermediary.trained`, which the
-# programme now reports. Only the printed artefact is genuinely not code.
+# programme now reports.
+#
+# The printed bullet is the one left out, and the reason is narrower than "it is not code" — which
+# is what this comment used to say, and which §REC-001's `carried` PDF-export row refutes, since
+# `afya.records.pdf` renders a printable document. The bullet names two artefacts: the printed
+# *job aid* is carried (`afya.chw.service:ChwService.job_aid_sheet` renders one), and the *flip
+# chart* is not, because a chart is a picture for a low-literacy audience and this tree holds
+# pictogram names with no geometry behind them. `TOOLS_PROVIDED` records the section's bullet whole
+# rather than splitting it into a tool the section does not list.
 CODE_CARRIED_TOOLS: frozenset[str] = frozenset({
 	'CHW-specific app module (see COM-101)',
 	'Referral codes (each intermediary gets a code for attribution)',

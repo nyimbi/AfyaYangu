@@ -120,13 +120,20 @@ def test_the_carried_tools_are_a_subset_of_the_sections() -> None:
 	The set grew twice, both times because the audit was right and this set was stale. The airtime
 	incentive: `pay_incentive` disburses through §18.8's bounded telco client. The training:
 	`afya.chw.views:TRAINING_MODULES` is the content and `Intermediary.trained` the per-person
-	record. Only the printed flip chart is genuinely not code, so the strict-subset assertion stays
-	— it is what will notice if the last tool is claimed too.
+	record. The printed bullet stays out of the set, so the strict-subset assertion stays — it is
+	what will notice if the last tool is claimed too.
+
+	The reason it stays out is *not* "a printed artefact is not code", which this set's own comment
+	used to say and which §REC-001's `carried` PDF-export row refutes: `afya.records.pdf` renders a
+	printable document. The bullet names two artefacts, and the flip-chart half is the one this repo
+	cannot produce — a chart is a picture, and the tree holds pictogram names with no geometry. The
+	printed *job-aid* half is carried now (`ChwService.job_aid_sheet`), but `TOOLS_PROVIDED` records
+	the section's bullet whole rather than splitting it, so the set still excludes it.
 	"""
 	assert CODE_CARRIED_TOOLS <= set(TOOLS_PROVIDED), CODE_CARRIED_TOOLS - set(TOOLS_PROVIDED)
 	assert len(CODE_CARRIED_TOOLS) < len(TOOLS_PROVIDED), (
-		'a printed flip chart is not code; a report claiming all five would be describing '
-		'something this repository does not ship'
+		'a flip chart is a picture and this tree holds no pictogram geometry; a report claiming all '
+		'five would be describing something this repository does not ship'
 	)
 	assert len(CODE_CARRIED_TOOLS) == 4, sorted(CODE_CARRIED_TOOLS)
 

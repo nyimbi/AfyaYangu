@@ -3,7 +3,10 @@
 A CHW account exists only if a county team provisioned it and the national registry verified
 it — the trust layer is worthless if anyone can self-enrol as a health worker.
 """
-from afya.chw.views import JOB_AIDS, TRAINING_MODULES, ActivityLogEntry, ActivitySummary, ChwCase, ChwProfile
+from afya.chw.views import (
+	JOB_AID_TITLES, JOB_AIDS, TRAINING_MODULES, ActivityLogEntry, ActivitySummary, ChwCase, ChwProfile,
+	JobAidSheet,
+)
 from afya.logmixin import LogMixin
 
 
@@ -50,6 +53,29 @@ class ChwService(LogMixin):
 	@staticmethod
 	def ppe_reminder() -> str:
 		return JOB_AIDS['ppe_donning']
+
+	@staticmethod
+	def job_aid_sheet(topic: str) -> JobAidSheet:
+		"""One job aid rendered as a printable PDF — §CHAN-5's "Printed job aids" half.
+
+		The module held both halves and joined neither: `JOB_AIDS` is the text and `afya.records.pdf`
+		is the writer, so a job aid was a string a screen could show and nothing a worker could carry.
+		§CHAN-5's bullet is *printed*, and the flip-chart half of it is genuinely not producible here
+		— a chart is drawn, and the tree's only vector primitives are the explainer's rectangles and
+		circles, so `pictogram='house'` is a name with no geometry behind it. This is the half that is.
+
+		The sheet wraps the aid text rather than trusting it to fit, because the aids are single long
+		sentences and a PDF line that runs past the margin is clipped at the page edge.
+		"""
+		assert topic in JOB_AIDS, f'no job aid for {topic}'
+		from afya.records.pdf import render, wrap
+
+		title = JOB_AID_TITLES[topic]
+		lines = wrap(JOB_AIDS[topic])
+		return JobAidSheet(
+			topic=topic, title=title, media_type='application/pdf',
+			filename=f'job-aid-{topic}.pdf', content=render(title, lines).decode('latin-1'),
+		)
 
 	async def assign_case(self, chw_ref: str, case: ChwCase) -> ChwCase:
 		self.profile(chw_ref)

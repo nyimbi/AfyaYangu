@@ -25,6 +25,37 @@ TRAINING_MODULES: tuple[dict[str, object], ...] = (
 	{'module': 'supervised_first_three_reports', 'minutes': 0, 'required': True},
 )
 
+# §CHAN-5's "Printed job aids" half. The bullet is "Printed job aids and flip charts", and the two
+# are different artefacts: a job aid is text a worker can carry and read, a flip chart is a pictorial
+# sheet for a low-literacy audience. This tree holds the first (the six `JOB_AIDS` texts above) and
+# the PDF writer that turns text into a printable sheet, so the job-aid half is carried and the
+# flip-chart half is not — a chart is drawn, and the only vector primitives in the tree are the
+# explainer's rectangles and circles. The titles are human words because a printed sheet is read by a
+# person: no spec code reaches it.
+JOB_AID_TITLES: dict[str, str] = {
+	'idsr_case_definition': 'IDSR case definition',
+	'ppe_donning': 'Putting on PPE',
+	'ppe_doffing': 'Taking off PPE',
+	'isolation_basics': 'Isolating a patient at home',
+	'safe_burial': 'Safe and dignified burial',
+	'reporting_flow': 'Reporting a suspected case',
+}
+
+
+class JobAidSheet(BaseModel):
+	"""One job aid as a printable document.
+
+	`content` is the rendered bytes as text and `media_type` says what they are, which is the shape
+	`afya.records.views:ExportDocument` uses for the wallet's export — one convention for "a document
+	this service rendered" rather than a second one per module.
+	"""
+	model_config = MODEL_CONFIG
+	topic: str
+	title: str
+	media_type: str
+	filename: str
+	content: str
+
 
 class ChwProfile(BaseModel):
 	model_config = MODEL_CONFIG
