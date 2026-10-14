@@ -5204,8 +5204,14 @@ The open ones are honest rather than convenient, and three kinds of thing are in
 - **Content nobody has produced.** §CHAN-0's live call-in and drama vignettes, §CHAN-4's animated
   explainers and "day in the life" CHW material. Measured, not assumed: `animated`, `dashboard
   screenshot` and `user-generated` return **zero files** under `src/afya/`.
-- **A message nothing sends.** §CHAN-1's *Follow-up after a USSD report* — the USSD path records the
-  report and collects a callback request, but no outbound message is keyed on the report.
+- **A message nothing sends, and a report nothing files.** §CHAN-1's *Follow-up after a USSD report* —
+  the walk collects the symptom, the location consent and the callback request, and no outbound
+  message is keyed on any of it. The report is not filed either: `/community/cases` is the only
+  producer of a `CaseReport` and it is guarded on `assigned`, which a caller on a feature phone has
+  no token to hold. §5.4's *single case-report backend* therefore holds for the app and WhatsApp
+  paths and not for USSD. An earlier cut of this document claimed the USSD path "files the report";
+  it did not, and the claim was corrected here rather than left standing — a sentence describing a
+  mechanism that is not there is the defect this whole unit was about.
 - **A mechanism that does not exist.** §CHAN-1's `Format` names a language keyword prefix (`SW`, `LU`,
   `KY`) and no SMS body is parsed for one: `/integrations/telco/sms/inbound` takes `lang` as a
   **query parameter**, which the person sending the text cannot set. A Dholuo speaker has no way to
