@@ -91,6 +91,7 @@ from afya.registry.taxonomy import (
 from afya.surveillance.service import SurveillanceService
 from afya.surveillance.views import CountySignal, Geofence
 from afya.sensors.service import SensorService
+from afya.sensors.tags import Tag, TagReading, TagService, TagTarget
 from afya.sensors.views import SenseKind
 from afya.sensors.views import SenseIngest
 from afya.sync.service import SyncService, apply_delta, delta_payload
@@ -420,6 +421,10 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		'triage': triage_svc,
 		'surveillance': surveillance_svc,
 		'sensors': SensorService(registry),
+		# §SENS-010's tag workflows. Built here rather than inside `SensorService` because the tag
+		# register is not a sensor: it is the binding between a tag and the object it names, and
+		# §13.1's `nfc` row is about the radio, not about what a tap means.
+		'tags': TagService(),
 		'medicine': MedicineService(PPBClient(cfg.ppb_url, client, '')),
 		'facilities': facilities_svc,
 		# §5.3 CHAN-1's zero-rating is an agreement with the carrier, so the channel service is
@@ -519,6 +524,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	activation: ActivationService = svc['activation']  # type: ignore[assignment]
 	triage: TriageService = svc['triage']  # type: ignore[assignment]
 	sensors: SensorService = svc['sensors']  # type: ignore[assignment]
+	tags: TagService = svc['tags']  # type: ignore[assignment]
 	surveillance: SurveillanceService = svc['surveillance']  # type: ignore[assignment]
 	facilities: FacilityService = svc['facilities']  # type: ignore[assignment]
 	channels: ChannelService = svc['channels']  # type: ignore[assignment]
@@ -1097,6 +1103,81 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'sensor_count': len(sensors.sensors()),
 			'external_device': sensors.external_device_gap().model_dump(mode='json'),
 		}
+
+	# --- §SENS-010 tag-based workflows ---
+	# One binding, four targets, plus §LOC-004's check-in which owns its own tap. A tag holds the
+	# target's id and never the person's, so a wristband that is lost leaks a bed number rather than
+	# a patient.
+	@app.post('/sensors/tags')
+	async def tag_bind(tag: Tag, _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
+		"""Bind a tag to the thing it names. Registering hardware is a county-team action, the same
+		scope §LOC-004's `register_checkin_point` takes, because a tag bound by anyone is a tag an
+		attacker binds to a medicine package."""
+		try:
+			return tags.bind(tag).model_dump(mode='json')
+		except AssertionError as exc:
+			raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+	@app.delete('/sensors/tags/{tag_id}')
+	async def tag_unbind(tag_id: str, _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, bool]:
+		tags.unbind(tag_id)
+		return {'unbound': True}
+
+	@app.get('/sensors/tags/{tag_id}')
+	async def tag_resolve(tag_id: str) -> dict[str, object]:
+		"""What one tap answers. Open, because a person holding a phone at a bedside is the caller and
+		a tap that needs an account is a tap nobody makes — the answer carries the target's label and
+		its opaque id, and nothing about any person."""
+		return tags.resolve(tag_id).model_dump(mode='json')
+
+	@app.post('/sensors/tags/{tag_id}/tap')
+	async def tag_tap(tag_id: str, at_iso: str, worker_ref: str | None = None,
+	                  _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""Record a tap. A PPE station log names the worker because §COM-101 states it as
+		occupational; every other target is about the object, and `tap` asserts the distinction
+		rather than trusting the caller to keep it."""
+		try:
+			reading: TagReading = tags.tap(tag_id, at_iso, worker_ref)
+		except AssertionError as exc:
+			raise HTTPException(status_code=400, detail=str(exc)) from exc
+		return reading.model_dump(mode='json')
+
+	@app.get('/sensors/tags/{tag_id}/readings')
+	async def tag_readings(tag_id: str, _subject: str = Depends(require_scope('audit_logs'))) -> list[dict[str, object]]:
+		return [r.model_dump(mode='json') for r in tags.readings() if r.tag_id == tag_id]
+
+	@app.get('/sensors/tag-coverage')
+	async def tag_coverage(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§SENS-010's five applications and which module carries each, so the section's coverage is
+		read off the running object rather than asserted in a table."""
+		return tags.coverage()
+
+	@app.post('/sensors/equipment')
+	async def equipment_add(asset_ref: str, label: str, status: str = 'in_service',
+	                        _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, bool]:
+		try:
+			tags.equipment.add(asset_ref, label, status)
+		except AssertionError as exc:
+			raise HTTPException(status_code=400, detail=str(exc)) from exc
+		return {'ok': True}
+
+	@app.post('/sensors/equipment/{asset_ref}/move')
+	async def equipment_move(asset_ref: str, station: str,
+	                         _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, bool]:
+		try:
+			tags.equipment.move(asset_ref, station)
+		except AssertionError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+		return {'ok': True}
+
+	# The asset list is the deployment's inventory, not a bedside answer: a citizen tapping a tag
+	# learns what that tag is from `GET /sensors/tags/{tag_id}`, while the whole register is the
+	# county health team's — the same scope the two writes above take. Serving it openly would hand
+	# anyone the layout of every ventilator and station in the county.
+	@app.get('/sensors/equipment')
+	async def equipment_list(status: str | None = None,
+	                         _subject: str = Depends(require_scope('county_aggregate'))) -> list[dict[str, str]]:
+		return tags.equipment.assets(status)
 
 	# --- facilities ---
 	# The facility registry is what every locator screen reads. An anonymous caller could add a

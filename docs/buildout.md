@@ -5520,3 +5520,120 @@ coverage rather than a moved number: **92 pairs over 49 sections, 165 passages, 
 deferred, 38 narrative, `unresolved == []`.**
 
 **No new source.** The governing text is this repo's own `docs/spec.md`.
+
+## §SENS-010 — four applications that were one mechanism, and the tag that had to hold no person (2026-10-14)
+
+### The finding
+
+§SENS-010 prints five applications for NFC. The first — check-in at facilities — belongs to §LOC-004
+and was already `carried`. The other four were `missing`, each with a note naming what it lacked:
+
+	- Patient wristband identification at isolation units      -> "a wristband bound to a patient"
+	- Medication authentication (tapping a medicine package)   -> "a tag bound to a medicine package"
+	- PPE station logging for healthcare workers               -> "a PPE station log"
+	- Equipment tracking                                       -> "an equipment register"
+
+Read as four gaps they look like four endpoints. Read as a section they are one sentence written
+four ways: **tap a tag, learn or record something about the thing it is attached to.** The thing it
+is attached to is the only variable. Four endpoints would have been four copies of the same binding
+logic, and a test that counted them would pass against four copies of the same bug.
+
+### What closed it
+
+`src/afya/sensors/tags.py` — one binding, four typed resolutions:
+
+	TagTarget = patient | medicine | ppe_station | equipment
+
+`Tag` carries `tag_id`, `target`, an opaque `target_ref`, a `label` and `bound_at_iso` — and **no
+field for a person.** Three of the four targets are objects, and a wristband that carried the
+patient's name would leak it to anyone who taps it. The privacy boundary is asserted on the model's
+own field set rather than described in a docstring, so a field added to the tag fails at a test
+rather than at a bedside.
+
+`TARGET_RESOLVERS` names the code behind each target, and `afya.refs.resolves` walks the dotted path
+so a resolver renamed off its class fails here:
+
+	patient     -> afya.records.service:RecordsService.wallet
+	medicine    -> afya.medicine.service:MedicineService.verify
+	ppe_station -> afya.chw.views:JOB_AIDS
+	equipment   -> afya.sensors.tags:EquipmentRegister
+
+**Two absences must not read alike.** A tag nobody registered is a mis-tap, a clone, or a tag from
+another deployment. A registered tag whose target has been withdrawn is a real tag pointing at
+something gone — a wristband for a discharged patient, an asset that was retired. Both are
+`resolved=False`, which is correct and is exactly why the boolean is not enough: the two send a
+person to different places. `TagVerdict.note` distinguishes them, and a canary collapses them to
+prove the test that guards it can fail.
+
+**`tap` asserts the worker only where the spec makes it occupational.** §COM-101 states the PPE
+bullet as occupational, so a station log names the worker; the other three targets are about the
+object and `worker_ref` stays `None`. `tap` enforces the difference rather than trusting the caller.
+
+**Binding is where the failure is cheap.** A tag bound to an equipment asset nobody registered
+resolves to nothing at the station, so `bind` refuses it. Rebinding is refused too: a tag that
+silently points somewhere new is how a wristband ends up naming the wrong patient.
+
+Nine routes, served behind the same guards as their siblings: `POST`/`DELETE /sensors/tags` and
+`POST /sensors/equipment` (+ `/{asset_ref}/move`) take `county_aggregate` — registering hardware is
+the county health team's, the scope §LOC-004's `register_checkin_point` takes, because a tag bound
+by anyone is a tag an attacker binds to a medicine package. `GET /sensors/tags/{tag_id}` and
+`POST .../tap` are open/`require_self`: a person holding a phone at a bedside is the caller, and a
+tap behind an account is a tap nobody makes. `GET .../readings` and `GET /sensors/tag-coverage` take
+`audit_logs`.
+
+Seven catalogue actions, each with plain-language titles and fields and `options` drawn from
+`TAG_TARGETS` / `EQUIPMENT_STATUSES` so a client cannot offer a target the server does not know.
+
+### A real hole the gate found
+
+`GET /sensors/equipment` was written **open**, and `equipment_list` was catalogued under
+`county_aggregate`. `test_ui_vocabulary.py::test_operator_scopes_match_the_routes` reads each
+route's own `Depends` closure and compares it to the catalogue's claim — it caught the mismatch as
+`route GET /sensors/equipment checks None`, and its sibling caught the same defect from the other
+side (`equipment_list is marked operator-only but GET /sensors/equipment carries no guard`).
+
+The route was wrong, not the catalogue. A single tap learns what that tag is from
+`GET /sensors/tags/{tag_id}`; the whole register is the deployment's inventory, and serving it
+openly hands anyone the layout of every ventilator and station in the county. Guarded.
+
+`test_mobile_catalogue.py` then caught a second defect in my own entries: `tag_resolve` and
+`tag_tap` were catalogued with `_s('path')` — a `subject_ref` field, which the helper exists for
+*self-bound* routes. `{tag_id}` is a tag, not the caller, so both were wrong twice: the path
+placeholder `tag_id` was named by no field (a client cannot fill its own URL), and `subject_ref` was
+marked `client_supplied` on a route that does not bind a subject. Both now carry
+`_f('tag_id', 'Tag', 'path')`.
+
+### Canaries
+
+`tests/ci/canary_sens010.py` — four, each a way these gates can fail open:
+
+	CAUGHT  an unregistered tag and a withdrawn target read alike
+	CAUGHT  the tag carries the person it is attached to
+	CAUGHT  a target names a resolver that does not exist
+	CAUGHT  a carried application is filed as missing again
+
+The third is not hypothetical: `afya.chw.views:PPE_DONNING` was written into `TARGET_RESOLVERS`
+first and did not resolve — `PPE_DONNING` is a *key* inside `JOB_AIDS`, not a module attribute —
+which is the whole reason the walk exists rather than a reader's eye.
+
+### Live probe
+
+Through the front door. `GET /sensors/tags/FFFFFFFFFFFF` → `resolved: false`, *"This tag is not
+registered here. Check that you tapped the right one."*; a bound wristband →
+`{"resolved": true, "target": "patient", "target_ref": "PT-7", "label": "Bed 4 wristband"}`. No
+token → **401** on `/sensors/equipment`, `/sensors/tag-coverage` and `POST /sensors/tags`. Spec
+feature codes in the served `/mobile/actions` payload: **`[]`**.
+
+### Verified
+
+- `uv run pytest -q tests/ci` (full suite checkpoint) → **2165 passed, 2 failed**, both fixed above
+  and green on re-run
+- `uv run pyright` → **0 errors, 0 warnings, 0 informations**
+- `uv run python tests/ci/canary_sens010.py` → **4/4**
+
+**Across the repo 532 → 536 `carried`, 18 → 14 `missing`.** The 14 that remain are production
+artefacts (the §CHAN-004 social programme), printed material (§CHAN-003, §CHAN-005), and two
+deliberately open external dependencies (§ACC-001 video generation, §ACC-002 ASR for four
+languages). §SENS-010 was the last buildable cluster.
+
+**No new source.** The governing text is this repo's own `docs/spec.md`.

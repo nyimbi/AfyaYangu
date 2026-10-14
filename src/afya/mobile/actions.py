@@ -38,6 +38,7 @@ from afya.monitoring.views import LARVICIDE_CLASSES
 from afya.records.views import WALLET_DOC_KINDS
 from afya.registry.diseases import DISEASES
 from afya.access.views import LANGUAGE_MATRIX
+from afya.sensors.tags import EQUIPMENT_STATUSES, TAG_TARGETS
 from afya.strings import SUPPORTED_LANGS
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -208,6 +209,9 @@ FEATURE_OF: dict[str, str] = {
 	# the handle a person is shown and the handle they may choose are the same value.
 	'my_pseudonym': 'SEC-004', 'choose_pseudonym': 'SEC-004',
 	'sensor_ingest': 'SENS-005', 'analyse_cough': 'SENS-002', 'submit_evidence': 'SENS-004',
+	'tag_resolve': 'SENS-010', 'tag_tap': 'SENS-010', 'tag_bind': 'SENS-010',
+	'tag_coverage': 'SENS-010', 'equipment_list': 'SENS-010', 'equipment_add': 'SENS-010',
+	'equipment_move': 'SENS-010',
 	'activate_outbreak_mode': 'TRI-003',
 	'report_issue': 'COM-005', 'issues_by_county': 'COM-005', 'resolve_issue': 'COM-005',
 	'submit_case': 'COM-101', 'advance_case': 'COM-101', 'ppe_reminder': 'COM-101',
@@ -301,6 +305,15 @@ OPERATOR_SCOPES: dict[str, str] = {
 	# food-safety warning above and the §FND-006 slot below. The read (`larviciding`) is public; a
 	# citizen's catalogue must not carry the form that announces a county operation.
 	'issue_larviciding': 'county_aggregate',
+	# §SENS-010's register: binding a tag is an act of the same kind as registering the check-in
+	# point above it — it is what makes a tap mean something, and a tag anyone can bind is a tag
+	# anyone can bind to a medicine package. The taps themselves (`tag_resolve`, `tag_tap`) are
+	# deliberately absent: a person holding a phone at a bedside is the caller, and a tap behind an
+	# account is a tap nobody makes.
+	'tag_bind': 'county_aggregate', 'equipment_add': 'county_aggregate',
+	'equipment_move': 'county_aggregate', 'equipment_list': 'county_aggregate',
+	# The section's own coverage statement is an audit read, like §13.1's `/sensors/coverage`.
+	'tag_coverage': 'audit_logs',
 	# §INF-001: a county's risk level is what the county health authority publishes, not something a
 	# citizen asserts. The read (`county_risk`) is public; this is the write behind it.
 	'set_county_risk': 'infrastructure',
@@ -776,6 +789,15 @@ def catalogue() -> list[MobileAction]:
 		_a('sensor_ingest', 'Save a reading', 'Sensors', 'POST', '/sensors/ingest', [_f('kind', 'Reading type', 'select', SENS_KINDS), _s(), _f('value', 'Value', 'decimal'), _f('county', 'County')]),
 		_a('analyse_cough', 'Check a cough recording', 'Sensors', 'POST', '/ml/cough/analyze', [_f('file', 'Recording', 'file')]),
 		_a('submit_evidence', 'Send a photo for review', 'Sensors', 'POST', '/evidence', [_f('file', 'Photo', 'file'), _f('kind', 'What is it?', 'select', EVIDENCE_KINDS), _f('note', 'What did you notice?', 'textarea'), _f('consent', 'I agree to share this photo', 'bool')]),
+		# Tag taps. The titles are what a person does at a bedside, not what the mechanism is: a
+		# wristband, a medicine box and a station are three things in a room and one action each.
+		_a('tag_resolve', 'What is this tag?', 'Sensors', 'GET', '/sensors/tags/{tag_id}', [_f('tag_id', 'Tag', 'path')]),
+		_a('tag_tap', 'Record this tap', 'Sensors', 'POST', '/sensors/tags/{tag_id}/tap', [_f('tag_id', 'Tag', 'path'), _f('at_iso', 'When'), _f('worker_ref', 'Who tapped it?', ph='only for a station log')]),
+		_a('tag_bind', 'Register a tag', 'Sensors', 'POST', '/sensors/tags', [_f('tag_id', 'Tag number'), _f('target', 'What is it on?', 'select', list(TAG_TARGETS)), _f('target_ref', 'Its number'), _f('label', 'What is it?'), _f('bound_at_iso', 'When')]),
+		_a('tag_coverage', 'Which tag uses are live?', 'Sensors', 'GET', '/sensors/tag-coverage', []),
+		_a('equipment_list', 'Where is our equipment?', 'Sensors', 'GET', '/sensors/equipment', [_f('status', 'Condition', 'select', list(EQUIPMENT_STATUSES), ph='optional')]),
+		_a('equipment_add', 'Add equipment', 'Sensors', 'POST', '/sensors/equipment', [_f('asset_ref', 'Asset number'), _f('label', 'What is it?'), _f('status', 'Condition', 'select', list(EQUIPMENT_STATUSES))]),
+		_a('equipment_move', 'Move equipment', 'Sensors', 'POST', '/sensors/equipment/{asset_ref}/move', [_f('asset_ref', 'Asset number', 'path'), _f('station', 'To which station?')]),
 		# Insurance
 		_a('file_price', 'Tell us what a procedure cost', 'Insurance', 'POST', '/insurance/prices', [_f('facility_id', 'Facility'), _f('procedure', 'Procedure', 'select', PROCEDURES), _f('kes', 'Cost in KES', 'int'), _f('sha_covered', 'Covered by SHA?', 'bool')]),
 		_a('price_quote', 'What does it cost?', 'Insurance', 'GET', '/insurance/quote/{facility_id}/{procedure}', [_f('facility_id', 'Facility', 'path'), _f('procedure', 'Procedure', 'path')]),
@@ -947,6 +969,13 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'menopause_state': ('Where am I in the change?', 'What your cycle is doing, and what may help'),
 	'reproductive_referral': ('Where can I get help?', 'Services for family planning and reproductive health'),
 	'submit_evidence': ('Send a photo for review', 'Show a nurse; we verify and route it'),
+	'tag_resolve': ('What is this tag?', 'Tap a wristband, a medicine box or a station tag to see what it is'),
+	'tag_tap': ('Record this tap', 'Log that a tag was tapped, and by whom where that matters'),
+	'tag_bind': ('Register a tag', 'Attach a tag to a patient bed, a medicine box, a station or a piece of equipment'),
+	'tag_coverage': ('Which tag uses are live?', 'Each use of a tag, and whether anything is set up behind it'),
+	'equipment_list': ('Where is our equipment?', 'Every asset on the register, its condition, and where it is'),
+	'equipment_add': ('Add equipment', 'Put an asset on the register so a tag can point at it'),
+	'equipment_move': ('Move equipment', 'Record that an asset has gone to another station'),
 	'provision_chw': ('Community health workers', 'Tasks and the people you help'),
 	'submit_case': ('Report a suspected case', 'Structured report that alerts the officer for you'),
 	'report_issue': ('Report a problem in my area', 'Sewage, dumping, broken water points'),

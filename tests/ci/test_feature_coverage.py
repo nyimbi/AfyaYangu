@@ -46,7 +46,10 @@ ON_DEVICE: dict[str, str] = {
 	# BPReading/GlucoseReading/MonitoringDay carry that provenance. `sensors/external_device_gap`
 	# reports whether any of them stopped doing so.
 	'SENS-009': 'pairing is a platform API; the provenance it confers is `SOURCES`, checked by external_device_gap',
-	'SENS-010': 'NFC tags are read by the device; the check-in they open has its own action',
+	# SENS-010 was here as "NFC tags are read by the device; the check-in they open has its own
+	# action". The reading is still the device's, but what a tap *means* is now a server fact — a tag
+	# bound to a typed target in `afya.sensors.tags`, with a register behind the equipment target —
+	# and each of §SENS-010's four applications has its own action, so the entry came off.
 	'EMG-002': 'fall auto-alert is the device arming the SOS it already has an action for',
 	# Broadcast channels. The radio and social programmes are run by the communications team and
 	# the audience receives them on a radio or a social feed, never through this app.

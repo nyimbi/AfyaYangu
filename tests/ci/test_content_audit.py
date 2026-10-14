@@ -623,16 +623,15 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		# The nine sections §5 and §14.9 print and the reader could not see until it was widened.
 		# Every one of these is a *content* gap rather than a device-side capability: §CHAN-0's
 		# call-in and drama vignette are programmes nobody has produced, §CHAN-1's follow-up SMS is
-		# a message nothing sends, §CHAN-3's two are claims about the world (near-universal reach,
-		# no app store) that no code closes, and §SENS-010's five NFC applications name four objects
-		# — a patient wristband, a tagged medicine package, a PPE station log, an equipment register
-		# — that do not exist in this tree.
+		# a message nothing sends, and §CHAN-3's two are claims about the world (near-universal
+		# reach, no app store) that no code closes. §SENS-010 has left this dict: its four NFC
+		# applications name four objects that did not exist and now do, through one binding in
+		# `afya.sensors.tags` — the tag names a target and the target resolves.
 		'§CHAN-000': 2,
 		'§CHAN-001': 2,
 		'§CHAN-003': 2,
 		'§CHAN-004': 4,
 		'§CHAN-005': 2,
-		'§SENS-010': 4,
 		# §LOC-002 and §SEC-006's open-source rows were the same absence seen from two sections and
 		# both closed when the owner chose a licence. The note on §LOC-002 had the reasoning right
 		# while the licence was undecided — "a repository's licence is not something this tree can
