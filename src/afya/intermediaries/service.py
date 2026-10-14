@@ -156,9 +156,11 @@ class IntermediaryService(LogMixin):
 		"""§CHAN-5's seven kinds and five tools, against what this repo carries.
 
 		`uncarried_tools` is the finding and it is not a defect: a printed flip chart and a two-hour
-		training are not code, and an airtime incentive depends on a carrier agreement §18.8 already
-		models. Reporting them is what keeps the list from becoming a claim that the whole programme
-		ships in this repository.
+		training are not code. The airtime incentive is *not* among them — `pay_incentive` gates a
+		verified referral and disburses through §18.8's bounded telco client, so the capability is
+		here; an unconfigured deployment refusing the payment is a different fact from a programme
+		that does not exist, which is the distinction `pay_incentive`'s docstring draws. Reporting
+		the two keeps the list from becoming a claim that the whole programme ships in this repo.
 		"""
 		by_kind: dict[str, int] = {k.value: 0 for k in IntermediaryKind}
 		for i in self._by_code.values():

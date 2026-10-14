@@ -247,14 +247,20 @@ async def test_the_amount_is_the_callers_and_the_carrier_bound_still_holds() -> 
 # --- the programme report ---------------------------------------------------------------------
 
 def test_the_programme_reports_the_tools_it_does_not_carry() -> None:
-	"""`uncarried_tools` is the finding. A printed flip chart and a two-hour training are not code,
-	and an airtime incentive depends on a carrier agreement §18.8 already models; a report listing
-	only what is implemented would describe a programme §CHAN-5 does not."""
+	"""`uncarried_tools` is the finding. A printed flip chart and a two-hour training are not code;
+	a report listing only what is implemented would describe a programme §CHAN-5 does not.
+
+	The airtime incentive is *not* uncarried. It was, until this test was corrected: `pay_incentive`
+	gates a verified referral and disburses through §18.8's bounded telco client, so the mechanism
+	exists and an unconfigured deployment refusing the payment is a different fact. The audit filed
+	the bullet `carried` while this set omitted it, and the programme report understated the section.
+	"""
 	svc = IntermediaryService()
 	prog = svc.programme()
 	assert len(prog.kinds) == 7 and len(prog.tools) == 5
 	assert len(prog.carried_tools) + len(prog.uncarried_tools) == 5
-	assert len(prog.uncarried_tools) == 3, prog.uncarried_tools
+	assert len(prog.uncarried_tools) == 2, prog.uncarried_tools
+	assert 'Air time / data bundle incentives for verified referrals' in prog.carried_tools
 	assert prog.intermediaries == 0
 	assert 'no intermediary is enrolled yet' in prog.note
 	assert set(prog.by_kind) == {k.value for k in IntermediaryKind}, 'every kind is counted, at zero'

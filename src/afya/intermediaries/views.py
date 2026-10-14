@@ -82,11 +82,16 @@ TOOLS_PROVIDED: tuple[str, ...] = (
 	'Short training (2 hours) and refresher content',
 )
 
-# The two tools with a code representation, named so `carried_tools()` can report the rest rather
-# than the module silently claiming all five.
+# The three tools with a code representation, named so `carried_tools()` can report the rest rather
+# than the module silently claiming all five. The incentive is here because the *mechanism* is:
+# `pay_incentive` gates a verified referral and disburses through §18.8's bounded telco client, and
+# whether a deployment holds a carrier agreement is a separate fact from whether the capability
+# exists — `pay_incentive`'s own docstring makes that argument. It was missing from this set while
+# the audit filed the same bullet `carried`, so the programme report understated the section.
 CODE_CARRIED_TOOLS: frozenset[str] = frozenset({
 	'CHW-specific app module (see COM-101)',
 	'Referral codes (each intermediary gets a code for attribution)',
+	'Air time / data bundle incentives for verified referrals',
 })
 
 
@@ -169,9 +174,9 @@ class IntermediaryProgramme(BaseModel):
 	"""§CHAN-5 as one answer: the seven kinds, the five tools, and which of the tools this repo
 	carries.
 
-	`uncarried_tools` is the finding. Three of the section's five tools are not code — a printed flip
-	chart, an airtime incentive that depends on a carrier agreement, and a two-hour training — and a
-	report that listed only what is implemented would describe a programme the section does not.
+	`uncarried_tools` is the finding. Two of the section's five tools are not code — a printed flip
+	chart and a two-hour training are physical and human artefacts, not calls — and a report that
+	listed only what is implemented would describe a programme the section does not.
 	"""
 
 	model_config = MODEL_CONFIG
