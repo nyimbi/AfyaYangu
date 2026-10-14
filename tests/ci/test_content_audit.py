@@ -13,7 +13,7 @@ def _every_spec_label() -> set[str]:
 
 	The audit's label vocabulary is a partition of this set, and that is the point of computing it
 	from the spec rather than from the module: the first version of the module knew six labels and
-	reported total coverage, while the spec prints seventy-four and §FND-001's ten-item content list
+	reported total coverage, while the spec prints ninety-five and §FND-001's ten-item content list
 	sits under `**Data displayed per facility:**`. An instrument that cannot see a label cannot
 	measure it, and the number it reports is then a fact about the instrument.
 	"""
@@ -24,10 +24,49 @@ def _every_spec_label() -> set[str]:
 
 
 def _spec_section(feature_id: str) -> str:
-	"""The body of one `#### FID: name` section, up to the next heading or horizontal rule."""
-	marker = f'#### {feature_id}:'
-	assert marker in SPEC, f'{feature_id} is not a section in the spec'
-	return SPEC.split(marker, 1)[1].split('\n---', 1)[0]
+	"""The body of one `#### FID: name` section, up to the next heading or horizontal rule.
+
+	Found by the section's own `**Feature ID:**` line, not by its heading spelling, because the spec
+	writes a heading two ways and the second way is invisible to a regex over headings. §5's seven
+	channel sections are `#### CHAN-0: Community Radio` … `#### CHAN-6:` — a one-digit suffix the
+	`FID` pattern cannot match — and §14.9's two are titled in prose with no id at all
+	(`#### External Device Integration (USB/OTG and BLE)`, whose body says `**Feature ID:** SENS-009`).
+	Nine sections, 54 content items, in neither the audited list nor the unaudited one: the report
+	said "69 of 69" and the partition test derived its ground truth from the *same* regex, so it
+	could not disagree with the reader it was checking.
+	"""
+	for body in re.split(r'^#### ', SPEC, flags=re.M)[1:]:
+		head = body.split('\n', 1)[0]
+		if head.startswith(f'{feature_id}:') or re.search(
+				rf'^\*\*Feature ID:\*\* {re.escape(feature_id)}\s*$', body, re.M):
+			return body.split('\n---', 1)[0]
+	raise AssertionError(f'{feature_id} is not a section in the spec')
+
+
+def _split_items(text: str) -> list[str]:
+	"""Split a prose content cell on its top-level commas and semicolons.
+
+	Depth-tracked rather than a flat `re.split`: a separator inside a parenthesis belongs to the
+	example, not to the list. §CHAN-1's Format is the case that forced it — "160 characters, plain
+	language, local language option via keyword (e.g., prefix `SW`, `LU`, `KY`)" is three items and a
+	flat split makes six, three of them fragments. Nothing else in the spec has a nested separator, so
+	this changes no other section's bullets; that was checked against every audited pair rather than
+	assumed.
+	"""
+	out: list[str] = []
+	depth, current = 0, ''
+	for char in text:
+		if char == '(':
+			depth += 1
+		elif char == ')':
+			depth -= 1
+		if char in ';,' and depth == 0:
+			out.append(current)
+			current = ''
+		else:
+			current += char
+	out.append(current)
+	return [item.strip() for item in out if item.strip()]
 
 
 def _spec_bullets(feature_id: str, label: str) -> list[str]:
@@ -67,7 +106,15 @@ def _spec_bullets(feature_id: str, label: str) -> list[str]:
 	# content list separates items exactly as a comma does; REC-003 is the only section in the
 	# spec that writes one, and `test_the_only_semicolon_list_in_the_spec_is_the_one_that_was_read`
 	# pins that so this split cannot quietly change another section's bullets.
-	items = [item.strip() for item in re.split(r'[;,]', prose.rstrip('.'))]
+	# The separator only counts outside parentheses. §CHAN-1's Format is "160 characters, plain
+	# language, local language option via keyword (e.g., prefix `SW`, `LU`, `KY`)" — three items, and
+	# the two commas inside the parenthesis belong to the example rather than to the list. A flat
+	# comma split read it as six items, three of which were fragments of one parenthetical
+	# ("local language option via keyword (e.g.", "`LU`", "`KY`)"), so the audit would have carried
+	# bullets the section does not print and the spec-comparison test would have demanded rows for
+	# them. Depth tracking changes no other section's bullets — checked against every audited
+	# (section, label) pair before the change, and §REC-003's eight still read as eight.
+	items = [item.strip() for item in _split_items(prose.rstrip('.'))]
 	# The fourth shape: a sequence of directives. §MED-004's Anti-gaming clause is written "Require
 	# location proximity to report. Weight reports by reporter reliability. Show report age
 	# clearly." — three separate controls, and the comma split read them as one item, which is how a
@@ -89,8 +136,24 @@ def _spec_bullets(feature_id: str, label: str) -> list[str]:
 
 
 def _spec_feature_ids() -> list[str]:
-	"""Every `#### FID: name` section in the spec, in document order."""
-	return re.findall(r'^#### ([A-Z]{2,4}-\d{3}):', SPEC, re.M)
+	"""Every feature section in the spec, in document order, by the id the section declares.
+
+	Two spellings: a heading that carries the id (`#### TRI-001: Broad Febrile-Illness Triage`) and a
+	heading that does not, where the id is on the section's own `**Feature ID:**` line (`#### CHAN-0:`
+	and §14.9's two prose-titled sections). Reading only the first spelling is how nine sections went
+	unread while the report claimed 69 of 69.
+	"""
+	ids: list[str] = []
+	for body in re.split(r'^#### ', SPEC, flags=re.M)[1:]:
+		head = body.split('\n', 1)[0]
+		m = re.match(r'([A-Z]{2,4}-\d{3}):', head)
+		if m:
+			ids.append(m.group(1))
+			continue
+		f = re.search(r'^\*\*Feature ID:\*\* ([A-Z]{2,4}-\d{3})\s*$', body, re.M)
+		if f:
+			ids.append(f.group(1))
+	return ids
 
 
 def _carries_a_label(feature_id: str) -> bool:
@@ -124,7 +187,7 @@ def test_every_spec_label_is_either_audited_or_declared_out_of_scope() -> None:
 	assert unknown == set(), f'the spec prints labels the audit does not know: {sorted(unknown)}'
 	stale = declared - _every_spec_label()
 	assert stale == set(), f'declared labels the spec no longer prints: {sorted(stale)}'
-	assert len(declared) == 74, 'the spec prints seventy-four labels'
+	assert len(declared) == 95, 'the spec prints ninety-five labels'
 
 
 def test_a_label_declared_out_of_scope_has_no_list_under_it() -> None:
@@ -267,7 +330,7 @@ def test_the_audited_sections_are_the_ones_the_survey_found_uncited() -> None:
 	assert {'INF-001', 'INF-002', 'INF-003', 'LOC-001', 'ALT-003', 'REC-002', 'COM-005',
 		'INF-008', 'INF-009', 'INF-010', 'AI-002', 'ALT-004', 'ACC-005', 'SEC-005'} <= audited, \
 		'the sections whose content hangs off an artefact label'
-	assert len(audited) == 69, 'every section in the spec is audited exactly once'
+	assert len(audited) == 78, 'every section in the spec is audited exactly once'
 
 
 # --- the three verdicts, kept apart -------------------------------------------------------------
@@ -305,14 +368,23 @@ def test_the_report_states_how_much_of_the_spec_it_read() -> None:
 	assert audited | set(report.unaudited_features) == labelled, \
 		'every labelled section is either audited or named as unaudited'
 	assert not audited & set(report.unaudited_features)
-	assert report.audited_features == len(audited) == 69
+	assert report.audited_features == len(audited) == 78
 	assert report.unaudited_features == list(UNAUDITED_FEATURES) == []
-	# 69 of 69: every `#### FID:` section in the spec prints at least one content list under a
+	# 78 of 78: every `#### FID:` section in the spec prints at least one content list under a
 	# label. There is no unlabelled section left to explain away, which is the version of this
 	# sentence a reader can check — the earlier one said 47 of 69 and spent a paragraph accounting
 	# for the other 22, and eight of those 22 were the miscategorised labels.
-	assert len(labelled) == 69, 'every section in the spec prints a labelled content list'
-	assert len(_spec_feature_ids()) == 69, 'the spec prints 69 feature sections' 
+	#
+	# The 69 was itself a fourth version of the same mistake, and the one that took longest to see
+	# because the number was *right about the sections the reader could find*. The spec writes a
+	# heading two ways: `#### TRI-001: Broad Febrile-Illness Triage` and `#### CHAN-0: Community
+	# Radio`, whose id has one digit rather than three, plus §14.9's two sections titled in prose
+	# with the id on a `**Feature ID:**` line instead of the heading. Nine sections — §5's seven
+	# channels and §14.9's two sensors — were invisible to the reader, and this test derived its
+	# ground truth from the *same* reader, so it could not disagree with it. A partition test whose
+	# both sides come from one instrument measures the instrument, not the spec.
+	assert len(labelled) == 78, 'every section in the spec prints a labelled content list'
+	assert len(_spec_feature_ids()) == 78, 'the spec prints 78 feature sections' 
 
 
 # --- the findings -------------------------------------------------------------------------------
@@ -329,6 +401,19 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 	assert per_feature == {
 		'§ACC-001': 1,
 		'§ACC-002': 1,
+		# The nine sections §5 and §14.9 print and the reader could not see until it was widened.
+		# Every one of these is a *content* gap rather than a device-side capability: §CHAN-0's
+		# call-in and drama vignette are programmes nobody has produced, §CHAN-1's follow-up SMS is
+		# a message nothing sends, §CHAN-3's two are claims about the world (near-universal reach,
+		# no app store) that no code closes, and §SENS-010's five NFC applications name four objects
+		# — a patient wristband, a tagged medicine package, a PPE station log, an equipment register
+		# — that do not exist in this tree.
+		'§CHAN-000': 2,
+		'§CHAN-001': 3,
+		'§CHAN-003': 2,
+		'§CHAN-004': 4,
+		'§CHAN-005': 2,
+		'§SENS-010': 4,
 		# §LOC-002 and §SEC-006's open-source rows were the same absence seen from two sections and
 		# both closed when the owner chose a licence. The note on §LOC-002 had the reasoning right
 		# while the licence was undecided — "a repository's licence is not something this tree can

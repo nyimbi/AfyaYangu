@@ -5128,3 +5128,155 @@ before this unit and is open after it; what changed is that the reason is now re
 
 **No new source.** The governing text is §6.5 of this repo's own spec, and the workflow it describes is
 implemented in `afya.info`. No external table or measurement is cited.
+
+## The audit could not see nine sections — §5's seven channels and §14.9's two sensors (2026-10-14)
+
+### The finding
+
+`content_report()` read `docs/spec.md` with
+
+	re.findall(r'^#### ([A-Z]{2,4}-\d{3}):', SPEC, re.M)
+
+and that regex matches **69 of the spec's 78 feature sections**. The nine it could not see are real
+sections with real content lists, and they were in neither the audited set nor `UNAUDITED_FEATURES`:
+
+- §5's seven channels are headed `#### CHAN-0: Community Radio` … `#### CHAN-6: Native Application` —
+  the id suffix is **one digit**, so `\d{3}` cannot match it.
+- §14.9's two are titled in prose with no id in the heading at all: `#### External Device Integration
+  (USB/OTG and BLE)`, whose body says `**Feature ID:** SENS-009`, and `#### NFC for Tag-Based
+  Workflows`, whose body says `**Feature ID:** SENS-010`.
+
+Nine sections, **54 content items across 12 (section, label) pairs**, unmeasured.
+
+The reason nobody caught it is the part worth recording. `tests/ci/test_content_audit.py`'s partition
+test asserted that every labelled section is *either* audited *or* named unaudited — and it derived
+its ground truth from `_spec_feature_ids()`, which called **the same regex**. A partition test whose
+two sides come from one instrument measures the instrument, not the spec. It reported `69 of 69` and
+was structurally incapable of disagreeing with itself.
+
+### The fix
+
+**The reader finds sections by the id the section declares, not by its heading spelling.** Two
+spellings are read: an id in the heading (`#### TRI-001: …`), and an id on the section's own
+`**Feature ID:**` line (`#### CHAN-0:`, and §14.9's two prose titles). `_spec_section` and
+`_spec_feature_ids` both widened; the report now reads **78 of 78**.
+
+**The label vocabulary widened with it, on both sides of the partition** — 11 content labels
+(`Applications`, `Constraints`, `Content formats`, `Content types`, `Inbound use cases`,
+`Menu structure (illustrative)`, `Outbound use cases`, `Supported devices`, `Target intermediaries`,
+`Tools provided`, `Why WhatsApp is the primary product`) and 10 claim labels (`Capabilities`,
+`Critical requirement`, `Distribution`, `Feature ID`, `Language coverage`, `Measurement`,
+`Objectives`, `Rationale`, `Role`, `Session limits`, plus `User control`, `Value`, `Verification`,
+`Why this feature`, `Why this matters for outbreaks`, `Why this works`). 95 labels, partitioning the
+spec exactly.
+
+The two defects hid each other: a label the audit does not know is invisible only in a section it
+does not read, and a section it does not read is invisible only while its labels are unknown.
+Widening the reader alone would have failed the vocabulary partition; widening the vocabulary alone
+would have changed nothing.
+
+**A third defect fell out of the widening.** §CHAN-1's `Format` cell is
+
+	160 characters, plain language, local language option via keyword (e.g., prefix `SW`, `LU`, `KY`)
+
+and a flat `re.split(r'[;,]')` reads it as **six** items, three of them fragments of one ("local
+language option via keyword (e.g.", "`LU`", "`KY`)"). `_split_items` now tracks parenthesis depth, so
+a separator inside an example belongs to the example. Checked against every other audited
+(section, label) pair: it changes **0** of them, and §REC-003's eight semicolon clauses still read as
+eight.
+
+### What the nine sections actually say — 70 rows, 17 of them open
+
+| Section | Label | Rows | Open |
+|---|---|---|---|
+| CHAN-000 | Content formats | 5 | 2 |
+| CHAN-001 | Outbound / Inbound / Format | 6+3+3 | 3 |
+| CHAN-002 | Menu structure (illustrative) | 13 | 0 |
+| CHAN-003 | Why WhatsApp is the primary product | 5 | 2 |
+| CHAN-004 | Content types | 6 | 4 |
+| CHAN-005 | Target intermediaries / Tools provided | 7+5 | 2 |
+| CHAN-006 | Constraints | 6 | 0 |
+| SENS-009 | Supported devices | 6 | 0 |
+| SENS-010 | Applications | 5 | 4 |
+
+The open ones are honest rather than convenient, and three kinds of thing are in them:
+
+- **Content nobody has produced.** §CHAN-0's live call-in and drama vignettes, §CHAN-4's animated
+  explainers and "day in the life" CHW material. Measured, not assumed: `animated`, `dashboard
+  screenshot` and `user-generated` return **zero files** under `src/afya/`.
+- **A message nothing sends.** §CHAN-1's *Follow-up after a USSD report* — the USSD path records the
+  report and collects a callback request, but no outbound message is keyed on the report.
+- **A mechanism that does not exist.** §CHAN-1's `Format` names a language keyword prefix (`SW`, `LU`,
+  `KY`) and no SMS body is parsed for one: `/integrations/telco/sms/inbound` takes `lang` as a
+  **query parameter**, which the person sending the text cannot set. A Dholuo speaker has no way to
+  ask for their language on the one channel §CHAN-1 exists for.
+- **Claims about the world, not capabilities.** §CHAN-3's *Near-universal in Kenya* and *No app store,
+  no storage, no updates* are reasons WhatsApp was chosen. No code closes them, and marking them
+  `carried` would be the audit claiming evidence it does not have.
+- **NFC applications with no tag.** §SENS-010's *Check-in at facilities* is `carried` —
+  `CHECKIN_METHODS = ('qr', 'nfc', 'manual')` and §LOC-004 records which was used. The other four are
+  not: a patient wristband, a tagged medicine package, a PPE station log and an equipment register are
+  four objects that do not exist here. §MED-001's verification takes a batch number and returns a
+  verdict; nothing binds a tag to a package so a tap cannot resolve to a batch.
+
+### A second, independent finding: nine registry ids the spec never defines
+
+`test_spec_coverage.py` walked **spec → registry** — every feature the spec names must resolve. Nothing
+walked **registry → spec**, and nine registry ids appear in `docs/spec.md` **zero times**:
+`INF-011…016` and `REC-007…009`. They came from the 2026-10-08 product expansion (commit `4e06739`),
+which added the women's-health, maternal, chronic, blood, insurance and alerting modules and registered
+ids for them. The spec's own §8–§14 sections stop at INF-010 and REC-006.
+
+Two of the nine **collide by name with sections the spec does define**: `INF-011` is "Water Quality
+Alerts" and §MON-005 is `#### MON-005: Water Quality Alerts`; `INF-012` is "Air Quality Index" and
+§MON-006 is `#### MON-006: Air Quality Index`. So the registry holds two ids for one feature — which is
+why `test_feature_coverage.ON_DEVICE` maps MON-005 to INF-011's service.
+
+They are **reported, not deleted**: the ids are shipped wire ids frozen by the mobile action catalogue
+and the two native clients, and code is reachable under each. Deleting them would take working features
+out of the registry to make a number agree with a document. What the new test does is make the set a
+*fact* — a tenth phantom id fails CI rather than joining the nine quietly.
+
+`test_registry.py`'s docstring said all eighteen unmapped ids "come from §8–§14". That was true of the
+registry's intent and false of the document: §7.3 does not name SENS-009/010 and §14.9 *does* define
+them, but the nine INF/REC ids are defined nowhere. The sentence read as a reassurance, and the
+docstring is corrected.
+
+### Canaries
+
+`tests/ci/canary_chan.py` — **7/7**. The first is the original defect restored byte for byte: revert
+`_spec_feature_ids` to the heading-only regex and nine sections must leave the report. If that canary
+ever passes, the gate has been scoped back to its own blind spot. The rest are the ways a *widened*
+reader can be wrong: finding sections by a heading prefix (invents sections the spec does not have),
+matching a *mentioned* id rather than the section's own (§CHAN-0 names §CHAN-1, so one section is
+audited twice and the other never), a section body that runs past its own `---`, a content label filed
+as a claim label, a claim label filed as a content label, and the flat split.
+
+`tests/ci/canary_spec_coverage.py` — **3/3**, and it is new: the spec↔registry gate had no canary file,
+only two hand-run checks recorded in this document. A hand-run canary is a memory, not a canary. Each
+canary asserts the failure names the node it aimed at, so a canary caught for the wrong reason is not
+counted as fired.
+
+Two canaries were **wrong on their first cut and read as MISSED**, which is the useful kind of failure:
+
+- One ran a node that the mutation cannot affect (a claim label moved into `_LABELS` does not make the
+  shape rule fail — it makes *pair coverage* fail, because §CHAN-3's `Capabilities` is a table and a
+  content label must have rows).
+- One patched `depth == 0` to `depth <= 0`, which is a **no-op**: the branch is only reached for a
+  character that is neither bracket, and `(` has already incremented the depth by then. A canary whose
+  patch changes no behaviour is a canary that did not run.
+
+### Verified
+
+- `uv run pytest -q tests/ci/test_content_audit.py` → **14 passed**
+- `uv run pytest -q tests/ci/test_registry.py tests/ci/test_spec_coverage.py tests/ci/test_feature_coverage.py tests/ci/test_governance.py` → **61 passed**
+- `uv run pyright` → **0 errors, 0 warnings, 0 informations**
+- `uv run python tests/ci/canary_chan.py` → **7/7**; `uv run python tests/ci/canary_spec_coverage.py` → **3/3**
+
+**Counts moved, and the movement is the finding: 478 → 531 `carried`, 2 → 19 `missing`, 17 `deferred`
+unchanged, `unresolved == []`, audited sections 69 → 78.** Seventeen of the nineteen open rows were
+always open — the audit simply could not see them; the other two are §ACC-001's video tutorial and
+§ACC-002's sixth language, both already recorded. Nothing in this unit closed a gap or opened one.
+
+**No new source.** The governing text is §5 and §14.9 of this repo's own spec; no external table or
+measurement is cited.

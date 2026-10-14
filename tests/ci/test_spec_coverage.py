@@ -91,6 +91,44 @@ def test_registry_ids_all_use_a_spec_namespace() -> None:
 		assert spec.channels, f'{spec.id} declares no delivery channel'
 
 
+def test_the_registry_ids_the_spec_does_not_define_are_the_nine_known_ones() -> None:
+	"""The other direction, which had no gate at all.
+
+	`test_every_spec_id_resolves` walks spec → registry: a feature the spec names and nothing built.
+	Nothing walked registry → spec, so a feature the registry carries and the spec never defines was
+	unmeasured — and nine exist. They came from the 2026-10-08 product expansion (commit 4e06739),
+	which added the women's-health, maternal, chronic, blood, insurance and alerting modules and
+	registered ids for them. The spec's own §8–§14 sections stop at INF-010 and REC-006, and these
+	ids appear in `docs/spec.md` **zero times**.
+
+	They are reported rather than deleted, and the reason is not tidiness: the ids are shipped wire
+	ids, frozen by the mobile action catalogue and the two native clients, and code is reachable
+	under each. Deleting them would take working features out of the registry to make a number
+	agree with a document. What the test does is make the set a *fact* — a tenth phantom id, or a
+	tenth section the spec stops short of, fails here rather than joining the nine quietly.
+
+	Two of the nine also collide by name with sections the spec does define: `INF-011` is "Water
+	Quality Alerts" and §MON-005 is `#### MON-005: Water Quality Alerts`; `INF-012` is "Air Quality
+	Index" and §MON-006 is `#### MON-006: Air Quality Index`. So for those two the registry holds
+	two ids for one feature, which is why `tests/ci/test_feature_coverage.py`'s `ON_DEVICE` maps
+	MON-005 to INF-011's service and MON-006 to INF-012's — the alias is real and this is the record
+	of why it was needed.
+	"""
+	defined = _spec_ids()
+	undefined = sorted(f.id for f in FeatureRegistry().FEATURES if f.id not in defined)
+	assert undefined == [
+		'INF-011', 'INF-012', 'INF-013', 'INF-014', 'INF-015', 'INF-016',
+		'REC-007', 'REC-008', 'REC-009',
+	], f'the registry carries ids the spec does not define: {undefined}'
+	# The two that collide by name, named rather than left to be rediscovered.
+	spec = SPEC.read_text(encoding='utf-8')
+	assert '#### MON-005: Water Quality Alerts' in spec
+	assert '#### MON-006: Air Quality Index' in spec
+	reg = FeatureRegistry()
+	assert reg.get('INF-011').name == 'Water Quality Alerts'
+	assert reg.get('INF-012').name == 'Air Quality Index'
+
+
 def test_registry_has_no_duplicate_ids() -> None:
 	reg = FeatureRegistry()
 	ids = [s.id for s in reg.FEATURES]

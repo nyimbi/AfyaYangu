@@ -201,13 +201,24 @@ def test_the_crossings_report_a_real_mismatch_and_are_silent_on_a_clean_registry
 
 def test_the_unmapped_features_are_the_channels_and_the_extended_ids() -> None:
 	"""The ids the registry carries that §7.3's summary does not name. Reported rather than forced:
-	§7.3 is a summary and these are features the sections define without the summary catching up —
-	the channel ids are §5's, and the extended INF/REC/SENS ids come from §8–§14."""
+	§7.3 is a summary and these are features the sections define without the summary catching up.
+
+	The docstring here used to say all eighteen "come from §8–§14", and that was wrong in a way that
+	hid a second defect: §7.3 does not name SENS-009/010 and §14.9 does define them, but nine of the
+	eighteen — `INF-011…016` and `REC-007…009` — are defined *nowhere in the spec at all*. The
+	sentence was true of the registry's intent and false of the document, and it read as a
+	reassurance, which is why `tests/ci/test_spec_coverage.py` now walks registry → spec as well as
+	spec → registry and pins the nine by name.
+	"""
 	from afya.registry.service import FeatureRegistry
 	unmapped = FeatureRegistry().unmapped_features()
 	assert 'CHAN-001' in unmapped, '§7.3 names no CHAN id at all'
 	assert 'GTM-001' not in unmapped, 'no GTM feature exists; the prefix is declared, not populated'
 	assert len(unmapped) == 18
+	# §14.9 defines these two; §7.3's summary simply does not list them.
+	assert {'SENS-009', 'SENS-010'} <= set(unmapped), '§14.9\'s two sensors are defined and unnamed'
+	# These nine are not unnamed — they are undefined, which is a different finding.
+	assert {'INF-011', 'INF-016', 'REC-007', 'REC-009'} <= set(unmapped)
 
 
 async def test_the_taxonomy_route_serves_the_scheme_and_its_crossings() -> None:
