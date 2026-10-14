@@ -631,7 +631,12 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		'§CHAN-001': 2,
 		'§CHAN-003': 2,
 		'§CHAN-004': 4,
-		'§CHAN-005': 2,
+		# §CHAN-005's two were the printed flip chart and the training. The training closed: the
+		# content is `afya.chw.views:TRAINING_MODULES` and the per-person record is
+		# `Intermediary.trained`, which `programme()` now reports as `untrained` — it was set by the
+		# enrol route and read by nothing, so a programme could train nobody and every report was
+		# silent. The flip chart stays: a printed artefact is genuinely not code.
+		'§CHAN-005': 1,
 		# §LOC-002 and §SEC-006's open-source rows were the same absence seen from two sections and
 		# both closed when the owner chose a licence. The note on §LOC-002 had the reasoning right
 		# while the licence was undecided — "a repository's licence is not something this tree can

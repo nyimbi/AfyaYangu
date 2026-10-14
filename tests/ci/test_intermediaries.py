@@ -115,12 +115,20 @@ def test_the_rationale_is_the_sections_own_sentence() -> None:
 
 def test_the_carried_tools_are_a_subset_of_the_sections() -> None:
 	"""`CODE_CARRIED_TOOLS` marks which of the five this repo carries. A tool marked carried that
-	§CHAN-5 does not list would be a claim about a programme the section never describes."""
+	§CHAN-5 does not list would be a claim about a programme the section never describes.
+
+	The set grew twice, both times because the audit was right and this set was stale. The airtime
+	incentive: `pay_incentive` disburses through §18.8's bounded telco client. The training:
+	`afya.chw.views:TRAINING_MODULES` is the content and `Intermediary.trained` the per-person
+	record. Only the printed flip chart is genuinely not code, so the strict-subset assertion stays
+	— it is what will notice if the last tool is claimed too.
+	"""
 	assert CODE_CARRIED_TOOLS <= set(TOOLS_PROVIDED), CODE_CARRIED_TOOLS - set(TOOLS_PROVIDED)
 	assert len(CODE_CARRIED_TOOLS) < len(TOOLS_PROVIDED), (
-		'a printed flip chart and a two-hour training are not code; a report claiming all five '
-		'would be describing something this repository does not ship'
+		'a printed flip chart is not code; a report claiming all five would be describing '
+		'something this repository does not ship'
 	)
+	assert len(CODE_CARRIED_TOOLS) == 4, sorted(CODE_CARRIED_TOOLS)
 
 
 # --- the attribution code ---------------------------------------------------------------------
@@ -247,20 +255,24 @@ async def test_the_amount_is_the_callers_and_the_carrier_bound_still_holds() -> 
 # --- the programme report ---------------------------------------------------------------------
 
 def test_the_programme_reports_the_tools_it_does_not_carry() -> None:
-	"""`uncarried_tools` is the finding. A printed flip chart and a two-hour training are not code;
-	a report listing only what is implemented would describe a programme §CHAN-5 does not.
+	"""`uncarried_tools` is the finding. Only a printed flip chart is genuinely not code; a report
+	listing only what is implemented would describe a programme §CHAN-5 does not.
 
-	The airtime incentive is *not* uncarried. It was, until this test was corrected: `pay_incentive`
-	gates a verified referral and disburses through §18.8's bounded telco client, so the mechanism
-	exists and an unconfigured deployment refusing the payment is a different fact. The audit filed
-	the bullet `carried` while this set omitted it, and the programme report understated the section.
+	Two tools came *off* the uncarried list, both because the audit was right and this set was
+	stale. The airtime incentive: `pay_incentive` gates a verified referral and disburses through
+	§18.8's bounded telco client, so the mechanism exists, and an unconfigured deployment refusing
+	the payment is a different fact. The training: `afya.chw.views:TRAINING_MODULES` is the content
+	and `Intermediary.trained` the per-person record.
 	"""
 	svc = IntermediaryService()
 	prog = svc.programme()
 	assert len(prog.kinds) == 7 and len(prog.tools) == 5
 	assert len(prog.carried_tools) + len(prog.uncarried_tools) == 5
-	assert len(prog.uncarried_tools) == 2, prog.uncarried_tools
-	assert 'Air time / data bundle incentives for verified referrals' in prog.carried_tools
+	assert len(prog.uncarried_tools) == 1, prog.uncarried_tools
+	assert prog.uncarried_tools == ['Printed job aids and flip charts']
+	for tool in ('Air time / data bundle incentives for verified referrals',
+	             'Short training (2 hours) and refresher content'):
+		assert tool in prog.carried_tools, tool
 	assert prog.intermediaries == 0
 	assert 'no intermediary is enrolled yet' in prog.note
 	assert set(prog.by_kind) == {k.value for k in IntermediaryKind}, 'every kind is counted, at zero'
@@ -313,6 +325,23 @@ async def test_the_programme_and_kinds_are_open_and_the_writes_are_not() -> None
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://testserver') as c:
 		prog = await c.get('/intermediaries/programme')
 		assert prog.status_code == 200 and len(prog.json()['tools']) == 5
+		# The open payload names no person. `untrained` carries attribution codes — §CHAN-5 prints
+		# them on a flip chart, so they are public handles — but no name, community or enrolment
+		# date, which is what makes "it names no person" a fact about the payload and not a
+		# reader's impression of the docstring.
+		body = prog.json()
+		# The key set is pinned rather than a blocklist of forbidden spellings. `'name' not in body`
+		# was the first version of this assertion and a canary walked straight through it: a field
+		# called `names` carrying the same people satisfies a check for `name`. Enumerate what the
+		# payload is, so a field added to it is a failure here rather than a leak nobody reads.
+		assert set(body) == {
+			'kinds', 'tools', 'carried_tools', 'uncarried_tools', 'intermediaries',
+			'trained', 'untrained', 'by_kind', 'note',
+		}, sorted(body)
+		assert not any(
+			'name' in key.lower() or 'community' in key.lower()
+			for key in body
+		), 'the open programme payload grew a field that could name a person'
 		kinds = await c.get('/intermediaries/kinds')
 		assert kinds.status_code == 200 and len(kinds.json()['kinds']) == 7
 		enrol = await c.post('/intermediaries/enrol', json={
@@ -379,3 +408,38 @@ def test_no_served_sentence_carries_a_spec_code() -> None:
 	prog = svc.programme()
 	for value in (*prog.kinds, *prog.tools, *prog.carried_tools, *prog.uncarried_tools, prog.note):
 		assert not code.search(value), value
+
+
+async def test_the_programme_reports_which_enrolled_intermediaries_are_untrained() -> None:
+	"""§CHAN-5's training bullet, read per person rather than as content that exists.
+
+	`Intermediary.trained` is set through `POST /intermediaries/enrol` and was read by nothing: a
+	programme could enrol a hundred intermediaries, train none of them, and every report would be
+	silent about it. The tool list says the training *content* is carried; this says who has had it,
+	which is the question §CHAN-5's rationale actually raises — trust transfers through
+	relationships, and an untrained intermediary transfers the wrong thing.
+
+	The count is the finding in both directions: `untrained` names the codes so a follow-up run has
+	someone to call, and `trained` is derived from the enrolments rather than tracked separately, so
+	the two cannot disagree.
+	"""
+	svc = IntermediaryService()
+	await svc.enrol(Intermediary(code='CHW-ABCD', name='A', kind=IntermediaryKind.chw,
+		county='Busia', community='Amagoro', enrolled_iso='2026-10-14T06:00:00Z', trained=True))
+	await svc.enrol(Intermediary(code='FTH-EFGH', name='B', kind=IntermediaryKind.faith_leader,
+		county='Busia', community='Amagoro', enrolled_iso='2026-10-14T06:00:00Z'))
+	prog = svc.programme()
+	assert prog.intermediaries == 2
+	assert prog.trained == 1 and prog.untrained == ['FTH-EFGH']
+	assert 'FTH-EFGH' not in prog.note or 'untrained' in prog.note
+	assert '1 of 2 enrolled intermediaries are untrained' in prog.note
+	# And a programme where everyone has been trained says so, rather than the note going quiet for
+	# the same reason a missing report does. A fresh service rather than mutating this one: `enrol`
+	# refuses a duplicate code, which is the property its own test pins.
+	whole = IntermediaryService()
+	for code in ('CHW-ABCD', 'FTH-EFGH'):
+		await whole.enrol(Intermediary(code=code, name='A', kind=IntermediaryKind.chw,
+			county='Busia', community='Amagoro', enrolled_iso='2026-10-14T06:00:00Z', trained=True))
+	done = whole.programme()
+	assert done.untrained == [] and done.trained == 2
+	assert 'untrained' not in done.note

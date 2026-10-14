@@ -155,26 +155,37 @@ class IntermediaryService(LogMixin):
 	def programme(self) -> IntermediaryProgramme:
 		"""§CHAN-5's seven kinds and five tools, against what this repo carries.
 
-		`uncarried_tools` is the finding and it is not a defect: a printed flip chart and a two-hour
-		training are not code. The airtime incentive is *not* among them — `pay_incentive` gates a
-		verified referral and disburses through §18.8's bounded telco client, so the capability is
-		here; an unconfigured deployment refusing the payment is a different fact from a programme
-		that does not exist, which is the distinction `pay_incentive`'s docstring draws. Reporting
-		the two keeps the list from becoming a claim that the whole programme ships in this repo.
+		`uncarried_tools` is the finding and it is not a defect: a printed flip chart is not code. The
+		airtime incentive is *not* among them — `pay_incentive` gates a verified referral and
+		disburses through §18.8's bounded telco client, so the capability is here; an unconfigured
+		deployment refusing the payment is a different fact from a programme that does not exist,
+		which is the distinction `pay_incentive`'s docstring draws. Nor is the training: the content
+		is `afya.chw.views:TRAINING_MODULES` and §24.4's matrix carries the audience, format and
+		duration.
+
+		`untrained` is the other finding, and it is the one this report was missing. `trained` is a
+		per-person fact on every enrolled intermediary and nothing read it, so a programme could
+		enrol a hundred people, train none, and report nothing wrong. `POST /intermediaries/enrol`
+		sets it; this is what makes the section's training bullet answerable per person.
 		"""
 		by_kind: dict[str, int] = {k.value: 0 for k in IntermediaryKind}
 		for i in self._by_code.values():
 			by_kind[i.kind.value] += 1
 		uncarried = [t for t in TOOLS_PROVIDED if t not in CODE_CARRIED_TOOLS]
+		untrained = sorted(c for c, i in self._by_code.items() if not i.trained)
+		trained = len(self._by_code) - len(untrained)
 		notes: list[str] = []
 		if uncarried:
 			notes.append(f'{len(uncarried)} of §CHAN-5\'s five tools are not code')
 		if not self._by_code:
 			notes.append('no intermediary is enrolled yet')
-		self._log_info('programme report', intermediaries=len(self._by_code))
+		elif untrained:
+			notes.append(f'{len(untrained)} of {len(self._by_code)} enrolled intermediaries are untrained')
+		self._log_info('programme report', intermediaries=len(self._by_code), untrained=len(untrained))
 		return IntermediaryProgramme(
 			kinds=[k.name for k in IntermediaryKind], tools=list(TOOLS_PROVIDED),
 			carried_tools=[t for t in TOOLS_PROVIDED if t in CODE_CARRIED_TOOLS],
-			uncarried_tools=uncarried, intermediaries=len(self._by_code), by_kind=by_kind,
-			note='; '.join(notes) if notes else 'all seven kinds enrolled and every tool carried',
+			uncarried_tools=uncarried, intermediaries=len(self._by_code),
+			trained=trained, untrained=untrained, by_kind=by_kind,
+			note='; '.join(notes) if notes else 'all seven kinds enrolled, every intermediary trained',
 		)

@@ -82,16 +82,20 @@ TOOLS_PROVIDED: tuple[str, ...] = (
 	'Short training (2 hours) and refresher content',
 )
 
-# The three tools with a code representation, named so `carried_tools()` can report the rest rather
-# than the module silently claiming all five. The incentive is here because the *mechanism* is:
+# The four tools with a code representation, named so `programme()` can report the rest rather than
+# the module silently claiming all five. The incentive is here because the *mechanism* is:
 # `pay_incentive` gates a verified referral and disburses through §18.8's bounded telco client, and
 # whether a deployment holds a carrier agreement is a separate fact from whether the capability
-# exists — `pay_incentive`'s own docstring makes that argument. It was missing from this set while
-# the audit filed the same bullet `carried`, so the programme report understated the section.
+# exists — `pay_incentive`'s own docstring makes that argument. The training is here because both
+# halves are: the content is `afya.chw.views:TRAINING_MODULES` (a 120-minute orientation and a PPE
+# refresher, which is what "2 hours and refresher content" names) and §24.4's matrix carries the
+# audience, format and duration; the per-person record is `Intermediary.trained`, which the
+# programme now reports. Only the printed artefact is genuinely not code.
 CODE_CARRIED_TOOLS: frozenset[str] = frozenset({
 	'CHW-specific app module (see COM-101)',
 	'Referral codes (each intermediary gets a code for attribution)',
 	'Air time / data bundle incentives for verified referrals',
+	'Short training (2 hours) and refresher content',
 })
 
 
@@ -174,9 +178,14 @@ class IntermediaryProgramme(BaseModel):
 	"""§CHAN-5 as one answer: the seven kinds, the five tools, and which of the tools this repo
 	carries.
 
-	`uncarried_tools` is the finding. Two of the section's five tools are not code — a printed flip
-	chart and a two-hour training are physical and human artefacts, not calls — and a report that
-	listed only what is implemented would describe a programme the section does not.
+	`uncarried_tools` is the finding. One of the section's five tools is not code — a printed flip
+	chart is a physical artefact — and a report that listed only what is implemented would describe
+	a programme the section does not.
+
+	`trained` and `untrained` are the §CHAN-5 training bullet read off the enrolled intermediaries.
+	`Intermediary.trained` was settable through `POST /intermediaries/enrol` and read by nothing, so
+	the section's per-person fact was recorded and never reported; these two counts are what make it
+	answerable.
 	"""
 
 	model_config = MODEL_CONFIG
@@ -185,5 +194,7 @@ class IntermediaryProgramme(BaseModel):
 	carried_tools: list[str]
 	uncarried_tools: list[str]
 	intermediaries: int = Field(ge=0)
+	trained: int = Field(ge=0)
+	untrained: list[str]
 	by_kind: dict[str, int]
 	note: str

@@ -5045,7 +5045,12 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/intermediaries/programme')
 	async def intermediaries_programme() -> dict[str, object]:
 		"""§CHAN-5's seven kinds and five tools, against what this repo carries. Open, because it is
-		the programme's own description and names no person — the same shape as `/personas`."""
+		the programme's own description — the same shape as `/personas`.
+
+		It names no person, and that is a claim about which fields are in the payload rather than a
+		reader's impression: `untrained` carries attribution codes, which §CHAN-5 prints on a flip
+		chart so a referral can be attributed to whoever made it, while `Intermediary.name`, its
+		community and its enrolled date stay out. The test asserts the payload carries no name."""
 		return intermediaries.programme().model_dump(mode='json')
 
 	@app.get('/intermediaries/kinds')

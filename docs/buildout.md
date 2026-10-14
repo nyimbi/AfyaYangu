@@ -5637,3 +5637,71 @@ deliberately open external dependencies (§ACC-001 video generation, §ACC-002 A
 languages). §SENS-010 was the last buildable cluster.
 
 **No new source.** The governing text is this repo's own `docs/spec.md`.
+
+## §CHAN-005 — the training that was recorded and never read (2026-10-14)
+
+### The finding
+
+Re-checking rows I had earlier triaged as "deliberately open" rather than trusting that triage.
+§CHAN-005's "Tools provided" listed five, and `CODE_CARRIED_TOOLS` marked two as code-carried, so
+`programme()` reported **three** uncarried. The audit filed a third bullet `carried`. One of the two
+instruments was wrong, and the audit was right twice over:
+
+* **The airtime incentive.** `pay_incentive` gates a verified referral and disburses through
+  §18.8's bounded telco client, on a real route (`infrastructure`-scoped, because it spends money).
+  Whether a deployment holds a carrier agreement is a separate fact from whether the capability
+  exists — the distinction `pay_incentive`'s own docstring draws, and the module's own views comment
+  already said "three of the five".
+* **The training.** `afya.chw.views:TRAINING_MODULES` is a 120-minute orientation plus a
+  `ppe_refresher`, which is what "2 hours and refresher content" names, and §24.4's matrix carries
+  the audience, format and duration for community leaders.
+
+### The defect underneath
+
+Correcting the tool list exposed the real one. `Intermediary.trained` is settable through
+`POST /intermediaries/enrol` and was **read by nothing** — `grep -rn '\.trained' src/ tests/`
+returned one hit, an unrelated local in `operations/service.py`. A programme could enrol a hundred
+intermediaries, train none, and every report in the tree was silent about it. The section's training
+bullet was answered as *content that exists* and never as *who has had it*.
+
+`IntermediaryProgramme` now carries `trained` (derived from the enrolments, not tracked separately,
+so the two cannot disagree) and `untrained` (the codes, so a follow-up run has someone to call).
+The note names the count.
+
+### The open payload names no person
+
+`GET /intermediaries/programme` is open, and its docstring claimed it "names no person". `untrained`
+now lists attribution codes, so that claim had to become checkable. A code is §CHAN-5's own public
+handle — printed on a flip chart so a referral can be attributed — while `name`, `community` and
+`enrolled_iso` stay out of the payload.
+
+The first version of that assertion was `'name' not in body`, and **a canary walked straight through
+it**: a field called `untrained_names` carrying the same people satisfies a check for `name`. That is
+the checker-enumerates-one-spelling defect, in a gate I had written minutes earlier. It is now a
+pinned key set, so a field added to the payload fails there rather than leaking.
+
+### Canaries
+
+Three, all now firing:
+
+	CAUGHT  `untrained` is computed but always empty
+	CAUGHT  the open payload grows a field carrying names   (MISSED on the first check, CAUGHT after widening)
+	CAUGHT  the incentive leaves CODE_CARRIED_TOOLS
+
+The second is the one worth keeping: it failed to fire against the blocklist and only fired once the
+assertion pinned the key set. A canary that misses is a finding about the gate, and the fix was to
+the gate, not to the canary.
+
+### Verified
+
+- `uv run pytest -q tests/ci` (full suite checkpoint) → **2169 passed**
+- `uv run pyright` → **0 errors, 0 warnings, 0 informations**
+- Reverts done with a `cp` backup and `__pycache__` cleared — a `cp` revert can leave the canary's
+  bytecode live when the patch and the original are the same length
+
+**Across the repo 536 → 537 `carried`, 14 → 13 `missing`.** The 13 that remain are §CHAN-004's
+social-media content programme (4), §CHAN-000's call-in and drama vignettes (2), §CHAN-001's
+follow-up SMS and plain-language bound (2), §CHAN-003's two claims about the world (2), §CHAN-005's
+printed flip chart (1), and the two deliberately open external dependencies §ACC-001 and §ACC-002.
+
+**No new source.** The governing text is this repo's own `docs/spec.md`.
