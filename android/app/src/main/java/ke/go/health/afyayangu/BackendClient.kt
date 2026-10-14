@@ -26,6 +26,14 @@ class BackendClient(private val context: Context) {
 	 */
 	private val prefs get() = context.getSharedPreferences("afya", Context.MODE_PRIVATE)
 
+	/**
+	 * §ACC-003's local-first store. The session credentials and the response cache stay in
+	 * `SharedPreferences` — a token and a last-good response are a cache, and calling them a database
+	 * would be the same overstatement in the other direction. What moves here is the *queue*, because
+	 * §16.1 principles 1 and 5 are promises about durability, and a cache cannot keep them.
+	 */
+	private val store = LocalStore(context.applicationContext)
+
 	@Volatile private var token: String? = null
 	@Volatile private var subject: String? = null
 
@@ -301,58 +309,80 @@ class BackendClient(private val context: Context) {
 		}
 	}
 
+	/**
+	 * §ACC-003: the queued write goes into the device's own database, in one transaction.
+	 *
+	 * This was a JSON array in `SharedPreferences`, read whole, mutated and written back whole. Two
+	 * writes racing lost one; a process killed between the mutation and the `apply()` lost the batch;
+	 * and nothing could be rolled back, because there was no transaction to roll back to. A queue
+	 * that can lose the entry it exists to keep is not §16.1's queue.
+	 */
 	private fun queue(actionId: String, method: String, path: String, pathValues: Map<String, String>, params: JSONObject) {
 		// The key is derived from the op's own content, so the same op always carries the same key
-		// and a replay after a restart is recognised as a repeat rather than a second write.
+		// and a replay after a restart is recognised as a repeat rather than a second write. It is
+		// also the row's primary key, which is what makes the deduplication a constraint rather than
+		// a convention.
 		val material = "$method $path $pathValues ${params}"
-		val key = "q-" + Integer.toHexString(material.hashCode())
-		val entry = JSONObject()
-			.put("action_id", actionId)
-			.put("method", method)
-			.put("path", path)
-			.put("path_values", JSONObject(pathValues as Map<*, *>))
-			.put("params", params)
-			.put("key", key)
-		val arr = JSONArray(prefs.getString("queue", "[]"))
-		arr.put(entry)
-		prefs.edit().putString("queue", arr.toString()).apply()
+		val key = "OP-" + Integer.toHexString(material.hashCode()).uppercase()
+		store.enqueue(
+			QueuedOp(
+				opId = key,
+				dataset = actionId,
+				clientTs = System.currentTimeMillis(),
+				method = method,
+				path = path,
+				pathValues = JSONObject(pathValues as Map<*, *>),
+				params = params,
+				key = key,
+				attempt = 0,
+				retryAtMs = null,
+			),
+		)
 	}
 
-	fun queuedCount(): Int = JSONArray(prefs.getString("queue", "[]")).length()
+	fun queuedCount(): Int = store.pendingCount()
 
 	/**
 	 * Replay the queue. Stops at the first op that is still unreachable so ordering is preserved;
-	 * an op the server *refuses* (4xx) is dropped rather than blocking the queue behind it forever.
+	 * an op the server *refuses* (4xx) is dropped rather than blocking the queue behind it forever,
+	 * and an op that failed for a reason a retry may fix is deferred to its backoff window rather
+	 * than re-sent on every resume.
 	 */
 	fun flushQueue(): Int {
-		val arr = JSONArray(prefs.getString("queue", "[]"))
-		if (arr.length() == 0) return 0
-		val remaining = JSONArray()
+		val ops = store.pending()
 		var sent = 0
-		var stopped = false
-		for (i in 0 until arr.length()) {
-			val e = arr.getJSONObject(i)
-			if (stopped) {
-				remaining.put(e)
-				continue
-			}
-			val pathValues = e.getJSONObject("path_values").let { pv ->
-				pv.keys().asSequence().associateWith { pv.getString(it) }
-			}
+		for (op in ops) {
+			val now = System.currentTimeMillis()
+			op.retryAtMs?.let { if (now < it) return sent }  // inside its backoff window: nothing after it is due either
+			val pathValues = op.pathValues.keys().asSequence().associateWith { op.pathValues.getString(it) }
 			try {
-				perform(e.getString("method"), e.getString("path"), pathValues, e.getJSONObject("params"), e.getString("key"))
+				perform(op.method, op.path, pathValues, op.params, op.key)
+				store.markSynced(op.opId, now)
 				sent++
 			} catch (err: HttpError) {
-				if (err.code in 400..499) continue // refused: dropping it is honest, retrying it is not
-				remaining.put(e)
-				stopped = true
+				if (err.code in 400..499) {
+					store.drop(op.opId)  // refused: dropping it is honest, retrying it is not
+					continue
+				}
+				// §16.2's "retry with exponential backoff". The delay is the server's own function
+				// (`afya.sync.service:backoff_delay_s`), reproduced here because the device is the
+				// side that has to wait: 2^attempt seconds, capped, so a failing server is not hit
+				// once per resume forever.
+				val attempt = op.attempt + 1
+				store.defer(op.opId, attempt, now + backoffDelayMs(attempt))
+				return sent  // ordering holds: the queue stops at the first op that did not go
 			} catch (err: Exception) {
-				remaining.put(e)
-				stopped = true
+				val attempt = op.attempt + 1
+				store.defer(op.opId, attempt, now + backoffDelayMs(attempt))
+				return sent
 			}
 		}
-		prefs.edit().putString("queue", remaining.toString()).apply()
 		return sent
+	}
+
+	private fun backoffDelayMs(attempt: Int): Long {
+		val seconds = (1L shl attempt.coerceIn(0, 10)).coerceAtMost(600L)
+		return seconds * 1000L
 	}
 
 	fun importOsmPlaces(lat: Double, lon: Double): String {

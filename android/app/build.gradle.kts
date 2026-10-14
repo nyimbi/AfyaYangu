@@ -27,4 +27,5 @@ dependencies {
 	// catalogue parse cannot be exercised without a real implementation on the test classpath.
 	// `returnDefaultValues` would silence it by returning defaults — which tests nothing.
 	testImplementation("org.json:json:20250107")
+	testImplementation("org.xerial:sqlite-jdbc:3.50.1.0")
 }

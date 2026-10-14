@@ -120,18 +120,34 @@ actor BackendClient {
 		}
 	}
 
-	private var queuedOps: [[String: String]] {
-		get { (defaults.array(forKey: "queue") as? [[String: String]]) ?? [] }
-		set { defaults.set(newValue, forKey: "queue") }
-	}
+	/// §ACC-003's local-first store. The session credentials and the response cache stay in
+	/// `UserDefaults` — a token and a last-good response are a cache, and calling them a database
+	/// would be the same overstatement in the other direction. What moves here is the *queue*,
+	/// because §16.1 principles 1 and 5 are promises about durability and a cache cannot keep them.
+	private lazy var store = LocalStore()
 
-	func queuedCount() -> Int { queuedOps.count }
+	func queuedCount() -> Int { store.pendingCount() }
 
 	/// Keep a write for later. The key is derived from the op's own content, so the same op always
 	/// carries the same key and a replay after a restart is a repeat, not a second write (§15.5).
+	/// It is also the row's primary key, which makes the deduplication a constraint rather than a
+	/// convention.
 	func enqueue(method: String, url: String, body: String) {
-		let key = "q-" + String(UInt(bitPattern: "\(method) \(url) \(body)".hashValue), radix: 16)
-		queuedOps.append(["method": method, "url": url, "body": body, "key": key])
+		let material = "\(method) \(url) \(body)"
+		let key = "OP-" + String(UInt(bitPattern: material.hashValue), radix: 16).uppercased()
+		store.enqueue(
+			QueuedOp(
+				opId: key,
+				dataset: URL(string: url)?.pathComponents.dropFirst().first ?? "unknown",
+				clientTs: Int64(Date().timeIntervalSince1970 * 1000),
+				method: method,
+				url: url,
+				body: body,
+				key: key,
+				attempt: 0,
+				retryAtMs: nil
+			)
+		)
 	}
 
 	/// Replay the queue. Stops at the first op still unreachable so ordering holds; an op the server
@@ -142,37 +158,48 @@ actor BackendClient {
 	/// as sent and silently discarded rather than reported.
 	@discardableResult
 	func flushQueue() async -> Int {
-		var remaining: [[String: String]] = []
 		var sent = 0
-		var stopped = false
 		// One session for the whole replay: if it cannot be obtained there is nothing to send to.
 		guard let (_, token) = try? await ensureSession() else { return 0 }
-		for op in queuedOps {
-			if stopped { remaining.append(op); continue }
-			guard let url = URL(string: op["url"] ?? "") else { continue }
+		for op in store.pending() {
+			let now = Int64(Date().timeIntervalSince1970 * 1000)
+			// Inside its backoff window: nothing after it is due either, so the replay stops here.
+			if let due = op.retryAtMs, now < due { return sent }
+			guard let url = URL(string: op.url) else { store.drop(op.opId); continue }
 			var req = URLRequest(url: url)
-			req.httpMethod = op["method"]
+			req.httpMethod = op.method
 			req.setValue("application/json", forHTTPHeaderField: "content-type")
-			req.setValue(op["key"], forHTTPHeaderField: "idempotency-key")
-			req.httpBody = (op["body"] ?? "").data(using: .utf8)
+			req.setValue(op.key, forHTTPHeaderField: "idempotency-key")
+			req.httpBody = op.body.data(using: .utf8)
 			req.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
 			do {
 				let (_, resp) = try await session.data(for: req)
 				let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
 				if (200..<300).contains(code) {
+					store.markSynced(op.opId, serverTs: now)
 					sent += 1
 				} else if (400..<500).contains(code) {
-					continue // refused: dropping it is honest, retrying it is not
+					store.drop(op.opId) // refused: dropping it is honest, retrying it is not
 				} else {
-					remaining.append(op)
-					stopped = true
+					// §16.2's "retry with exponential backoff". The delay is the server's own
+					// function (`afya.sync.service:backoff_delay_s`), reproduced here because the
+					// device is the side that has to wait: 2^attempt seconds, capped, so a failing
+					// server is not hit once per resume forever.
+					let attempt = op.attempt + 1
+					store.deferOp(op.opId, attempt: attempt, retryAtMs: now + backoffDelayMs(attempt))
+					return sent // ordering holds: the queue stops at the first op that did not go
 				}
 			} catch {
-				remaining.append(op)
-				stopped = true
+				let attempt = op.attempt + 1
+				store.deferOp(op.opId, attempt: attempt, retryAtMs: now + backoffDelayMs(attempt))
+				return sent
 			}
 		}
-		queuedOps = remaining
 		return sent
+	}
+
+	private func backoffDelayMs(_ attempt: Int) -> Int64 {
+		let seconds = min(Int64(1) << Int64(min(max(attempt, 0), 10)), 600)
+		return seconds * 1000
 	}
 }

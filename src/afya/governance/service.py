@@ -232,10 +232,15 @@ class GovernanceService(LogMixin):
 		# clients cache the last good response in SharedPreferences and UserDefaults, which is a
 		# cache rather than a database and has neither transactions nor a schema. Reporting this as
 		# shipped would be the stack table making exactly the claim it exists to check.
+		# The queue is now a real SQLite database on both clients (`LocalStore.kt`, `LocalStore.swift`),
+		# so the layer is SQLite rather than "a cache". The *engine* is still not the one §15.2 names —
+		# Room on Android and Core Data on iOS — and the response cache and the session token remain in
+		# SharedPreferences and UserDefaults, which is the right place for a cache and the wrong place
+		# for a queue. Reporting this as `shipped` would erase that second half.
 		('Local DB', 'SQLite + Room (Android), Core Data (iOS)', 'Proven, ACID-compliant, offline-first',
-			StackStatus.diverged, 'SharedPreferences + UserDefaults',
-			'android/app/src/main/java/ke/go/health/afyayangu/BackendClient.kt',
-			'last-good-response cache, not an ACID store'),
+			StackStatus.diverged, 'SQLite direct (no Room, no Core Data)',
+			'android/app/src/main/java/ke/go/health/afyayangu/LocalStore.kt',
+			'ACID queue on both clients; Room and Core Data are not used, and the response cache stays in preferences'),
 		('On-device ML', 'TensorFlow Lite, ONNX Runtime Mobile', 'Lightweight, mature, supports the required models',
 			StackStatus.shipped, 'ONNX Runtime', 'afya.ml.cough:YamnetCoughEngine', None),
 		('Backend runtime', 'Node.js (Fastify) + Python (FastAPI)', 'Node for APIs, Python for ML and data pipelines',

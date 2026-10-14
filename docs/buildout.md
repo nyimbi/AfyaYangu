@@ -4741,3 +4741,114 @@ and both checksums in `sources/INDEX.md`, plus a note on what the source does an
 it gives no pixel minimum, no physical size in inches, and no definition of a low-resolution *screen*
 beyond the `smallestWidth` figure, so no pixel dimension appears in the code and `smallest_width_dp`
 is the only axis recorded.
+
+---
+
+## §ACC-003 — Local-first data storage (2026-10-14)
+
+§12.1's "Offline-First Architecture" prints seven Technical-approach bullets. Six were carried; the
+first was `missing`, and the audit row's note had the reason right: `afya.persistence.service:SqliteStore`
+is the **server's** durability adapter for the sync queue and the consent ledger, and §15.2's own stack
+table reported the client's local DB as diverged to a SharedPreferences last-good-response cache —
+"not an ACID store".
+
+What made this row different from every other `missing` row in this run is that the code it needed was
+not in Python. §16.1 principle 1 says *every user action is written to the local database first* and
+principle 5 says *every queued write survives app restart and device reboot*. Those are claims about a
+device's store, and the device's store was a JSON array in `SharedPreferences` (`UserDefaults` on iOS)
+that was read whole, mutated, and written back whole. That is a cache:
+
+- two writes racing lost one, because the read-modify-write was not atomic;
+- a process killed between the mutation and the `apply()` lost the batch;
+- a replay had nothing to key on but a hash of the request, so a duplicate was a convention rather
+  than a constraint;
+- a half-written batch could not be rolled back, because there were no transactions to roll back to;
+- nothing recorded an attempt or a backoff, so an op that failed for a retryable reason was re-sent
+  on every resume, forever.
+
+### What closed it
+
+**A real SQLite database on each client.** `LocalStoreSchema.kt` / `LocalStoreSchema.swift` hold the
+DDL and the statements with no platform imports, so the JVM and simulator test bundles run the same
+strings the device does. `LocalStore.kt` / `LocalStore.swift` are the stores: one transaction per
+enqueue, `INSERT OR REPLACE` on the op's own idempotency key, and a `retry_at_ms` column so §16.2's
+backoff is a fact about the queue rather than a hope. `BackendClient` on both platforms now queues and
+flushes through it.
+
+**One contract both clients run.** `proto/local_store/contract.json` states three vectors, and the
+Kotlin and Swift suites both execute them against a real engine:
+
+| vector | what it pins |
+|---|---|
+| `committed_rows_are_durable` | a committed write is there after the connection that made it |
+| `rolled_back_rows_are_gone` | a rolled-back write is gone — the assertion a cache cannot express |
+| `the_key_refuses_a_duplicate` | a replay is one row, not two |
+
+The contract is in `proto/` beside `afya_internal.proto` because that is where this repo keeps the
+artefacts the clients share rather than the ones the server runs. `afya.persistence.local_store` is
+the Python end of the same file, and it asserts the shape all three readers depend on.
+
+**The device table is the server's table.** A queue is replayable only if the row it holds is the row
+the server's `SyncOp` expects, so the contract's DDL and `afya/persistence/service.py:sync_ops` are
+held to the same nine columns by a test that reads both.
+
+### Two defects the work found on the way
+
+**The Android client did not compile.** `gradle :app:testDebugUnitTest` failed on
+`ActionsActivity.kt:120: Unresolved reference 'minHeight'` — §ACC-005's `view.minHeight` on a receiver
+whose declared type is `View`. `minHeight` is `TextView`'s synthetic property; `View`'s is
+`minimumHeight`, and `Spinner` is not a `TextView` at all, so the line could never have compiled. The
+button two lines above compiled because its receiver is a `Button`. **Nothing in this repo compiles
+Kotlin**: `ci.yml` runs pyright, pytest, bandit and pip-audit, and no step touches `android/` or
+`ios/`. The previous unit's Kotlin change was committed without ever having been built. It is
+`minimumHeight` now, and both native suites were run by hand before this commit.
+
+**The contract triplicated its own schema.** The DDL appeared once per scenario, so a canary mutation
+matched three times and would not apply — which is how the duplication was noticed. Three copies of
+one schema inside the file whose whole purpose is to prevent divergence is the defect it exists to
+prevent. The DDL is now a single top-level key and a test asserts no scenario restates it.
+
+### Canaries
+
+`tests/ci/canary_acc003.py`, 6 canaries, **6/6 fired** — but two of them missed on the first run and
+both misses were bugs in the gate, not in the code:
+
+- *"no client runs the shared contract"* passed against a client test whose **read** had been pointed
+  at a copy, because the assertion matched the path anywhere in the file and the path also appears in
+  the test's own doc comment. The gate now matches the call that opens the file, in each language's
+  own spelling.
+- *"the Swift schema drops a column"* passed because the gate searched the whole schema **file**, and
+  `retry_at_ms` survives in the insert, the defer and the migration even when the table has lost it.
+  The gate now cuts the table definition out, joins its string literals, and compares the columns —
+  and the whole statement, not a sample of it.
+
+The other four: the Android queue reverting to a preferences array (the row's finding returning with
+everything else green), the device table dropping a column the server expects, the client backoff cap
+becoming this deployment's number instead of `afya.sync.service:backoff_delay_s`'s 600 s, and the
+audit row reverting to `missing` while the store stays.
+
+### Live probe
+
+- `GET /sync/state?connection=offline` → `durable: false` with the detail *"This device is not keeping
+  a copy, so unsent changes are lost if the app closes."* The deployment has no store attached, and
+  the indicator says so rather than reassuring. This is the honest half of §16.1 principle 4 and it is
+  unchanged by this unit: the **device** now keeps a copy; the **server** in a test deployment does
+  not, and the label distinguishes them.
+- `GET /sync/policy?connection=metered` → 50 ops, 300 s poll — the adaptive numbers, unchanged.
+- `GET /mobile/actions` Sync group → "Save for later (offline)", "Send everything now", "Is my work
+  saved?" — no feature code in the catalogue or in any sync payload.
+
+### Verified
+
+- `gradle :app:testDebugUnitTest --rerun-tasks` → **14 tests, 0 failures** (5 new)
+- `xcodebuild ... test` → **14 tests, 0 failures** (6 new)
+- `uv run pytest -q tests/ci` → **2086 passed**, read from the log rather than through a pipe
+- `uv run pyright` → 0 errors
+- `uv run python tests/ci/canary_acc003.py` → 6/6
+
+**§ACC-003 1 `missing` → 0.** Across the repo **474 → 475 `carried`, 6 → 5 `missing`**, 69 audited
+sections, `deferred` 17 unchanged, `unresolved == []`.
+
+**No new source.** Nothing here is a figure taken from a published table: the contract is this repo's
+own statements, and the backoff cap is the server's existing function, asserted against it rather than
+restated.

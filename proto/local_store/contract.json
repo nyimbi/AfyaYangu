@@ -1,0 +1,55 @@
+{
+	"contract": "afya.local_store.v1",
+	"what": "The statements a device store must execute to be the store spec 16.1 requires. Both native clients run these against their own database engine and must agree with `expect`, so the two offline-first clients cannot diverge from each other without one of them failing. The table mirrors the server's `sync_ops` (afya/persistence/service.py), because a queue is only replayable if the row it holds is the row the server expects.",
+	"not_a_measurement": "These are correctness vectors, not benchmarks. Nothing here says a device is fast; it says a committed write is durable, a rolled-back one is gone, and a primary key refuses a duplicate.",
+	"ddl": "CREATE TABLE IF NOT EXISTS sync_ops (op_id TEXT PRIMARY KEY, dataset TEXT NOT NULL, server_version INTEGER NOT NULL DEFAULT 0, client_ts INTEGER NOT NULL, server_ts INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL DEFAULT '{}', attempt INTEGER NOT NULL DEFAULT 0, synced INTEGER NOT NULL DEFAULT 0, retry_at_ms INTEGER)",
+	"scenarios": [
+		{
+			"name": "committed_rows_are_durable",
+			"why": "spec 16.1 principle 5: every queued write survives app restart. A commit is the promise.",
+			"statements": [
+				"BEGIN",
+				"INSERT INTO sync_ops (op_id, dataset, client_ts, payload) VALUES ('OP-A1B2C3', 'symptom_logs', 1700000000000, '{\"temperature_c\":\"38.4\"}'), ('OP-D4E5F6', 'temperature', 1700000000001, '{\"value\":\"38.4\"}'), ('OP-G7H8J9', 'medication', 1700000000002, '{\"taken\":\"true\"}')",
+				"COMMIT"
+			],
+			"query": "SELECT op_id FROM sync_ops ORDER BY op_id",
+			"expect": [
+				"OP-A1B2C3",
+				"OP-D4E5F6",
+				"OP-G7H8J9"
+			]
+		},
+		{
+			"name": "rolled_back_rows_are_gone",
+			"why": "The other half of durability, and the half a cache cannot express. A store with no transactions cannot be told that a half-written batch must not appear; a write-ahead queue that shows a rolled-back op will replay a write the user cancelled.",
+			"statements": [
+				"BEGIN",
+				"INSERT INTO sync_ops (op_id, dataset, client_ts, payload) VALUES ('OP-A1B2C3', 'symptom_logs', 1700000000000, '{\"temperature_c\":\"38.4\"}'), ('OP-D4E5F6', 'temperature', 1700000000001, '{\"value\":\"38.4\"}'), ('OP-G7H8J9', 'medication', 1700000000002, '{\"taken\":\"true\"}')",
+				"ROLLBACK",
+				"BEGIN",
+				"INSERT INTO sync_ops (op_id, dataset, client_ts, payload) VALUES ('OP-K1L2M3', 'facility', 1700000000003, '{}')",
+				"COMMIT"
+			],
+			"query": "SELECT op_id FROM sync_ops ORDER BY op_id",
+			"expect": [
+				"OP-K1L2M3"
+			]
+		},
+		{
+			"name": "the_key_refuses_a_duplicate",
+			"why": "A replay is the normal case offline, not the exception, so the queue's key is what stops one op becoming two rows. An upsert is correct here and an insert is not.",
+			"statements": [
+				"BEGIN",
+				"INSERT INTO sync_ops (op_id, dataset, client_ts, payload) VALUES ('OP-A1B2C3', 'symptom_logs', 1700000000000, '{\"temperature_c\":\"38.4\"}'), ('OP-D4E5F6', 'temperature', 1700000000001, '{\"value\":\"38.4\"}'), ('OP-G7H8J9', 'medication', 1700000000002, '{\"taken\":\"true\"}')",
+				"COMMIT",
+				"BEGIN",
+				"INSERT OR REPLACE INTO sync_ops (op_id, dataset, client_ts, payload) VALUES ('OP-A1B2C3', 'symptom_logs', 1700000000009, '{\"temperature_c\":\"39.1\"}')",
+				"COMMIT"
+			],
+			"query": "SELECT payload FROM sync_ops WHERE op_id = 'OP-A1B2C3'",
+			"expect": [
+				"{\"temperature_c\":\"39.1\"}"
+			]
+		}
+	]
+}

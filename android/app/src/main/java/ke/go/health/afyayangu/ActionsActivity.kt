@@ -117,7 +117,11 @@ class ActionsActivity : Activity() {
 		}
 		inputs[f.name] = view
 		row.addView(view, ViewGroup.LayoutParams(MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-		if (view is EditText || view is Spinner) view.minHeight = minTargetPx
+		// `minimumHeight` and not `minHeight`: `View` carries the first and `TextView` the second, and
+		// the declared type here is `View`. `Spinner` is not a `TextView` at all, so the `TextView`
+		// property would not reach it — which is how this line failed to compile while the button
+		// above, whose receiver is a `Button`, compiled fine.
+		if (view is EditText || view is Spinner) view.minimumHeight = minTargetPx
 		return row
 	}
 

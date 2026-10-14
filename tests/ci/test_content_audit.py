@@ -329,7 +329,6 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 	assert per_feature == {
 		'§ACC-001': 1,
 		'§ACC-002': 1,
-		'§ACC-003': 1,
 		'§LOC-002': 1,
 		'§SEC-001': 1,
 		'§SEC-006': 1,
