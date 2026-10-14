@@ -202,7 +202,8 @@ FEATURE_OF: dict[str, str] = {
 	'send_sms': 'CHAN-001', 'whatsapp_send': 'CHAN-003', 'ussd_menu': 'CHAN-002',
 	'channel_costs': 'CHAN-001',
 	'queue_sync_op': 'CHAN-006', 'flush_sync': 'CHAN-006', 'offline_state': 'ACC-003',
-	'record_consent': 'SEC-001', 'dpia_check': 'SEC-001',
+	'record_consent': 'SEC-001', 'dpia_check': 'SEC-001', 'consent_history': 'SEC-001',
+	'withdraw_consent': 'SEC-001',
 	'sensor_ingest': 'SENS-005', 'analyse_cough': 'SENS-002', 'submit_evidence': 'SENS-004',
 	'activate_outbreak_mode': 'TRI-003',
 	'report_issue': 'COM-005', 'issues_by_county': 'COM-005', 'resolve_issue': 'COM-005',
@@ -674,6 +675,14 @@ def catalogue() -> list[MobileAction]:
 		_a('activate_outbreak_mode', 'Activate outbreak mode', 'Outbreak', 'POST', '/tier4/activate', [_f('authorized_by_pheoc', 'PHEOC authorised?', 'bool'), _f('flag_enabled', 'Switch on?', 'bool'), _f('raw_sensor_data_retained', 'Keeping raw sensor data?', 'bool'), _f('location_tracking', 'Tracking location?', 'bool'), _f('proximity_logging', 'Proximity logging?', 'bool'), _f('contact_tracing', 'Contact tracing?', 'bool'), _f('automated_decisions', 'Automatic decisions?', 'bool'), _f('data_sharing_with_authorities', 'Sharing with health authorities?', 'bool'), _f('children_data', "Children's data?", 'bool'), _f('cross_border_transfer', 'Data leaving the country?', 'bool')]),
 		# Privacy & transparency
 		_a('record_consent', 'Record my consent', 'Privacy', 'POST', '/privacy/consent', [_s(), _f('purpose', 'What for?'), _f('data_types', 'Which data?', 'list'), _f('retention_days', 'Keep for how many days', 'int'), _f('legal_basis', 'Why are we allowed to?', 'select', ['consent', 'legal_obligation', 'legitimate_interest'])]),
+
+		# §SEC-001's consent audit log, visible to the person it is about. No `subject_ref` field: the
+		# route binds the subject to the token (`names_subject=False`), so a form drawing one would be
+		# offering a control that names a stranger. `lang` because the note above the log is a sentence.
+		_a('consent_history', 'What have I agreed to?', 'Privacy', 'GET', '/privacy/consent/history', [_f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
+		# §SEC-001's one-tap revocation. The id is the one `record_consent` returned, or the one the
+		# log's own lines carry — a path field, so the client fills it from the screen the person is on.
+		_a('withdraw_consent', 'Take my consent back', 'Privacy', 'POST', '/privacy/consent/{consent_id}/withdraw', [_f('consent_id', 'Consent reference', 'path')]),
 		_a('dpia_check', 'Check a new data use', 'Privacy', 'POST', '/privacy/dpia', [_f('raw_sensor_data_retained', 'Keeping raw sensor data?', 'bool'), _f('location_tracking', 'Tracking location?', 'bool'), _f('proximity_logging', 'Proximity logging?', 'bool'), _f('contact_tracing', 'Contact tracing?', 'bool'), _f('automated_decisions', 'Automatic decisions?', 'bool'), _f('data_sharing_with_authorities', 'Sharing with health authorities?', 'bool'), _f('children_data', "Children's data?", 'bool'), _f('cross_border_transfer', 'Data leaving the country?', 'bool')]),
 		_a('retention_policy', 'How long is data kept?', 'Privacy', 'GET', '/retention/policy', []),
 		_a('data_inventory', 'What do you know about me?', 'Privacy', 'GET', '/retention/inventory/{subject_ref}', [_s('path')]),

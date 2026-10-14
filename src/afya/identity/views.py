@@ -53,6 +53,10 @@ class PhoneConsent(BaseModel):
 	model_config = MODEL_CONFIG
 	msisdn: str = Field(min_length=9, max_length=16)
 	category: str = Field(min_length=1)
+	# Which channel the session came from. §SEC-001's log is the person's own history and a USSD
+	# grant is a session they may not remember, so the carrier says which it was rather than the
+	# log guessing. Defaults to `unknown`, never to `app`.
+	channel: str = Field(pattern='^(app|ussd|sms|whatsapp|chw|unknown)$', default='unknown')
 
 
 class CaseReportRef(BaseModel):

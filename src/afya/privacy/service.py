@@ -1,15 +1,19 @@
 """Privacy service — consent ledger, DPIA gate, RBAC, anonymization, breach notification (spec §17)."""
+import time
 from typing import Any
 
+from afya.auth.views import now_ms
 from afya.identity.service import IdentityService
 from afya.logmixin import LogMixin
 from afya.privacy.views import (
-	AccessRequest, BreachEvent, BreachNotification, ConsentCategory, ConsentRecord, ConsentScope,
+	AccessRequest, BreachEvent, BreachNotification, ConsentCategory, ConsentEvent, ConsentHistory,
+	ConsentRecord, ConsentScope,
 	ConsentToggle, DPIAInput, DPIARecord, DPIAReport, InstrumentAssessment, InstrumentKind,
 	InstrumentObligation,
 	LegalBasis, ObligationKind, PrincipleImplementation, RBACRole, RegulatoryInstrument,
 	RegulatoryReport, _SCOPE,
 )
+from afya.strings import consent_history_note
 from afya.refs import resolves
 
 # §SEC-001's eight categories. `explains` is the plain-language sentence beside the toggle and
@@ -252,11 +256,15 @@ class PrivacyService(LogMixin):
 		for every question a caller can ask.
 		"""
 		self._consents: dict[str, ConsentRecord] = {}
+		# §SEC-001's consent audit log, and it is a list rather than a dict keyed by consent id for
+		# the reason the section asks for a log: a grant and the withdrawal that ended it are two
+		# events about one record, and a mapping would keep whichever was written last.
+		self._consent_events: list[ConsentEvent] = []
 		self._audit: list[tuple[bool, AccessRequest]] = []
 		self._dpia_reviews: list[DPIARecord] = []
 		self._store = store
 		self._identity = identity
-		assert self._consents == {} and self._audit == []
+		assert self._consents == {} and self._audit == [] and self._consent_events == []
 
 	async def record_consent(self, record: ConsentRecord) -> ConsentRecord:
 		assert record.subject_ref, 'subject_ref required'
@@ -278,6 +286,10 @@ class PrivacyService(LogMixin):
 				'§17.2 allows the legal-obligation basis for those only'
 			)
 		self._consents[record.consent_id] = record
+		self._consent_events.append(self._event(
+			record, action='granted', category=record.purpose, channel=record.channel,
+			label=self._label(record.purpose), consequence=self._consequence(record.purpose),
+		))
 		if self._store is not None:
 			await self._store.save_consent(record)
 		self._log_info('consent recorded', consent_id=record.consent_id)
@@ -429,19 +441,25 @@ class PrivacyService(LogMixin):
 		return moved
 
 	async def record_consent_for_phone(self, msisdn: str, category: ConsentCategory,
-	                                   retention_days: int = 365) -> ConsentRecord:
+	                                   retention_days: int = 365,
+	                                   channel: str = 'unknown') -> ConsentRecord:
 		"""A grant made on a channel, written to the one registry the app reads.
 
 		The subject is resolved through the identity model, so a person who grants on USSD and then
 		opens the app sees the toggle already on — and a person who withdraws in the app has withdrawn
 		it for the USSD session too, because there is one record and not one per channel.
+
+		`channel` defaults to `unknown` rather than to `app` for the reason the enum has that member:
+		this door is reached by a webhook and the caller may not know which channel it came from, and
+		a log line that guessed "app" would tell the person their grant was made in a session they
+		have no memory of.
 		"""
 		if self._identity is None:
 			raise RuntimeError('the privacy service has no identity model wired; §5.4 requires the shared one')
 		subject = self._identity.resolve(msisdn)
 		return await self.record_consent(ConsentRecord(
 			subject_ref=subject, purpose=category.value, data_types=[category.value],
-			retention_days=retention_days, legal_basis=LegalBasis.consent,
+			retention_days=retention_days, legal_basis=LegalBasis.consent, channel=channel,
 		))
 
 	def sensor_consented(self, subject_ref: str, sensor: str) -> bool:
@@ -453,9 +471,24 @@ class PrivacyService(LogMixin):
 			for c in self._consents.values()
 		)
 
-	async def withdraw(self, consent_id: str) -> ConsentRecord:
+	async def withdraw(self, consent_id: str, subject_ref: str | None = None) -> ConsentRecord:
+		"""Revoke one grant. §SEC-001's one-tap revocation, and the only door that writes a
+		`withdrawn` event.
+
+		`subject_ref` is optional because the service is also called in-process by the retention
+		sweep and the tests, where the caller already holds the record. A *route* must pass it: the
+		guard binds the token to a subject, and a revocation that only needed a consent id would let
+		anyone who guessed one switch off a grant they are not party to — a denial of care wearing
+		§SEC-001's label, the same failure `records.revoke_share` names.
+		"""
 		rec = self._consents[consent_id]
+		if subject_ref is not None:
+			assert rec.subject_ref == subject_ref, 'a token may withdraw only its own consent'
 		rec.withdrawn = True
+		self._consent_events.append(self._event(
+			rec, action='withdrawn', category=rec.purpose, channel=rec.channel,
+			label=self._label(rec.purpose), consequence=self._consequence(rec.purpose),
+		))
 		if self._store is not None:
 			await self._store.save_consent(rec)
 		self._log_warn('consent withdrawn', consent_id=consent_id)
@@ -476,12 +509,86 @@ class PrivacyService(LogMixin):
 		"""
 		allowed = self.check_access(req)
 		if self._store is not None:
-			import time
-			await self._store.append_audit(req.role.value, req.dataset, allowed, int(time.time() * 1000))
+			await self._store.append_audit(req.role.value, req.dataset, allowed, now_ms())
 		return allowed
 
 	def audit_log(self) -> list[tuple[bool, AccessRequest]]:
 		return list(self._audit)
+
+	# --- §SEC-001's consent log, as the person reads it ---------------------------------------
+
+	@staticmethod
+	def _label(purpose: str) -> str:
+		"""The catalogue's label for a purpose, or the purpose itself where it is not a category.
+
+		A per-sensor grant is `sensor_monitoring:gps`, which is not a category — the catalogue covers
+		the eight §SEC-001 names and a sensor is a member of one of them. Falling back to the sensor
+		slug rather than to the parent category's label is deliberate: a log line that said "Phone
+		sensors" for both a gps grant and a microphone grant would tell the person nothing about which
+		one they switched on.
+		"""
+		head = purpose.split(':', 1)[0]
+		try:
+			category = ConsentCategory(head)
+		except ValueError:
+			return purpose
+		scope = _CATALOGUE_BY_CATEGORY.get(category)
+		if scope is None or ':' in purpose:
+			return purpose
+		return scope.label
+
+	@staticmethod
+	def _consequence(purpose: str) -> str:
+		"""What the person was told withdrawing it would cost, at the time of the event."""
+		head = purpose.split(':', 1)[0]
+		try:
+			scope = _CATALOGUE_BY_CATEGORY.get(ConsentCategory(head))
+		except ValueError:
+			scope = None
+		return scope.on_withdrawal if scope is not None else ''
+
+	@staticmethod
+	def _event(record: ConsentRecord, *, action: str, category: str, channel: str,
+	           label: str, consequence: str) -> ConsentEvent:
+		"""One log line, carrying the catalogue's words as they stood rather than a reference to them.
+
+		A person reading back a grant made six months ago is owed what they were told *then*. The
+		catalogue can be reworded; a log that looked its sentences up at read time would silently
+		rewrite the person's own history.
+		"""
+		assert action in ('granted', 'withdrawn', 'sensor_granted', 'sensor_withdrawn', 'purged'), action
+		assert category, 'a consent event names what it was about'
+		return ConsentEvent(
+			subject_ref=record.subject_ref, at_ms=now_ms(), action=action, category=category, label=label,
+			consequence=consequence, channel=channel,
+			retention_days=record.retention_days, legal_basis=record.legal_basis,
+		)
+
+	def consent_history(self, subject_ref: str, lang: str = 'en') -> ConsentHistory:
+		"""§SEC-001's "consent audit log visible to the user", newest first.
+
+		`live` is the set of purposes that stand right now — the same predicate `has_category_consent`
+		applies, so the log and the toggles cannot disagree about whether something is on. The two are
+		served together for that reason: a person who withdrew a category and then sees the toggle on
+		again would have no way to tell which of the two surfaces was lying.
+
+		Refusals are reported rather than dropped, as `DoseResult.unknown` established. A subject with
+		no events is answered with an empty log and a sentence saying so, not with an empty list that
+		reads like a record which was cleared.
+		"""
+		assert subject_ref, 'a subject is required to read a consent log'
+		events = sorted(
+			(e for e in self._consent_events if e.subject_ref == subject_ref),
+			key=lambda e: (e.at_ms, e.event_id), reverse=True,
+		)
+		live = sorted({c.purpose for c in self._consents.values()
+		               if c.subject_ref == subject_ref and not c.withdrawn})
+		return ConsentHistory(
+			subject_ref=subject_ref, events=events, live=live,
+			note=consent_history_note(bool(events), bool(live), lang),
+		)
+
+
 
 	def assess_dpia(self, inp: DPIAInput) -> DPIAReport:
 		"""The eight §17.3 topics against the processing described, walked rather than spelled out.
@@ -591,7 +698,20 @@ class PrivacyService(LogMixin):
 		)
 
 	async def purge_expired(self) -> int:
-		return len([c for c in list(self._consents.values()) if c.withdrawn and self._consents.pop(c.consent_id)])
+		"""Delete the withdrawn records, and log the deletion.
+
+		The deletion is an event for the same reason the withdrawal is: the log is what a person reads
+		back, and a history that silently loses its last entries at the next clean-up is a history
+		that ends in the middle.
+		"""
+		gone = [c for c in list(self._consents.values()) if c.withdrawn]
+		for c in gone:
+			self._consents.pop(c.consent_id)
+			self._consent_events.append(self._event(
+				c, action='purged', category=c.purpose, channel=c.channel,
+				label=self._label(c.purpose), consequence=self._consequence(c.purpose),
+			))
+		return len(gone)
 
 	# --- §17.1 instruments and §17.2 principles ----------------------------------------------
 

@@ -321,6 +321,39 @@ def zone_privacy_note(lang: str, logged: bool) -> str:
 	return table['logged'] if logged else table['not_logged']
 
 
+# §SEC-001's "consent audit log visible to the user" needs three sentences, and they are three
+# because the three states are different facts: nothing has ever happened, something is on, and
+# everything that was granted has been withdrawn. A single "here is your log" would make the second
+# and third read the same on the screen where a person checks whether their withdrawal took.
+CONSENT_HISTORY_STRINGS: dict[str, dict[str, str]] = {
+	'en': {
+		'none': 'You have not made any consent choices yet. Nothing is being kept or shared.',
+		'live': 'These are your consent choices, most recent first. What is switched on now is listed below them.',
+		'all_off': 'You have withdrawn everything you granted. Nothing is being kept or shared now.',
+	},
+	'sw': {
+		'none': 'Bado hujafanya uamuzi wowote wa ridhaa. Hakuna kinachohifadhiwa au kushirikiwa.',
+		'live': 'Haya ni maamuzi yako ya ridhaa, ya hivi karibuni kwanza. Yanayowaka sasa yameorodheshwa chini yao.',
+		'all_off': 'Umeondoa kila kitu ulichokubali. Hakuna kinachohifadhiwa au kushirikiwa sasa.',
+	},
+}
+
+
+def consent_history_note(has_events: bool, has_live: bool, lang: str = 'en') -> str:
+	"""The sentence above a person's own consent log.
+
+	`lang` defaults to English and the caller passes the request's, because this is prose a person
+	reads on the screen where they check whether a withdrawal took — the same rule as every other
+	string here: served in the language asked for where there is a table, and in English where there
+	is not.
+	"""
+	assert isinstance(has_events, bool) and isinstance(has_live, bool), 'two booleans, not two truths'
+	table = CONSENT_HISTORY_STRINGS[answerable(lang)]
+	if not has_events:
+		return table['none']
+	return table['live'] if has_live else table['all_off']
+
+
 def zone_transition(lang: str, event: str, place_label: str | None = None,
                     alert: str | None = None, county: str = '') -> str:
 	"""The sentence served on a zone entry or exit. §LOC-001's Tier 4 behaviour is "alert on entry

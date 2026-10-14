@@ -2952,6 +2952,48 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'sensors': privacy.sensor_consents(),
 		}
 
+	@app.get('/privacy/consent/history')
+	async def privacy_consent_history(lang: str = 'en',
+	                                  _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		"""§SEC-001's "consent audit log visible to the user".
+
+		`names_subject=False` because there is no subject to name: the log is the caller's own, read
+		from the token. A `subject_ref` parameter would be the obvious shape and the wrong one — the
+		route has no way to tell a person asking about themselves from one asking about a stranger,
+		and a consent history is a list of what someone agreed to and when.
+
+		The catalogue route beside it (`GET /privacy/consent`) is public and serves the toggles
+		without a token; this one is not, because a log is personal data and the toggles are not.
+		"""
+		return privacy.consent_history(_subject, lang).model_dump(mode='json')
+
+	@app.post('/privacy/consent/{consent_id}/withdraw')
+	async def privacy_consent_withdraw(consent_id: str,
+	                                   _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		"""§SEC-001's "One-tap revocation", as a door rather than a method.
+
+		`PrivacyService.withdraw` was audited as carried and reached by nothing: consent could be
+		granted at `POST /privacy/consent` and revoked only from inside the process. A person reading
+		their own log could see every grant and no way to end one — and the log's `withdrawn` line was
+		a state no door could produce.
+
+		`names_subject=False` for the same reason the history route gives: the token is the subject,
+		so there is nothing to name and no reference a stranger could type. The service asserts the
+		record belongs to the caller, because a revocation that only needed a guessed id would let
+		anyone switch off a grant they are not party to.
+
+		A stranger's id and an id that names nothing both answer the *same* 404. The first draft let
+		the ownership assertion's own message through, so "may withdraw only its own consent" and "no
+		consent" were two distinguishable answers to the same request — an id oracle a stranger could
+		walk, turning the guard into a way of learning whose grants exist. `records.revoke_share`
+		keeps the message because a grant id there is already scoped to the caller's own records.
+		"""
+		try:
+			rec = await privacy.withdraw(consent_id, _subject)
+		except (KeyError, AssertionError) as exc:
+			raise HTTPException(status_code=404, detail=f'no consent {consent_id!r}') from exc
+		return {'consent_id': rec.consent_id, 'withdrawn': rec.withdrawn}
+
 	@app.post('/privacy/dpia')
 	async def privacy_dpia(inp: DPIAInput) -> dict[str, object]:
 		"""Assess a proposed use against §17.3's eight topics. Stores nothing — this is the
@@ -4568,7 +4610,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		except ValueError as exc:
 			raise HTTPException(status_code=422, detail=f'unknown consent category {grant.category!r}') from exc
 		try:
-			rec = await privacy.record_consent_for_phone(grant.msisdn, category)
+			rec = await privacy.record_consent_for_phone(grant.msisdn, category, channel=grant.channel)
 		except (AssertionError, RuntimeError, ValueError) as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return {'consent_id': rec.consent_id, 'category': rec.purpose}

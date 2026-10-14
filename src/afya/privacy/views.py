@@ -24,6 +24,10 @@ class ConsentRecord(BaseModel):
 	retention_days: int = Field(ge=1, le=3650)
 	legal_basis: LegalBasis
 	withdrawn: bool = False
+	# Where the grant was made. §SEC-001's registry spans channels — a USSD grant and an app grant
+	# are one record — and `record_consent_for_phone` writes through the same door, so without this
+	# the log cannot say which session a line came from.
+	channel: str = Field(pattern='^(app|ussd|sms|whatsapp|chw|unknown)$', default='app')
 
 
 class ConsentCategory(str, Enum):
@@ -81,6 +85,56 @@ class ConsentToggle(BaseModel):
 	sensors: dict[str, bool] = {}
 	separate_from_core: bool = False
 	revocable: bool = True
+
+
+class ConsentEvent(BaseModel):
+	"""One thing that happened to a person's consent, as the person reads it back.
+
+	§SEC-001 asks for a *consent audit log visible to the user*, and `ConsentToggle`'s own docstring
+	already claimed it carried "the audit entry that set it" — it carried no such field, and the
+	ledger behind it was a `dict` with no history at all. A `ConsentRecord` holds the state *now*:
+	`withdrawn` is a boolean, so the record of a grant that was later revoked and a grant that never
+	happened are the same object with a different flag. "What did I agree to, and when" cannot be
+	answered from it.
+
+	`action` is the closed set of things that can happen, and it is closed because an open string
+	would let a new code path write an event nobody wrote a sentence for. `label` and `consequence`
+	are the catalogue's own words at the time of the event — a person reading back a withdrawal six
+	months later is owed what they were told *then*, which is why they are copied onto the event
+	rather than looked up from the catalogue at read time.
+	"""
+
+	model_config = MODEL_CONFIG
+	event_id: str = Field(default_factory=uuid7str)
+	# Carried because a purge deletes the record the event was about: resolved from the record at
+	# read time, the last line of a person's own history would be the one that disappears.
+	subject_ref: str
+	at_ms: int = Field(ge=0)
+	action: str = Field(pattern='^(granted|withdrawn|sensor_granted|sensor_withdrawn|purged)$')
+	category: str
+	label: str
+	consequence: str
+	# Where the grant was made. §SEC-001's ledger spans channels — a USSD grant and an app grant are
+	# one record — so the log has to say which one this was, or a person cannot tell the session
+	# they do not remember from the one they do.
+	channel: str = Field(pattern='^(app|ussd|sms|whatsapp|chw|unknown)$', default='app')
+	retention_days: int | None = Field(default=None, ge=1, le=3650)
+	legal_basis: LegalBasis | None = None
+
+
+class ConsentHistory(BaseModel):
+	"""A subject's own consent log, newest first, with the grants that stand right now.
+
+	`events` empty and `live` empty is a person who has granted nothing — and the two are reported
+	separately rather than merged, because "nothing has ever happened" and "everything was withdrawn"
+	are different facts about the same blank screen.
+	"""
+
+	model_config = MODEL_CONFIG
+	subject_ref: str
+	events: list[ConsentEvent]
+	live: list[str]
+	note: str
 
 
 class RBACRole(str, Enum):

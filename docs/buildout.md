@@ -4075,3 +4075,95 @@ client reports.
 fact sheet's incubation range already archived under `sources/ebola-transmission/`, and
 `sources/INDEX.md` now records this module as a third consumer of it alongside §MON-009 and §COM-102,
 with the reason the closed-window note cannot tell a person they are clear.
+
+---
+
+## §SEC-001 — a log the ledger could not hold
+
+§SEC-001's last Feature bullet is *"Consent audit log visible to the user"*, and it was the §LOC-004
+shape again: every visible part present and the join absent. `ConsentToggle`'s docstring said a
+toggle carried "the audit entry that set it" and the model had no such field. Behind it the ledger
+was a `dict` keyed by consent id, holding `ConsentRecord`s, and `withdrawn` on a record is a
+**boolean** — so a grant that was later revoked and a grant that never happened were the same object
+with a different flag. "What did I agree to, and when" is not a question that object can be asked.
+
+`ConsentEvent` is the log: one line per grant, withdrawal, sensor grant and purge, carrying the
+catalogue's own `label` and `on_withdrawal` sentence **as they stood at the time** rather than a
+reference to them. A person reading back six months later is owed what they were told then, not what
+the catalogue says now.
+
+### The event carries the subject, because the purge deletes the record
+
+The first draft resolved the subject at read time by walking the live records — which means the last
+line of a person's own history is the one that disappears, exactly when they go looking for it. A
+purge deletes the `ConsentRecord`; the `ConsentEvent` about it has to outlive it. `subject_ref` is
+therefore a field on the event, not a join.
+
+### Two 404s, and only one of them is honest
+
+`PrivacyService.withdraw` was audited `carried` under *One-tap revocation* and **no route reached
+it**. Consent could be granted at `POST /privacy/consent` and revoked only from inside the process;
+the log's own `withdrawn` line was a state no caller could produce. `POST
+/privacy/consent/{consent_id}/withdraw` is the door.
+
+The live probe caught what the unit tests did not. The first draft let the ownership assertion's
+message through as the 404 body, so a stranger's guessed id answered *"a token may withdraw only its
+own consent"* while an id naming nothing answered *"no consent"* — two distinguishable answers to
+the same request, which makes the guard an oracle a stranger can walk to learn whose grants exist.
+Both now answer the same 404 whose message is a pure function of the id the caller supplied. This is
+the `MPESA_CALLBACK_URL` lesson from the other direction: a probe that returns *different* answers
+for two paths that should be identical is the finding.
+
+### The log and the toggles cannot disagree
+
+`live` is not a second predicate. It is `has_category_consent`'s rule read off the same records
+(`not c.withdrawn`), and the test asserts the two agree category by category. Two surfaces answering
+"is this on" from two rules is how a person withdraws something and still sees the switch on — and
+the log is the screen they opened to check.
+
+### Canaries
+
+**22/22 fired.** A grant not logged; the withdrawal written *over* the grant; the log oldest-first;
+a purge not logged; the log not filtered to the subject; the label blank; the label resolved at read
+time; a sensor grant logged under its parent category; `live` ignoring withdrawal; `live` unfiltered;
+every state getting one note; the note bypassing `answerable`; the action an open string; the history
+route losing its guard; the route answering about a fixed subject; the route ignoring its language;
+the catalogue drawing a `subject_ref` field for a self-bound route; the carrier door defaulting to
+`app`; the withdrawal not checking the owner; an unknown id answering `200`; **the two not-found
+answers differing**; a revocation writing no event.
+
+Two missed on the first run, and both were the same blind spot: *"live is not filtered to the
+subject"* named `test_live_is_the_same_predicate_the_toggles_use`, which holds **one** subject — with
+one subject, filtered and unfiltered are the same list. The second, *"a carrier grant is logged as an
+app grant"*, named `test_a_grant_is_logged`, which never calls the carrier door. Both were retargeted
+at the node that actually detects them (`test_a_subject_with_nothing_is_told_so`, which holds a
+second subject, and `test_a_grant_made_on_a_channel_is_logged_as_that_channel`). The class is the one
+§LOC-004 recorded: a canary pointed at a test that does not assert the mutated behaviour is a canary
+that has not run.
+
+### Live probe
+
+Through `uvicorn --factory afya.service:create_app --port 8792`:
+
+- grant → `POST /privacy/consent/{id}/withdraw` → **200** `{"withdrawn": true}`; the log then reads
+  `["withdrawn", "granted"]` newest-first with `live: []`, and the note says everything was withdrawn
+- a stranger's token on the owner's consent id → **404**; an id that names nothing → **404** with the
+  *same* body shape; no token → **401**; `/zzz/deep/path` → **404**, so the route is genuinely served
+- `?lang=sw` → the note in Kiswahili; `?lang=luo` → English (the `answerable` fallback)
+- a carrier grant through `POST /privacy/consent/by-phone` with `channel: "ussd"` → **200**, and the
+  event it wrote carries `"channel": "ussd"` rather than the `"app"` the first draft defaulted to.
+  Read in-process, not through the route: `POST`-ing the phone number mints a *fresh* anonymous
+  subject on each call, and §5.4 deliberately exposes no phone→subject route, so the log for a
+  carrier grant cannot be read back over HTTP by design. The unit test
+  (`test_a_grant_made_on_a_channel_is_logged_as_that_channel`) holds the identity model and reads it
+  directly; the live probe confirms only the door and the status.
+- `withdraw_consent` is in `/mobile/actions` with the `{consent_id}` path field and no `subject_ref`
+- no `(CHAN|…|SEC)-\d{3}` string anywhere in any served payload
+
+**§SEC-001 1 `missing` → 0.** Across the repo **467 → 468 `carried`, 13 → 12 `missing`**, 497 rows,
+`deferred` 17 unchanged, `unresolved == []`.
+
+**No new source directory.** The consent categories and the log's fields are the section's own — it
+names all eight categories, the per-sensor split and the audit log itself. Nothing here rests on an
+external document, so `sources/INDEX.md` gains no entry for this unit, and that absence is the
+statement: every fact in the module is quoted from `docs/spec.md` §12.2.
