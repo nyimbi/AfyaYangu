@@ -4452,3 +4452,88 @@ would pass over a body that never sends the field — the superstring mistake th
 **No new source.** §SEC-002 states no key size, no cipher and no consent wording; the cipher is
 §SEC-003's, already archived, and the rest is the deployment's own choice, recorded as a choice. An
 external figure invented to fill this section's table would be worse than the gap.
+
+## §SEC-006 — a report about a person, standing in for a publication
+
+§SEC-006's second bullet, *"Public transparency reports (quarterly)"*, was `missing` while a model
+called `TransparencyReport` existed, was tested, and was the section's **first** Feature. That is the
+defect in one line: the section prints five Features, two of them are a dashboard and a publication,
+and the first was built while the second was not. A report about a person is not a publication to the
+public, and the second Feature's name was close enough to the first's that the gap read as covered.
+
+### The join that was absent, and where it went
+
+`RetentionService.transparency_report(period, subject_ref)` returned a subject's own holdings and
+shares, guarded on the `audit_logs` scope, and the audit note said exactly this: *"produces a
+per-subject report and no aggregate publication; the section names a recurring public document, not a
+personal one"*. Nothing assembled §19.4's dashboards into a document, nothing carried §17.5's scan
+record into one, and nothing modelled the **quarterly** part of the sentence at all — a cadence of
+"quarterly" as a word is a duty nobody can be late for, which is the state §24's `Obligation` model
+already refuses.
+
+### What closed it
+
+- **`TransparencyPublication`** is a second model, not a flag on the first: `audience`, `sections`,
+  `breaches`, `open_obligations`, `withheld_cells`, `min_cell_size`, `notes` — and no field for a
+  subject at all. The published model cannot name a person because there is nowhere to put one.
+- **`build_publication` reads the dashboards' own rows.** §11.7's min-cell rule already ran inside
+  `AnalyticsService._cell`, and the suppressed rows carry `value=None`; the publication counts the
+  withheld cells *from what it was handed* rather than re-testing a threshold of its own. A second
+  copy of the rule in a second module is how a suppressed cell reappears with a number in the
+  document nobody diffs. Each dashboard becomes its own section, keyed `dashboard:<id>`, because a
+  published table whose rows do not say which dashboard they came from reads as one population when
+  it is nine.
+- **`publish` and `build_publication` are two methods, not one.** The build is pure and the record
+  is a write, and the split is load-bearing: the public route reads, so any reader would otherwise
+  satisfy the schedule by looking at it — including for a quarter that has not ended.
+- **The read is unguarded and the write is not.** `GET /transparency/report` and
+  `GET /transparency/schedule` answer with no token, because a quarterly *public* report that
+  required one would not be public. `POST /transparency/publish` is on the `audit_logs` scope. A
+  duty a reader discharges by reading is not a duty.
+- **Three cadence states, not a boolean.** `published | due | not_yet_due`, with `missing_periods`
+  naming every quarter skipped between the first publication and this one. `overdue: false` cannot
+  tell a met duty from one nobody has been asked for yet, and a count of publications cannot show a
+  single gap in the middle.
+- **The quarter's end is computed, not restated.** `2026-Q1` ends 31 March and `2026-Q4` ends 31
+  December — derived as the day before the next quarter opens, because the first version added a
+  month's worth of days and reported 1 March.
+- **An unwired source is named in the notes**, never silently skipped: a section missing because the
+  deployment has no source is a fact about the deployment, and a reader comparing two quarters has
+  to be able to tell it from a quarter in which the thing it measures did not happen.
+- **Two catalogue actions**, so a citizen's app can open the document and check the cadence — the
+  `report_stock` rule one level up, where a feature nobody can reach is a feature that is not there.
+
+### Canaries
+
+`tests/ci/canary_sec006.py`, 14 canaries, **11/14 fired on first run**. Two of the three misses were
+bugs in the canaries and one was a test that could not see the defect:
+
+- *"the publication draws on the personal register"* added an **unused local** to the builder. That
+  is not a defect — the variable was never read, so the payload was unchanged. Replaced with the
+  shape the test actually looks for: a `subject_ref` field added to the published model.
+- *"the read records a publication"* patched inside `publish`, so the pure-read test never executed
+  the mutated line. Moved into `build_publication`, which is the method the defect lives in.
+- *"the publication applies its own threshold"* was caught only by the test that drives a real
+  dashboard; the other min-cell test asserts the sum equals itself and cannot see a zeroed field.
+  Retargeted.
+
+### Live probe
+
+- `GET /transparency/report?period=2026-Q3` with **no token** → 200, `audience: "public"`,
+  `min_cell_size: 10`, one section per dashboard with its caveat and min-cell rule attached, and no
+  `subject_ref` anywhere in the payload
+- `GET /transparency/schedule?period=2026-Q3` → `status: "due"`, `overdue: true`; the same for an
+  older quarter; a quarter still running would report `not_yet_due`
+- `POST /transparency/publish` with **no token** → **401**; with a citizen token → **403**, and the
+  register is untouched
+- `period=2026` → **422**, parsed rather than pattern-matched
+- `GET /zzz/deep/path` → **404**, so the 200s are not a catch-all stub
+
+**§SEC-006 1 `missing` → 0** for this row. Across the repo **471 → 472 `carried`, 9 → 8 `missing`**,
+497 rows, `deferred` 17 unchanged, `unresolved == []`.
+
+**No new source.** §SEC-006 states no period length, no suppression threshold and no publication
+format. The 91-day quarter is §22.8's own derivation, the ten-person floor is §11.7's and already
+archived, and the rest is the deployment's choice, recorded as one. `sources/INDEX.md` gains no
+entry: there is no external figure here to archive, and inventing one to fill the table would be
+worse than the gap.

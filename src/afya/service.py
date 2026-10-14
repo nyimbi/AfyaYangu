@@ -11,7 +11,7 @@ import json
 import os
 import tempfile
 import wave as wavmod
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import cast
 
@@ -333,6 +333,14 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	except (FileNotFoundError, AssertionError, ImportError):
 		speech_engine = None
 	access_svc = AccessService(speech_engine)
+	# §SEC-006's quarterly publication draws its tables from §19.4's dashboards and §17.5's scan
+	# record rather than recomputing either. Built as locals and handed over below, because the
+	# services dict is constructed in one expression and a service that read `services['analytics']`
+	# from inside would depend on the order the dict happened to be written in.
+	analytics_svc = AnalyticsService()
+	security_svc = SecurityService()
+	retention_svc = RetentionService()
+	retention_svc.register_sources({'dashboards': analytics_svc, 'scans': security_svc})
 
 	async def telco_rules() -> list[ZeroRatingRule] | None:
 		"""The carrier's zero-rating rules, as rules. Failure is the channel service's to report.
@@ -453,10 +461,14 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# read and not on a service.
 		'location': LocationService(info_svc.dashboard, monitoring_svc, surveillance_svc.geofences_at),
 		'ai': AIService(),
-		'analytics': AnalyticsService(),
+		'analytics': analytics_svc,
 		'metrics': MetricsService(),
 		'access': access_svc,
-		'retention': RetentionService(),
+		# §SEC-006's quarterly publication reads §19.4's dashboards and §17.5's scan record rather
+		# than recomputing either, so the min-cell rule and the scan cadence each live in one place.
+		# Wired here, after both services exist, for the reason the audit egress table is handed its
+		# wires: a publication that applied its own threshold would be a second copy of the rule.
+		'retention': retention_svc,
 		'governance': GovernanceService(),
 		'operations': OperationsService(),
 		# §20/§21: the rollout reads the registry (§20.6's retention table crossed against it) and
@@ -465,7 +477,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# §4: who the launch is for. Constructed beside the rollout because §4.3's priorities are the
 		# ordering the rollout is a schedule for, and §22.7's equity targets need a population.
 		'personas': PersonaService(),
-		'security': SecurityService(),
+		'security': security_svc,
 		'chw': ChwService(),
 		# §CHAN-5: the intermediary programme. Separate from `chw` because §4.2 and §CHAN-5 are two
 		# lists — pharmacy staff, faith leaders and teachers read the product *and* distribute it,
@@ -4549,7 +4561,59 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.get('/retention/transparency')
 	async def retention_transparency(period: str, subject_ref: str | None = None, _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""§SEC-006's dashboard, for the person it is about: their own data, and who it went to.
+
+		Guarded, unlike the publication below, because this one *is* about a person. The two are
+		different documents and the section prints them as different Features.
+		"""
 		return retention.transparency_report(period, subject_ref).model_dump(mode='json')
+
+	@app.get('/transparency/report')
+	async def transparency_publication(period: str, as_at_iso: str) -> dict[str, object]:
+		"""§SEC-006's "Public transparency reports (quarterly)": the aggregate document, served with
+		no token at all — because a quarterly public report that required one would not be public.
+
+		`/retention/transparency` is the *other* Feature of the same section: a subject's own view of
+		their own data, guarded, and the two were one name apart while only the second existed. A
+		document about a person is not a publication to the public.
+
+		This route *reads* and does not record. Marking the quarter published is `POST
+		/transparency/publish`, because a reader who could record a publication would let any caller
+		mark a duty met — including a quarter that has not ended.
+
+		Deliberately not under `/retention`: everything under that prefix is personal data with a
+		subject, and a reader should not have to open a personal-data path to reach a document that
+		names nobody.
+		"""
+		try:
+			return retention.build_publication(period, as_at_iso).model_dump(mode='json')
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.post('/transparency/publish')
+	async def transparency_publish(period: str, as_at_iso: str,
+	                               _subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""Record that a quarter's report was published. The operator's act, and the only write here.
+
+		Separate from the read above so the schedule cannot be satisfied by being looked at: a duty
+		that a reader discharges by reading is not a duty.
+		"""
+		try:
+			return retention.publish(period, as_at_iso).model_dump(mode='json')
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+	@app.get('/transparency/schedule')
+	async def transparency_schedule(period: str) -> dict[str, object]:
+		"""Whether the quarterly publication is done, late, or not yet owed — with no token.
+
+		A cadence a reader cannot check is a cadence nobody can be late for. This is the read that
+		makes §SEC-006's "quarterly" a claim about the deployment rather than a word in a document.
+		"""
+		try:
+			return retention.publication_schedule(period, date.today()).model_dump(mode='json')
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.get('/privacy/rbac')
 	async def privacy_rbac(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:

@@ -6,11 +6,15 @@ Two rules are load-bearing and enforced here:
   * Deletion removes what the user owns and states plainly what survives and why. Immunisation
     records survive a blanket delete because they are the child's, not the requester's, to erase.
 """
+from datetime import date, timedelta
+
+from afya.analytics.views import MIN_CELL_SIZE, MetricRow
 from afya.logmixin import LogMixin
 from afya.retention.views import (
-	ENCRYPTION_STANDARD, RETENTION_TABLE, CorrectionReceipt, CorrectionRequest, DataInventory,
-	DeletionReceipt, DeletionRequest, EncryptionPosture, PersonalDataExport, RetentionPolicy,
-	TransparencyReport,
+	ENCRYPTION_STANDARD, QUARTERLY_CADENCE_DAYS, RETENTION_TABLE, CorrectionReceipt,
+	CorrectionRequest, DataInventory, DeletionReceipt, DeletionRequest, EncryptionPosture,
+	PersonalDataExport, PublicationSchedule, PublicationStatus, RetentionPolicy,
+	TransparencyPublication, TransparencyReport, TransparencySection,
 )
 
 # Types a user may always delete outright, and types that survive a blanket request.
@@ -33,7 +37,14 @@ class RetentionService(LogMixin):
 		# and the current value is what a second correction reports as `previous_value`.
 		self._values: dict[str, dict[tuple[str, str], str]] = {}
 		self._corrections: list[dict[str, object]] = []
-		assert self._holdings == {}
+		# §SEC-006's public record. The periods actually published, the breach notices a deployment
+		# has filed, and the source reads the publication draws on. `_sources` is injectable because
+		# a publication that could only be produced by a live deployment is a publication no test and
+		# no reviewer can check — the same reason §19.4's builders are overridable reads.
+		self._publications: dict[str, str] = {}
+		self._breaches: list[dict[str, object]] = []
+		self._sources: dict[str, object] | None = None
+		assert self._holdings == {} and self._publications == {}
 
 	# --- SEC-005 retention -----------------------------------------------------------------
 
@@ -250,3 +261,195 @@ class RetentionService(LogMixin):
 				'You can export or delete your data at any time from any channel.',
 			],
 		)
+
+	# --- SEC-006 public transparency publication ---------------------------------------------
+
+	def register_sources(self, sources: dict[str, object]) -> None:
+		"""The reads the publication is drawn from, injected by `build_services`.
+
+		A `dict[str, object]` rather than typed parameters, for the reason `OperationsService.EGRESS_WIRES`
+		and `GovernanceService.audit_egress` take a dict: the publication reads *other services*, and a
+		signature naming eight of them would make this module depend on each. A key that is absent is
+		reported as an absent section, never silently skipped — a report that quietly drops the section
+		whose source is missing reads as a quarter in which nothing happened.
+		"""
+		self._sources = dict(sources)
+
+	def record_breach(self, breach: dict[str, object]) -> None:
+		"""One §24.8 breach, as the public record holds it: the data classes and the count, never a person."""
+		assert breach.get('affected_data') is not None, 'a breach record must name the data classes'
+		self._breaches.append(dict(breach))
+
+	@staticmethod
+	def _quarter_of(period: str) -> tuple[int, int]:
+		"""`2026-Q3` → `(2026, 3)`. Parsed rather than pattern-matched, so a period that cannot name a
+		quarter is refused here rather than compared as a string and reported as missing forever."""
+		year_s, _, q_s = period.partition('-Q')
+		if not (year_s.isdigit() and q_s.isdigit() and 1 <= int(q_s) <= 4):
+			raise ValueError(f'{period!r} does not name a quarter (expected e.g. 2026-Q3)')
+		return int(year_s), int(q_s)
+
+	@staticmethod
+	def period_end_iso(period: str) -> str:
+		"""The last day of the quarter the period names. A publication covers a window, and a window
+		with no end cannot be compared against a generated-at date.
+
+		Computed as the day before the next quarter opens rather than by adding a month's worth of
+		days: Q1 ends on 31 March and Q2 on 30 June, and an arithmetic that produced "the first day
+		plus 31" reports 1 March for the first of those.
+		"""
+		year, q = RetentionService._quarter_of(period)
+		opens = date(year + 1, 1, 1) if q == 4 else date(year, q * 3 + 1, 1)
+		return (opens - timedelta(days=1)).isoformat()
+
+	def publication_schedule(self, period: str, today: date) -> PublicationSchedule:
+		"""Whether the quarterly publication has happened, is late, or is not yet owed.
+
+		The three states are the point. `published` and `due` are what a recurring duty can be; the
+		third is what makes the cadence honest, because a quarter that has not ended cannot be late,
+		and a model with only `overdue: bool` would report "not overdue" for a report nobody has ever
+		written. `missing_periods` names every quarter between the first publication and the current
+		one that was skipped, so a single gap is visible rather than averaged away.
+		"""
+		self._quarter_of(period)
+		end = date.fromisoformat(self.period_end_iso(period))
+		published = self._publications.get(period)
+		due_on = (end + timedelta(days=QUARTERLY_CADENCE_DAYS)).isoformat()
+		if published is not None:
+			status = PublicationStatus.published
+		elif today <= end:
+			status = PublicationStatus.not_yet_due
+		else:
+			status = PublicationStatus.due
+		return PublicationSchedule(
+			cadence_days=QUARTERLY_CADENCE_DAYS, period=period, last_published_iso=published,
+			due_on_iso=due_on, status=status,
+			overdue=status is PublicationStatus.due,
+			periods_published=len(self._publications),
+			missing_periods=self._missing_periods(period, end),
+		)
+
+	def _missing_periods(self, period: str, end: date) -> list[str]:
+		"""Every quarter between the earliest publication and this one that has no record.
+
+		Bounded by the earliest publication rather than by the beginning of time: a service that has
+		just been deployed has not skipped four years of quarters, and a list that said it had would
+		be the kind of overstatement that makes a real gap unreadable.
+		"""
+		if not self._publications:
+			return []
+		# `[:10]`: the register holds the moment each report was generated, not just its day, and a
+		# full timestamp is not a date `fromisoformat` accepts.
+		earliest = min(date.fromisoformat(p[:10]) for p in self._publications.values())
+		missing: list[str] = []
+		year, q = earliest.year, (earliest.month - 1) // 3 + 1
+		while (year, q) <= self._quarter_of(period):
+			candidate = f'{year}-Q{q}'
+			candidate_end = date.fromisoformat(self.period_end_iso(candidate))
+			if candidate != period and candidate not in self._publications and candidate_end < end:
+				missing.append(candidate)
+			year, q = (year + 1, 1) if q == 4 else (year, q + 1)
+		return missing
+
+	def _publication_sections(self, as_at_iso: str) -> tuple[list[TransparencySection], list[str]]:
+		"""The aggregate sections, built from the wired services. Returns the sections and the names
+		of the sources that were not wired, so an absent section is reported rather than omitted."""
+		sources = self._sources or {}
+		sections: list[TransparencySection] = []
+		absent: list[str] = []
+		dashboards = sources.get('dashboards')
+		if dashboards is None:
+			absent.append('dashboards')
+		else:
+			# `all_dashboards` already applies §11.7's min-cell rule, and its suppressed rows carry
+			# `value=None` — so the withheld counts are *counted here from the rows it returned*
+			# rather than recomputed against a second copy of the rule. A publication that applied
+			# its own threshold would be a second place the number lives, and the first to be wrong.
+			#
+			# The dashboards are flattened into one section each, with `key` prefixed by the
+			# dashboard: a published table whose rows carry no indication of which dashboard they
+			# came from reads as one population when it is nine different ones.
+			built = dashboards.all_dashboards(as_at_iso)  # type: ignore[attr-defined]
+			for dash in built:
+				sections.append(TransparencySection(
+					key=f'dashboard:{dash.dashboard.value}', title=dash.title, rows=list(dash.rows),
+					rule=f'{dash.caveat} Cells drawn from fewer than {dash.min_cell_size} people are withheld, and the withheld count is reported.',
+					withheld_cells=dash.suppressed_cells,
+				))
+		scans = sources.get('scans')
+		if scans is None:
+			absent.append('scans')
+		else:
+			obligations = scans.obligations(date.fromisoformat(as_at_iso[:10]))  # type: ignore[attr-defined]
+			sections.append(TransparencySection(
+				key='security', title='Security scans and audits',
+				rows=[
+					MetricRow(key=o.kind, label=o.kind, value=None if o.overdue else 1.0,
+						denominator=None, suppressed=False,
+						note=f'last performed {o.last_performed_iso or "never"}; due {o.due_on_iso or "now"}')
+					for o in obligations
+				],
+				rule='A scan never performed is reported overdue rather than exempt.',
+				withheld_cells=0,
+			))
+		return sections, absent
+
+	def publish(self, period: str, as_at_iso: str) -> TransparencyPublication:
+		"""Record that a period was published, and return the document that was.
+
+		The *act*, separated from the *read* below, because the two have different callers and only
+		one of them may write. A public route that recorded its own access would let any reader mark
+		a quarter published — including one that has not ended — and the schedule would then report a
+		duty met that nobody performed. The record is the operator's; the document is the public's.
+		"""
+		publication = self.build_publication(period, as_at_iso)
+		self._publications[period] = as_at_iso
+		self._log_info('transparency publication recorded', period=period,
+			sections=len(publication.sections), withheld=publication.withheld_cells)
+		return publication
+
+	def build_publication(self, period: str, as_at_iso: str) -> TransparencyPublication:
+		"""§SEC-006's quarterly public report, produced as a document a person can read.
+
+		Pure: it reads the wired services and records nothing, which is what makes it safe to serve
+		with no token. Every number in it comes from a service that already applies its own
+		publication rule, and the rule travels with the section. The alternative — recomputing counts
+		here — would put a second copy of the min-cell threshold in a second module, which is how a
+		suppressed cell becomes an unsuppressed one in the document nobody diffs.
+		"""
+		self._quarter_of(period)
+		assert as_at_iso, 'a publication must carry the moment it was generated'
+		sections, absent = self._publication_sections(as_at_iso)
+		notes = [
+			'Every count is what people reported or searched for, not a laboratory-confirmed figure.',
+			f'Cells drawn from fewer than {MIN_CELL_SIZE} people are withheld, and the withheld count is published beside the table.',
+			'No row in this document names a person, and no row can be used to single one out.',
+		]
+		if absent:
+			# Named, not omitted. A section missing because a service was not wired is a fact about
+			# this deployment, and a reader comparing two quarters has to be able to tell it from a
+			# quarter in which the thing it measures did not happen.
+			notes.append(
+				'Not included this period, because the deployment has no source for it: ' + ', '.join(sorted(absent)) + '.'
+			)
+		return TransparencyPublication(
+			period=period, generated_at_iso=as_at_iso, cadence_days=QUARTERLY_CADENCE_DAYS,
+			audience='public', sections=sections, breaches=list(self._breaches),
+			open_obligations=self._open_obligations(), withheld_cells=sum(s.withheld_cells for s in sections),
+			min_cell_size=MIN_CELL_SIZE, notes=notes,
+		)
+
+	def publications(self) -> dict[str, str]:
+		"""Period → generated-at, so a caller can see the record the schedule is computed from."""
+		return dict(self._publications)
+
+	def _open_obligations(self) -> list[str]:
+		"""§24's duties that name a software control, as the publication lists them.
+
+		Read off `afya.operations.service:OBLIGATIONS` rather than restated: a transparency report
+		that carried its own list of duties would be the second place they live, and the first to go
+		stale. The import is inside the function because `operations` imports nothing from here but
+		the dependency runs the other way through `build_services`.
+		"""
+		from afya.operations.service import OBLIGATIONS
+		return sorted(o.duty for o in OBLIGATIONS if o.control is not None)
