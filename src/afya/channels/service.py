@@ -2,10 +2,12 @@
 from pathlib import Path
 from typing import Awaitable, Callable, Protocol
 
+from afya.auth.views import now_ms
 from afya.channels.cost import ChannelCostVerdict, ZeroRatingRule, cost_report, cost_verdict
-from afya.access.views import VoiceAudioRequest, VoiceResult
+from afya.access.views import LANGUAGE_MATRIX, VoiceAudioRequest, VoiceResult
 from afya.channels.views import (
-	ChwTask, PushPayload, RadioBulletin, SmsOut, UssdRequest, UssdResponse, WhatsAppIn, WhatsAppOut,
+	CallbackRequest, ChwTask, PushPayload, RadioBulletin, SmsOut, UssdRequest, UssdResponse, WhatsAppIn,
+	WhatsAppOut,
 )
 from afya.identity.service import IdentityService
 from afya.integrations.gateways import AtUssdCallback
@@ -13,8 +15,10 @@ from afya.logmixin import LogMixin
 from afya.privacy.service import PrivacyService
 from afya.privacy.views import ConsentCategory
 from afya.strings import (
-	SYMPTOM_WORDS, USSD_INFO_ANSWERS, USSD_MENU, USSD_MENU_ANSWERS, USSD_SYMPTOMS, USSD_SYMPTOM_MAP,
-	USSD_TREE, WHATSAPP_FACILITY, WHATSAPP_HOTLINE, WHATSAPP_WELCOME, answerable, ussd_symptom_menu_text,
+	LANGUAGE_NAME_FOR, SYMPTOM_WORDS, USSD_CLOSE, USSD_INFO_ANSWERS, USSD_LANGUAGE_SET, USSD_MENU,
+	USSD_MENU_ANSWERS, USSD_SYMPTOMS, USSD_SYMPTOM_MAP, USSD_TREE, USSD_YES_NO_PROMPTS,
+	WHATSAPP_FACILITY, WHATSAPP_HOTLINE, WHATSAPP_WELCOME, answerable, symptoms_named, ussd_label,
+	ussd_symptom_menu_text,
 )
 from afya.triage.service import TriageService
 from afya.triage.views import TriageInput, TriageResult
@@ -86,12 +90,23 @@ class ChannelService(LogMixin):
 		self._privacy = privacy
 		self._access = access
 		self._ussd_state: dict[str, int] = {}
+		# §CHAN-2's two "→" answers, per session. Held beside the level because the walk is over the
+		# accumulated input rather than over a conversation: a carrier that resends the whole string
+		# re-answers both prompts in one request, and the record is what the report is built from.
+		self._ussd_answers: dict[str, tuple[bool, ...]] = {}
+		# §CHAN-2's symptom, per session, so the callback request carries the reason for the call.
+		self._ussd_symptom: dict[str, str] = {}
+		# §CHAN-1's "Callback requests (`CALLBACK`)". The queue the walk writes into and the
+		# deployment reads; a request with no queue is a request recorded nowhere, which is the
+		# state this was in until the prompt was walked.
+		self._callbacks: list[CallbackRequest] = []
 		self._chw_tasks: list[ChwTask] = []
 		# Every payload handed to `push`. Held rather than fired and forgotten for §16.1's reason:
 		# the delivery path is a transport, and what the deployment owes a person must be readable
 		# after the transport has had its say.
 		self._pushes: list[PushPayload] = []
-		assert self._ussd_state == {} and self._chw_tasks == [] and self._pushes == []
+		assert self._ussd_state == {} and self._ussd_answers == {} and self._ussd_symptom == {}
+		assert self._callbacks == [] and self._chw_tasks == [] and self._pushes == []
 
 	async def zero_rating_rules(self) -> list[ZeroRatingRule] | None:
 		"""§18.8's rules, or None when they have not been pulled.
@@ -135,14 +150,29 @@ class ChannelService(LogMixin):
 
 		The section's structure is five top-level items with a symptom submenu under the first and
 		three questions under the third, and it must "complete within 2 USSD sessions" — so the walk
-		is two levels deep and every path ends. The session state records the level reached, which is
-		what makes a second request a continuation rather than a fresh menu.
+		is four levels deep on the symptom path and every path ends. The session state records the
+		level reached, which is what makes a second request a continuation rather than a fresh menu.
+
+		**The two `→` prompts are walked, and until this unit they were not.** `USSD_YES_NO_PROMPTS`
+		was defined, asserted against the spec by a test, and cited by an audit row for §CHAN-1's
+		callback request — while `ussd()` went from the symptom selection straight to the triage
+		answer. A caller was told their risk level and never asked for a callback, so the constant
+		described a conversation the channel did not have. The symptom path is now
+		`1*<symptom>*<yes/no>*<yes/no>`: the engine's answer first, then the two prompts, because
+		§CHAN-2 draws them *after* the symptom entries and a person who has just been told to
+		isolate themselves is owed the callback question rather than a menu.
 
 		`answerable` serves English for a language with no table rather than asserting: a USSD session
 		that dies mid-menu is a dead channel for the one persona §4.1 gives no smartphone, and there
 		is no way to render a traceback on a feature phone.
 		"""
 		served = answerable(lang)
+		# §CHAN-2's item 5 is "Language: English / Kiswahili / Dholuo / ..." and its answer says
+		# "Reply with the one you want" — a *word*, not a digit. The digits-only assert below made
+		# that reply a 500, so the one item the section gives to change language was the one item
+		# that could not be used. Read here, before the assert, and only on the item-5 path.
+		if req.text.strip() and req.text.strip()[0].isalpha():
+			return self._ussd_language_choice(req, req.text.strip())
 		assert all(c.isdigit() or c == '*' for c in req.text) and req.text == req.text.strip(), 'USSD input is digits joined by *'
 		# Africa's Talking sends the accumulated input ("1*2"), so the walk is over the segments
 		# rather than over the last keystroke — a handler that read only the last digit would lose
@@ -173,18 +203,98 @@ class ChannelService(LogMixin):
 		# answers — so a feature phone and the app give one clinical answer. A submenu entry the
 		# engine has no word for ("Cough", "Other") enters with an empty list, which is the honest
 		# reading of "named nothing the engine knows" rather than a symptom assumed from the label.
-		if top == 1 and len(segments) == 2:
+		if top == 1 and len(segments) >= 2:
 			sub = segments[1]
 			if not 1 <= sub <= len(USSD_SYMPTOMS):
 				return UssdResponse(session_id=req.session_id, menu=ussd_symptom_menu_text(served))
 			key = USSD_SYMPTOMS[sub - 1][0]
 			symptoms = list(USSD_SYMPTOM_MAP[key])
 			inp = TriageInput(symptoms=symptoms, temperature_c=38.0 if 'fever' in symptoms else 36.5)
-			return UssdResponse(session_id=req.session_id, end_text=self._triage_for(inp, served).recommendation)
+			recommendation = self._triage_for(inp, served).recommendation
+			# §CHAN-2 draws two "→" prompts under the symptom entries. The first answer the person
+			# gives is recorded and the second prompt follows; the second answer ends the session
+			# with the recommendation they were already given, so the clinical advice is not lost to
+			# the questions asked after it.
+			answers = segments[2:]
+			if not answers:
+				self._ussd_state[req.session_id] = -top
+				self._ussd_symptom[req.session_id] = key
+				return UssdResponse(session_id=req.session_id,
+					menu=self._ussd_prompt_text(0, served, recommendation))
+			if len(answers) == 1:
+				self._ussd_answers[req.session_id] = (answers[0] == 1,)
+				return UssdResponse(session_id=req.session_id,
+					menu=self._ussd_prompt_text(1, served, recommendation))
+			location, callback = answers[0] == 1, answers[1] == 1
+			self._ussd_answers[req.session_id] = (location, callback)
+			# §CHAN-1's Inbound use case, recorded at the point it is asked rather than at the point
+			# it is read. A prompt that collects an answer and drops it is the defect this walk was
+			# in: the constant existed, the prompt was never served, and had the walk reached the
+			# prompt without a queue behind it the request would have been read aloud and lost.
+			if callback:
+				self.record_callback(req.msisdn, session_id=req.session_id, symptom=key, lang=served,
+				                     location_shared=location)
+			return UssdResponse(session_id=req.session_id,
+				end_text=self._ussd_close(served, recommendation, location, callback))
 		# Every other path ends: the two leaves answer, and a third segment has nowhere to go.
 		if top in USSD_MENU_ANSWERS[served]:
 			return UssdResponse(session_id=req.session_id, end_text=USSD_MENU_ANSWERS[served][top])
 		return UssdResponse(session_id=req.session_id, menu=USSD_MENU[served])
+
+	def _ussd_prompt_text(self, which: int, served: str, recommendation: str) -> str:
+		"""One of §CHAN-2's two `→` prompts, with the engine's answer carried above it.
+
+		The recommendation is repeated on the first prompt because a USSD screen replaces rather than
+		appends: the caller has just paid a session to read the advice, and a prompt that dropped it
+		would take it away. The two prompts are the section's own words.
+		"""
+		assert 0 <= which <= 1, f'there are two prompts, not {which + 1}'
+		prompt = USSD_YES_NO_PROMPTS[which]
+		assert prompt, 'a §CHAN-2 prompt is load-bearing and cannot be empty'
+		return f'CON {recommendation}\n{ussd_label(prompt, served)}'
+
+	def _ussd_close(self, served: str, recommendation: str, location: bool, callback: bool) -> str:
+		"""The end of the symptom path, once both prompts are answered.
+
+		It says what was recorded, in the language the person is being served rather than the one
+		they asked for — the rule `answerable` establishes everywhere else. A caller who asked for a
+		callback is told one was requested; a caller who did not is told what to do instead, because
+		"no callback" is not the same news as "nothing happened".
+		"""
+		key = 'callback' if callback else 'no_callback'
+		recorded = USSD_CLOSE[served]['location' if location else 'no_location']
+		return f'{recorded} ' + USSD_CLOSE[served][key].format(recommendation=recommendation)
+
+	def _ussd_language_choice(self, req: UssdRequest, text: str) -> UssdResponse:
+		"""§CHAN-2's item 5, answered with a language rather than a digit.
+
+		The section's menu ends "Language: English / Kiswahili / Dholuo / ..." and its own answer
+		text says "Reply with the one you want", so the reply is a word. The handler asserted digits
+		and the item was therefore the one thing in the menu that could not be used — a dead end
+		whose failure was a 500 on a feature phone, where there is nothing to show a traceback.
+
+		The reply is matched against the section's own list by name and against §ACC-002's codes, so
+		"Dholuo", "luo" and "5" all name the same language. What comes back is `answerable`'s answer
+		and not the request: a person who asks for Dholuo is told they will get English, because the
+		alternative is a session that claims to be in Dholuo and is not. That sentence is the whole
+		point of this method — silently accepting the choice would be the fake translation the
+		module docstring refuses.
+		"""
+		assert text, 'a language reply is a word'
+		wanted = text.strip().lower()
+		code: str | None = None
+		for name, entry in LANGUAGE_MATRIX.items():
+			if wanted in (name.lower(), str(entry['code']).lower()):
+				code = str(entry['code'])
+				break
+		if code is None:
+			# Not a language this product knows. Re-serve the menu rather than 500, and rather than
+			# guessing: a reply matched to the nearest language would put a person in a language
+			# nobody chose.
+			return UssdResponse(session_id=req.session_id, menu=USSD_MENU[answerable('en')])
+		served = answerable(code)
+		return UssdResponse(session_id=req.session_id, end_text=USSD_LANGUAGE_SET[served].format(
+			asked=LANGUAGE_NAME_FOR.get(code, code)))
 
 	# --- §5.4's identity and consent crossings ---------------------------------------------------
 
@@ -258,9 +368,57 @@ class ChannelService(LogMixin):
 		store_symptoms = self.may_store_symptoms(msisdn)
 		if not store_symptoms:
 			self._log_info('ussd session has no symptom-storage grant', session=cb.session_id)
+		# §CHAN-1's callback request, reported back on the envelope the carrier sees so a request that
+		# was taken can be told from one that was not — the alternative is a queue nobody can tell is
+		# empty because it is empty or because nothing writes to it.
+		queued = [c for c in self._callbacks if c.session_id == cb.session_id]
+		envelope = {'store_symptoms': str(store_symptoms).lower(), 'callback_requested': str(bool(queued)).lower()}
 		if resp.menu:
-			return {'text': resp.menu, 'action': 'CON', 'store_symptoms': str(store_symptoms).lower()}
-		return {'text': resp.end_text or '', 'action': 'END', 'store_symptoms': str(store_symptoms).lower()}
+			return {'text': resp.menu, 'action': 'CON', **envelope}
+		return {'text': resp.end_text or '', 'action': 'END', **envelope}
+
+	def record_callback(self, msisdn: str, session_id: str, symptom: str | None, lang: str = 'en',
+	                    location_shared: bool = False) -> CallbackRequest:
+		"""File one §CHAN-1 callback request, from whichever channel asked for it.
+
+		The single writer for the queue. Both producers go through it — the USSD walk's second `→`
+		prompt and the SMS `CALLBACK` keyword — so the two channels cannot file two shapes of the
+		same request, which is the drift §CHAN-2's one-backend clause exists to prevent.
+
+		`session_id` is required and is the *session*, not the person: the SMS path has no session
+		and passes the resolved subject, because a request that arrived without one still has to be
+		distinguishable from another request by the same phone.
+		"""
+		assert msisdn.startswith('+254'), 'a callback request is filed against an E.164 number'
+		assert session_id, 'a callback request names the session it came from'
+		req = CallbackRequest(
+			msisdn=msisdn, session_id=session_id, symptom=symptom,
+			location_shared=location_shared, lang=answerable(lang), requested_at_ms=now_ms(),
+		)
+		self._callbacks.append(req)
+		self._log_warn('callback requested', msisdn=msisdn, symptom=symptom, channel=session_id.split(':')[0])
+		return req
+
+	def callback_requests(self, msisdn: str | None = None, unhandled_only: bool = True) -> list[CallbackRequest]:
+		"""§CHAN-1's `CALLBACK` queue, as the deployment reads it.
+
+		`unhandled_only` defaults True because the queue exists to be worked: a reader that returned
+		every request ever made would grow without bound and bury the ones nobody has rung back, which
+		is the failure mode of a queue with no state. `handled` is the state, and a deployment marks
+		it through `handle_callback`.
+		"""
+		return [c for c in self._callbacks
+		        if (msisdn is None or c.msisdn == msisdn) and (not unhandled_only or not c.handled)]
+
+	def handle_callback(self, request_id: str) -> CallbackRequest:
+		"""Mark one request taken. The queue is append-only otherwise, so a request rung back twice
+		stays one record and the second reader can see it was already answered."""
+		for c in self._callbacks:
+			if c.request_id == request_id:
+				c.handled = True
+				self._log_info('callback request handled', request=request_id, symptom=c.symptom)
+				return c
+		raise KeyError(request_id)
 
 	def route_whatsapp_voice(self, msg: WhatsAppIn, note: Path) -> VoiceResult:
 		"""§ACC-002's "voice note triage on WhatsApp", as a transcription and then a triage.
@@ -304,16 +462,22 @@ class ChannelService(LogMixin):
 			'transcribes it first'
 		)
 		body = msg.body.lower()
-		if 'fever' in body or 'symptom' in body or any(s in body for s in SYMPTOM_WORDS):
+		if 'fever' in body or 'symptom' in body or any(s in body for s in SYMPTOM_WORDS) \
+				or symptoms_named(body, lang):
 			# A body that says "fever" is a report of fever, and the engine has one way to hear it:
 			# its fever threshold. Without this the body entered at the 36.5 °C default — which means
 			# "no fever" — and §6.3's malaria trap never fired on the one channel where a feverish
 			# person with no thermometer is most likely to be writing. `symptom` alone (the word from
 			# §CHAN-3's intent list) names no symptom, so it enters with an empty list.
-			symptoms = [s for s in SYMPTOM_WORDS if s in body]
+			#
+			# The vocabulary is read in the language the report was written in, which is what
+			# §CHAN-1's prefix makes possible and what it obliges: a body that says "nina homa" after
+			# a `SW` prefix named a fever, and reading only English words answered it with the welcome
+			# menu. The prefix was honoured and the report was dropped.
+			symptoms = symptoms_named(body, lang)
 			inp = TriageInput(
 				symptoms=symptoms or (['fever'] if 'fever' in body else []),
-				temperature_c=38.0 if 'fever' in body else 36.5,
+				temperature_c=38.0 if 'fever' in symptoms or 'fever' in body else 36.5,
 			)
 			reply = self._triage_for(inp, lang).recommendation
 		elif 'facility' in body or 'hospital' in body:

@@ -3,6 +3,8 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from afya.ids import uuid7str
+
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 
@@ -90,6 +92,41 @@ class ChwTask(BaseModel):
 	community: str
 	kind: str = Field(pattern=r'^(followup|referral|sensitisation)$')
 	done: bool = False
+
+
+class CallbackRequest(BaseModel):
+	"""§CHAN-1's Inbound use case "Callback requests (`CALLBACK`)" and §CHAN-2's second `→` prompt.
+
+	One record for the one request arriving on either channel, because §CHAN-2's Integration clause
+	puts every channel's report into one backend — a callback asked for over USSD and the same
+	callback asked for by SMS are one thing, and two stores would be the duplicate that clause's
+	dedup exists to prevent.
+
+	It is a record of its own rather than a field on `CaseReport`, which is where the first cut put
+	it and why the field was written and never set. A case report requires a county and a community,
+	and a person who presses `2` on a feature phone has given neither: building one to carry the
+	callback would have invented a location and filed a suspected case that nobody reported. What
+	the person did give is a phone and a consent to be called, and that is the whole of this model.
+
+	`location_shared` is the *consent* §CHAN-2's first prompt asks for, not a position. The
+	coordinates are §LOC-003's business and a USSD session carries none — recording a boolean as a
+	location would be the invented data this model exists to avoid.
+	"""
+	model_config = MODEL_CONFIG
+	request_id: str = Field(default_factory=lambda: 'CB-' + uuid7str().replace('-', '').upper()[:8])
+	msisdn: str = Field(pattern=r'^\+254\d{9}$')
+	session_id: str
+	# The symptom the caller selected, by the engine's own key, or None when the request came from
+	# the keyword path rather than the menu. Named rather than left off because a health worker
+	# ringing someone back is owed the reason they are ringing.
+	symptom: str | None = None
+	location_shared: bool = False
+	lang: str = 'en'
+	requested_at_ms: int
+	# Filled by the deployment that takes the request, so a queue that was read can be told from one
+	# that was never looked at. §CHAN-1's bullet is that the request is *recorded*; a record with no
+	# way to say it was answered is a record that fills up.
+	handled: bool = False
 
 
 class PushPayload(BaseModel):

@@ -54,13 +54,30 @@ def test_ussd_flow() -> None:
 	submenu = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='1'))
 	assert submenu.menu and '1. Fever' in submenu.menu and '4. Bleeding' in submenu.menu
 	# The second segment names the symptom and §5.4's shared engine answers — the fever entry reaches
-	# §6.3's malaria trap on a feature phone.
+	# §6.3's malaria trap on a feature phone. The answer arrives as a `CON` carrying the first of
+	# §CHAN-2's two "→" prompts, because the section draws the prompts *after* the symptom entries and
+	# the screen replaces rather than appends: the recommendation is repeated above the prompt so the
+	# caller does not pay for the advice and then have it taken off the screen.
 	fever = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='1*1'))
-	assert fever.end_text and 'malaria' in fever.end_text.lower(), fever.end_text
+	assert fever.menu and 'malaria' in fever.menu.lower(), fever.menu
+	assert 'Send my location' in fever.menu, fever.menu
+	# The second prompt, and then the close — a session that ends rather than one that loops.
+	callback = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='1*1*1'))
+	assert callback.menu and 'Request callback' in callback.menu, callback.menu
+	closed = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='1*1*1*1'))
+	assert closed.end_text and 'call you' in closed.end_text.lower(), closed.end_text
+	assert 'malaria' in closed.end_text.lower(), closed.end_text
 	# A submenu entry the engine has no word for answers at the low risk level rather than inventing
 	# a symptom from the label.
 	cough = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='1*2'))
-	assert cough.end_text and 'malaria' not in cough.end_text.lower(), cough.end_text
+	assert cough.menu and 'malaria' not in cough.menu.lower(), cough.menu
+	# §CHAN-2's item 5 says "Reply with the one you want" — a word, not a digit. A language with no
+	# table is answered in English and *told* so, rather than accepted into a session that claims a
+	# language it is not serving.
+	asked = svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='Dholuo'))
+	assert asked.end_text and 'Dholuo' in asked.end_text, asked.end_text
+	# A reply naming nothing this product knows re-serves the menu rather than 500ing on a phone.
+	assert svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='Klingon')).menu
 	# The leaves answer directly.
 	assert 'facility' in (svc.ussd(UssdRequest(session_id='s1', msisdn='+254711222333', text='2')).end_text or '')
 	# Item 3 opens its three questions, and each is answered.
@@ -86,9 +103,14 @@ def test_ussd_swahili_menu() -> None:
 	assert submenu and 'Jibu kwa namba ya dalili yako' in submenu, submenu
 	carrier = svc.ussd_carrier_callback(AtUssdCallback(session_id='s2', phone_number='+254711222333', text=''), lang='sw')
 	assert carrier['action'] == 'CON' and 'Afya Yangu' in carrier['text']
-	# A fever selection answered in Swahili, through the same engine.
+	# A fever selection answered in Swahili, through the same engine. The prompts are localised with
+	# everything else, so the callback question is asked in the language the caller is reading.
 	fever = svc.ussd_carrier_callback(AtUssdCallback(session_id='s2', phone_number='+254711222333', text='1*1'), lang='sw')
-	assert fever['action'] == 'END' and 'malaria' in fever['text'].lower(), fever['text']
+	assert fever['action'] == 'CON' and 'malaria' in fever['text'].lower(), fever['text']
+	assert 'Tuma mahali' in fever['text'], fever['text']
+	close = svc.ussd_carrier_callback(
+		AtUssdCallback(session_id='s2', phone_number='+254711222333', text='1*1*1*1'), lang='sw')
+	assert close['action'] == 'END' and 'atakupigia' in close['text'], close['text']
 
 
 def test_the_ussd_menu_is_the_sections_tree() -> None:

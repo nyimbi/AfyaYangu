@@ -626,7 +626,72 @@ USSD_SESSION_LIMIT_CHARS: int = 360
 # third of the clinic lookup — and the two yes/no ones are what a flat menu loses entirely. Carried
 # as data because §CHAN-2's symptom path ends by asking whether to send a location and whether to
 # request a callback, and a report that neither asks for is a report no one follows up.
+#
+# **The two yes/no prompts are reached, and the sentence above used to be a claim rather than a
+# fact.** The constant was defined here, cited by an audit row for §CHAN-1's callback request, and
+# referenced by the walk *nowhere*: `ussd()` went from the symptom selection straight to the triage
+# answer, so a caller was told their risk level and never asked for a callback. The tuple and the
+# spec-reading test both existed; nothing between them reached a person. `ussd()` now walks the two
+# prompts as a fourth level, and `USSD_CLOSE` is the sentence the answer produces.
 USSD_YES_NO_PROMPTS: tuple[str, ...] = ('→ Send my location? 1=Yes 2=No', '→ Request callback? 1=Yes 2=No')
+
+# The three prefixes §CHAN-1's Format names, as a keyword map onto §ACC-002's language codes.
+#
+# §CHAN-1 prints "local language option via keyword (e.g., prefix `SW`, `LU`, `KY`)" and no SMS body
+# was parsed for one: the inbound route took `lang` as a *query parameter*, which the person sending
+# the text cannot set. A Dholuo speaker therefore had no way to ask for their language on the one
+# channel §CHAN-1 exists for. `SW`/`LU`/`KY` are the section's own three; the rest are the codes
+# §ACC-002 lists, mapped so a speaker of a language the section left out of its example is not
+# refused the mechanism the section gives. `bxk`/`rag` are Luhya's two variants and `LU` is Dholuo
+# rather than either of them — the section's prefix is the one that wins, because a person typing it
+# is reading the section's example and not this file.
+SMS_LANG_PREFIXES: dict[str, str] = {
+	'SW': 'sw',    # Kiswahili
+	'LU': 'luo',   # Dholuo — §CHAN-1's own example, and the one §CHAN-2's menu names
+	'KY': 'ki',    # Kikuyu
+	'EN': 'en',    # English, so a person can ask for the fallback explicitly
+	'KL': 'kln',   # Kalenjin
+	'BU': 'bxk',   # Luhya (Bukusu)
+	'RA': 'rag',   # Luhya (Maragoli)
+	'KM': 'kam',   # Kamba
+	'SO': 'so',    # Somali
+	'MA': 'mas',   # Maasai
+	'GU': 'guz',   # Kisii
+	'ME': 'mer',   # Meru
+	'DA': 'dav',   # Taita
+}
+
+
+def sms_language(body: str) -> tuple[str, str]:
+	"""§CHAN-1's language prefix, read off the front of an SMS body.
+
+	Returns `(language_code, body_without_prefix)`. The code is the language the *sender asked for*,
+	which is not the language they will be answered in — that is still `answerable`'s decision, and
+	the two are kept apart on purpose: a person who prefixes `LU` has asked for Dholuo and must be
+	told they got English, rather than have the prefix silently swallowed and the fallback hidden.
+
+	A body with no recognised prefix is returned unchanged with `en`, which is the same answer
+	`answerable('en')` gives and is why the prefix is optional rather than required: every existing
+	sender keeps working, and the section's mechanism is added without making the channel stricter.
+
+	The prefix must be a *word* on its own — `SW:` is the colon form a person writes and `SW` bare is
+	the form the section prints, so both are read, and neither matches a body that merely starts with
+	those letters ("SWAHILI..." is not a prefix, it is a word). A two-letter match inside a longer
+	word would silently strip the first word of a real message, which is the failure this guard is
+	for: the person's report would lose its opening word and nothing would say so.
+	"""
+	assert isinstance(body, str), 'body required'
+	stripped = body.strip()
+	if not stripped:
+		return 'en', body
+	head, sep, rest = stripped.partition(' ')
+	word = head.rstrip(':').upper()
+	if word not in SMS_LANG_PREFIXES:
+		return 'en', body
+	# `SW:` with nothing after it is a person who asked for a language and then stopped — the
+	# remainder is empty and the caller's own "an inbound SMS needs text" refusal handles it, rather
+	# than this function returning a language for an empty message.
+	return SMS_LANG_PREFIXES[word], rest.strip() if sep else ''
 
 
 # §CHAN-2's labels are English in the section, and the served menu is localised. Both facts are
@@ -647,11 +712,57 @@ USSD_LABELS: dict[str, dict[str, str]] = {
 		'Is it safe to travel?': 'Ni salama kusafiri?',
 		'Fever': 'Homa', 'Cough': 'Kikohozi', 'Diarrhoea / vomiting': 'Kuhara / kutapika',
 		'Bleeding': 'Kutokwa na damu', 'Other': 'Nyingine',
+		# §CHAN-2's two "→" prompts, localised like every other menu line. The section writes them in
+		# English and the walk serves them through `ussd_label`, so a Swahili speaker reading the symptom
+		# path is asked the callback question in Swahili rather than switched to English at the one
+		# step where the answer decides whether anyone calls them back.
+		'→ Send my location? 1=Yes 2=No': '→ Tuma mahali ulipo? 1=Ndiyo 2=Hapana',
+		'→ Request callback? 1=Yes 2=No': '→ Omba kupigiwa simu? 1=Ndiyo 2=Hapana',
 	},
 }
 
 
-def _label(text: str, lang: str) -> str:
+# §ACC-002's language codes to the names §CHAN-2's item 5 prints, so a reply is matched by either.
+# Built from `LANGUAGE_MATRIX` at import rather than retyped: the matrix is the one authority for
+# which codes this product knows, and a second copy here is how a language gets a code in one place
+# and no name in the other.
+def _language_names() -> dict[str, str]:
+	from afya.access.views import LANGUAGE_MATRIX
+	return {str(meta['code']): name for name, meta in LANGUAGE_MATRIX.items()}
+
+
+LANGUAGE_NAME_FOR: dict[str, str] = _language_names()
+
+# §CHAN-2's item 5, once a person has replied with a language. The sentence names what they asked
+# for *and* what they will get, because those differ whenever the language has no table — and a
+# session that accepted the choice in silence would be the fake translation this module's docstring
+# refuses. `asked` is the language they named; the sentence itself is served in `answerable`'s.
+USSD_LANGUAGE_SET: dict[str, str] = {
+	'en': 'You asked for {asked}. Replies on this channel are in English for now. Call 719 for help in any language.',
+	'sw': 'Uliomba {asked}. Majibu kwenye njia hii ni kwa Kiingereza kwa sasa. Piga 719 kwa msaada kwa lugha yoyote.',
+}
+
+# The end of §CHAN-2's symptom path, after both "→" prompts. The recommendation is carried back
+# because the prompts replaced the screen it was on, and what was recorded is named because a person
+# who asked for a callback needs to know one was requested — "no callback" is different news from
+# "nothing happened", and a single closing sentence for both would blur them.
+USSD_CLOSE: dict[str, dict[str, str]] = {
+	'en': {
+		'location': 'Your location was shared.',
+		'no_location': 'Your location was not shared.',
+		'callback': 'A health worker will call you. {recommendation}',
+		'no_callback': 'No callback was requested; call 719 if you need one. {recommendation}',
+	},
+	'sw': {
+		'location': 'Mahali ulipo pameshirikiwa.',
+		'no_location': 'Mahali ulipo hakushirikiwa.',
+		'callback': 'Mhudumu wa afya atakupigia. {recommendation}',
+		'no_callback': 'Hukuomba kupigiwa simu; piga 719 kama unahitaji. {recommendation}',
+	},
+}
+
+
+def ussd_label(text: str, lang: str) -> str:
 	"""The label as `lang` reads it, or the section's own words where there is no table for it."""
 	return USSD_LABELS.get(answerable(lang), {}).get(text, text)
 
@@ -664,14 +775,14 @@ def ussd_menu_text(lang: str) -> str:
 	the tree rather than written beside it.
 	"""
 	assert len(USSD_TREE) == 5, '§CHAN-2 lists five top-level items'
-	lines = [f'{i}. {_label(label, lang)}' for i, (label, _) in enumerate(USSD_TREE, 1)]
+	lines = [f'{i}. {ussd_label(label, lang)}' for i, (label, _) in enumerate(USSD_TREE, 1)]
 	return 'CON Afya Yangu\n' + '\n'.join(lines)
 
 
 def ussd_symptom_menu_text(lang: str) -> str:
 	"""§CHAN-2's symptom submenu, in the section's order."""
 	head = USSD_SYMPTOM_PROMPT[answerable(lang)]
-	lines = [f'{i}. {_label(label, lang)}' for i, (_, label) in enumerate(USSD_SYMPTOMS, 1)]
+	lines = [f'{i}. {ussd_label(label, lang)}' for i, (_, label) in enumerate(USSD_SYMPTOMS, 1)]
 	return 'CON ' + head + '\n' + '\n'.join(lines)
 
 
@@ -719,6 +830,62 @@ USSD_INFO_ANSWERS: dict[str, tuple[str, ...]] = {
 # at the low risk level, which is what "no symptom named" means.
 SYMPTOM_WORDS: tuple[str, ...] = ('fever', 'headache', 'muscle_pain', 'sore_throat', 'vomiting', 'diarrhoea', 'rash', 'bleeding')
 
+# The same vocabulary as a speaker of each language writes it, mapped onto the engine's English keys.
+#
+# §CHAN-1's Format gives a language prefix and §ACC-002 ships the languages, but the router read one
+# English word list — so a person who prefixed `SW` and wrote "nina homa" was answered with the
+# welcome menu, having asked for Kiswahili and reported a fever. The prefix was honoured and the
+# report was dropped, which is worse than not offering the prefix at all: the mechanism appeared to
+# work. This is the other half of reading the prefix off the body.
+#
+# Keys are the engine's own English symptom names, never new ones: a Swahili word that mapped to a
+# symptom the triage engine does not know would be a second clinical vocabulary, and §5.4's single
+# engine is the whole reason the channel routers delegate.
+SYMPTOM_WORDS_BY_LANG: dict[str, dict[str, str]] = {
+	'sw': {
+		'homa': 'fever', 'joto': 'fever',
+		'kichwa': 'headache', 'maumivu ya kichwa': 'headache',
+		'misuli': 'muscle_pain', 'maumivu ya misuli': 'muscle_pain',
+		'koo': 'sore_throat', 'maumivu ya koo': 'sore_throat',
+		'kutapika': 'vomiting', 'tapika': 'vomiting',
+		'kuhara': 'diarrhoea', 'harisha': 'diarrhoea',
+		'vipele': 'rash', 'pele': 'rash',
+		'kutokwa na damu': 'bleeding', 'damu': 'bleeding',
+	},
+}
+
+
+def symptoms_named(body: str, lang: str = 'en') -> list[str]:
+	"""The engine's symptom keys a free-text report names, in the language it was written in.
+
+	English is read directly from `SYMPTOM_WORDS`; every other language is read from its own word map
+	and translated onto the same keys. A body that names nothing returns an empty list, which the
+	routers answer at the low risk level — the honest reading of "no symptom named" rather than a
+	symptom assumed from the language the person asked to be answered in.
+
+	Two things keep one symptom from being counted twice, and only the second is load-bearing:
+	the longest phrase is claimed first, so the position recorded is where the person's phrase
+	begins rather than an inner word of it; and a key already claimed is skipped, which is what
+	actually holds when "maumivu ya kichwa" and "kichwa" are both in the body. The list comes back
+	in the order the report named them, so a caller reading the answer sees their own account
+	rather than this table's order.
+	"""
+	assert isinstance(body, str), 'a report is text'
+	served = answerable(lang)
+	if served == 'en':
+		return [s for s in SYMPTOM_WORDS if s in body]
+	words = SYMPTOM_WORDS_BY_LANG.get(served, {})
+	hits: list[tuple[int, str]] = []
+	claimed: list[str] = []
+	for phrase in sorted(words, key=len, reverse=True):
+		key = words[phrase]
+		at = body.find(phrase)
+		if at < 0 or key in claimed:
+			continue
+		claimed.append(key)
+		hits.append((at, key))
+	return [key for _, key in sorted(hits)]
+
 # §CHAN-3's other three intents, in the languages with a table. These carry no clinical claim, so
 # they are text rather than an engine call — and none of them is a spec code.
 WHATSAPP_FACILITY: dict[str, str] = {
@@ -732,6 +899,16 @@ WHATSAPP_HOTLINE: dict[str, str] = {
 WHATSAPP_WELCOME: dict[str, str] = {
 	'en': 'Welcome to Afya Yangu. Options: symptoms, facility, hotline.',
 	'sw': 'Karibu Afya Yangu. Chaguo: dalili, kituo cha afya, mstari wa dharura.',
+}
+
+# §CHAN-1's `CALLBACK` keyword, answered. It confirms the request rather than merely acknowledging
+# the word, because the person's next action depends on which happened: a reply that said "received"
+# and filed nothing would leave someone waiting for a call that was never queued, which is worse
+# than a refusal they could act on. The hotline is named because a person who needs a call now
+# cannot wait for the queue, and this is the one reply in the product where that is true.
+CALLBACK_ACK: dict[str, str] = {
+	'en': 'A health worker will call you back. Call 719 now if you need help sooner.',
+	'sw': 'Mhudumu wa afya atakupigia simu. Piga 719 sasa kama unahitaji msaada haraka.',
 }
 
 # §ALT-002's "Works over SMS when data is unavailable", as the strings a reply is made of.

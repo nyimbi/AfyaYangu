@@ -447,6 +447,69 @@ async def test_inbound_sms_is_routed_by_intent(webhook_env: str) -> None:
 		assert empty.status_code == 422
 
 
+async def test_inbound_sms_reads_the_language_prefix_off_the_body(webhook_env: str) -> None:
+	"""§CHAN-1's Format: "local language option via keyword (e.g., prefix `SW`, `LU`, `KY`)".
+
+	Through the front door, because the mechanism's whole defect was that it existed nowhere a
+	sender could reach: the route took `lang` as a *query parameter*, and the person sending a text
+	cannot set one. The prefix is now read off the body, and the answer says which language was
+	served — a person who prefixed `LU` and is answered in English must be able to see that.
+	"""
+	import httpx as _httpx
+
+	from afya.service import build_services, create_app
+
+	app = create_app(build_services())
+	async with _httpx.AsyncClient(transport=_httpx.ASGITransport(app=app), base_url='http://t') as c:
+		# Kiswahili has a table, so the prefix changes the language served and not just the report.
+		raw, headers = _signed({'from': '0712345678', 'text': 'SW nina homa'})
+		sw = (await c.post('/integrations/telco/sms/inbound', content=raw, headers=headers)).json()
+		assert sw['lang'] == 'sw' and sw['language_fallback'] is False, sw
+		# The fever entry reaches §6.3's malaria trap, and the trap's sentence comes back in the
+		# language the prefix asked for — which is the whole point of reading it off the body.
+		assert 'malaria' in sw['reply'].lower(), sw['reply']
+		# Dholuo is one of §CHAN-1's three prefixes and has no table, so the ask is honoured and the
+		# fallback is *reported* rather than hidden behind a prefix that implied a translation.
+		raw, headers = _signed({'from': '0712345678', 'text': 'LU an gi tuo'})
+		luo = (await c.post('/integrations/telco/sms/inbound', content=raw, headers=headers)).json()
+		assert luo['lang'] == 'en' and luo['language_fallback'] is True, luo
+		# A prefix with nothing after it is a message with no report in it.
+		raw, headers = _signed({'from': '0712345678', 'text': 'SW:'})
+		assert (await c.post('/integrations/telco/sms/inbound', content=raw, headers=headers)).status_code == 422
+
+
+async def test_the_callback_keyword_files_a_request(webhook_env: str) -> None:
+	"""§CHAN-1's Inbound use case "Callback requests (`CALLBACK`)", on the keyword leg.
+
+	The section prints the keyword and the USSD prompt collects the same request; this is the half
+	that arrives as free text. It is matched as a whole word, because "callback" inside a longer
+	message is a person writing *about* a call, and a queue entry against someone who asked for
+	nothing is worse than no entry.
+	"""
+	import httpx as _httpx
+
+	from afya.channels.service import ChannelService
+	from afya.service import build_services, create_app
+
+	services = build_services()
+	app = create_app(services)
+	channels: ChannelService = services['channels']  # type: ignore[assignment]
+	async with _httpx.AsyncClient(transport=_httpx.ASGITransport(app=app), base_url='http://t') as c:
+		raw, headers = _signed({'from': '0712345678', 'text': 'CALLBACK'})
+		out = (await c.post('/integrations/telco/sms/inbound', content=raw, headers=headers)).json()
+		assert out['intent'] == 'callback' and out['request_id'].startswith('CB-'), out
+		assert 'call you back' in out['reply'].lower(), out['reply']
+		queued = channels.callback_requests()
+		assert len(queued) == 1 and queued[0].symptom is None, queued
+		assert queued[0].msisdn == '+254712345678', 'filed against the E.164 spelling, not the carrier\'s'
+		# A message that mentions a callback without being one is not a request.
+		raw, headers = _signed({'from': '0712345678', 'text': 'please callback me tomorrow'})
+		mentioned = (await c.post('/integrations/telco/sms/inbound', content=raw, headers=headers)).json()
+		assert mentioned.get('intent') != 'callback', mentioned
+		assert 'call you back' not in mentioned['reply'].lower(), mentioned['reply']
+		assert len(channels.callback_requests()) == 1, 'a mention is not a request'
+
+
 def test_every_spec_18_client_is_exported_and_wired() -> None:
 	"""The integrations package's `__all__` and `build_services` must agree with the spec's list of
 	systems, so a client cannot be added to the code and left unreachable from the app."""

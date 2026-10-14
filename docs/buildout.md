@@ -5280,3 +5280,125 @@ always open — the audit simply could not see them; the other two are §ACC-001
 
 **No new source.** The governing text is §5 and §14.9 of this repo's own spec; no external table or
 measurement is cited.
+
+## §CHAN-1 & §CHAN-2 — the wording existed in three places and the mechanism in none (2026-10-14)
+
+Widening the audit to §5 put seven channels in front of a reader for the first time, and three of the
+rows it produced were the same defect seen from three sides: the product carried the *wording* of a
+callback request in three places and the *mechanism* in none. Each was invisible to every test that
+read the tree, because in each case the tree was right.
+
+### The three gaps
+
+**1. `USSD_YES_NO_PROMPTS` described a conversation the channel did not have.** The constant held
+§CHAN-2's two `→` prompts — `→ Send my location? 1=Yes 2=No`, `→ Request callback? 1=Yes 2=No` — a
+test asserted it against the spec's own sentences, and an audit row for §CHAN-1's `CALLBACK` bullet
+cited it as the evidence. `ussd()` went from the symptom selection **straight to the triage answer**:
+the tuple existed, the spec-reading test passed, the audit row resolved, and no caller was ever
+asked either question. The walk now serves both prompts as a fourth level.
+
+**2. §CHAN-2's item 5 was a 500 on the one device it exists for.** The section prints
+`Language: English / Kiswahili / Dholuo / ...` with the answer text *"Reply with the one you want"*.
+The handler asserted `text.isdigit()`, so the one item the section gives to change language was the
+one item that could not be used — and its failure on a feature phone is a 500, which is to say
+nothing at all. It now matches a name or a code and, on a reply that names neither, re-serves the
+menu rather than guessing the nearest match.
+
+**3. The language prefix was a query parameter.** §CHAN-1's `Format` names "local language option via
+keyword (e.g., prefix `SW`, `LU`, `KY`)" and `/integrations/telco/sms/inbound` took `lang` as a
+**query parameter** — which the person sending a text cannot set. A Dholuo speaker had no way to ask
+for their language on the one channel §CHAN-1 exists for. `sms_language` now reads the prefix off the
+front of the body, as a whole word (`SW:` and bare `SW` both read; `SWAHILI…` keeps its first word),
+across all thirteen §ACC-002 codes.
+
+### The fourth gap, found while testing the third
+
+Reading the prefix off the body and then reading **only English symptom words** is a mechanism that
+appears to work. `SW nina homa` came back in Kiswahili — the prefix honoured — and the fever the
+person reported was answered with the **welcome menu**. That is worse than not offering the prefix,
+because nothing looks wrong from either end. `SYMPTOM_WORDS_BY_LANG` and `symptoms_named` close it:
+the vocabulary is read in the language the report was written in, translated onto the engine's own
+keys rather than into new ones, and returned **in the order the report named them** so the triage
+thresholds read the report the person wrote.
+
+The duplicate guard is the part worth naming. Two things stop `maumivu ya kichwa` counting a headache
+twice, and only the second is load-bearing: longest-phrase-first decides *which position is recorded*,
+and `key in claimed` is what actually holds. A canary that patched the phrase *order* was MISSED, and
+the docstring claiming the order was load-bearing was corrected with it.
+
+### What closed them
+
+**One record for one request, on both channels.** §CHAN-2's prompt and §CHAN-1's `CALLBACK` keyword
+file through `record_callback`, the single writer, onto `CallbackRequest`. It is a record of its own
+rather than a field on `CaseReport`, which is where the first cut put it and why the field was written
+and never set: a case report requires a `county` and a `community`, and a person pressing `2` on a
+feature phone has given neither — a report built to carry the callback would invent a location and
+file a suspected case nobody reported. `location_shared` is the *consent* the first prompt asks for,
+not a position.
+
+**A queue with a reader.** `/channels/callbacks` (guarded on `assigned`) and
+`/channels/callbacks/{id}/handled`. A record nothing can read is not a record, it is a variable, and
+the audit row's own evidence was the defect: it cited a constant while the walk never reached the
+prompt and no request was stored anywhere. `unhandled_only` defaults true so the default read is the
+work remaining; the record itself is kept, so a request rung back twice is one request.
+
+**Both catalogue actions, in plain language.** `callback_requests` ("People waiting for a call back")
+and `callback_handled` ("Mark a call back as done"), with `FEATURE_OF`, `OPERATOR_SCOPES` and
+`FRIENDLY_COPY` entries — no spec code in any served field.
+
+**The carrier envelope reports the request.** `ussd_carrier_callback` now carries
+`callback_requested`, so a request taken and not reported is not a queue nobody can tell is empty
+because it is empty or because nothing writes to it.
+
+**The asked-for language is not the served one.** The route returns `lang` and `language_fallback`
+beside the reply, following `TriageResult`'s rule: Dholuo has a prefix and no table, so the ask is
+honoured and the fallback is *visible* rather than hidden behind a prefix that implied a translation.
+
+### Canaries
+
+`tests/ci/canary_chan002.py` — **11/11 fired**. Each canary names its own file by node id and asserts
+the node appears in the output, so a canary caught for the wrong reason (a collection error) is not
+counted as fired.
+
+The four that matter:
+
+- **the walk answers without asking the prompts** — the original defect restored: the constant, the
+  spec assertion and the audit row all still pass, and only the walk changes. If this ever stops
+  firing, the gate has been scoped back to reading the tree.
+- **the request is served but not recorded** — the quieter half and the more dangerous one: a person
+  is asked whether they want a call, says yes, and nothing is filed. A test checking the prompt's
+  *text* passes.
+- **a declined prompt files a request** — which turns the queue into a list of everyone who reached
+  the symptom path. The default `False` is the whole point of the field.
+- **a Swahili report names no symptom** — the half-mechanism: the prefix honoured, the answer in
+  Kiswahili, the fever dropped. Every assertion about the prefix still passes.
+- **a prompt screen carries the submenu too** — every prompt still served, every path still ending,
+  and the caller cut off mid-sentence: §CHAN-2's *Session limits* is a constraint on the walk rather
+  than on any one string, and the budget is spent by the screens together.
+
+### Live probe
+
+Through the front door, on the real routes. USSD `1*1*1*1` → `END` with the recommendation repeated
+and *"A health worker will call you"*; `GET /channels/callbacks` (CHW token) → one `CB-…` record with
+`symptom: "fever"`, `location_shared: true`; `POST …/handled` → `{"handled": true}`, queue empty. On
+the SMS door: `SW nina homa` → Swahili malaria advice, `lang: "sw"`, `language_fallback: false`;
+`LU an gi tuo` → English, `lang: "en"`, `language_fallback: true`; `CALLBACK` → the ack and a
+`CB-…` id; `please callback me tomorrow` → no `intent`, no queue entry; `SW:` → 422. `GET
+/mobile/actions` serves both new actions with no feature code anywhere in the payload.
+
+### Verified
+
+- `uv run pytest -q -p no:randomly` on the ten affected files → **213 passed**
+- `uv run pytest -q tests/ci` (full suite checkpoint) → **2128 passed**
+- `uv run pyright src/afya/ tests/ci/test_chan_callbacks.py` → **0 errors, 0 warnings, 0 informations**
+- `uv run python tests/ci/canary_chan002.py` → **11/11**
+
+**§CHAN-001 3 `missing` → 2.** Across the repo **531 → 532 `carried`, 19 → 18 `missing`**, `deferred`
+17 unchanged, `unresolved == []`, audited sections 78 unchanged. The row that flipped is §CHAN-1's
+`Format` prefix; the two that stay open are the same two the widening recorded — *Follow-up after a
+USSD report* (a callback is a call the person asked for, not a follow-up the programme sends) and
+*plain language* (nothing measures how plain an outbound message is, and a claim in a docstring is not
+a check).
+
+**No new source.** The governing text is §5 of this repo's own spec, and the Swahili symptom words are
+the ordinary words the section's own Kiswahili menu already uses; no published table is cited.

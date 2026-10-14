@@ -2260,6 +2260,26 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		"""Carrier webhook. Signature-guarded: unsigned, it is anyone driving the USSD menus."""
 		return channels.ussd_carrier_callback(cb, lang)
 
+	@app.get('/channels/callbacks')
+	async def channels_callbacks(_subject: str = Depends(require_scope('assigned')),
+	                             unhandled_only: bool = True) -> list[dict[str, object]]:
+		"""§CHAN-1's `CALLBACK` queue, for the deployment that rings people back.
+
+		Scoped `assigned` rather than opened to anyone: this is a list of phone numbers and the
+		symptom each caller reported, which is the one dataset on this route that is a person's
+		health. `unhandled_only` defaults True so the default read is the work remaining.
+		"""
+		return [c.model_dump(mode='json') for c in channels.callback_requests(unhandled_only=unhandled_only)]
+
+	@app.post('/channels/callbacks/{request_id}/handled')
+	async def channels_callback_handled(request_id: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
+		"""Mark one request rung back, so a second reader sees it was already answered."""
+		try:
+			channels.handle_callback(request_id)
+		except KeyError as exc:
+			raise HTTPException(status_code=404, detail='no such callback request') from exc
+		return {'handled': True}
+
 	@app.post('/channels/chw/tasks')
 	async def chw_assign(task: ChwTask, _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
 		await channels.assign_chw_task(task)
@@ -5217,6 +5237,19 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		body = str(payload.get('text', '')).strip()
 		if not body:
 			raise HTTPException(status_code=422, detail='an inbound SMS needs text')
+		# §CHAN-1's Format: "local language option via keyword (e.g., prefix `SW`, `LU`, `KY`)". The
+		# prefix is read off the body the person actually sent, because `lang` above is a query
+		# parameter and the sender of a text cannot set one — so the section's mechanism had no
+		# implementation on the one channel it was written for. A body with no prefix is unchanged and
+		# reads as English, which is what `answerable('en')` would have given anyway.
+		from afya.strings import answerable, sms_language
+		asked_lang, body = sms_language(body)
+		if not body:
+			raise HTTPException(status_code=422, detail='an inbound SMS needs text after its language prefix')
+		# The asked-for language wins over the query parameter, and the response says which language
+		# was served — the `served_in` rule §CHAN-1's own channel needs as much as the triage engine
+		# does: a person who prefixed `LU` and is answered in English must be able to see that.
+		lang = asked_lang
 		# §5.4's one spelling of a phone number, from §5.4's one identity model. This route used to
 		# strip a leading zero and the USSD callback prepend a `+`, so the same handset arrived as
 		# `+254712345678` on one channel and `+0712345678` on the other — two identities for one
@@ -5246,9 +5279,27 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			# person reading the response both need to tell a check-in from a triage answer, and the
 			# reply text alone does not say which branch produced it.
 			return {'reply': reply, 'source': 'sms', 'intent': 'family-check-in',
+			        'lang': answerable(lang), 'language_fallback': answerable(lang) != lang,
 			        'linked': identity.is_linked(subject)}
+		# §CHAN-1's Inbound use case "Callback requests (`CALLBACK`)" — the keyword form of the same
+		# request §CHAN-2's second `→` prompt collects. Branching here rather than inside
+		# `route_whatsapp` because that router returns a reply string and this records a request: a
+		# keyword answered with a sentence and stored nowhere is the handler "ignoring" it in the
+		# audit row's sense, however polite the sentence.
+		#
+		# Matched as a whole word, not as a substring: "callback" inside a longer message is a person
+		# writing about a call, and treating every mention as a request would put a queue entry
+		# against someone who asked for nothing.
+		if body.strip().upper() == 'CALLBACK':
+			from afya.strings import CALLBACK_ACK
+			req = channels.record_callback(msisdn, session_id=f'sms:{subject}', symptom=None, lang=lang)
+			return {'reply': CALLBACK_ACK[answerable(lang)], 'source': 'sms', 'intent': 'callback',
+			        'request_id': req.request_id, 'lang': answerable(lang),
+			        'language_fallback': answerable(lang) != lang, 'linked': identity.is_linked(subject)}
 		out = channels.route_whatsapp(WhatsAppIn(from_msisdn=msisdn, body=body), lang)
-		return {'reply': out.reply, 'source': 'sms', 'linked': identity.is_linked(subject)}
+		return {'reply': out.reply, 'source': 'sms',
+		        'lang': answerable(lang), 'language_fallback': answerable(lang) != lang,
+		        'linked': identity.is_linked(subject)}
 
 	# --- §15.3 residency, §17.7 agreements, §15.4 capacity -----------------------------------
 	# Three spec sections that were prose and nothing else. Residency is a decision made before a

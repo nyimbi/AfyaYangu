@@ -480,7 +480,10 @@ async def test_the_ussd_route_still_answers_without_a_storage_grant() -> None:
 	services = build_services()
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(services)), base_url='http://t') as c:
 		body = (await c.post('/channels/ussd', json={'session_id': 's1', 'msisdn': OTHER, 'text': '1*1'})).json()
-	assert body.get('end_text'), 'a symptom report is answered whether or not it may be stored'
+	# §CHAN-2 draws two "→" prompts after the symptom entries, so the triage answer now arrives as a
+	# `CON` carrying the first prompt with the recommendation above it rather than as a final `END`.
+	answered = (body.get('menu') or '') + (body.get('end_text') or '')
+	assert answered and 'malaria' in answered.lower(), 'a symptom report is answered whether or not it may be stored'
 	channels: ChannelService = services['channels']  # type: ignore[assignment]
 	assert channels.may_store_symptoms(OTHER) is False
 	# And a WhatsApp body mentioning a symptom reaches the shared engine rather than being refused.

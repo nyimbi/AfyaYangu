@@ -409,7 +409,7 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 		# — a patient wristband, a tagged medicine package, a PPE station log, an equipment register
 		# — that do not exist in this tree.
 		'§CHAN-000': 2,
-		'§CHAN-001': 3,
+		'§CHAN-001': 2,
 		'§CHAN-003': 2,
 		'§CHAN-004': 4,
 		'§CHAN-005': 2,
