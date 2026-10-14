@@ -141,6 +141,32 @@ def test_unpulled_rules_are_unverified_not_charged() -> None:
 	assert zero_rating_gaps(None) == []
 
 
+def test_the_two_ways_a_claim_is_unconfirmed_are_told_apart_in_the_sentence() -> None:
+	"""`verified` is False both when nobody asked the carrier and when the carrier answered and named
+	nothing this channel could match — and the sentence is served to a person, so it may not assert
+	the first when the second is true.
+
+	WhatsApp is the case: §5.2 states no destination prefix for it, so `rule_prefix_hint` is None and
+	no pulled rule can ever match. Before this distinction the sentence read "the carrier's billing
+	rules have not been pulled" for an empty *pulled* list and for a list carrying rules — a public
+	payload telling a reader that a pull that happened did not. The boolean stays False either way;
+	the prose is what had to change.
+	"""
+	assert cost_verdict('whatsapp', []).verified is False
+	assert 'have not been pulled' not in cost_verdict('whatsapp', []).sentence, (
+		'an empty list is a pull that returned nothing, not a pull that never happened'
+	)
+	pulled = _rules(('719', 0))
+	assert 'have not been pulled' not in cost_verdict('whatsapp', pulled).sentence
+	assert 'cannot confirm it' in cost_verdict('whatsapp', pulled).sentence
+	# And the un-pulled state still says what it always said.
+	assert 'have not been pulled' in cost_verdict('whatsapp', None).sentence
+	# SMS can be matched, so its two states were already distinct and must stay so: pulled-and-empty
+	# is a gap that charges, not an unconfirmed claim.
+	assert cost_verdict('sms', []).charged is True
+	assert 'have not been pulled' not in cost_verdict('sms', []).sentence
+
+
 def test_pulled_rules_that_cover_nothing_are_a_gap() -> None:
 	"""The carrier answered and the answer was no. This is a finding, and it is the case §18.8's own
 	docstring describes: "a zero-rating rule that changed but was not pulled means the app tells

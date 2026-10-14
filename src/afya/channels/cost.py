@@ -230,7 +230,10 @@ class ChannelCostVerdict(BaseModel):
 	cost_label: str
 	cost_to_user: CostToUser
 	zero_rating_required: bool
-	# Whether the carrier's rules were available to check the claim against.
+	# Whether the carrier's rules were available *and* named a destination this channel could be
+	# matched at. False for two different reasons — no pull, or no `rule_prefix_hint` to match — and
+	# the sentence tells them apart; a reader who needs to know which must read `rules_pulled` off
+	# the report rather than this flag.
 	verified: bool
 	free_at_point_of_use: bool
 	charged: bool
@@ -238,10 +241,18 @@ class ChannelCostVerdict(BaseModel):
 	sentence: str = Field(min_length=1)
 
 
-def _sentence(row: ChannelCost, free: bool, verified: bool, rule: ZeroRatingRule | None) -> str:
+def _sentence(row: ChannelCost, free: bool, verified: bool, rule: ZeroRatingRule | None, *,
+              pulled: bool = True) -> str:
 	"""One sentence about what a channel costs, written so the channel's name can be singular or
 	plural. §5.2's own names include "Human intermediaries", so a verb agreeing with the name would
 	need a number for every row; the phrasings below take the name as a subject-free topic instead.
+
+	`pulled` separates the two ways a claim can be unconfirmed, because they are opposite facts and
+	the sentence is served to a person. "The carrier has not answered" and "the carrier answered and
+	named nothing this channel could match" both leave `verified` False, and a sentence asserting the
+	first when the second is true tells a reader something that did not happen. It is the same
+	collapsing the model's own docstring warns about, one level down: the boolean is right either
+	way, and the prose was not.
 	"""
 	name = row.name
 	if not row.zero_rating_required:
@@ -249,9 +260,16 @@ def _sentence(row: ChannelCost, free: bool, verified: bool, rule: ZeroRatingRule
 			return f'No charge reaches the person on {name}.'
 		return f'{name} uses the person’s own data, so reaching them this way is not free.'
 	if not verified:
+		if not pulled:
+			return (
+				f'{name} is meant to be free, and the carrier’s billing rules have not been pulled, so '
+				f'nothing has confirmed it.'
+			)
+		# Pulled, and this channel names no destination a rule could cover — WhatsApp, whose data is
+		# billed by a prefix §5.2 never states. The rules answered; there was nothing to ask them.
 		return (
-			f'{name} is meant to be free, and the carrier’s billing rules have not been pulled, so '
-			f'nothing has confirmed it.'
+			f'{name} is meant to be free, and no destination the carrier’s rules could name is stated '
+			f'for it, so the rules that were pulled cannot confirm it.'
 		)
 	if rule is not None:
 		return f'{name} is free — the carrier’s billing rules cover it.'
@@ -283,13 +301,20 @@ def cost_verdict(channel: str, rules: list[ZeroRatingRule] | None) -> ChannelCos
 	# A channel with no destination a rule could name cannot be checked at all, so it stays
 	# unverified however many rules were pulled. Reporting it as covered would be inventing the
 	# match; reporting it as a gap would blame the carrier for a hint the spec never gives.
-	verified = rules is not None and row.rule_prefix_hint is not None
+	#
+	# The two ways `verified` comes out False are kept apart for the sentence's sake: `rules is None`
+	# is "nobody asked the carrier", while a channel with no `rule_prefix_hint` is "the carrier
+	# answered and there was nothing to match against". Same boolean, opposite facts, and only the
+	# first may be described as rules that were never pulled.
+	pulled = rules is not None
+	verified = pulled and row.rule_prefix_hint is not None
 	rule = covering_rule(channel, rules or [])
 	free = rule is not None or not verified
 	return ChannelCostVerdict(
 		channel=channel, name=row.name, cost_label=row.cost_label, cost_to_user=row.cost_to_user,
 		zero_rating_required=True, verified=verified, free_at_point_of_use=free,
-		charged=verified and not free, rule=rule, sentence=_sentence(row, free, verified, rule),
+		charged=verified and not free, rule=rule,
+		sentence=_sentence(row, free, verified, rule, pulled=pulled),
 	)
 
 

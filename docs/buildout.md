@@ -5995,3 +5995,65 @@ each open for a reason this unit does not change, and each pinned by a test that
 open.
 
 **No new source.** The governing text is this repo's own `docs/spec.md`.
+
+## §CHAN-001 — the cost report was right and the sentence told the reader something that did not happen (2026-10-15)
+
+### The finding
+
+`afya.channels.cost` exists because `SmsOut.zero_rated` defaulted to `True` — a free claim that could
+not come out false. It resolves §5.2's cost-to-user column against §18.8's carrier rules and reports
+the channels whose claim is unbacked, and it does that correctly. Its `ChannelCostVerdict` docstring
+states the distinction the module is built on: *"'The rules were never pulled' and 'the rules were
+pulled and do not cover this' are different facts."*
+
+The `charged` field keeps that distinction. **The sentence did not.** `verified` is False for two
+opposite reasons — the carrier was never asked (`rules is None`) and the carrier answered but named no
+destination this channel could match (`rule_prefix_hint is None`) — and `_sentence` rendered both as
+*"the carrier's billing rules have not been pulled"*. WhatsApp is the case that makes it bite: §5.2
+states no prefix for it, so no pulled rule can ever match, and the public `/channels/cost` route told
+every reader that a pull which had happened had not.
+
+It is the same collapse the docstring warns about, one level down. The boolean was right either way;
+the prose is what a person reads.
+
+### The fix is one parameter, not a new state
+
+`_sentence` takes `pulled` beside `verified`, and the two unconfirmed states get their own words: the
+un-pulled one keeps its original phrasing, and the pulled-and-unmatchable one says *"no destination the
+carrier's rules could name is stated for it, so the rules that were pulled cannot confirm it."* The
+verdict model is unchanged — no new field, because `rules_pulled` is already served on the report and a
+second copy of it on every row is the duplication that drifts.
+
+SMS is untouched and its two states were already distinct: pulled-and-empty is a gap that charges,
+un-pulled is an unconfirmed claim. Only the channel with no destination to match had the two folded
+together.
+
+### The gap report can only ever name SMS, and that is correct
+
+`zero_rating_gaps` returns rows where `zero_rating_required and charged`, and `charged` requires
+`verified`. WhatsApp is unverifiable by construction, so **the report is structurally unable to say
+anything about the channel §5.3's own cell marks "(zero-rated)"** — not a defect, but the reason the
+sentence carries the weight it does: for WhatsApp the prose is the only channel-level finding there is.
+
+### The canary this module never had
+
+`tests/ci/test_channel_cost.py` had no canary, which is how the wrong sentence survived every gate in
+the repo. `tests/ci/canary_channel_cost.py` adds two, both verified to fire:
+
+| # | Mutation | Caught by |
+|---|---|---|
+| 1 | the pulled-and-unmatchable sentence reverts to "have not been pulled" | `test_the_two_ways_a_claim_is_unconfirmed_are_told_apart_in_the_sentence` |
+| 2 | a rate-0 rule matches a channel that names no destination | `test_a_shortcode_rule_does_not_cover_whatsapp` |
+
+Canary 1 is the pre-fix line, so the test written for the defect fails on the code the defect was in.
+Canary 2 removes the `rule_prefix_hint` guard in `covering_rule`, which is the only thing stopping a
+shortcode rule being mistaken for WhatsApp data coverage — the false free claim the module was written
+after.
+
+**Front-door verified.** With a carrier that answered and one rule covering only the SMS shortcode,
+`GET /channels/cost` serves SMS as covered and WhatsApp as *"no destination the carrier's rules could
+name is stated for it, so the rules that were pulled cannot confirm it"* — where it previously served
+the un-pulled sentence. An unconfigured deployment still says the rules have not been pulled, which is
+true of it.
+
+**No new source.** The governing text is this repo's own `docs/spec.md`.

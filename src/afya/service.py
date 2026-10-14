@@ -118,7 +118,7 @@ from afya.chw.service import ChwService
 from afya.live.service import LiveService
 from afya.live.views import AnswerIn, DeclineIn, LivePlatform, LiveSession, LiveStatus, QuestionIn
 from afya.intermediaries.service import IntermediaryService
-from afya.info.submissions import STORY_PURPOSE, StoryIn, StoryModerationIn, StoryService
+from afya.info.submissions import StoryIn, StoryModerationIn, StoryService
 from afya.chw.views import ActivityLogEntry, ChwCase, ChwProfile
 from afya.intermediaries.views import Incentive, Intermediary, Referral
 from afya.community.service import CommunityService
