@@ -10,6 +10,12 @@ What this deliberately does not do: images, fonts other than Helvetica, compress
 tagged-PDF accessibility. A wallet export is a list of documents for a school or a clinic, and the
 failure mode of a half-implemented layout engine is worse than the failure mode of plain text.
 
+The font is declared `/WinAnsiEncoding`, and that declaration is load-bearing rather than decoration:
+a base-14 font with no `/Encoding` is read as StandardEncoding, under which every byte from 0x80 up
+is undefined — so the punctuation this tree actually writes (the em dash in the export's own heading,
+a typographic apostrophe in a name) draws as nothing or as garbage. cp1252 is the set that mapping
+gives glyphs to, and it is wider than Latin-1 by exactly the characters that matter here.
+
 Two things here are load-bearing and easy to get wrong, which is why they have tests rather than
 comments alone: the cross-reference offsets must be the *byte* offsets of each object in the file
 that was actually written, and the text must be escaped. A `(` in a document title — "(review)" in a
@@ -35,16 +41,28 @@ is not, which is why the wrap is conservative rather than exact."""
 
 
 def escape(text: str) -> str:
-	"""Escape a PDF string literal.
+	"""Escape a PDF string literal and map it into the font's encoding.
 
 	Backslash first: escaping it after the parentheses would double-escape the backslashes this
 	function itself introduces, so `\\(` would become `\\\\` and the literal would close early.
-	Non-Latin-1 characters are replaced rather than dropped, because a name in a script this font
-	cannot draw should be visibly unrenderable, not silently absent from a certificate.
+
+	The encoding half is not cosmetic. The font is `/WinAnsiEncoding`, so a character is drawable
+	when cp1252 has a glyph for it — which is a *different* set from Latin-1, and wider by exactly
+	the punctuation this tree writes. An em dash (U+2014), an en dash, a typographic apostrophe and
+	an ellipsis are all cp1252 and none Latin-1, so a `ord(c) < 256` test destroyed every one of
+	them and the export's own heading rendered `Health record ? Achieng`. What cp1252 cannot draw
+	becomes `?` rather than being dropped: a name in a script this font has no glyph for should be
+	visibly unrenderable, not silently absent from a certificate.
 	"""
 	out = text.replace('\\', r'\\').replace('(', r'\(').replace(')', r'\)')
 	out = out.replace('\r', ' ').replace('\n', ' ')
-	return ''.join(c if ord(c) < 256 else '?' for c in out)
+	drawable: list[str] = []
+	for char in out:
+		try:
+			drawable.append(char.encode('cp1252').decode('latin-1'))
+		except UnicodeEncodeError:
+			drawable.append('?')
+	return ''.join(drawable)
 
 
 def wrap(text: str, width: int = CHARS_PER_LINE) -> list[str]:
@@ -120,7 +138,7 @@ def render(title: str, lines: list[str]) -> bytes:
 		1: b'<< /Type /Catalog /Pages 2 0 R >>',
 		2: ('<< /Type /Pages /Kids [' + ' '.join(f'{i} 0 R' for i in page_ids) +
 		    f'] /Count {len(pages)} >>').encode(),
-		3: b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+		3: b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
 	}
 	for idx, lines_on_page in enumerate(pages):
 		page_id = page_ids[idx]

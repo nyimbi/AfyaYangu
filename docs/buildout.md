@@ -6057,3 +6057,68 @@ the un-pulled sentence. An unconfigured deployment still says the rules have not
 true of it.
 
 **No new source.** The governing text is this repo's own `docs/spec.md`.
+
+---
+
+## §REC-001 — every PDF export named its own subject with a question mark (2026-10-15)
+
+### The finding
+
+`afya.records.pdf` writes the wallet's PDF export by hand. Its `escape` ended with
+`''.join(c if ord(c) < 256 else '?' for c in out)` — a **Latin-1** test — and the font was declared
+`/BaseFont /Helvetica` with no `/Encoding`, which a reader resolves to **StandardEncoding**, under
+which every byte from `0x80` up is undefined.
+
+The two facts compound on the one input that cannot be avoided. `RecordsService.export` builds its
+heading as `f'Health record — {who}'`, so **every** PDF the wallet produced rendered
+
+	(Health record ? Achieng O?Brien) Tj
+
+and a name carrying a typographic apostrophe lost it. Measured at the service, not reasoned about:
+`rec.export('KID1', 'KID1', 'pdf', …)` on a member named `Achieng O’Brien`.
+
+Latin-1 and cp1252 are not the same set, and the difference is exactly the punctuation this tree
+writes. The em dash (`U+2014`), en dash, typographic apostrophe, curly quotes and ellipsis are all
+cp1252 and none Latin-1 — every one of them was destroyed by a bound that read as a safe subset.
+
+### Why the existing test did not catch it
+
+`test_the_pdf_escapes_a_parenthesis_in_a_title` ended with
+
+	assert b'\xe2' not in pdf, 'a character Helvetica cannot draw must not reach the stream raw'
+
+which the mangling **satisfies** — `?` is not `0xe2`. The assertion is a strict subset of the thing
+it looks like it is checking: it says the character must not reach the stream *raw*, and says nothing
+about the character surviving. That is the subset-predicate failure the audit method already records,
+here in the instrument rather than the code.
+
+### The fix is the encoding declaration plus the bound that matches it
+
+- The font object now declares `/Encoding /WinAnsiEncoding`, which is what gives bytes `0x80`-`0xFF`
+  the glyphs cp1252 names.
+- `escape` maps through `char.encode('cp1252').decode('latin-1')` and substitutes `?` only for a
+  character cp1252 genuinely has no glyph for.
+
+The export now emits `(Health record \x97 Achieng O\x92Brien) Tj` — the real em dash and apostrophe,
+in the encoding the font declares.
+
+### The canary this module never had
+
+`afya.records.pdf` had a canary for its cross-reference table and **none for its text encoding**,
+which is where it was wrong. `tests/ci/canary_rec_pdf.py` adds three, all verified to fire:
+
+| # | Mutation | Caught by |
+|---|---|---|
+| 1 | the font stops declaring `/Encoding /WinAnsiEncoding` | `test_the_pdf_keeps_the_punctuation_helvetica_can_draw` |
+| 2 | the escaper falls back to the `ord(c) < 256` Latin-1 bound | `test_the_pdf_keeps_the_punctuation_helvetica_can_draw` |
+| 3 | an undrawable character is dropped rather than marked | `test_the_pdf_marks_a_character_the_font_cannot_draw` |
+
+Canary 1 is the half a byte-value test would pass: the bytes can be right and the font still draw
+nothing with them. Canary 3 is the weak assertion's own defect read the other way — nothing raw
+reaches the stream, and the name is silently absent from the certificate instead of visibly
+unrenderable.
+
+### No new source
+
+The governing text is `afya.records.pdf`'s own module docstring and the PDF specification's
+StandardEncoding/WinAnsiEncoding definitions, both already in the repo's dependency-free scope.

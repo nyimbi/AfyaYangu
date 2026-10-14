@@ -184,11 +184,58 @@ def test_the_pdf_escapes_a_parenthesis_in_a_title() -> None:
 	"""A `(` closes a PDF string literal early, and the file then opens to garbage.
 
 	A clinic note saying "(review)" is not a contrived input; it is the shape of the defect.
+
+	The last assertion is the weak half of the pair and is kept weak on purpose: it says the
+	character must not reach the stream *raw*, which the mangling also satisfies. The strong half —
+	that the character must still be there, in the encoding the font declares — is
+	`test_the_pdf_keeps_the_punctuation_helvetica_can_draw`, which is the test this one was mistaken
+	for.
 	"""
 	pdf = render('Record', ['Seen at (review) clinic', r'back\slash', 'name: O’Brien'])
 	assert b'\\(review\\)' in pdf, 'an unescaped parenthesis terminates the literal'
 	assert rb'back\\slash' in pdf, 'a backslash must be escaped, and escaped first'
 	assert b'\xe2' not in pdf, 'a character Helvetica cannot draw must not reach the stream raw'
+
+
+def test_the_pdf_keeps_the_punctuation_helvetica_can_draw() -> None:
+	"""A base-14 font with no `/Encoding` is read as StandardEncoding, under which every byte from
+	0x80 up is undefined — so the em dash and the typographic apostrophe this tree writes drew as
+	garbage while `escape` reported success, because `ord(c) < 256` is a Latin-1 test and the font
+	draws cp1252.
+
+	The export's own heading is the input that makes it bite: `RecordsService.export` renders
+	`f'Health record — {who}'`, so **every** PDF the wallet produced read `Health record ? Achieng`,
+	and a name carrying O’Brien lost its apostrophe. Both halves are asserted because either alone
+	passes a broken writer: the bytes must be the cp1252 codes, and the font must declare the
+	encoding that gives those codes glyphs.
+	"""
+	pdf = render('Health record — Achieng O’Brien', ['Exported'])
+	assert b'/Encoding /WinAnsiEncoding' in pdf, (
+		'without the encoding a reader treats 0x80-0xFF as undefined and the punctuation vanishes'
+	)
+	assert b'(Health record \x97 Achieng O\x92Brien) Tj' in pdf, (
+		'the em dash is 0x97 and the typographic apostrophe 0x92 under WinAnsiEncoding'
+	)
+	assert b'?' not in pdf, 'a character the font can draw must not be replaced by a question mark'
+
+
+def test_the_pdf_marks_a_character_the_font_cannot_draw() -> None:
+	"""The other direction, and the one the weak assertion cannot see: a character cp1252 has no
+	glyph for must leave a mark where it was.
+
+	Dropping it produces a certificate that reads cleanly and is wrong — `escape`'s own docstring
+	argues the point, that a name in a script this font cannot draw should be visibly unrenderable
+	rather than silently absent from a certificate. The distinction is invisible to a test that only
+	checks the raw UTF-8 byte did not reach the stream, because both a `?` and a deletion satisfy it.
+	"""
+	pdf = render('Record', ['name: 山田太郎', 'also: Ω'])
+	assert b'(name: ????) Tj' in pdf, (
+		'each character with no cp1252 glyph becomes one `?`, so the mark is one per character and '
+		'not one per UTF-8 byte — four characters, four marks'
+	)
+	assert b'(also: ?) Tj' in pdf, 'a Greek capital omega is not in cp1252 either'
+	assert b'\xe5\xb1\xb1' not in pdf, 'the UTF-8 bytes must not reach the stream raw'
+	assert b'\xce\xa9' not in pdf, 'the UTF-8 bytes must not reach the stream raw'
 
 
 def test_the_pdf_paginates_a_long_record() -> None:
