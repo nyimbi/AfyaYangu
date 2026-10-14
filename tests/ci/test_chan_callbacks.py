@@ -19,6 +19,7 @@ import pytest
 
 from afya.channels.service import ChannelService
 from afya.channels.views import UssdRequest, UssdResponse, WhatsAppIn
+from afya.identity.service import IdentityService
 from afya.integrations.gateways import AtUssdCallback
 from afya.registry.service import FeatureRegistry
 from afya.strings import (
@@ -31,7 +32,7 @@ MSISDN = '+254711222333'
 
 
 def _svc() -> ChannelService:
-	return ChannelService(AfricaTalkingSmsPort(), None, TriageService(FeatureRegistry()))
+	return ChannelService(AfricaTalkingSmsPort(), None, TriageService(FeatureRegistry()), IdentityService())
 
 
 class AfricaTalkingSmsPort:

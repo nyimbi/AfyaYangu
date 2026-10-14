@@ -340,6 +340,11 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	analytics_svc = AnalyticsService()
 	security_svc = SecurityService()
 	retention_svc = RetentionService()
+	# §AI-003's detector, built here rather than inline in the services dict because the channel
+	# service is constructed above it and needs the same instance the six app surfaces record into.
+	# Two `AIService`s would be two ledgers, and a signal counted into the one nobody reads is
+	# indistinguishable from a signal that was never counted.
+	ai_svc = AIService()
 	retention_svc.register_sources({'dashboards': analytics_svc, 'scans': security_svc})
 
 	async def telco_rules() -> list[ZeroRatingRule] | None:
@@ -358,7 +363,13 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	def _dialable(number: str | None) -> str | None:
 		return _sms_dialable(number) if number else None
 
-	channels_svc = ChannelService(sms_port, telco_rules, triage_svc, identity_svc, privacy_svc, access_svc)
+	channels_svc = ChannelService(sms_port, telco_rules, triage_svc, identity_svc, privacy_svc, access_svc,
+		# §AI-003's ledger, handed over as a callable for the reason §ALT-002's legs are: the channel
+		# layer must not import the detection layer, and a report filed by a channel is counted by the
+		# same `_record_signal` door the six app surfaces use — one clock, one locality check. Built
+		# as a local above the dict so the channel service can be handed it at construction; without
+		# this the ledger saw the app and neither of the two channels built for feature phones.
+		record_signal=lambda county, signal, ref: _record_signal(ai_svc, county, signal, ref))
 	# §ALT-002's two legs, wired here because they point in opposite directions and neither service
 	# may import the other: the check-in texts the family through §5.3's channel service, which is
 	# where §18.8's zero-rating is resolved — so a check-in message is free by the same rule as every
@@ -460,7 +471,7 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# method of the surveillance service, handed over as a callable so this module depends on a
 		# read and not on a service.
 		'location': LocationService(info_svc.dashboard, monitoring_svc, surveillance_svc.geofences_at),
-		'ai': AIService(),
+		'ai': ai_svc,
 		'analytics': analytics_svc,
 		'metrics': MetricsService(),
 		'access': access_svc,
@@ -2205,8 +2216,16 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		"""`lang` is a query parameter because USSD carries no headers: the carrier's gateway passes
 		the subscriber's language out of band, and the menu it returns is the whole user interface.
 		Without it the route was English-only and Swahili — the language §ACC-002 puts first — was
-		unreachable on the one channel §4.1's feature-phone persona can use."""
-		return channels.ussd(req, lang).model_dump(mode='json')
+		unreachable on the one channel §4.1's feature-phone persona can use.
+
+		The signal emit is here for the reason it is on the carrier callback: the walk is synchronous
+		and the ledger write is not. A completed report is counted on the request that completed it,
+		which for this route is the one carrying the final `*` answer.
+		"""
+		out = channels.ussd(req, lang).model_dump(mode='json')
+		for report in channels.channel_reports():
+			await channels.emit_report_signal(report)
+		return out
 
 	@app.post('/channels/whatsapp')
 	async def channels_whatsapp(msg: WhatsAppIn, lang: str = 'en') -> dict[str, object]:
@@ -2217,11 +2236,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		bullet rather than a regression: the note's `body` is a media reference, and routing it
 		through the text keyword map answered "a media id contains no symptom word" at the low risk
 		level. `/channels/whatsapp/voice` is where a note goes, and it transcribes first.
+
+		The router files §5.4's channel report and this counts it into §AI-003's ledger, which is the
+		one leg of the report the router cannot do: `route_whatsapp` is synchronous and the ledger
+		write is I/O.
 		"""
 		try:
-			return channels.route_whatsapp(msg, lang).model_dump(mode='json')
+			out = channels.route_whatsapp(msg, lang).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		for report in channels.channel_reports():
+			await channels.emit_report_signal(report)
+		return out
 
 	@app.post('/channels/whatsapp/voice')
 	async def channels_whatsapp_voice(
@@ -2257,8 +2283,47 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/channels/ussd/callback')
 	async def channels_ussd_callback(cb: AtUssdCallback, lang: str = 'en', _body: bytes = Depends(require_webhook())) -> dict[str, str]:
-		"""Carrier webhook. Signature-guarded: unsigned, it is anyone driving the USSD menus."""
-		return channels.ussd_carrier_callback(cb, lang)
+		"""Carrier webhook. Signature-guarded: unsigned, it is anyone driving the USSD menus.
+
+		The signal emit sits here rather than inside `ussd()` because the walk is synchronous — it is
+		a pure function of the accumulated input — and §AI-003's ledger write is I/O. This is the one
+		place the USSD leg becomes awaitable, so it is the one place the count can be made.
+
+		The carrier envelope is returned unchanged. A report that could not be placed in a locality is
+		held and *not* counted, which is `emit_report_signal`'s own answer rather than a failure here:
+		§AI-003's signal is a rise in a locality, and a USSD session carries none.
+		"""
+		envelope = channels.ussd_carrier_callback(cb, lang)
+		for report in channels.channel_reports():
+			await channels.emit_report_signal(report)
+		return envelope
+
+	@app.get('/channels/reports')
+	async def channels_reports(_subject: str = Depends(require_scope('assigned')),
+	                           channel: str | None = None,
+	                           unhandled_only: bool = False) -> dict[str, object]:
+		"""§5.4's "single case-report backend" as the deployment reads it, with what the detector sees.
+
+		Scoped `assigned` for the reason the callback queue is: this is a list of phone numbers and
+		the symptoms each one reported, which is the dataset §SEC-003 exists for. The two counts are
+		served together because the interesting fact is the *difference* between them — how many
+		reports the product holds and how many of them its early-warning detector can actually count.
+		"""
+		reports = channels.channel_reports(channel=channel, unhandled_only=unhandled_only)
+		return {
+			'reports': [r.model_dump(mode='json') for r in reports],
+			'held': len(reports),
+			'countable_into_a_locality': len([r for r in reports if r.county is not None]),
+		}
+
+	@app.post('/channels/reports/{report_id}/handled')
+	async def channels_report_handled(report_id: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
+		"""Mark one report read. The record is kept, so a report looked at twice is one report."""
+		try:
+			channels.handle_report(report_id)
+		except KeyError as exc:
+			raise HTTPException(status_code=404, detail='no such channel report') from exc
+		return {'handled': True}
 
 	@app.get('/channels/callbacks')
 	async def channels_callbacks(_subject: str = Depends(require_scope('assigned')),

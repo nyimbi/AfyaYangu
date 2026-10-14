@@ -18,9 +18,12 @@ def make_channel_service() -> ChannelService:
 	that answered from its own keyword rules would be the second clinical engine §5.4 forbids — so
 	the test wires the real one instead of a stub.
 	"""
+	from afya.identity.service import IdentityService
 	from afya.registry.service import FeatureRegistry
 	from afya.triage.service import TriageService
-	return ChannelService(make_sms_port(), None, TriageService(FeatureRegistry()))
+	# §5.4's two shared collaborators, both wired rather than stubbed: the triage engine the walk
+	# answers through, and the identity model the report it now files is keyed on.
+	return ChannelService(make_sms_port(), None, TriageService(FeatureRegistry()), IdentityService())
 
 
 def test_sms_segmentation_single() -> None:

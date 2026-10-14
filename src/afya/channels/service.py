@@ -6,8 +6,8 @@ from afya.auth.views import now_ms
 from afya.channels.cost import ChannelCostVerdict, ZeroRatingRule, cost_report, cost_verdict
 from afya.access.views import LANGUAGE_MATRIX, VoiceAudioRequest, VoiceResult
 from afya.channels.views import (
-	CallbackRequest, ChwTask, PushPayload, RadioBulletin, SmsOut, UssdRequest, UssdResponse, WhatsAppIn,
-	WhatsAppOut,
+	CallbackRequest, ChannelReport, ChwTask, PushPayload, RadioBulletin, SmsOut, UssdRequest,
+	UssdResponse, WhatsAppIn, WhatsAppOut,
 )
 from afya.identity.service import IdentityService
 from afya.integrations.gateways import AtUssdCallback
@@ -66,7 +66,8 @@ class AfricaTalkingSmsPort:
 class ChannelService(LogMixin):
 	def __init__(self, sms: SmsGatewayPort, zero_rating: Callable[[], Awaitable[list[ZeroRatingRule] | None]] | None = None,
 	             triage: TriageService | None = None, identity: IdentityService | None = None,
-	             privacy: PrivacyService | None = None, access: object | None = None) -> None:
+	             privacy: PrivacyService | None = None, access: object | None = None,
+	             record_signal: Callable[[str, str, str], Awaitable[None]] | None = None) -> None:
 		"""`zero_rating` supplies §18.8's billing rules when the carrier is reachable, and None when
 		they have not been pulled. Injected rather than constructed here because the rules live on the
 		telco client and the channel service must not depend on the integration layer; a deployment
@@ -89,6 +90,12 @@ class ChannelService(LogMixin):
 		self._identity = identity
 		self._privacy = privacy
 		self._access = access
+		# §AI-003's signal ledger, as a callable rather than as an `AIService`. The channel layer must
+		# not import `afya.ai` — it would be a dependency from the channels onto the detection layer,
+		# and `afya.ai` reads the channel vocabulary rather than the other way round. The same
+		# late-binding §ALT-002's two legs use, and for the same reason: a deployment with no detector
+		# still triages and still files reports, and this is only the leg that counts them.
+		self._record_signal = record_signal
 		self._ussd_state: dict[str, int] = {}
 		# §CHAN-2's two "→" answers, per session. Held beside the level because the walk is over the
 		# accumulated input rather than over a conversation: a carrier that resends the whole string
@@ -100,13 +107,25 @@ class ChannelService(LogMixin):
 		# deployment reads; a request with no queue is a request recorded nowhere, which is the
 		# state this was in until the prompt was walked.
 		self._callbacks: list[CallbackRequest] = []
+		# §5.4's "single case-report backend" for the channels with no CHW behind them. The sink the
+		# USSD walk and the WhatsApp router write into; before it existed, both channels answered a
+		# person and recorded nothing, and §AI-003's signal ledger — which six app surfaces feed —
+		# could not see a fever reported from the two channels built for people without smartphones.
+		self._reports: list[ChannelReport] = []
+		# Which reports have already been counted into §AI-003's ledger. The routes emit by walking
+		# the sink, and a walk that re-emitted on every request would count one fever once per
+		# subsequent USSD session — a signal that rises with the number of requests rather than the
+		# number of reports, which is the worst possible failure for a detector whose whole job is to
+		# notice a rise. Emission is idempotent by this set, not by the caller remembering.
+		self._signalled: set[str] = set()
 		self._chw_tasks: list[ChwTask] = []
 		# Every payload handed to `push`. Held rather than fired and forgotten for §16.1's reason:
 		# the delivery path is a transport, and what the deployment owes a person must be readable
 		# after the transport has had its say.
 		self._pushes: list[PushPayload] = []
 		assert self._ussd_state == {} and self._ussd_answers == {} and self._ussd_symptom == {}
-		assert self._callbacks == [] and self._chw_tasks == [] and self._pushes == []
+		assert self._callbacks == [] and self._reports == [] and self._signalled == set()
+		assert self._chw_tasks == [] and self._pushes == []
 
 	async def zero_rating_rules(self) -> list[ZeroRatingRule] | None:
 		"""§18.8's rules, or None when they have not been pulled.
@@ -234,6 +253,18 @@ class ChannelService(LogMixin):
 			if callback:
 				self.record_callback(req.msisdn, session_id=req.session_id, symptom=key, lang=served,
 				                     location_shared=location)
+			# §5.4's "single case-report backend" and §CHAN-2's Integration sentence ("Reports flow
+			# into the same backend as app and WhatsApp reports"). The walk recorded the callback and
+			# the two answers and no report at all, so a fever reported from the one channel §4.1
+			# gives to people without smartphones reached no backend and no signal.
+			#
+			# Filed whether or not the callback was requested, because the report and the request are
+			# two different things a person did: declining a call does not retract the symptom. The
+			# label is the section's own menu item and travels beside the engine keys, so a "Cough"
+			# report — which the engine has no word for — is still a record of what was chosen rather
+			# than an empty list the deployment cannot read.
+			label = USSD_SYMPTOMS[sub - 1][1]
+			self.record_report(req.msisdn, 'ussd', symptoms, lang=served, symptom_label=label)
 			return UssdResponse(session_id=req.session_id,
 				end_text=self._ussd_close(served, recommendation, location, callback))
 		# Every other path ends: the two leaves answer, and a third segment has nowhere to go.
@@ -420,6 +451,122 @@ class ChannelService(LogMixin):
 				return c
 		raise KeyError(request_id)
 
+	# --- §5.4's "single case-report backend", on the channels that had no writer ------------------
+
+	def record_report(self, msisdn: str, channel: str, symptoms: list[str], lang: str = 'en',
+	                  symptom_label: str | None = None, county: str | None = None) -> ChannelReport:
+		"""File one channel report into §5.4's single backend, from whichever channel heard it.
+
+		The single writer, for the reason `record_callback` is: the USSD walk and the WhatsApp router
+		must not file two shapes of the same report, and the dedup key has to be built in one place or
+		two channels will build two keys for one phone.
+
+		**The key is `IdentityService.dedup_key`, which is the same one `CommunityService.submit_case`
+		uses.** That is the whole of §5.4's claim: a person who reports a fever on WhatsApp and then
+		the same fever over USSD is one report and not two, and the only way that is true is if both
+		sinks key on the one spelling the identity model decides. A local normalisation here would be a
+		second key, and a second key finds nothing.
+
+		`consent_to_store` is read from §5.4's consent registry through `may_store_symptoms`, which
+		refuses when the registry is absent. It is recorded rather than used to refuse the report: a
+		person who has not granted symptom storage still gets triaged — refusing to answer someone is
+		not a privacy protection — and the field is what lets the deployment see that the record is
+		held without a grant rather than having to infer it. A report the product may not keep is a
+		report the product may still answer.
+
+		Refuses rather than raising when the identity model is absent, because a report that cannot be
+		keyed is a report that cannot be deduplicated, and §5.4's claim is about the key.
+		"""
+		assert msisdn.startswith('+254'), 'a channel report is filed against an E.164 number'
+		assert channel in ('ussd', 'sms', 'whatsapp', 'app'), f'unknown channel {channel!r}'
+		if self._identity is None:
+			raise RuntimeError(
+				'the channel service has no identity model wired; §5.4 requires the shared one, and a '
+				'report with no dedup key is a report that cannot be deduplicated')
+		report = ChannelReport(
+			channel=channel, msisdn=msisdn, symptoms=list(symptoms), symptom_label=symptom_label,
+			county=county, lang=answerable(lang), reported_at_ms=now_ms(),
+			dedup_key=self._identity.dedup_key(msisdn), consent_to_store=self.may_store_symptoms(msisdn),
+		)
+		self._reports.append(report)
+		self._log_info('channel report filed', channel=channel, symptoms=len(symptoms),
+		               placed=county is not None, stored=report.consent_to_store)
+		return report
+
+	def channel_reports(self, msisdn: str | None = None, channel: str | None = None,
+	                    unhandled_only: bool = False) -> list[ChannelReport]:
+		"""§5.4's backend as the deployment reads it, filtered the two ways a reader asks.
+
+		`unhandled_only` defaults **False** here, which is the opposite of the callback queue and
+		deliberately so: a callback request exists to be worked and one nobody has rung back is the
+		work, while a report is a record of what a person said and the default read is the record.
+		A caller that wants the work remaining asks for it by name.
+		"""
+		return [r for r in self._reports
+		        if (msisdn is None or r.msisdn == msisdn)
+		        and (channel is None or r.channel == channel)
+		        and (not unhandled_only or not r.handled)]
+
+	def reports_for_signal(self) -> list[ChannelReport]:
+		"""The reports a locality can be read from — the ones that name a county.
+
+		§AI-003's signal is a rise *in a locality*, and `_record_signal` refuses an event with no
+		county for exactly that reason. Every USSD and SMS report today is in this method's complement:
+		those channels carry no locality, so the honest count of what the ledger can see from them is
+		zero, and this method is how the deployment reads that rather than assuming it. A report that
+		names a county — a WhatsApp message with a shared location, or a caller whose area code
+		resolved — is counted, and the split is the product's to close by giving the channels a way to
+		name where they are.
+		"""
+		return [r for r in self._reports if r.county is not None]
+
+	def handle_report(self, report_id: str) -> ChannelReport:
+		"""Mark one report read. The record is kept, so a report looked at twice is one report."""
+		for r in self._reports:
+			if r.report_id == report_id:
+				r.handled = True
+				self._log_info('channel report handled', report=report_id, channel=r.channel)
+				return r
+		raise KeyError(report_id)
+
+	async def emit_report_signal(self, report: ChannelReport) -> bool:
+		"""Count one channel report into §AI-003's ledger, when the report names a locality.
+
+		**The gap this closes is the whole reason the ledger was blind to two channels.** §AI-003's
+		early warning counts fever triages, and six app surfaces record their events through
+		`_record_signal` — but `ChannelService` was wired to nothing, so a fever reported over USSD or
+		WhatsApp never reached the ledger at all. Those are the two channels §4.1 gives to people
+		without smartphones, which is to say the population an outbreak in a low-connectivity county
+		would show up in first. A detection layer that cannot see them is a detection layer with a
+		hole the size of its target.
+
+		Returns whether an event was recorded, and `False` is the honest answer for every USSD and SMS
+		report today: those channels carry no locality and `_record_signal` refuses a count with no
+		county, because a national count against a county baseline is a number that cannot mean
+		anything. So the method reports the split rather than papering over it — the report is held,
+		the ledger is told nothing, and the deployment can read `reports_for_signal()` to see exactly
+		how many reports it holds that its detector cannot see.
+
+		**Idempotent per report, and that is not a nicety.** The routes emit by walking the sink, so
+		without this a fever would be counted once per subsequent USSD session — a signal that rises
+		with the number of requests rather than the number of reports, which is the one failure mode a
+		rise-detector must not have. The guard is a set of report ids rather than the caller's memory.
+		"""
+		assert report.report_id, 'a signal is emitted for a report that exists'
+		if report.report_id in self._signalled:
+			return False
+		if self._record_signal is None or report.county is None:
+			return False
+		# Only a fever is §AI-003's `fever_triage` signal. The ledger's vocabulary is fixed and
+		# adding a channel-only signal name would be a second vocabulary the detector does not read.
+		if 'fever' not in report.symptoms:
+			return False
+		await self._record_signal(report.county, 'fever_triage', report.report_id)
+		self._signalled.add(report.report_id)
+		self._log_info('channel report counted into the signal ledger', report=report.report_id,
+		               county=report.county)
+		return True
+
 	def route_whatsapp_voice(self, msg: WhatsAppIn, note: Path) -> VoiceResult:
 		"""§ACC-002's "voice note triage on WhatsApp", as a transcription and then a triage.
 
@@ -480,6 +627,18 @@ class ChannelService(LogMixin):
 				temperature_c=38.0 if 'fever' in symptoms or 'fever' in body else 36.5,
 			)
 			reply = self._triage_for(inp, lang).recommendation
+			# §5.4's "single case-report backend". A WhatsApp body that named a symptom is a report
+			# and this is where it is filed, keyed on the same `dedup_key` the USSD walk and
+			# `CommunityService.submit_case` use — which is what makes a person who reports a fever on
+			# WhatsApp and the same fever over USSD one report rather than two.
+			#
+			# Filed only when the body named a symptom the engine heard, and *not* on the bare word
+			# "symptom": §CHAN-3's intent list contains "symptom" as a trigger word, and a person
+			# asking "what is a symptom?" has asked a question rather than reported one. The guard is
+			# the symptom list and not the branch, because the branch is the intent and the list is
+			# the report.
+			if inp.symptoms:
+				self.record_report(msg.from_msisdn, 'whatsapp', inp.symptoms, lang=lang)
 		elif 'facility' in body or 'hospital' in body:
 			reply = WHATSAPP_FACILITY[answerable(lang)]
 		elif '719' in body:

@@ -240,6 +240,7 @@ FEATURE_OF: dict[str, str] = {
 	'provision_chw': 'CHAN-005', 'chw_profile': 'CHAN-005', 'chw_training': 'CHAN-005', 'job_aid': 'COM-101',
 	'chw_cases': 'COM-101', 'assign_chw_case': 'COM-101', 'log_chw_activity': 'COM-101', 'chw_activity': 'COM-101',
 	'callback_requests': 'CHAN-001', 'callback_handled': 'CHAN-001',
+	'channel_reports': 'CHAN-002', 'channel_report_handled': 'CHAN-002',
 	'chw_case_load': 'COM-101', 'chw_ppe_reminder': 'COM-101',
 }
 
@@ -272,6 +273,10 @@ OPERATOR_SCOPES: dict[str, str] = {
 	# by whoever rings people back — the CHW who takes it is the one the section's journey names, so
 	# the route is guarded on `assigned` rather than left open to the phone that filed the request.
 	'callback_requests': 'assigned', 'callback_handled': 'assigned',
+	# §5.4's channel reports, guarded the same way and for the same reason: a report is a phone
+	# number and the symptom a person reported from it, which is health data about someone who has
+	# not consented to anything by pressing a menu key.
+	'channel_reports': 'assigned', 'channel_report_handled': 'assigned',
 	'chw_profile': 'assigned', 'log_chw_activity': 'assigned', 'submit_case': 'assigned',
 	'advance_case': 'assigned', 'peer_alert': 'assigned', 'send_exposure_notice': 'assigned',
 	# §10.1's provider-side view. §17.4's clinician row is "Patients who have consented to share",
@@ -757,6 +762,8 @@ def catalogue() -> list[MobileAction]:
 		_a('chw_open_tasks', 'Open tasks', 'Channels', 'GET', '/channels/chw/tasks/{chw_ref}', [_f('chw_ref', 'Health worker', 'path')]),
 		_a('callback_requests', 'People waiting for a call back', 'Channels', 'GET', '/channels/callbacks', [_f('unhandled_only', 'Only those not yet called?', 'bool')]),
 		_a('callback_handled', 'Mark a call back as done', 'Channels', 'POST', '/channels/callbacks/{request_id}/handled', [_f('request_id', 'Request number', 'path')]),
+		_a('channel_reports', 'Symptoms reported by phone', 'Channels', 'GET', '/channels/reports', [_f('channel', 'Which channel?', 'select', ['ussd', 'sms', 'whatsapp', 'app']), _f('unhandled_only', 'Only those not yet read?', 'bool')]),
+		_a('channel_report_handled', 'Mark a report as read', 'Channels', 'POST', '/channels/reports/{report_id}/handled', [_f('report_id', 'Report number', 'path')]),
 		_a('complete_chw_task', 'Complete a task', 'Channels', 'POST', '/channels/chw/tasks/{task_id}/done', [_f('task_id', 'Task number', 'path')]),
 		_a('send_sms', 'Send a free text message', 'Channels', 'POST', '/channels/sms', [_f('to_msisdn', 'Phone number'), _f('body', 'Message')]),
 		_a('channel_costs', 'Will this cost me airtime?', 'Channels', 'GET', '/channels/cost', []),
@@ -961,6 +968,8 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'channel_costs': ('Will this cost me airtime?', 'What each way of reaching us costs you, and whether it is free'),
 	'callback_requests': ('Who is waiting for a call back?', 'People who asked to be phoned, and whether anyone has rung them yet'),
 	'callback_handled': ('Mark a call back as done', 'Say you have rung someone, so the next person does not ring them again'),
+	'channel_reports': ('What symptoms came in by phone?', 'Reports sent by text or USSD, and which ones nobody has read yet'),
+	'channel_report_handled': ('Mark a report as read', 'Say you have read a report, so the next person does not read it again'),
 	'voice': ('Speak to the app', 'Ask in your own language'),
 	'voice_audio': ('Send a recording', 'Speak a symptom report or a note and we will write it down'),
 	'whatsapp_voice': ('Send a WhatsApp voice note', 'Hold the button, speak, and we will triage it'),

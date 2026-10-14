@@ -129,6 +129,75 @@ class CallbackRequest(BaseModel):
 	handled: bool = False
 
 
+class ChannelReport(BaseModel):
+	"""§5.4's "single case-report backend" for the channels that have no CHW standing behind them.
+
+	The dedup machinery §5.4 describes was real and unreachable. `CaseReport.reporter_msisdn` reaches
+	`IdentityService.dedup_key`, which normalises `0712345678` and `+254712345678` onto one key — and
+	`CommunityService.submit_case` has exactly one caller, `POST /community/cases`, guarded on the
+	`assigned` scope. A USSD caller and a WhatsApp sender hold no token at all, and no channel code
+	built a `CaseReport`. So §5.4's "deduplicated by phone number" held for the app and the CHW and
+	for neither of the two channels §4.1 gives to people without smartphones, and §CHAN-2's
+	Integration sentence ("Reports flow into the same backend as app and WhatsApp reports") was a
+	sentence about a flow that did not exist.
+
+	**It is not a `CaseReport`, and the reason is the same one `CallbackRequest` records.** A case
+	report requires a `county` and a `community`; a person who presses `3` on a feature phone has
+	given neither, and there is no phone-to-county mapping anywhere in the tree to supply one from.
+	Building a `CaseReport` to carry their report would invent a location and file a suspected case
+	nobody reported — the failure the callback model was split out to avoid, and the reason this is a
+	second model rather than a second field.
+
+	So what is stored is what was actually said, by the phone that said it: the symptom the engine
+	heard, the menu item it was read from, and the phone number §5.4 keys the dedup on. `county` is
+	optional and stays `None` on every USSD and SMS report today, because those channels carry no
+	locality — and `None` here is load-bearing rather than empty, since it is what tells the signal
+	ledger it cannot count this report into a baseline. A report the product cannot place is still a
+	report the product holds.
+
+	`consent_to_store` is the grant §5.4's consent crossing asks for, and it is *not* defaulted: a
+	report stored without one would be the app keeping a person's health data on the strength of a
+	wiring mistake, which is the direction `may_store_symptoms` was written to refuse.
+	"""
+	model_config = MODEL_CONFIG
+	report_id: str = Field(default_factory=lambda: 'CHR-' + uuid7str().replace('-', '').upper()[:8])
+	channel: str = Field(pattern=r'^(ussd|sms|whatsapp|app)$')
+	msisdn: str = Field(pattern=r'^\+254\d{9}$')
+	# What the engine heard, in its own vocabulary, in the order it was named. Empty is a real
+	# answer: §CHAN-2's "Cough" and "Other" entries are offered and the engine has no word for
+	# either, so a caller who picks one has reported something the engine cannot classify — which
+	# `symptom_label` below preserves rather than the empty list discarding.
+	symptoms: list[str] = []
+	# §CHAN-2's menu item, in the section's own words, when the report came from a menu. This is the
+	# half that survives an engine miss, and it is the reason a "Cough" report is not an empty one.
+	symptom_label: str | None = None
+	county: str | None = None
+	lang: str = 'en'
+	reported_at_ms: int
+	# §5.4's dedup key for this phone, resolved through the one identity model rather than recomputed
+	# — a second spelling of a number is a second person, which is the duplicate this key exists to
+	# collapse.
+	dedup_key: str
+	consent_to_store: bool
+	# The same state `CallbackRequest` carries and for the same reason: a queue that was read can be
+	# told from one nothing ever looked at.
+	handled: bool = False
+
+	@model_validator(mode='after')
+	def _a_report_names_something(self) -> Self:
+		"""A report with neither an engine symptom nor a menu label is not a report.
+
+		The empty-symptom case is legitimate and the empty-*report* case is not, and the difference is
+		`symptom_label`: a caller who chose "Cough" said a word, and a WhatsApp body that named no
+		symptom the engine knows said nothing it can act on. Refusing the second is what keeps a
+		question ("what is Ebola?") from being filed as a symptom report and counted in a baseline.
+		"""
+		assert self.symptoms or self.symptom_label, (
+			'a channel report names neither an engine symptom nor the menu item it was read from'
+		)
+		return self
+
+
 class PushPayload(BaseModel):
 	"""One notification on its way to a person.
 
