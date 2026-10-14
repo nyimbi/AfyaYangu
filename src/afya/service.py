@@ -27,7 +27,7 @@ from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import ChwTask, SmsOut, UssdRequest, WhatsAppIn
 from afya.emergency.service import EmergencyService, FacilityAmbulancePort, Inline719Port, _sms_dialable
 from afya.identity.service import IdentityService
-from afya.identity.views import IdentityLink, PhoneConsent
+from afya.identity.views import IdentityLink, PhoneConsent, PseudonymChoice
 from afya.emergency.views import EmergencyCard, IMUSample, SOSAlert, SOSEvent
 from afya.evidence.service import EvidenceService, FileSystemEvidenceStore
 from afya.integrations.gateways import AtSmsRestSend, AtUssdCallback
@@ -319,7 +319,10 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 	# rather than inside the return dict. Two constructions would be two engines and the claim would
 	# be false the moment they diverged.
 	triage_svc = TriageService(registry, privacy_svc)
-	facilities_svc = FacilityService()
+	# §SEC-004's optional pseudonymous profile is wired here rather than inside the facility service:
+	# the finder is built before the identity model in the return dict, and a second `IdentityService`
+	# would derive handles from a different map than the one the routes read.
+	facilities_svc = FacilityService(identity_svc)
 	# §ACC-002's recogniser, built before both consumers for §SENS-002's reason: `AccessService`
 	# answers a voice request and `ChannelService` transcribes a WhatsApp voice note, and two
 	# engines would be two answers to one recording. Absent assets leave it None and every audio
@@ -1098,11 +1101,19 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return facilities.offline_bundle(lat, lon, county)
 
 	@app.post('/facilities/{facility_id}/reports')
-	async def facility_report(facility_id: str, report: FacilityReportRequest) -> dict[str, object]:
-		"""§FND-001's "Recent user reports". The reporter is taken from the authenticated subject
-		when there is one and is never a name — the feed is on a public screen."""
+	async def facility_report(facility_id: str, report: FacilityReportRequest,
+	                          reporter: str | None = Depends(optional_subject())) -> dict[str, object]:
+		"""§FND-001's "Recent user reports". The reporter is the authenticated subject when there is
+		one and is never a name — the feed is on a public screen.
+
+		The subject comes from the token and not from the body. It used to come from the body, which
+		meant the feed published whatever reference the caller typed — including a stranger's, since
+		nothing checked it against the token. §SEC-004's optional pseudonymous profile is what turns
+		that reference into a rotating handle before it reaches the screen; a caller with no token is
+		published anonymously rather than refused, which is §FND-001's ordinary case.
+		"""
 		try:
-			created = await facilities.report(facility_id, report.text, report.reporter_ref)
+			created = await facilities.report(facility_id, report.text, reporter)
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 		return created.model_dump(mode='json')
@@ -4607,6 +4618,45 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		§17.2 personal data and stays out of the payload."""
 		return {'count': len(identity.links()),
 		        'links': [{'link_id': l.link_id, 'basis': l.basis.value} for l in identity.links()]}
+
+	@app.get('/identity/pseudonym')
+	async def identity_pseudonym(_subject: str = Depends(require_self(names_subject=False)),
+	                             lang: str = 'en') -> dict[str, object]:
+		"""§SEC-004's "optional pseudonymous profile": the handle that stands for the caller.
+
+		`names_subject=False` because there is no subject to name: the handle is the caller's own, read
+		from the token. A `subject_ref` parameter would be the obvious shape and the wrong one — the
+		handle is the thing that makes a person's posts on a public feed unlinkable to their records,
+		and a route that answered "what is this subject called" for any caller would undo that in one
+		request. The guard is the same one §SEC-001's consent log uses, for the same reason.
+
+		`chosen` says whether the person picked the handle or the app derived it, which is the
+		difference the section's word "optional" turns on. `note` carries the sentence — and `caveat`
+		carries the limit of what the handle protects, served rather than paraphrased: a handle that
+		hides a name is not anonymity, and a screen that implied otherwise would change what a person
+		is willing to write. An earlier cut had the caveat in the string table and no route reading
+		it, which is the same absent-join defect the handle was added to close.
+		"""
+		from afya.strings import pseudonym_caveat, pseudonym_note
+		policy = identity.pseudonym(_subject, clock_ms())
+		return {**policy.model_dump(mode='json'),
+		        'note': pseudonym_note(policy.chosen, policy.rotates_every_days, lang),
+		        'caveat': pseudonym_caveat(lang)}
+
+	@app.post('/identity/pseudonym')
+	async def identity_pseudonym_choose(choice: PseudonymChoice,
+	                                    _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+		"""A person naming themselves on the app's shared screens.
+
+		A handle that is an identifier — a phone number or a subject reference — is refused by the
+		service, because a person typing their own number into this box would be publishing the key
+		§SEC-004 exists to keep off the screen, and the service would be the thing that let them.
+		"""
+		try:
+			out = identity.choose_handle(_subject, choice.handle, clock_ms())
+		except (AssertionError, ValueError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return out.model_dump(mode='json')
 
 	@app.post('/privacy/consent/by-phone')
 	async def privacy_consent_by_phone(grant: PhoneConsent,

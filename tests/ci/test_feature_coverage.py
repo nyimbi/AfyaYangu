@@ -23,12 +23,14 @@ from afya.registry.service import FeatureRegistry
 # These are capabilities the device performs or the deployment holds, not screens a person opens;
 # naming them here is what makes the gap a decision rather than an oversight.
 ON_DEVICE: dict[str, str] = {
-	# The two remaining cross-cutting architecture properties. There is no call to make: the app
-	# either processes on-device and can be used pseudonymously, or it is not. (ACC-003's
+	# §SEC-002's on-device processing has no call to make: the raw data never reaches a route.
+	'SEC-002': 'on-device processing means the raw data never reaches a route',
+	# §SEC-004 was here as "pseudonymous use is the absence of an account, not an action". That was
+	# true of the *anonymity* half and false of the pseudonymity half: the section's third feature is
+	# an optional profile, which is a thing a person sets, and the public report feed was publishing
+	# raw subject references with nothing to put in their place. It has two actions now. (ACC-003's
 	# offline-first property has one call after all — `offline_state` serves the sync indicator
 	# §16.1 principle 4 requires — so it is no longer listed here.)
-	'SEC-002': 'on-device processing means the raw data never reaches a route',
-	'SEC-004': 'pseudonymous use is the absence of an account, not an action',
 	# On-device sensing and device integration: the raw signal is consumed locally and only a
 	# derived metric is posted through `sensor_ingest`, so there is no route for the sensor itself.
 	'SENS-003': 'fall detection runs on the accelerometer; only the derived verdict is ingested',

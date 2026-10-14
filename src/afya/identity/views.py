@@ -59,6 +59,51 @@ class PhoneConsent(BaseModel):
 	channel: str = Field(pattern='^(app|ussd|sms|whatsapp|chw|unknown)$', default='unknown')
 
 
+class PseudonymPolicy(BaseModel):
+	"""§SEC-004's "Optional pseudonymous profile": the pseudonym the app shows instead of the person.
+
+	§SEC-004 lists six features and the second says "phone number is the only identifier" — so the
+	pseudonym here is deliberately **not** an account, a login or a second identifier. It is a
+	display handle derived from the subject, and the word doing the work in the bullet is *optional*:
+	a person who never chooses one is not nameless, they get the derived handle, which is what stops
+	"optional" from meaning "a form nobody filled in, and a screen showing nothing".
+
+	`rotation_days` is the part that makes it a pseudonym rather than a relabelled identifier. A
+	handle that never changes is a subject_ref with a friendlier spelling — it correlates every post
+	a person ever made, on every public feed, forever. The handle is therefore derived per *epoch*,
+	so a feed shows one handle for a person within a window and a different one after it. The cost is
+	real and worth stating: a reader cannot follow one person's reports across a rotation, which is
+	the point.
+	"""
+	model_config = MODEL_CONFIG
+	subject_ref: str = Field(min_length=1)
+	# One pattern for both the derived and the chosen handle, so a handle that could never be
+	# displayed is refused at the model rather than at the screen. It starts with a letter — which
+	# is what stops a phone number, a bare digit string or a `anon-` subject reference from being a
+	# legal handle by shape alone — and allows spaces, so a person may pick two words.
+	handle: str = Field(pattern=r'^[A-Za-z][A-Za-z0-9 _-]{1,23}$')
+	# The epoch the handle was derived for. Two handles for one subject differ exactly when their
+	# epochs do, so this is the field that makes the rotation auditable rather than asserted.
+	epoch: int = Field(ge=0)
+	rotates_every_days: int = Field(ge=1, le=365)
+	# False when the person chose the handle and it is not derived. §SEC-004's bullet is "optional
+	# pseudonymous profile", so the choice has to be representable — a module that only ever derives
+	# cannot tell a person who picked a name from one who never opened the screen.
+	chosen: bool = False
+
+
+class PseudonymChoice(BaseModel):
+	"""The body of the one route that lets a person name themselves.
+
+	`handle` is required and there is no default, because a request that supplies nothing is not a
+	choice — the derived handle is what a person gets by *not* making one, and a route that silently
+	fell back to it would report a choice nobody made. The pattern is the same one `PseudonymPolicy`
+	serves, so a handle that could never be displayed is refused at the door.
+	"""
+	model_config = MODEL_CONFIG
+	handle: str = Field(pattern=r'^[A-Za-z][A-Za-z0-9 _-]{1,23}$')
+
+
 class CaseReportRef(BaseModel):
 	"""A case report as the identity model sees it: an identifier and the reporter behind it.
 

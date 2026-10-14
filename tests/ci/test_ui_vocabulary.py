@@ -585,7 +585,11 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/ai/fairness-audit'),
 	('POST', '/facilities/nearest'),  # a read expressed as a POST: a coordinate in, a list out
 	('POST', '/facilities/find'),     # the same read with §FND-001's four filters in the body
-	('POST', '/facilities/{facility_id}/reports'),  # a crowd-sourced report; `reporter_ref` is the claim
+	# `/facilities/{facility_id}/reports` left this list with §SEC-004's optional pseudonymous
+	# profile. It used to carry the reporter as a body field with no guard at all — so the public
+	# feed published whatever reference the caller typed, including a stranger's. The route now reads
+	# the reporter from an optional token and publishes that subject's rotating handle, so it is
+	# guarded in the sense the walker counts, and leaving it here would say the leak was still open.
 	# `/facilities/{facility_id}/booking` left this list when §FND-006's "reschedule, cancel" arrived.
 	# The three verbs now share one owner, recorded from an *optional* token — booking an appointment
 	# is Tier 2 and a login between a person and a clinic slot would break the feature, but a booking

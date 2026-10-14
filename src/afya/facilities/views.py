@@ -176,11 +176,16 @@ class OfflineFacility(BaseModel):
 class FacilityReportRequest(BaseModel):
 	"""What a client posts to the report route. The facility id is in the path, so it is not repeated
 	in the body — a body that could carry a different id from the path is a mismatch nothing checks.
+
+	**There is no `reporter_ref` field, and its absence is the fix.** It was here as an optional
+	string, so the route published whatever the caller typed on a public feed — including somebody
+	else's subject reference, which keys every personal route in the app. The reporter is now the
+	caller's own token, read by the route; a body field for it could only ever be ignored or
+	believed, and believing it is the defect.
 	"""
 
 	model_config = MODEL_CONFIG
 	text: str = Field(min_length=1, max_length=280)
-	reporter_ref: str | None = None
 
 
 class FacilityReport(BaseModel):
@@ -188,8 +193,13 @@ class FacilityReport(BaseModel):
 
 	The section's own two examples are stock and queue facts, so this is deliberately free text
 	rather than an enum: a crowdsourced field that only accepts the two shapes the spec happened to
-	print would reject the third thing a person needs to say. `reporter_ref` is a pseudonymous
-	subject reference and never a name — the feed is shown on a screen anyone can open.
+	print would reject the third thing a person needs to say.
+
+	`reporter_ref` is a §SEC-004 pseudonymous *handle* (`Tembo-a1b2`), not the subject reference it
+	was named after. The field name is kept because it is a served payload a client already reads,
+	but what it carries changed: the subject reference is the lookup key for a person's records, and
+	this feed is on a screen anyone can open. A report from a caller with no token carries `None` —
+	anonymous rather than absent, which is §FND-001's ordinary case.
 	"""
 
 	model_config = MODEL_CONFIG

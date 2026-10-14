@@ -628,7 +628,7 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	# --- §12.2 SEC-004: Anonymity and Pseudonymity -------------------------------------------
 	('SEC-004', 'Features', 'No account required for Tier 1–3', 'carried', 'afya.auth.service:AuthService.issue_anonymous', 'a citizen endpoint needs no account; the token is random and resolves to a minted subject'),
 	('SEC-004', 'Features', 'Phone number is the only identifier', 'carried', 'afya.identity.service:IdentityService.resolve', 'an MSISDN alone resolves to an anonymous subject, and linkage to a profile is a separate recorded act'),
-	('SEC-004', 'Features', 'Optional pseudonymous profile', 'missing', None, '`IdentityService.link` attaches a phone to an app profile and no profile model carries a chosen pseudonym or display name — the only pseudonym in the tree is `patient_ref` on the ADaM integration'),
+	('SEC-004', 'Features', 'Optional pseudonymous profile', 'carried', 'afya.identity.service:IdentityService.pseudonym', 'a handle is derived per 30-day epoch from the subject, or chosen by the person; `chosen` says which, and the public report feed publishes the handle instead of the subject reference it used to'),
 	('SEC-004', 'Features', 'Geohashing for location sharing', 'carried', 'afya.location.service:_geohash_cell', 'truncates to a five-character cell before a location is shared'),
 	('SEC-004', 'Features', 'PET tokens for proximity', 'carried', 'afya.location.views:EncounterToken', '`pet` is the rotating token the encounter log stores instead of an identity'),
 	('SEC-004', 'Features', 'Minimum cell size of 10 for any aggregated reporting', 'carried', 'afya.ai.views:MIN_CELL_SIZE', 'enforced at the hotspot, analytics and PHEOC-feed exits'),

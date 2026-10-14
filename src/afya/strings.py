@@ -354,6 +354,57 @@ def consent_history_note(has_events: bool, has_live: bool, lang: str = 'en') -> 
 	return table['live'] if has_live else table['all_off']
 
 
+# §SEC-004's "optional pseudonymous profile": the sentence that tells a person what the handle is
+# for, and — the part that matters — what it does *not* protect against. The second half is not
+# decoration: a handle that rotated forever would still be re-identifiable in a small enough group,
+# which is the same admission §SEC-004's "minimum cell size of 10" makes one level up, and a person
+# who believes a pseudonym is anonymity will post something they would not have posted otherwise.
+PSEUDONYM_STRINGS: dict[str, dict[str, str]] = {
+	'en': {
+		'derived': 'This is the name shown on shared screens instead of your details. It changes every {days} days.',
+		'chosen': 'You chose this name. It is shown on shared screens instead of your details, and it stays the same until you change it.',
+		'caveat': 'A name like this hides your details, but if only a few people are reporting from the same place at the same time, someone may still work out who you are. Do not put anything in a public report you would not want read back to you.',
+	},
+	'sw': {
+		'derived': 'Hili ni jina linaloonyeshwa kwenye skrini za umma badala ya taarifa zako. Hubadilika kila siku {days}.',
+		'chosen': 'Ulijichagulia jina hili. Linaonyeshwa kwenye skrini za umma badala ya taarifa zako, na linabaki hivyo hadi ulibadilishe.',
+		'caveat': 'Jina kama hili huficha taarifa zako, lakini kama ni watu wachache wanaoripoti kutoka sehemu moja kwa wakati mmoja, mtu anaweza kukutambua. Usiweke kwenye ripoti ya umma kitu usichotaka kirejeshwe kwako.',
+	},
+}
+
+
+def pseudonym_note(chosen: bool, rotation_days: int, lang: str = 'en') -> str:
+	"""What a person is told about the handle standing in for them.
+
+	Served in the language asked for where there is a table and in English where there is not, the
+	same rule as every string here — and the caller passes the request's language rather than this
+	function guessing it.
+	"""
+	assert isinstance(chosen, bool), 'whether the handle was chosen is a fact, not a guess'
+	assert rotation_days >= 1, 'a rotation window is at least a day'
+	table = PSEUDONYM_STRINGS[answerable(lang)]
+	if chosen:
+		return table['chosen']
+	return table['derived'].format(days=rotation_days)
+
+
+def pseudonym_caveat(lang: str = 'en') -> str:
+	"""The limit of what the handle protects, as a string a route can serve.
+
+	A separate function and not a sentence appended to the note, because the two say different
+	things and a client may render them in different places — the note is a caption under the name,
+	the caveat belongs beside the box a person types a report into. What is *not* optional is that
+	it is served: an earlier cut of this module had the caveat in the table and no route reading it,
+	which is the same "every visible part present and the join absent" defect the handle itself was
+	added to close. A pseudonym screen that shows a name and omits the caveat promises more than the
+	handle delivers.
+	"""
+	table = PSEUDONYM_STRINGS[answerable(lang)]
+	caveat = table['caveat']
+	assert caveat, 'the caveat is load-bearing and cannot be empty'
+	return caveat
+
+
 def zone_transition(lang: str, event: str, place_label: str | None = None,
                     alert: str | None = None, county: str = '') -> str:
 	"""The sentence served on a zone entry or exit. §LOC-001's Tier 4 behaviour is "alert on entry

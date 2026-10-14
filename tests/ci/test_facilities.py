@@ -170,14 +170,21 @@ async def test_the_offline_bundle_is_the_radius_plus_the_home_county() -> None:
 async def test_recent_user_reports_are_a_capped_feed_newest_first() -> None:
 	"""§FND-001's "Recent user reports ('no malaria tests today,' 'long queue')". The section shows
 	them as a feed, so the newest is first and the list is capped — it renders on a screen anyone
-	can open, and an uncapped feed is one nobody can read."""
+	can open, and an uncapped feed is one nobody can read.
+
+	The reporter is a §SEC-004 handle when an identity model is wired and `None` when it is not; it
+	is never the reference the caller passed. That is asserted in `test_sec004.py`, and here only the
+	feed's own shape is — this service is built without an identity model, so a named reporter is
+	published anonymously rather than leaked.
+	"""
 	from afya.facilities.service import _MAX_REPORTS
 	svc = _seed_pool()
 	await svc.report('F1', 'no malaria tests today')
 	await svc.report('F1', 'long queue', reporter_ref='U-abc')
 	feed = svc.recent_reports('F1')
 	assert [r.text for r in feed] == ['long queue', 'no malaria tests today']
-	assert feed[0].reporter_ref == 'U-abc' and feed[1].reporter_ref is None
+	assert feed[0].reporter_ref != 'U-abc', 'a subject reference is never the published reporter'
+	assert feed[1].reporter_ref is None
 	for i in range(_MAX_REPORTS + 5):
 		await svc.report('F1', f'report {i}')
 	assert len(svc.recent_reports('F1', limit=999)) == _MAX_REPORTS, 'the feed is capped'

@@ -1,6 +1,6 @@
 """Facility service — nearest finder, ED status, county cache, booking queue."""
 import math
-from typing import Any
+from typing import Any, Protocol
 
 from afya.facilities.views import (
 	Booking, BookingChange, CostBand, Facility, FacilityKind, FacilityLevel, FacilityReport,
@@ -11,7 +11,18 @@ from afya.logmixin import LogMixin
 # §FND-001's "Recent user reports" feed is shown on a public screen, so it is capped rather than
 # unbounded — one facility cannot grow a feed nobody can read.
 _MAX_REPORTS = 20
-# §FND-001's own radius for the offline bundle: "caches facilities within 50 km of the user's home
+
+
+class Pseudonymiser(Protocol):
+	"""The one thing §SEC-004's optional pseudonymous profile owes this module: a handle.
+
+	A protocol and not the class, for the reason `DiaryLink` gives in `location/service.py`: the
+	coupling is one method, and importing `IdentityService` here would make the facility finder
+	depend on the identity model for a single call. The service is optional because the feed has to
+	work in a build where no identity model is wired — a report from a person with no token is
+	§FND-001's ordinary case, and it is published anonymously rather than not at all.
+	"""
+	def pseudonym(self, subject_ref: str, now_ms: int) -> Any: ...# §FND-001's own radius for the offline bundle: "caches facilities within 50 km of the user's home
 # area".
 _OFFLINE_RADIUS_KM = 50.0
 
@@ -46,7 +57,12 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 class FacilityService(LogMixin):
-	def __init__(self) -> None:
+	def __init__(self, identity: Pseudonymiser | None = None) -> None:
+		# §SEC-004's optional pseudonymous profile. Optional because the feed works without it: a
+		# report from a caller with no token is §FND-001's ordinary case, and it is published
+		# anonymously rather than refused. When it *is* wired, a report naming a subject gets that
+		# subject's handle instead — see `report`.
+		self._identity = identity
 		self._facilities: dict[str, Facility] = {}
 		self._bookings: dict[str, Booking] = {}
 		self._queue_counts: dict[str, int] = {}
@@ -147,16 +163,33 @@ class FacilityService(LogMixin):
 		self._log_info('facility find', filters=unanswered, hits=min(len(found), req.limit))
 		return found[: req.limit], unanswered
 
-	async def report(self, facility_id: str, text: str, reporter_ref: str | None = None) -> FacilityReport:
+	async def report(self, facility_id: str, text: str, reporter_ref: str | None = None,
+	                 now_ms: int | None = None) -> FacilityReport:
 		"""§FND-001's "Recent user reports" — the crowdsourced half of the finder.
 
-		`reporter_ref` is optional and is a pseudonymous subject reference, never a name: the report
-		appears on a public screen and §SEC-004's "minimum cell size of 10 for any aggregated
-		reporting" is the same instinct at a smaller scale. The list is capped so one facility cannot
-		grow an unbounded feed on a screen a person opens in an emergency.
+		**The reporter is a §SEC-004 handle, never the subject reference.** The first cut stored
+		whatever the caller sent under `reporter_ref` and served it straight back on `GET`, so the
+		public feed published the one string that keys every personal route in the app —
+		`/records/{ref}`, `/maternal/{ref}`, the monitoring diaries — for anyone who asked. A subject
+		reference is not a pseudonym: it is stable across every post the person ever makes, and it is
+		the lookup key for their records. `IdentityService.pseudonym` derives a rotating handle for
+		the subject, and that is what goes on the screen.
+
+		Two things follow, and both are the point rather than side effects. A caller who sends a
+		reference they do not own still gets *their own* handle, because the handle is derived from
+		the subject the token carries — so the field can no longer be used to attribute a report to
+		someone else. And a caller with no token at all is published anonymously (`None`), which is
+		§FND-001's ordinary case and the reason `reporter_ref` stays optional.
+
+		The list is capped so one facility cannot grow an unbounded feed on a screen a person opens
+		in an emergency.
 		"""
 		assert facility_id in self._facilities, f'unknown facility {facility_id}'
-		report = FacilityReport(facility_id=facility_id, text=text.strip(), reporter_ref=reporter_ref)
+		handle: str | None = None
+		if reporter_ref and self._identity is not None:
+			from afya.auth.views import now_ms as clock_ms
+			handle = self._identity.pseudonym(reporter_ref, now_ms if now_ms is not None else clock_ms()).handle
+		report = FacilityReport(facility_id=facility_id, text=text.strip(), reporter_ref=handle)
 		feed = self._reports.setdefault(facility_id, [])
 		feed.insert(0, report)
 		del feed[_MAX_REPORTS:]

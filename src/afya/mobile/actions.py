@@ -204,6 +204,9 @@ FEATURE_OF: dict[str, str] = {
 	'queue_sync_op': 'CHAN-006', 'flush_sync': 'CHAN-006', 'offline_state': 'ACC-003',
 	'record_consent': 'SEC-001', 'dpia_check': 'SEC-001', 'consent_history': 'SEC-001',
 	'withdraw_consent': 'SEC-001',
+	# §SEC-004's optional pseudonymous profile. The two are one feature because they are one setting:
+	# the handle a person is shown and the handle they may choose are the same value.
+	'my_pseudonym': 'SEC-004', 'choose_pseudonym': 'SEC-004',
 	'sensor_ingest': 'SENS-005', 'analyse_cough': 'SENS-002', 'submit_evidence': 'SENS-004',
 	'activate_outbreak_mode': 'TRI-003',
 	'report_issue': 'COM-005', 'issues_by_county': 'COM-005', 'resolve_issue': 'COM-005',
@@ -683,6 +686,11 @@ def catalogue() -> list[MobileAction]:
 		# §SEC-001's one-tap revocation. The id is the one `record_consent` returned, or the one the
 		# log's own lines carry — a path field, so the client fills it from the screen the person is on.
 		_a('withdraw_consent', 'Take my consent back', 'Privacy', 'POST', '/privacy/consent/{consent_id}/withdraw', [_f('consent_id', 'Consent reference', 'path')]),
+		# §SEC-004's "optional pseudonymous profile". No `subject_ref` field: the route binds the
+		# subject to the token, so a form drawing one would offer a control that names a stranger —
+		# and this is the one screen where naming a stranger would hand over their handle.
+		_a('my_pseudonym', 'What name do others see?', 'Privacy', 'GET', '/identity/pseudonym', [_f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
+		_a('choose_pseudonym', 'Choose the name others see', 'Privacy', 'POST', '/identity/pseudonym', [_f('handle', 'Your name on shared screens', ph='e.g. Tembo-a1b2')]),
 		_a('dpia_check', 'Check a new data use', 'Privacy', 'POST', '/privacy/dpia', [_f('raw_sensor_data_retained', 'Keeping raw sensor data?', 'bool'), _f('location_tracking', 'Tracking location?', 'bool'), _f('proximity_logging', 'Proximity logging?', 'bool'), _f('contact_tracing', 'Contact tracing?', 'bool'), _f('automated_decisions', 'Automatic decisions?', 'bool'), _f('data_sharing_with_authorities', 'Sharing with health authorities?', 'bool'), _f('children_data', "Children's data?", 'bool'), _f('cross_border_transfer', 'Data leaving the country?', 'bool')]),
 		_a('retention_policy', 'How long is data kept?', 'Privacy', 'GET', '/retention/policy', []),
 		_a('data_inventory', 'What do you know about me?', 'Privacy', 'GET', '/retention/inventory/{subject_ref}', [_s('path')]),

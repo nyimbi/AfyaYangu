@@ -32,9 +32,34 @@ phone-to-subject index with §17.2's rules kept intact:
   neighbour's phone are all in §4.1's persona list. `same_reporter` answers only the part the
   identifier can answer, and `dedup_key` is offered so a caller states the rule it uses rather than
   this module inventing one. The finding is reported in `report()`.
+
+**§SEC-004's pseudonymous profile lives here too**, because it is the same question asked the other
+way round. §5.4 keeps an identifier apart from a person; §SEC-004 asks what the app shows *instead*
+of the identifier when a person's words reach a screen anyone can open. The answer is a derived,
+rotating handle — and the join that needs it is §FND-001's public report feed, which was serving the
+raw subject reference.
 """
-from afya.identity.views import IdentityLink, LinkBasis
+import hashlib
+
+from afya.identity.views import IdentityLink, LinkBasis, PseudonymPolicy
 from afya.logmixin import LogMixin
+
+# §SEC-004's "optional pseudonymous profile": how long one handle stands for one person. Thirty days
+# is long enough that a person reading a feed recognises their own posts, short enough that the
+# handle is not a permanent label — and it is a constant here rather than a parameter so the window
+# cannot be widened per call site by whoever finds it inconvenient.
+PSEUDONYM_ROTATION_DAYS = 30
+_MS_PER_DAY = 86_400_000
+
+# The word list a derived handle is built from. Deliberately neutral nouns: a handle assembled from
+# a person's county, their symptom history or anything else the app knows would leak that fact into
+# every public feed the handle appears on, which is the failure §SEC-004's geohashing bullet is
+# about at a different scale.
+_HANDLE_WORDS: tuple[str, ...] = (
+	'Tembo', 'Nyota', 'Jua', 'Mwezi', 'Safari', 'Bahari', 'Mlima', 'Mto', 'Msitu', 'Anga',
+	'Kipawa', 'Nuru', 'Amani', 'Tumaini', 'Furaha', 'Baraka', 'Imani', 'Hekima', 'Nguvu', 'Rafiki',
+)
+assert len(set(_HANDLE_WORDS)) == len(_HANDLE_WORDS), 'a repeated word makes two handles collide'
 
 
 class IdentityService(LogMixin):
@@ -56,6 +81,10 @@ class IdentityService(LogMixin):
 		self._phone_history: dict[str, list[str]] = {}
 		# The links a person made deliberately, with the basis and the consent behind each.
 		self._links: dict[str, IdentityLink] = {}
+		# §SEC-004's optional profile: the handles a person *chose*, keyed by subject. A subject
+		# absent from this map has not opted out of being named — it gets the derived handle — which
+		# is what makes the bullet's "optional" true of the screen rather than of the person.
+		self._chosen_handles: dict[str, str] = {}
 		assert self._phone_to_subject == {} and self._links == {}
 
 	@staticmethod
@@ -196,6 +225,94 @@ class IdentityService(LogMixin):
 		phone's handle, and a subject with a link is a person who joined the two.
 		"""
 		return any(link.subject_ref == subject_ref for link in self._links.values())
+
+	# --- §SEC-004: the optional pseudonymous profile ---------------------------------------------
+
+	@staticmethod
+	def _epoch(now_ms: int, rotation_days: int = PSEUDONYM_ROTATION_DAYS) -> int:
+		"""Which rotation window an instant falls in. Integer division, so it is a step function.
+
+		The epoch is a count, not a date, because it is only ever compared for equality: two handles
+		for one subject differ exactly when their epochs differ, and nothing needs to know when a
+		window started.
+		"""
+		assert now_ms >= 0, 'a negative instant is not a time'
+		assert rotation_days >= 1, 'a rotation window is at least a day'
+		return now_ms // (rotation_days * _MS_PER_DAY)
+
+	@classmethod
+	def derive_handle(cls, subject_ref: str, now_ms: int,
+	                  rotation_days: int = PSEUDONYM_ROTATION_DAYS) -> PseudonymPolicy:
+		"""The handle the app shows instead of a person's identifier on a screen anyone can open.
+
+		Derived, not random: the same subject in the same window gets the same handle on every
+		server and across a restart, so a feed does not relabel a person between two requests. The
+		epoch is in the digest, so the *next* window gives a different handle — which is the whole
+		difference between a pseudonym and a subject reference wearing a friendlier spelling.
+
+		The digest is not a secret and is not treated as one. `subject_ref` is high-entropy (a UUID7
+		under a prefix) so the mapping is not invertible by enumeration, but the property being
+		claimed here is unlinkability *across* windows, not secrecy *within* one: anyone who learns a
+		handle and the window it belongs to can confirm a guess about the subject. §SEC-004's
+		"minimum cell size of 10" is the same admission one level up — a small enough crowd
+		re-identifies regardless of the identifier used.
+		"""
+		assert subject_ref, 'a pseudonym is derived from a subject'
+		epoch = cls._epoch(now_ms, rotation_days)
+		digest = hashlib.sha256(f'{subject_ref}:{epoch}'.encode()).hexdigest()
+		word = _HANDLE_WORDS[int(digest[:8], 16) % len(_HANDLE_WORDS)]
+		return PseudonymPolicy(
+			subject_ref=subject_ref, handle=f'{word}-{digest[8:12]}', epoch=epoch,
+			rotates_every_days=rotation_days,
+		)
+
+	def choose_handle(self, subject_ref: str, handle: str, now_ms: int) -> PseudonymPolicy:
+		"""A person naming themselves, which is the "optional" half of §SEC-004's bullet.
+
+		The shape is validated by the model and the *content* is not: a handle is a person's own
+		words on a public feed, and a service that screened them for decency would be making an
+		editorial decision this module has no basis for. What is refused is a handle that *is* an
+		identifier — an MSISDN or a subject reference typed in as one — because that would let a
+		person publish the very key §SEC-004 exists to keep off the screen, and they would be doing
+		it to themselves.
+
+		A chosen handle does not rotate. A person who picked a name and found it changed after a
+		month would have been given a setting that does not do what it says.
+		"""
+		assert subject_ref, 'a handle belongs to a subject'
+		assert handle, 'a chosen handle is not empty'
+		# A handle that *is* an identifier is refused: a person typing their own number or subject
+		# reference into the box would be publishing the key §SEC-004 keeps off the screen, and the
+		# service would be the thing that let them. Digits-only is the MSISDN case; the `anon-`
+		# prefix is the subject case, and it is checked by shape rather than by looking the value up,
+		# because looking it up would confirm to a caller that a subject exists.
+		digits = ''.join(c for c in handle if c.isdigit())
+		assert not (digits and digits == handle.replace('+', '').replace(' ', '')), \
+			'a phone number is not a pseudonym'
+		assert not handle.startswith('anon-'), 'a subject reference is not a pseudonym'
+		self._chosen_handles[subject_ref] = handle
+		policy = PseudonymPolicy(
+			subject_ref=subject_ref, handle=handle, epoch=self._epoch(now_ms),
+			rotates_every_days=PSEUDONYM_ROTATION_DAYS, chosen=True,
+		)
+		self._log_info('pseudonym chosen', subject=subject_ref)
+		return policy
+
+	def pseudonym(self, subject_ref: str, now_ms: int) -> PseudonymPolicy:
+		"""The handle in force for this subject: the chosen one if there is one, the derived one else.
+
+		Every caller that puts a person's words on a shared screen reads this rather than the subject
+		reference. It is a method rather than a field on the caller's model so the rule has one
+		implementation — a second one is how the feed and the report came to disagree in the first
+		place.
+		"""
+		assert subject_ref, 'a pseudonym belongs to a subject'
+		if subject_ref in self._chosen_handles:
+			return PseudonymPolicy(
+				subject_ref=subject_ref, handle=self._chosen_handles[subject_ref],
+				epoch=self._epoch(now_ms), rotates_every_days=PSEUDONYM_ROTATION_DAYS, chosen=True,
+			)
+		return self.derive_handle(subject_ref, now_ms)
 
 	# --- the case-report crossing ---------------------------------------------------------------
 

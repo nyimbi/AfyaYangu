@@ -4262,3 +4262,98 @@ Through `uvicorn --factory afya.service:create_app --port 8796`:
 rates are deliberately absent from both — the multiplier is the server's own arithmetic on a baseline
 the handset owns, so there is no external figure to archive. `sources/INDEX.md` gains no entry, and
 that absence is the statement: every fact here is quoted from `docs/spec.md` §12.1 and §14.2.
+
+## §SEC-004 — a handle that was a lookup key
+
+§SEC-004's third bullet, "Optional pseudonymous profile", was the last `missing` row in the
+anonymity section, and the audit note read like a gap in a settings screen: *"no profile model
+carries a chosen pseudonym or display name"*. It was that, and it was also a leak, because the two
+halves of the same defect had been sitting in different files.
+
+### The join that was absent, and where it went
+
+`POST /facilities/{facility_id}/reports` took `reporter_ref` **out of the request body**.
+`GET /facilities/{facility_id}/reports` served it back — on a feed whose own route docstring calls it
+a public screen, with no guard on the write at all (`test_ui_vocabulary.py` listed the route under
+`UNGATED_WRITES` and said so: *"a crowd-sourced report; `reporter_ref` is the claim"*).
+
+So the app published a raw `subject_ref` to anyone who asked, and let the caller choose whose it was.
+That string is the lookup key for `/records/{ref}`, `/maternal/{ref}`, `/wallet`, the monitoring
+diaries and every other personal route in the build — `test_self_scope.py`'s whole subject. The field
+was even *named* correctly, which is why it read as finished: `reporter_ref` sounds like a pseudonym
+and was an identifier.
+
+It is the shape §COM-103, §COM-104, §LOC-004, §SEC-001 and §ACC-004 all had — every visible part
+present and the join absent — with the difference that this one leaked while it was missing.
+
+### What closed it
+
+- **`IdentityService.pseudonym`** derives a handle from the subject per 30-day epoch:
+  `sha256(f'{subject_ref}:{epoch}')` → one of twenty neutral words plus four hex characters. Derived
+  and not random, so a restart does not relabel a person; the epoch is *in* the digest, so the next
+  window gives a different handle. That rotation is the whole difference between a pseudonym and a
+  subject reference wearing a friendlier spelling: a handle that never changes correlates every post
+  a person ever made, on every public feed, forever.
+- **`IdentityService.choose_handle`** is the "optional" half. A person may name themselves, the
+  choice does not rotate, and a handle that *is* an identifier — a phone number in any spelling, or a
+  `anon-` subject reference — is refused. A person typing their own number into that box would be
+  publishing the key the section exists to keep off the screen, and the service would be the thing
+  that let them do it to themselves.
+- **The report route reads the reporter from an optional token**, so the body field is gone and there
+  is no field left to lie in: a caller can no longer file a report *as* someone else. A caller with
+  no token is published anonymously rather than refused, which is §FND-001's ordinary case.
+- **`Pseudonymiser` is a protocol** in `facilities/service.py`, not an import of `IdentityService` —
+  the coupling is one method, and a build with no identity model wired publishes anonymously instead
+  of raising. A facility finder that cannot accept a queue report because a service is missing is
+  worse than an anonymous one.
+- **The caveat is served.** `pseudonym_caveat` is a route field, not a sentence in a table: a handle
+  hides a name and is not anonymity, because a small enough group re-identifies regardless of the
+  identifier used — §SEC-004's own "minimum cell size of 10" makes the same admission one level up.
+
+### The defect the live probe found
+
+The first cut served `note` and left `PSEUDONYM_STRINGS['caveat']` unread. The table existed, the
+tests passed (they asserted the table), and the route served no such field — the absent-join defect
+this unit exists to close, reproduced inside the unit, one level up. `curl`-equivalent probing of the
+front door found it in one request; a test that reads a constant cannot. `pseudonym_caveat` is now a
+function the route calls, and canary 14 is named against the node that asserts the *served* field
+rather than the table.
+
+### Canaries
+
+`tests/ci/canary_sec004.py`, 14 canaries, **14/14 fired**. Three of them missed on first run and two
+of those were bugs in the canaries rather than in the code:
+
+- *"the handle does not separate subjects"* first patched `word = _HANDLE_WORDS[0]` — which is **not
+  a defect**: the digest suffix separates subjects regardless, so the handle still distinguished all
+  200 test subjects. The mutation had to collapse the suffix (`-0000`) to be the defect it claimed.
+- *"the route takes a subject it must not take"* missed because the test checked `'subject_ref' not
+  in params` — a route taking `subject`, `member_ref` or `ref` passes while being the same IDOR. That
+  is the bug `test_self_scope.py`'s own docstring records finding in its first version, and the test
+  now checks every name a subject travels under.
+- *"the handle carries the subject reference"* missed because the test asserted `handle != subject`:
+  a handle built from the subject's last four characters is unequal to it and still puts the
+  reference on the screen in pieces. The test now checks every four-character run.
+- *"the handle pattern admits an identifier"* missed against the route node, correctly — the service's
+  own assertion catches the same input one frame later, so the status is 422 either way. Retargeted
+  to a model-level node, which is the layer the pattern lives in.
+
+### Live probe
+
+- `GET /identity/pseudonym` → `handle: "Imani-4441"`, `epoch`, `rotates_every_days: 30`,
+  `chosen: false`, the derived note and the caveat
+- `POST /identity/pseudonym {"handle": "Mama Njeri"}` → 200, and the feed then carries `"Mama Njeri"`
+- `{"handle": "+254712345678"}` → **422**; `{"handle": "anon-01a00000-…"}` → **422**
+- `POST /facilities/F1/reports` with a token → `reporter_ref: "Mama Njeri"`; the string
+  `walker-subject-abc` appears **nowhere** in the feed
+- `lang=sw` → the Swahili caveat; `lang=luo` → English, as `answerable` specifies
+- no token → **401**; `/zzz/deep/path` → **404**, so the 200s are not a catch-all stub
+
+**§SEC-004 1 `missing` → 0.** Across the repo **469 → 470 `carried`, 11 → 10 `missing`**, 497 rows,
+`deferred` 17 unchanged, `unresolved == []`.
+
+**No new source.** §SEC-004 states the handle is optional and states no format, no word list and no
+rotation window — every number here (30 days, twenty words) is the server's own choice, made
+explicitly and recorded as a choice rather than presented as the section's. `sources/INDEX.md` gains
+no entry, and that absence is the statement: there is no external figure to archive, and inventing
+one to fill a table would be worse than the gap.
