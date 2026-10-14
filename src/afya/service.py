@@ -5395,6 +5395,19 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		design — a disclosure policy nobody can read is not a disclosure policy."""
 		return security.disclosure_policy().model_dump(mode='json')
 
+	@app.get('/security/licence')
+	async def security_licence() -> dict[str, object]:
+		"""§LOC-002's "Open-source client for independent verification" and §SEC-006's "Open-source
+		client code", as the fact a reader can obtain rather than a claim about the repository.
+
+		Open, like `/security/disclosure` and for the same reason: a licence that required a token
+		would not be the licence the client is offered under. `offered` is read from the root
+		`LICENSE` file rather than returned from a constant, so a tree that declares MIT and ships
+		no terms answers `false` instead of asserting something it cannot show.
+		"""
+		from afya.licensing import licence_offer
+		return licence_offer()
+
 	# --- §23 risk register, §24 operational duties and incident response ----------------------
 
 	@app.get('/operations/risks')

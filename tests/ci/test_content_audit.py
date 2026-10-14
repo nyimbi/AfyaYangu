@@ -329,8 +329,11 @@ def test_the_missing_bullets_are_pinned_by_feature() -> None:
 	assert per_feature == {
 		'§ACC-001': 1,
 		'§ACC-002': 1,
-		'§LOC-002': 1,
-		'§SEC-006': 1,
+		# §LOC-002 and §SEC-006's open-source rows were the same absence seen from two sections and
+		# both closed when the owner chose a licence. The note on §LOC-002 had the reasoning right
+		# while the licence was undecided — "a repository's licence is not something this tree can
+		# assert about itself" — which is why the fix was the owner's decision first and the tree's
+		# statement second, not a file the code wrote for itself.
 		# §EMG-003, §FND-001, §FND-002, §FND-003, §FND-004, §FND-005, §TRI-001, §TRI-002 and
 		# §TRI-003 are audited and carry nothing missing: every Content, Access clause, filter
 		# dimension, test type and Output resolves to code, so the sections have no row here —

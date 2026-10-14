@@ -3,6 +3,8 @@
 	version = "2.0.0"
 	description = "Mlinzi / Afya Yangu — Kenya national health companion core services (per docs/spec.md v2.0)"
 	requires-python = ">=3.11"
+	license = "MIT"
+	license-files = ["LICENSE"]
 	dependencies = [
 		"fastapi>=0.115",
 		"uvicorn>=0.30",

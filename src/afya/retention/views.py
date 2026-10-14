@@ -186,6 +186,14 @@ class TransparencyPublication(BaseModel):
 	withheld_cells: int = Field(ge=0)
 	min_cell_size: int = Field(ge=1)
 	notes: list[str]
+	# §SEC-006's "Open-source client code" and §LOC-002's "Open-source client for independent
+	# verification", as the publication states them. Deliberately *not* a `TransparencySection`:
+	# every section there is a count over people, governed by §11.7's min-cell rule and carrying the
+	# source's own measurement caveat. A licence is not a measurement and has no cell to suppress,
+	# so folding it in would put a row with no denominator under a rule about withholding, and would
+	# make "the publication has no sections" — which is a real state when no source is wired —
+	# stop being true. `offered` is read from the root `LICENSE` by `afya.licensing`.
+	licence: dict[str, object] | None = None
 
 
 class PublicationSchedule(BaseModel):

@@ -9,6 +9,7 @@ Two rules are load-bearing and enforced here:
 from datetime import date, timedelta
 
 from afya.analytics.views import MIN_CELL_SIZE, MetricRow
+from afya.licensing import licence_offer
 from afya.logmixin import LogMixin
 from afya.retention.views import (
 	ENCRYPTION_STANDARD, QUARTERLY_CADENCE_DAYS, RETENTION_TABLE, CorrectionReceipt,
@@ -437,6 +438,15 @@ class RetentionService(LogMixin):
 			audience='public', sections=sections, breaches=list(self._breaches),
 			open_obligations=self._open_obligations(), withheld_cells=sum(s.withheld_cells for s in sections),
 			min_cell_size=MIN_CELL_SIZE, notes=notes,
+			# §SEC-006's "Open-source client code" and §LOC-002's "Open-source client for independent
+			# verification", in the document a member of the public actually reads. A licence stated
+			# only in the repository is a fact about the repository; stated here it is one a person
+			# who never clones anything can find — and the row's own words are *for independent
+			# verification*, which is a thing done by someone outside. A separate field rather than a
+			# section, because every section is a count over people under §11.7's min-cell rule and a
+			# licence is neither a count nor suppressible. `offered` is read from the root `LICENSE`
+			# by `afya.licensing`, so a tree that declares MIT and ships no terms publishes false.
+			licence=licence_offer(),
 		)
 
 	def publications(self) -> dict[str, str]:

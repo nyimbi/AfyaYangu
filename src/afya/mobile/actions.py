@@ -236,7 +236,7 @@ FEATURE_OF: dict[str, str] = {
 	'retention_policy': 'SEC-005', 'record_holding': 'SEC-006', 'record_share': 'SEC-006',
 	'data_inventory': 'SEC-006', 'export_my_data': 'SEC-005', 'delete_my_data': 'SEC-005', 'purge_expired': 'SEC-005',
 	'encryption_posture': 'SEC-003', 'transparency_report': 'SEC-006',
-	'public_transparency_report': 'SEC-006', 'publication_schedule': 'SEC-006',
+	'public_transparency_report': 'SEC-006', 'publication_schedule': 'SEC-006', 'licence_terms': 'SEC-006',
 	'provision_chw': 'CHAN-005', 'chw_profile': 'CHAN-005', 'chw_training': 'CHAN-005', 'job_aid': 'COM-101',
 	'chw_cases': 'COM-101', 'assign_chw_case': 'COM-101', 'log_chw_activity': 'COM-101', 'chw_activity': 'COM-101',
 	'chw_case_load': 'COM-101', 'chw_ppe_reminder': 'COM-101',
@@ -712,6 +712,12 @@ def catalogue() -> list[MobileAction]:
 		# one is a person's view of their own data, this one is the aggregate nobody has to ask for.
 		_a('public_transparency_report', 'What the programme publishes', 'Privacy', 'GET', '/transparency/report', [_f('period', 'Quarter', ph='2026-Q3'), _f('as_at_iso', 'As at')]),
 		_a('publication_schedule', 'Is the public report on time?', 'Privacy', 'GET', '/transparency/schedule', [_f('period', 'Quarter', ph='2026-Q3')]),
+		# §SEC-006's "Open-source client code" and §LOC-002's "Open-source client for independent
+		# verification" — the same fact from two sections, and the reason it needs a *screen* rather
+		# than only a file: the row says "for independent verification", which is something a reader
+		# does. A licence a person can only find by opening the repository is a licence they cannot
+		# check from the app they are trying to decide whether to trust.
+		_a('licence_terms', 'Is this app open source?', 'Privacy', 'GET', '/security/licence', []),
 		_a('record_holding', 'Record what is stored', 'Privacy', 'POST', '/retention/holding', [_s(), _f('data_type', 'Data type'), _f('count', 'How many records', 'int')]),
 		_a('record_share', 'Record a data share', 'Privacy', 'POST', '/retention/share', [_s(), _f('with_who', 'Shared with'), _f('what', 'What was shared'), _f('when_iso', 'When')]),
 		# Access & fairness

@@ -4963,3 +4963,103 @@ the spec's own (§17's regulatory table), and it is a citation the repo has not 
 workflow — so the native clients' rendering of `served_in` is unverified here. The server-side table is
 what the audit row cites, and the clients are opaque to the response shape: they fetch `/mobile/actions`
 and execute what the catalogue says.
+
+## §LOC-002 & §SEC-006 — the licence the tree could not choose for itself (2026-10-14)
+
+Two sections asked for the same thing from two directions and both rows were `missing`:
+
+- §11.5 LOC-002's third Privacy property: *"Open-source client for independent verification"*.
+- §12.2 SEC-006's third Feature: *"Open-source client code"*.
+
+The note on the first had the difficulty exactly right, and it is worth quoting because it is why
+this unit looked different from every other one in the run:
+
+> nothing makes the client open source — the tree carries no LICENSE and no source offer; §SEC-006's
+> "Open-source client code" row is the same absence, and a repository's licence is not something this
+> tree can assert about itself
+
+That last clause is the whole thing. Every other row in this audit could be closed by writing code.
+This one could not: **a tree cannot choose its own terms.** The fix had two halves and only one of
+them is code — the owner decided MIT, and *then* the tree could carry the fact. Had the code written
+a `LICENSE` on its own initiative it would have been the code inventing a legal position for a
+person, which is the same failure as inventing a citation to fill a table.
+
+### What closed it
+
+**The owner's decision, recorded.** `LICENSE` at the repository root carries the MIT text with the
+holder the owner names. The identifier, the holder and the file are constants in `afya/licensing.py`
+rather than only in the file, because `afya/refs.py` walks a `module:attr` by import — an audit row
+whose evidence is a file nothing imports is a row the audit cannot check. This is the reason the
+licence needed a module and not just a root file.
+
+**The gate reads the file, not the constant.** `licence_is_offered` opens the root `LICENSE` and
+checks that it carries the identifier and the holder, so a tree that declares MIT in code and ships
+all-rights-reserved terms answers `false`. A constant with a function around it would have been the
+easy shape and would have missed the one failure that matters: the repository whose licence and whose
+claim about it disagree. `GET /security/licence` serves the result, open like `/security/disclosure`
+and for the same reason — a licence that required a token would not be the licence the client is
+offered under.
+
+**The honest boundary is part of the payload.** The row says *for independent verification*, and a
+permissive licence makes verification **possible** — anyone may read, build and test the three
+clients in this tree — without meaning that anyone has. No external party has audited this
+repository. The served note says so in its own words, and a test asserts it does, because otherwise
+"MIT" would read as "verified" and closing this row would be a stronger claim than the fact behind
+it. That is the same discipline `sources/INDEX.md` applies to every table, arriving through a licence
+instead of a number.
+
+**Reachable from a screen and from the publication.** `licence_terms` (Privacy group) reaches the
+route, and §SEC-006's quarterly document carries the offer in a field of its own. The field is
+deliberately **not** a `TransparencySection`: every section there is a count over people governed by
+§11.7's min-cell rule, and a licence is neither a count nor suppressible. Folding it in broke two
+existing tests — `test_a_suppressed_cell_does_not_reappear_in_the_publication` and
+`test_a_source_that_is_not_wired_is_named_rather_than_omitted` — and they were **right to break**:
+the second asserts `pub.sections == []` when no source is wired, which is a real state, and a licence
+section would have made it false. The tests found the modelling error, which is what they are for.
+
+### Canaries
+
+`tests/ci/canary_licence.py`, 8 canaries, **8/8 fired**.
+
+The four worth reading as a set:
+
+- **offered is the constant rather than the file** — the repository keeps its `MIT` constant and
+  ships all-rights-reserved terms. This is the mutation that makes `licence_is_offered` read the file
+  instead of returning `True`.
+- **MIT is allowed to read as verified** — the note stops saying no audit has happened, so closing
+  the row becomes a stronger claim than the fact behind it.
+- **the licence has no screen** — the route keeps serving the terms and no client can reach them, the
+  same join §SEC-001's toggle screen was missing and one no service-level test can see.
+- **the publication drops the licence** — the one surface a person who never opens the repository
+  reads is the one that does not mention the terms.
+
+One missed on the first run, and it was the useful kind of miss: the route canary replaced
+`licence_offer()` with a stub `{'spdx_id': 'MIT', 'offered': True}`, which **passed** the test —
+the assertion checked exactly the two fields the stub supplied. The canary found a weak assertion,
+not a weak gate. The test now asserts the holder, year, name and file, so a route that never reads
+the offer fails.
+
+### Verified
+
+- `uv run pytest -q -p no:randomly tests/ci/test_licence.py` → **10 passed**
+- `uv run pytest -q -p no:randomly` over the licence, audit, §SEC-006, security, catalogue, vocabulary,
+  coverage and retention modules → **110 passed**, three consecutive clean runs
+- `uv run pyright` → **0 errors, 0 warnings, 0 informations**
+- `uv run python tests/ci/canary_licence.py` → **8/8**
+
+**§LOC-002 1 `missing` → 0 and §SEC-006 1 `missing` → 0.** Across the repo **476 → 478 `carried`,
+4 → 2 `missing`**, `deferred` 17 unchanged, `unresolved == []`.
+
+**The two remaining `missing` rows are both §ACC-002's language work** — §ACC-001's video tutorials and
+§ACC-002's six-language voice reporting — and §ACC-002 is deliberately open, pinned by
+`test_personas.py` and `test_acc002.py::test_the_six_language_bullet_stays_open`. Neither is closable
+by declaring a language set: they need recorded audio and a trained recogniser, and §ACC-002's own row
+records that a machine-translated table would report the gap as closed.
+
+**One pre-existing abort, not this unit's.** The combined run aborted once with
+`recursive_mutex lock failed` *after* reporting all 110 passed. Already recorded at the head of this
+file: an interpreter-shutdown fault in a dependency, ~1 run in 20, test results unaffected. Three
+subsequent runs exited 0.
+
+**No new source.** MIT is the owner's decision rather than a figure from a published table, and the
+licence text is the standard MIT grant. Nothing here cites an external measurement.
