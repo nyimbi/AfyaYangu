@@ -135,6 +135,46 @@ def _spec_bullets(feature_id: str, label: str) -> list[str]:
 	return items
 
 
+def _spec_passage(feature_id: str, label: str) -> str:
+	"""One claim-label passage, as the spec prints it under that label.
+
+	The unit is the passage and not the sentence, and the distinction is the whole of why this
+	reader exists rather than a second call to `_spec_bullets`. `_split_items` splits on top-level
+	commas and semicolons because a *content* cell enumerates; a *claim* cell is prose. Sixty-eight
+	of the ninety-two claim passages carry a comma, so the content parser would shred them — §MED-002's
+	Disclaimer is "Informational only. Not a substitute for professional advice." and a comma split
+	would make one sentence two fragments, neither of them the sentence the section prints.
+
+	The passage ends at the next bold label, the next heading, or the horizontal rule, which is the
+	same boundary `test_a_label_declared_out_of_scope_has_no_list_under_it` uses — one definition of
+	"the body under this label", so the shape rule and the coverage gate cannot disagree about where
+	a passage stops.
+	"""
+	body = _spec_section(feature_id)
+	marker = f'**{label}:**'
+	assert marker in body, f'{feature_id} has no {label}'
+	return re.split(r'\n\*\*|\n####|\n###', body.split(marker, 1)[1])[0].strip()
+
+
+def _spec_claims(feature_id: str, label: str) -> list[str]:
+	"""The sentences of one claim passage.
+
+	An editorial aid, not a boundary anything is asserted on: a gate over where a sentence ends is a
+	gate over a regex. §CHAN-003's Privacy is four sentences and §TRI-002's Offline is one word, and
+	both are one passage each.
+
+	The split is on a full stop, question mark or exclamation followed by whitespace and a capital
+	or an opening quote — so an abbreviation inside a sentence does not open a new one, and §CHAN-0's
+	"e.g., known outbreak areas" stays inside the sentence that names it. A markdown table is a
+	passage whose sentences are its rows, because that is how a reader reads it.
+	"""
+	if _spec_passage(feature_id, label).startswith('|'):
+		return [line.strip() for line in _spec_passage(feature_id, label).splitlines()
+			if line.strip().startswith('|') and not re.match(r'^\|[\s:|-]+\|$', line.strip())]
+	return [part.strip() for part in
+		re.split(r'(?<=[.!?])\s+(?=[A-Z"“])', _spec_passage(feature_id, label)) if part.strip()]
+
+
 def _spec_feature_ids() -> list[str]:
 	"""Every feature section in the spec, in document order, by the id the section declares.
 
@@ -234,6 +274,185 @@ def test_every_content_label_a_section_prints_has_rows_under_it() -> None:
 		f'content lists the spec prints with no rows under them: {sorted(printed - covered)}'
 	assert covered - printed == set(), \
 		f'rows under a label the section does not print: {sorted(covered - printed)}'
+
+
+# --- the claim side, which had no gate ----------------------------------------------------------
+
+def test_every_claim_label_a_section_prints_has_a_verdict_under_it() -> None:
+	"""The gate the claim side never had, and the reason the two findings in it stayed hidden.
+
+	`_LABELS` had two coverage gates. `_CLAIM_LABELS` had one *shape* rule — a label declared out of
+	scope must not print a bullet list — which asks whether the body is a list and never whether
+	anyone read it. So a claim label could carry a normative sentence for as long as the spec has
+	existed and no test would notice: 92 (section, label) pairs, 165 passages, none read.
+
+	Two of them were defects. §CHAN-2's Integration said "reports flow into the same backend as app
+	and WhatsApp reports, deduplicated by phone number" while no channel wrote to that backend, and
+	§AI-003's Alerting described a ledger fed by six app surfaces and no channel at all. Both are
+	`carried` now, and neither was found by a count — they were found by reading this table, which is
+	the argument for the table existing.
+
+	The unit is the (section, label) pair, exactly as on the content side: a section is not the unit
+	of coverage, and neither is a label.
+	"""
+	from afya.content_audit.service import CLAIM_CONTENT, _CLAIM_LABELS
+	# A `Description` restates the section heading and a `Tier` is a position in §7's ladder. The
+	# spec's own index is not a claim about a feature, so it is out of the audit's jurisdiction —
+	# named here rather than silently skipped, so a fourth metadata label is a decision.
+	metadata = {'Description', 'Feature ID', 'Tier'}
+	covered = {(f, label) for f, label, _, _, _, _ in CLAIM_CONTENT}
+	printed = {(fid, label) for fid in _spec_feature_ids() for label in _CLAIM_LABELS
+		if label not in metadata and f'**{label}:**' in _spec_section(fid)}
+	assert printed - covered == set(), \
+		f'claim passages the spec prints with no verdict under them: {sorted(printed - covered)}'
+	assert covered - printed == set(), \
+		f'verdicts under a claim the section does not print: {sorted(covered - printed)}'
+	assert len(printed) == 92, f'the spec prints 92 claim passages, not {len(printed)}'
+
+
+def test_every_claim_is_the_sections_claim_in_its_own_words() -> None:
+	"""Each claim passage is carried verbatim and in the section's order, so a reworded sentence
+	fails here rather than silently detaching the audit from the text it says it read — the same
+	rule `test_every_audited_bullet_is_the_sections_bullet_in_its_own_words` applies to the lists."""
+	from afya.content_audit.service import CLAIM_CONTENT
+	for feature_id, label in dict.fromkeys((f, l) for f, l, _, _, _, _ in CLAIM_CONTENT):
+		spec = _spec_passage(feature_id, label)
+		mine = [c for f, l, c, _, _, _ in CLAIM_CONTENT if (f, l) == (feature_id, label)]
+		assert mine, f'{feature_id} {label} has no rows'
+		# The passage is one string; its sentences are what the reader finds in it. Joined, the rows
+		# must reproduce the passage, which is what "verbatim" means when the unit is the passage.
+		# A markdown table is a passage whose lines are its rows, so it rejoins on the newline — minus
+		# the `|---|---|` rule, which is markdown syntax rather than a row a reader reads. Every other
+		# passage is prose and rejoins on the space the sentence split consumed.
+		if spec.startswith('|'):
+			body = '\n'.join(ln for ln in spec.splitlines()
+				if not re.match(r'^\|[\s:|-]+\|$', ln.strip()))
+		else:
+			body = spec
+		assert ('\n' if spec.startswith('|') else ' ').join(mine) == body, \
+			f'{feature_id} {label}:\n  mine: {mine}\n  spec: {body!r}'
+		assert len(mine) == len(_spec_claims(feature_id, label)), \
+			f'{feature_id} {label}: {len(mine)} rows for {len(_spec_claims(feature_id, label))} sentences'
+
+
+def test_a_claim_verdict_is_one_of_three_and_only_carried_names_code() -> None:
+	"""The three verdicts, kept apart, and `narrative` is the one that needs defending.
+
+	`carried` names code. `deferred` is a property of the handset, the broadcaster or the platform,
+	or a claim the spec itself conditions on something this tree does not hold. `narrative` is a
+	sentence about the world — the adoption argument, the audience, a broadcaster's figures — which
+	no code can carry or refute, and reporting one as a gap would put an argument about adoption into
+	a defect list.
+
+	`narrative` is also the easiest place to hide an unbuilt capability, so it is held down two ways
+	rather than described. The first is that a non-carried claim must carry a note and no reference,
+	and that note must be longer than a phrase — a real reason, not a shrug. The second is the
+	*pinned set* in `test_the_narrative_claims_are_the_ones_no_code_can_carry` below, which names
+	every one of them: a claim that moves into `narrative` to make a gap disappear changes that set
+	and fails there, which is the check this one cannot make on its own. A word list here would be an
+	instrument scoped to the notes I happened to write, which is the bug wearing the gate's clothes.
+	"""
+	from afya.content_audit.service import CLAIM_CONTENT
+	assert {k for _, _, _, k, _, _ in CLAIM_CONTENT} == {'carried', 'deferred', 'narrative'}
+	for f, label, claim, kind, ref, note in CLAIM_CONTENT:
+		if kind == 'carried':
+			assert ref, f'§{f} {label} {claim!r} is carried and names no code'
+		else:
+			assert note and ref is None, f'§{f} {label} {claim!r} is {kind} with no reason'
+			assert len(note.split()) >= 8, f'§{f} {label}: a reason, not a shrug — {note!r}'
+
+
+def test_the_narrative_claims_are_the_ones_no_code_can_carry() -> None:
+	"""The thirty-eight `narrative` claims, pinned by section and count.
+
+	`narrative` is where an unbuilt capability could hide, so the set is asserted rather than left to
+	the note's wording. Every entry is a sentence about the world: the adoption argument, the
+	audience, a broadcaster's or a platform's figures, or an editorial standard the copy is held to.
+	The three sections with the most are the ones whose claim labels are *entirely* argument —
+	§CHAN-4's Objectives, §CHAN-5's Rationale and §CHAN-6's Role describe why a channel is in the
+	product, and §MON-001's "Why this works" is the engagement case for the immunisation tracker.
+
+	The count is asserted per section, so moving one claim into this verdict to make a gap disappear
+	shows up as a changed number here rather than as a smaller total nobody reads — the same reason
+	`test_the_missing_bullets_are_pinned_by_feature` counts per feature rather than in aggregate.
+	"""
+	from afya.content_audit.service import CLAIM_CONTENT
+	per_feature: dict[str, int] = {}
+	for f, _, _, kind, _, _ in CLAIM_CONTENT:
+		if kind == 'narrative':
+			per_feature[f'§{f}'] = per_feature.get(f'§{f}', 0) + 1
+	assert per_feature == {
+		'§CHAN-000': 2,   # the partnership and the free scripts; the language reach is deferred, not narrative
+		'§CHAN-001': 1,   # "if a user is charged, adoption collapses" — why the requirement exists
+		'§CHAN-004': 1,   # reach and credibility with youth
+		'§CHAN-005': 2,   # the intermediaries' adoption argument
+		'§CHAN-006': 2,   # the tier's position in the channel set
+		'§MED-001': 2,    # counterfeit medicines, and the ten-second demo
+		'§MED-003': 1,    # the audience
+		'§EMG-002': 1,    # the audience
+		'§MON-001': 3,    # why parents engage
+		'§MON-002': 2,    # why pregnant women engage
+		'§MON-004': 2,    # why the reminder drives opens
+		'§REC-001': 2,    # the lost card
+		'§MED-004': 2,    # stockouts, and the public-service argument
+		'§REC-005': 1,    # the human cost of outbreaks
+		'§REC-006': 3,    # the mental-health engagement argument
+		'§COM-005': 1,    # civic engagement
+		'§INF-009': 1,    # how valuable the offline resource is
+		'§INF-010': 2,    # how the content was developed, and its editorial standard
+		'§COM-102': 1,    # tested with community representatives
+		'§COM-103': 1,    # the humane-interface standard
+		'§LOC-002': 3,    # the method's own caveats and the DESIRE citation
+		'§ALT-004': 1,    # tested with community representatives
+		'§FND-006': 1,    # pilot then expand
+	}, per_feature
+
+
+def test_a_carried_claim_names_code_that_imports() -> None:
+	"""The finding on the claim side, and the one this report was built for: a claim about the code
+	that stopped being true is a rotted reference, not a capability nobody built."""
+	from afya.content_audit.service import claim_report
+	report = claim_report()
+	assert report.unresolved == [], report.unresolved
+	assert report.pairs_read == 92 and report.claims_read == 165
+	assert (report.carried, report.deferred, report.narrative) == (107, 20, 38)
+
+
+def test_the_two_claims_this_gate_was_built_for_are_carried() -> None:
+	"""The named closure, so a regression is a failure here rather than a smaller number in a count.
+
+	§CHAN-2's single-report-backend sentence and §AI-003's early-warning value sentence were the two
+	defects the claim side hid. Both are `carried` by the channel report sink, and this asserts the
+	carriers by name — a total would let one of them rot while the other stayed green.
+	"""
+	from afya.content_audit.service import CLAIM_CONTENT
+	by_claim = {c: (kind, ref) for _, _, c, kind, ref, _ in CLAIM_CONTENT}
+	integration = 'Reports flow into the same backend as app and WhatsApp reports, deduplicated by phone number.'
+	assert by_claim[integration] == ('carried', 'afya.channels.service:ChannelService.record_report')
+	value = ('This is how the app contributes to detecting the *next* outbreak before it is '
+		'clinically recognised.')
+	assert by_claim[value] == ('carried', 'afya.ai.service:WARNING_Z')
+
+
+async def test_the_claim_report_view_is_auditor_scoped() -> None:
+	"""The claim report names module references, so it is evidence about the build like its twin."""
+	import httpx
+	from typing import Any
+	from afya.privacy.views import RBACRole
+	from afya.service import build_services, create_app
+	from afya.content_audit.service import claim_report
+	svc = build_services()
+	auth: Any = svc['auth']
+	tok = auth.provision_staff('ca-claims', RBACRole.auditor, registrar='MoH ops').access_token
+	app = create_app(svc)
+	report = claim_report()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		assert (await c.get('/features/claims')).status_code in (401, 403)
+		body = (await c.get('/features/claims',
+			headers={'authorization': f'Bearer {tok}'})).json()
+		assert body['pairs_read'] == report.pairs_read
+		assert body['unresolved'] == report.unresolved
+		assert body['carried'] == report.carried
 
 
 # --- the audit reads the section it says it read ------------------------------------------------

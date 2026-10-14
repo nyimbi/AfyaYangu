@@ -31,6 +31,47 @@ class FeatureContent(BaseModel):
 	carried_count: int
 
 
+class ClaimContent(BaseModel):
+	"""One claim-label passage a section prints, and what carries it.
+
+	`kind` is tri-state for the same reason `ContentBullet.kind` is, with one substitution: the
+	claim side's third verdict is `narrative` rather than `missing`. A claim is a sentence *about* a
+	feature, so the failure mode is not "nobody built it" but "nobody read it" — and a sentence about
+	the world (the adoption argument, the audience, a broadcaster's figures) is neither carried nor
+	absent, which is what `narrative` names. `deferred` is the claim the spec itself conditions on
+	something this tree does not hold, or a property of the handset or the platform.
+
+	The unit is the passage, not the sentence: `claims` is the passage as the spec prints it and
+	`claims_count` is how many sentences a reader will find in it. Nothing is asserted on that
+	boundary — a gate over sentence splitting would be a gate over a regex.
+	"""
+
+	model_config = MODEL_CONFIG
+	feature_id: str
+	label: str
+	claims: list[str]
+	kinds: dict[str, int]
+
+
+class ClaimContentReport(BaseModel):
+	"""The claim side of the same audit, served beside it.
+
+	`unresolved` is the finding that matters here, and it is the same one the content side reports:
+	a `carried` claim whose reference does not import is a claim whose carrier rotted. `narrative`
+	and `deferred` are reported as counts rather than lists, because a list of thirty-eight sentences
+	about adoption would read as thirty-eight gaps — the failure the three verdicts exist to prevent.
+	"""
+
+	model_config = MODEL_CONFIG
+	sections: list[ClaimContent]
+	pairs_read: int
+	claims_read: int
+	carried: int
+	deferred: int
+	narrative: int
+	unresolved: list[str]
+
+
 class FeatureContentReport(BaseModel):
 	"""Every audited feature section, with the two findings kept apart, and the coverage stated.
 

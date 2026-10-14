@@ -22,17 +22,35 @@ more) print bullet lists, and they were the whole of the eight sections it then 
 Both times the number reported was a fact about the instrument.
 
 So the partition is now on the *shape of the body* and both halves are asserted against the spec:
-`_LABELS` (30) is every label whose body enumerates things the feature does or holds, `_CLAIM_LABELS`
-(44) is every label whose body is a sentence about the feature, and
+`_LABELS` (42) is every label whose body enumerates things the feature does or holds, `_CLAIM_LABELS`
+(53) is every label whose body is a sentence about the feature, and
 `test_a_label_declared_out_of_scope_has_no_list_under_it` fails if a bullet list ever appears under
 a claim label. A new label in the spec, or a list moved under a label that had none, is a failure
 rather than an undercount.
 
-**Coverage is total.** The spec prints 69 `#### FID:` sections and every one of them prints at
-least one content list under a label; all 69 are audited here, and every (section, label) pair the
-spec prints has rows under it. The count of items is 490, counting each comma-separated item of a
-prose cell (the spec writes these lists three ways — bullets, numbered steps and one-sentence prose
-— and §LOC-002's six-step proximity protocol is the numbered one).
+**Coverage is total on both sides, and they are audited differently because they are different
+kinds of text.** The spec prints 78 `#### FID:` sections. Every one prints at least one content list
+under a label; all 78 are in `FEATURE_CONTENT`, 567 rows over 99 (section, label) pairs, and
+`test_every_content_label_a_section_prints_has_rows_under_it` asserts the pairs rather than the
+total. The claim side is not the same shape: 49 of the 78 sections print a claim label and 29 print
+none, so `CLAIM_CONTENT` reads 92 pairs and 165 passages, and
+`test_every_claim_label_a_section_prints_has_a_verdict_under_it` asserts those pairs the same way.
+The asymmetry is the spec's, not the instrument's — a section whose body is a content list and
+nothing else has no sentence for a claim verdict to be about.
+
+The claim side is the half that had *no* coverage gate until it did, and the two defects it was
+hiding are why it exists: §CHAN-2's Integration sentence described a report flow no channel
+implemented, and §AI-003's early-warning ledger was fed by six app surfaces and no channel at all.
+Both are `carried` now. The content side's verdicts are `carried`/`deferred`/`missing`; the claim
+side's are `carried`/`deferred`/`narrative`, because a sentence *about* a feature fails differently
+— not "nobody built it" but "nobody read it", and a sentence about the world is neither carried nor
+absent.
+
+A content cell enumerates and a claim cell is prose, so they are read by different parsers and the
+difference is asserted rather than assumed: `_split_items` splits on top-level commas and semicolons,
+which is right for a list and would shred 47 of the 92 claim passages. `_spec_passage` takes the
+passage whole and `_spec_claims` finds the sentences in it as an editorial aid — nothing is asserted
+on where a sentence ends.
 
 **A `missing` row is a claim about the code, and it goes stale when the code moves.** The audit is
 not a snapshot: when a gap is closed the row is rewritten to `carried` with the carrier, which is
@@ -63,7 +81,9 @@ spec itself puts out of scope here (a `(see X)` cross-reference, or a clause con
 something that has not happened). `missing` is a bullet nothing does, and it is the only one that is
 a finding. Merging them would report every cross-reference as a gap and bury the real ones.
 """
-from afya.content_audit.views import ContentBullet, FeatureContent, FeatureContentReport
+from afya.content_audit.views import (
+	ClaimContent, ClaimContentReport, ContentBullet, FeatureContent, FeatureContentReport,
+)
 from afya.refs import resolves
 
 # The spec's feature sections, each with its labelled content bullets in the section's order.
@@ -658,7 +678,7 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	('CHAN-001', 'Outbound use cases', 'Appointment and immunisation reminders', 'carried', 'afya.alerting.views:TOGGLEABLE', "`appointment_reminders` and `immunisation_reminders` are two categories in §ALT-003's toggleable set, and §MON-001's campaign notice is published under the immunisation one — a category with a producer behind it, which is what makes the toggle mean something"),
 	('CHAN-001', 'Outbound use cases', 'Medication adherence reminders', 'carried', 'afya.monitoring.views:reminder_times', "`medication_reminders` is the feed category and `reminder_times(times_per_day)` is the schedule: the instants a reminder fires on a 24-hour clock, chosen so a twice-daily course lands on waking and evening rather than twelve hours apart from midnight"),
 	('CHAN-001', 'Outbound use cases', 'Misinformation corrections', 'carried', 'afya.community.service:CommunityService.correction_for', "§COM-104's cluster tracker produces the correction and the channel carries it: a rumour that has cleared the corroboration floor is published as a correction rather than left as a cluster"),
-	('CHAN-001', 'Outbound use cases', 'Follow-up after a USSD report', 'missing', None, 'the section names a follow-up SMS after a USSD report, and nothing sends one — and the report itself is not filed either. `/community/cases` is the only producer of a `CaseReport` and it is guarded on `assigned`, which a USSD caller has no token to hold; the walk records the callback and the two answers and no case. So §5.4\'s "single case-report backend, deduplicated by phone number" holds for the app and WhatsApp paths and not for USSD, and this bullet needs both halves: something that files a caller\'s symptom as a report against their number, and something that follows it up'),
+	('CHAN-001', 'Outbound use cases', 'Follow-up after a USSD report', 'missing', None, 'the section names a follow-up SMS after a USSD report, and nothing sends one. Half of this row closed and half did not: the *filing* half was the other defect on this bullet — the walk recorded the callback and the two answers and no report, because `/community/cases` is the only producer of a `CaseReport` and it is guarded on `assigned`, which a USSD caller has no token to hold — and it is closed now by `ChannelService.record_report`, which keys the report through the same `IdentityService.dedup_key` the case backend uses. What stays open is the sentence the bullet actually prints: a follow-up message after a report. A callback is a call the person asked for, and a `ChannelReport` carries no follow-up. The two halves were always separable and this note had them welded because both were absent'),
 	('CHAN-001', 'Format', '160 characters', 'carried', 'afya.channels.service:segment_sms', "160 is the single-message size in GSM-7 and the tree carries the arithmetic that makes the figure mean something: `GSM7` is the alphabet, `segment_sms` applies the 153-characters-per-segment rule that applies once a message is concatenated, and `SmsOut.segments` reports the count. What is *not* enforced is the section's 160 as a ceiling — `SmsOut.body` permits 1600 characters across up to ten segments — so a composer can exceed one message and only the segment count says so"),
 	('CHAN-001', 'Format', 'plain language', 'missing', None, "nothing measures or bounds how plain an outbound message is. §5.2's own examples are written plainly and several composers say so in a docstring — `escalation._summary` calls itself 'one sentence an operator can act on, in plain language' — but a claim in a comment is not a check, and no gate refuses a message a person cannot read. The bullet names a property of every message the channel sends, so it closes when something measures one"),
 	('CHAN-001', 'Format', 'local language option via keyword (e.g., prefix `SW`, `LU`, `KY`)', 'carried', 'afya.strings:sms_language', "the prefix is read off the front of the SMS body by `sms_language`, which maps all thirteen §ACC-002 codes onto their prefixes and takes `SW`/`SW:` as a whole word so a body beginning `SWAHILI...` keeps its first word. It had to be read off the body because the inbound route took `lang` as a query parameter, which the person sending a text cannot set — the section's mechanism had no implementation on the one channel it was written for. What the sender *asked for* and what `answerable` *serves* are kept apart and both reported (`lang`, `language_fallback`), because Dholuo has a prefix and no table: the alternative is a session that claims a translation it is not doing"),
@@ -719,6 +739,216 @@ FEATURE_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] =
 	('SENS-010', 'Applications', 'Medication authentication (tapping a medicine package with an NFC tag)', 'missing', None, '§MED-001\'s verification takes a batch number from a scan and returns a verdict; nothing binds a tag to a package, so a tap cannot resolve to a batch the way a barcode does. The section lists the application and this tree has the verification without the tag'),
 	('SENS-010', 'Applications', 'PPE station logging for healthcare workers', 'missing', None, '§COM-101 has a PPE reminder — a guidance string served to a health worker — and no logging: nothing records that a named worker passed a station, and a reminder is not a log'),
 	('SENS-010', 'Applications', 'Equipment tracking', 'missing', None, 'no asset or equipment register exists anywhere in this tree'),
+)
+
+
+# The spec's claim labels, each passage read and given a verdict.
+#
+# Tuple shape: (feature_id, section_label, claim, kind, ref, note) — the same six columns as
+# `FEATURE_CONTENT`, with `narrative` where that table has `missing`.
+#
+# The claim side had no gate. `_LABELS` had two — every content label a section prints has rows
+# under it, and every row is the section's own words — and `_CLAIM_LABELS` had only a shape rule
+# (`test_a_label_declared_out_of_scope_has_no_list_under_it`), which asks whether the body is a
+# list and never whether anyone read it. So a claim label could carry a normative sentence for as
+# long as the spec has existed and no test would notice. Ninety-two (section, label) pairs, 165
+# passages, none of them read.
+#
+# That is how §CHAN-2's "reports flow into the same backend as app and WhatsApp reports,
+# deduplicated by phone number" stayed in the spec while no channel wrote to that backend, and how
+# §AI-003's early-warning ledger came to be fed by six app surfaces and no channel at all. Both are
+# `carried` now, and both were found by reading this table rather than by a count.
+#
+# The unit is the *passage*, not the sentence. A passage is what the spec prints under one label,
+# and it is what a reader reads; the sentences are an editorial aid in `notes` and nothing hangs on
+# where one ends. §COM-102's Tone is three sentences and §TRI-002's Offline is one word — a gate
+# over sentence boundaries would be a gate over a regex. Reading a claim passage with `_split_items`
+# instead — the parser the content side uses, splitting on top-level `,` and `;` — shreds 47 of the
+# 92 passages, because a claim is prose rather than a list: §CHAN-001's "Zero-rated at the telco
+# level. If a user is charged, adoption collapses." becomes two fragments, neither of them a
+# sentence the section prints.
+#
+# The three verdicts, and the third is the one this table exists to make visible:
+#   kind='carried'   — ref names the code that does it, and `resolves` walks the reference
+#   kind='deferred'  — a property of the handset, the broadcaster or the platform, or a claim the
+#                      spec itself conditions on something this tree does not hold; note says which
+#   kind='narrative' — a sentence about the world, the product's case, or a decision made outside
+#                      this tree. No code can carry or refute it, and calling one a gap would put an
+#                      argument about adoption into a defect list
+#
+# `narrative` is not a place to put an unbuilt capability. A claim that names something this tree
+# could hold and does not is a `missing` row, and the reason this table has none is that the two
+# findings it produced are now closed — the table's job is to make the next one fail here.
+#
+# Every claim is transcribed verbatim from the section, so a revision that rewords one fails
+# `test_every_claim_is_the_sections_claim_in_its_own_words` rather than silently detaching the
+# audit from the text it says it read.
+CLAIM_CONTENT: tuple[tuple[str, str, str, str, str | None, str | None], ...] = (
+	('CHAN-000', 'Distribution', 'Partner with Kenya Broadcasting Corporation, Radio Citizen, Radio Jambo, Kiss FM, Ghetto Radio, and county-level stations.', 'narrative', None, 'a partnership with named stations is an agreement this tree does not hold; `RadioBulletin` is the artefact the partnership produces and `schedule_bulletin` is what the deployment files'),
+	('CHAN-000', 'Distribution', 'Provide scripts and audio files free of charge.', 'narrative', None, 'scripts and audio files free of charge is an offer a partnership makes; `RadioBulletin.script` is the artefact and the offer itself is not a route'),
+	('CHAN-000', 'Language coverage', 'Swahili, Dholuo, Luhya (Bukusu, Maragoli), Kalenjin, Kikuyu, Kamba, Somali, Maasai, Turkana, Kisii, Taita, Pokomo, and others by region.', 'deferred', None, "the section names thirteen Kenyan languages and the reach is the station's rather than this tree's; `SMS_LANG_PREFIXES` carries a language set for the SMS leg, and a radio programme's reach is a broadcast fact no route holds"),
+	('CHAN-000', 'Measurement', 'Airtime logs, station reports, call-in volume, pre/post awareness surveys.', 'deferred', None, "airtime logs and call-in volume are the broadcaster's figures; this tree holds no station feed"),
+	('CHAN-001', 'Delivery', 'Bulk SMS gateway with telco-level zero-rating.', 'carried', 'afya.channels.service:cost_verdict', None),
+	('CHAN-001', 'Delivery', 'Fallback to a shortcode for inbound.', 'carried', 'afya.channels.service:SmsGatewayPort', None),
+	('CHAN-001', 'Critical requirement', 'Zero-rated at the telco level.', 'carried', 'afya.channels.service:cost_verdict', None),
+	('CHAN-001', 'Critical requirement', 'If a user is charged, adoption collapses.', 'narrative', None, '"If a user is charged, adoption collapses" is the reason the requirement exists, not a second requirement; it is an argument about adoption and no code can carry or refute it'),
+	('CHAN-002', 'Integration', 'Reports flow into the same backend as app and WhatsApp reports, deduplicated by phone number.', 'carried', 'afya.channels.service:ChannelService.record_report', None),
+	('CHAN-002', 'Session limits', 'Must complete within 2 USSD sessions (approx. 360 characters) to avoid timeouts.', 'carried', 'afya.strings:USSD_SESSION_LIMIT_CHARS', None),
+	('CHAN-003', 'Accessibility', 'Designed for low literacy — short sentences, numbered choices, emoji-supported icons, voice replies available on request.', 'carried', 'afya.strings:USSD_MENU', None),
+	('CHAN-003', 'Integration', 'Shares backend triage engine with CHAN-1, CHAN-2, and CHAN-6 (app).', 'carried', 'afya.channels.service:ChannelService._triage_for', None),
+	('CHAN-003', 'Integration', 'Shares case reports with ADaM.', 'carried', 'afya.community.service:CommunityService.submit_case', None),
+	('CHAN-003', 'Integration', 'Shares misinformation signals with PHEOC.', 'carried', 'afya.community.service:MisinfoSubmission', None),
+	('CHAN-003', 'Languages', 'Swahili, English, Dholuo, Luhya, Kalenjin, Kikuyu, Kamba, Somali, Maasai.', 'carried', 'afya.strings:SMS_LANG_PREFIXES', None),
+	('CHAN-003', 'Languages', 'Voice note support in the top five.', 'carried', 'afya.channels.service:VoiceAudioRequest', None),
+	('CHAN-003', 'Privacy', 'No account required.', 'carried', 'afya.channels.service:ChannelService.ussd', None),
+	('CHAN-003', 'Privacy', 'Phone number is the only identifier.', 'carried', 'afya.identity.service:IdentityService.dedup_key', None),
+	('CHAN-003', 'Privacy', 'Conversation history stored for 90 days, then deleted.', 'carried', 'afya.retention.service:RETENTION_TABLE', None),
+	('CHAN-003', 'Privacy', 'Users can type `DELETE MY DATA` at any time.', 'carried', 'afya.retention.service:DELETION_COMMANDS', None),
+	('CHAN-003', 'Capabilities', '| Capability | Description |', 'carried', 'afya.mobile.actions:catalogue', None),
+	('CHAN-003', 'Capabilities', '| **Symptom triage** | Guided conversation → risk classification → recommended action |', 'carried', 'afya.mobile.actions:catalogue', None),
+	('CHAN-003', 'Capabilities', '| **Voice note triage** | User sends a voice note describing symptoms; speech-to-text in local language; same triage flow |', 'carried', 'afya.mobile.actions:catalogue', None),
+	('CHAN-003', 'Capabilities', '| **Image triage** | User sends a photo of a rash or wound; routed to a health worker for review with consent |', 'carried', 'afya.mobile.actions:catalogue', None),
+	('CHAN-003', 'Capabilities', '| **Location-based answers** | User shares location → county/sub-county specific guidance and facility list |', 'carried', 'afya.mobile.actions:catalogue', None),
+	('CHAN-003', 'Capabilities', '| **Myth-busting** | Keyword-triggered corrections ("Is it true that...?") |', 'carried', 'afya.mobile.actions:catalogue', None),
+	('CHAN-003', 'Capabilities', '| **Facility lookup** | Nearest facility with services and hours |', 'carried', 'afya.mobile.actions:catalogue', None),
+	('CHAN-003', 'Capabilities', '| **Callback request** | Escalates to 719 or a CHW |', 'carried', 'afya.mobile.actions:catalogue', None),
+	('CHAN-003', 'Capabilities', "| **Record retrieval** | Returns immunisation schedule, medication list, or appointment dates for the user's family |", 'carried', 'afya.mobile.actions:catalogue', None),
+	('CHAN-003', 'Capabilities', '| **Broadcast** | Opt-in county alerts |', 'carried', 'afya.mobile.actions:catalogue', None),
+	('CHAN-003', 'Capabilities', '| **Forwardable cards** | Every response includes a shareable summary card |', 'carried', 'afya.mobile.actions:catalogue', None),
+	('CHAN-004', 'Measurement', 'Reach, engagement, shares, install attribution via deep links.', 'deferred', None, "reach, shares and install attribution are the platforms' figures"),
+	('CHAN-004', 'Objectives', 'Reach, credibility with youth, misinformation countering, app-install attribution.', 'narrative', None, 'the reasons the channel is in the product — reach, credibility with youth, misinformation countering — which are objectives rather than capabilities; the app-install attribution half is a platform figure and is named in the deferred note on the same section\'s Measurement'),
+	('CHAN-005', 'Rationale', 'These people, not app stores, drive adoption in Kenya.', 'narrative', None, 'a claim about how trust and adoption work in Kenya, which is an argument about the market rather than a capability'),
+	('CHAN-005', 'Rationale', 'Trust transfers through relationships.', 'narrative', None, 'the same adoption argument stated a second way — trust transfers through relationships rather than through an app store'),
+	('CHAN-006', 'Role', 'The power tier.', 'narrative', None, "the tier's position in the channel set, which is a description of the architecture rather than a capability of its own"),
+	('CHAN-006', 'Role', 'Everything that requires persistent state, sensor access, or offline storage.', 'narrative', None, 'the capabilities it names are audited under their own sections'),
+	('TRI-001', 'Accessibility', 'Icon-driven.', 'carried', 'afya.mobile.actions:catalogue', None),
+	('TRI-001', 'Accessibility', 'Voice input available.', 'carried', 'afya.channels.service:VoiceAudioRequest', None),
+	('TRI-001', 'Accessibility', 'Read-aloud output in local languages.', 'carried', 'afya.strings:TRIAGE_RECS', None),
+	('TRI-001', 'Clinical basis', 'WHO Ebola case definitions, Kenya MoH IDSR guidance, Kenya national malaria treatment guidelines, IMCI algorithms for under-fives.', 'carried', 'afya.triage.service:TriageService', None),
+	('TRI-001', 'Languages', 'Swahili, English, Dholuo, Luhya, Kalenjin, Kikuyu, Kamba, Somali, Maasai.', 'carried', 'afya.strings:SYMPTOM_WORDS_BY_LANG', None),
+	('TRI-001', 'Offline', 'Fully functional.', 'deferred', None, '"fully functional" is the section answering its own heading in a word; the two sentences that follow name what it means and both are carried'),
+	('TRI-001', 'Offline', 'Triage logic runs on-device.', 'carried', 'afya.ai.service:ON_DEVICE_MODELS', None),
+	('TRI-001', 'Offline', 'Results stored locally.', 'carried', 'afya.triage.service:TriageService', None),
+	('TRI-001', 'Privacy', 'All triage data stays on-device unless the user consents to share.', 'carried', 'afya.privacy.service:PrivacyService', None),
+	('TRI-001', 'Privacy', 'Anonymous mode available.', 'carried', 'afya.privacy.service:ConsentScope', None),
+	('TRI-002', 'Offline', 'Yes.', 'deferred', None, 'a one-word answer to "does this work without a connection"; the capability is §TRI-001\'s and the model is the same, so the row is a pointer rather than a second claim'),
+	('FND-001', 'Data source', 'Kenya Master Health Facility List (MoHF), with crowdsourced corrections.', 'carried', 'afya.integrations.service:MoHFFacilityClient', None),
+	('FND-001', 'Offline', 'Partial — caches last-known data.', 'carried', 'afya.facilities.service:FacilityService', None),
+	('FND-001', 'Offline', "Full offline bundle for user's home county available on first sync.", 'carried', 'afya.facilities.service:FacilityService.offline_bundle', None),
+	('FND-002', 'Data source', 'Integration with PHEOC daily dashboards and facility reporting.', 'carried', 'afya.integrations.service:PheocClient', None),
+	('FND-002', 'Offline', 'Cached, with timestamp visible.', 'carried', 'afya.facilities.service:FacilityService', None),
+	('MED-001', 'Offline', 'Requires a local cache of the PPB registry (updated on sync).', 'carried', 'afya.medicine.service:PPBRegistryPort', None),
+	('MED-001', 'Offline', 'Approx. 20–40 MB compressed — cache the top 2,000 products by volume for full offline; full registry lookup when online.', 'carried', 'afya.medicine.service:PPBStubClient', None),
+	('MED-001', 'Privacy', 'Scans are not stored or transmitted unless the user reports a suspicious product.', 'carried', 'afya.medicine.service:MedicineService.verify', None),
+	('MED-001', 'Why this feature', 'Counterfeit and substandard medicines kill people in Kenya every day.', 'narrative', None, 'an argument about counterfeit and substandard medicines in Kenya, which is a statement about the problem rather than a capability'),
+	('MED-001', 'Why this feature', 'This is the single best "show me in 10 seconds" demo — it makes the value proposition immediately obvious and it has nothing to do with Ebola.', 'narrative', None, 'the demo argument — that this is the feature which makes the value proposition obvious in ten seconds — which is a product judgement'),
+	('MED-002', 'Disclaimer', 'Informational only.', 'carried', 'afya.medicine.service:MedicineService.INTERACTION_DISCLAIMER', None),
+	('MED-002', 'Disclaimer', 'Not a substitute for professional advice.', 'carried', 'afya.medicine.service:MedicineService.INTERACTION_DISCLAIMER', None),
+	('MED-002', 'Offline', 'Yes, using a bundled interaction database.', 'carried', 'afya.medicine.interactions:lookup', None),
+	('MED-003', 'Target user', 'Parents and caregivers.', 'narrative', None, 'the audience the feature is for, which is a product decision rather than a capability'),
+	('EMG-001', 'Battery', 'Designed to function even at low battery by minimising background processing.', 'deferred', None, "a power budget for the handset's own background work, which the server holds no reading of; the section names a property of the client rather than a call"),
+	('EMG-001', 'Configuration', 'User sets contacts during onboarding (optional — can be set later).', 'carried', 'afya.emergency.service:MedicalProfile', None),
+	('EMG-001', 'Offline', 'Yes, via SMS.', 'deferred', None, "the SMS leg is §CHAN-1's and the handset sends it, so the offline behaviour is the client's; the server side is the alerting port"),
+	('EMG-002', 'Battery impact', 'Optimised to <2% per day.', 'deferred', None, "a per-day percentage is a property of the device's own sampling loop, which the server never holds; what crosses is a `FallResult`"),
+	('EMG-002', 'Privacy', 'On-device only.', 'deferred', None, "on-device-only logging is the client's obligation; `FallResult` is the derived verdict that crosses, and it is the only thing that does"),
+	('EMG-002', 'Privacy', 'Only fall events (timestamp + location) are logged.', 'deferred', None, "what the device logs is the client's; `FallResult` is the derived verdict that crosses"),
+	('EMG-002', 'Target users', 'Elderly, chronically ill, people living alone, healthcare workers on shift.', 'narrative', None, 'the audience fall detection is for, which is a product decision rather than a capability'),
+	('INF-001', 'Design', 'Traffic-light visual language.', 'carried', 'afya.info.health_education:coverage', None),
+	('INF-001', 'Design', 'No jargon.', 'carried', 'afya.info.health_education:coverage', None),
+	('INF-001', 'Design', 'Icons for each disease.', 'carried', 'afya.info.health_education:coverage', None),
+	('INF-001', 'Design', 'Large text option.', 'carried', 'afya.mobile.actions:catalogue', None),
+	('INF-001', 'Offline', 'Shows last-cached version with a clear "as of [time]" label.', 'carried', 'afya.info.health_education:coverage', None),
+	('INF-003', 'Languages', 'All supported languages.', 'carried', 'afya.strings:SUPPORTED_LANGS', None),
+	('LOC-001', 'Privacy', 'Location processed on-device.', 'deferred', None, "processing location on-device is the client's, which is the handset's own work; `LocationPoint` is what a consenting client submits and `ZoneEvent` is the entry/exit the server holds"),
+	('LOC-001', 'Privacy', 'Only entry/exit events logged, and only with consent.', 'carried', 'afya.privacy.service:ConsentScope', None),
+	('LOC-001', 'Tier 1 behaviour', 'Static advisory zones (e.g., known outbreak areas) with opt-in alerts.', 'carried', 'afya.location.service:Geofence', None),
+	('LOC-001', 'Tier 4 behaviour', 'Dynamic geofences defined by county health authorities based on live epidemiological data; alert on entry and exit.', 'carried', 'afya.location.service:LocationService', None),
+	('LOC-001', 'User control', 'Fully disableable.', 'carried', 'afya.privacy.service:CONSENT_CATALOGUE', None),
+	('MON-001', 'Offline', 'Fully functional.', 'carried', 'afya.monitoring.service:MonitoringService', None),
+	('MON-001', 'Why this works', "Parents care intensely about their children's health.", 'narrative', None, 'the engagement argument for the immunisation tracker, which is a case about parents rather than a capability'),
+	('MON-001', 'Why this works', 'This is the highest-frequency, highest-motivation health action in the population.', 'narrative', None, 'the engagement argument for the immunisation tracker, which is a case about parents rather than a capability'),
+	('MON-001', 'Why this works', 'It also builds a durable record that outlives the paper card.', 'narrative', None, 'the engagement argument for the immunisation tracker, which is a case about parents rather than a capability'),
+	('MON-002', 'Why this works', 'Pregnant women have the most frequent clinic contact of any group.', 'narrative', None, 'the engagement argument for the pregnancy tracker, which is a case about clinic contact rather than a capability'),
+	('MON-002', 'Why this works', 'The app becomes a trusted companion across nine months and beyond.', 'narrative', None, 'the engagement argument for the pregnancy tracker, which is a case about clinic contact rather than a capability'),
+	('MON-003', 'Privacy', 'Extra protections for HIV status.', 'carried', 'afya.privacy.service:ConsentScope', None),
+	('MON-003', 'Privacy', 'Separate PIN.', 'carried', 'afya.records.service:ShareGrant', None),
+	('MON-003', 'Privacy', 'No inclusion in any shareable record without explicit per-share consent.', 'carried', 'afya.records.service:ShareGrant', None),
+	('MON-004', 'Why this works', 'This is the highest-frequency health action anyone takes.', 'narrative', None, 'the engagement argument for the medication reminder, which is a case about daily habit rather than a capability'),
+	('MON-004', 'Why this works', 'It drives daily app opens.', 'narrative', None, 'the engagement argument for the medication reminder, which is a case about daily habit rather than a capability'),
+	('REC-001', 'Why this works', '"I lost the card" is a permanent, universal problem.', 'narrative', None, 'the case for the health wallet, which is an argument about lost cards rather than a capability'),
+	('REC-001', 'Why this works', 'This solves it permanently.', 'narrative', None, 'the case for the health wallet, which is an argument about lost cards rather than a capability'),
+	('MED-004', 'Why this works', 'Drug stockouts are a real, unsolved, daily problem.', 'narrative', None, 'the case for the stockout board, which is an argument about supply rather than a capability'),
+	('MED-004', 'Why this works', 'This is a genuine public service with high engagement.', 'narrative', None, 'the case for the stockout board, which is an argument about supply rather than a capability'),
+	('FND-006', 'Rollout', 'Pilot at high-volume facilities; expand based on results.', 'narrative', None, 'a deployment sequence — pilot at high-volume facilities, then expand on results — which is an operational decision rather than a capability'),
+	('REC-004', 'Privacy', 'PIN-protected.', 'carried', 'afya.records.service:WalletDocument', None),
+	('REC-004', 'Privacy', 'Excluded from cloud backup by default.', 'carried', 'afya.records.service:BackupEnvelope', None),
+	('REC-005', 'Why this matters for outbreaks', 'Isolation, grief, stigma, and healthcare worker burnout are major, under-addressed consequences of outbreaks.', 'narrative', None, 'a statement about the human cost of outbreaks, which frames the section rather than describing code in this tree'),
+	('REC-006', 'Why this works', 'Chronic shortage.', 'narrative', None, 'the engagement argument for the mental-health section, which is a case about shortage and stigma rather than a capability'),
+	('REC-006', 'Why this works', 'High emotional value.', 'narrative', None, 'the engagement argument for the mental-health section, which is a case about shortage and stigma rather than a capability'),
+	('REC-006', 'Why this works', 'Strong word-of-mouth.', 'narrative', None, 'the engagement argument for the mental-health section, which is a case about shortage and stigma rather than a capability'),
+	('MON-006', 'Data sources', 'Reference monitors where available; low-cost sensor networks; satellite-derived estimates; crowdsourced visibility reports.', 'deferred', None, 'four named feeds — reference monitors, low-cost sensor networks, satellite-derived estimates and crowdsourced visibility reports — none of which this tree subscribes to, so arranging the sources is a deployment\'s work'),
+	('ALT-001', 'Verification', 'All alerts verified before publishing.', 'carried', 'afya.alerts.service:CommunityAlert', None),
+	('ALT-001', 'Verification', 'Source and timestamp always visible.', 'carried', 'afya.location.advisories:SOURCE_LABEL', None),
+	('COM-005', 'Flow', 'Report → routed to relevant county authority → status tracking → notification on resolution.', 'carried', 'afya.community.service:ISSUE_ROUTING', None),
+	('COM-005', 'Why this works', 'Civic engagement, visible impact, builds trust in the app as a tool that does something.', 'narrative', None, 'the civic-engagement argument for the reporting channel, which is a case about trust rather than a capability'),
+	('INF-009', 'Offline', 'Fully offline.', 'carried', 'afya.info.health_education:coverage', None),
+	('INF-009', 'Offline', 'One of the most valuable offline resources possible.', 'narrative', None, 'a claim about how valuable the offline resource is, which is an editorial judgement rather than a capability'),
+	('INF-010', 'Sensitivity', 'Developed with religious leaders, community elders, and anthropologists.', 'narrative', None, 'a fact about the authoring process — who the content was developed with — rather than a capability in this tree'),
+	('INF-010', 'Sensitivity', 'Available in all relevant languages.', 'carried', 'afya.strings:SMS_LANG_PREFIXES', None),
+	('INF-010', 'Sensitivity', 'Emphasises dignity, not just safety.', 'narrative', None, '"emphasises dignity, not just safety" is an editorial standard, which is a judgement about the copy rather than a control'),
+	('TRI-003', 'Escalation', 'Any Ebola-suspected triage result triggers an automatic, consented notification to the county rapid response team if the user opts in.', 'carried', 'afya.triage.views:EXPOSURE_NOTE', None),
+	('MON-009', 'Adherence design', 'Simple, fast, two taps per check-in.', 'carried', 'afya.monitoring.service:MonitoringService', None),
+	('MON-009', 'Adherence design', 'Reminders escalate in urgency if missed.', 'carried', 'afya.monitoring.service:REMINDER_SLOTS', None),
+	('MON-009', 'Data flow', 'All data stored locally.', 'deferred', None, "storage is the client's, which is what §MON-009's Offline sentence says as well; what crosses is a `SyncOp` enqueued through the sync layer"),
+	('MON-009', 'Data flow', 'Daily summaries shared with the assigned CHW or county health team through ADaM, with consent.', 'carried', 'afya.community.service:CommunityService', None),
+	('MON-009', 'Offline', 'Fully functional.', 'deferred', None, 'the one-word answer to the heading, as in §TRI-001'),
+	('MON-009', 'Offline', 'Syncs when connectivity is available.', 'carried', 'afya.monitoring.service:MonitoringService', None),
+	('COM-101', 'Access control', 'Accounts provisioned by county health teams, verified against the national CHW registry.', 'carried', 'afya.privacy.service:RBACRole', None),
+	('COM-101', 'Integration', 'Reports flow directly into ADaM.', 'carried', 'afya.integrations.service:JaliClient', None),
+	('COM-101', 'Offline', 'Full offline operation.', 'deferred', None, 'the one-word answer to the heading; the two sentences after it name the mechanism and both are carried'),
+	('COM-101', 'Offline', 'Sync on connectivity.', 'carried', 'afya.community.service:CommunityService', None),
+	('COM-101', 'Offline', 'Conflict resolution is server-authoritative for case reports.', 'carried', 'afya.community.service:CommunityService', None),
+	('COM-101', 'Training', '2-hour initial training, plus in-app refresher content and a supervised first three reports.', 'deferred', None, "a deployment's training programme, which no route provides"),
+	('COM-102', 'Tone', 'Calm, factual, actionable.', 'carried', 'afya.community.service:CORRECTION_LIBRARY', None),
+	('COM-102', 'Tone', 'Never alarmist.', 'carried', 'afya.community.service:CORRECTION_LIBRARY', None),
+	('COM-102', 'Tone', 'Tested with community representatives before deployment.', 'narrative', None, 'tested with community representatives is a fact about a workshop; the copy it tested is `CORRECTION_LIBRARY`'),
+	('COM-102', 'Verification', 'Alerts are only sent after verification by county health authorities, to prevent misinformation and panic.', 'carried', 'afya.community.service:CommunityService', None),
+	('COM-103', 'Data handling', 'Contact lists encrypted on-device.', 'carried', 'afya.community.service:CryptoService', None),
+	('COM-103', 'Data handling', 'Transmitted only with explicit consent.', 'carried', 'afya.community.service:ContactShare', None),
+	('COM-103', 'Data handling', 'Deleted after the contact-tracing window closes.', 'carried', 'afya.community.service:CONTACT_SHARE_WINDOW_DAYS', None),
+	('COM-103', 'Support', 'A guided conversation, not a cold form.', 'carried', 'afya.community.service:TRACING_PROMPTS', None),
+	('COM-103', 'Support', 'This is emotionally difficult; the interface must be humane.', 'narrative', None, 'a standard the interface is held to rather than a capability; the prompts it applies to are `TRACING_PROMPTS`, which are carried'),
+	('COM-104', 'Flow', 'Flag → aggregated → verified → correction drafted → published on all channels → flagger notified.', 'carried', 'afya.community.service:CommunityService', None),
+	('LOC-002', 'Battery impact', 'Tuned for <3% per day.', 'deferred', None, "a per-day percentage is the handset radio's duty cycle, which no server holds; the artefact the exchange produces is an `EncounterToken`"),
+	('LOC-002', 'Battery impact', 'Uses BLE advertising and scanning at adaptive intervals.', 'deferred', None, "BLE advertising and scanning at adaptive intervals is the handset's radio, so the duty cycle is the client's; `EncounterToken` is the artefact the exchange produces"),
+	('LOC-002', 'Limitations', 'Only detects other app users.', 'narrative', None, "the section's own caveat about what proximity detection cannot do, which is a statement about the method rather than a gap"),
+	('LOC-002', 'Limitations', 'Penetration-dependent.', 'narrative', None, 'penetration-dependent is the same caveat as the sentence before it, and both bound what the method can claim'),
+	('LOC-002', 'Limitations', 'Should supplement, not replace, manual contact tracing.', 'narrative', None, 'a recommendation about deployment practice — that proximity detection should supplement rather than replace manual tracing — which is a statement about the method'),
+	('LOC-002', 'Reference', "Architecture mirrors the DESIRE system's combination of centralised and decentralised approaches.", 'deferred', None, "a citation of the DESIRE system as prior art; the architecture is audited under LOC-002's own labels and the reference itself is not a capability"),
+	('LOC-003', 'Offline', 'Fully functional.', 'deferred', None, 'the one-word answer to the heading; the sentence after it names what it means and is carried'),
+	('LOC-003', 'Offline', 'Location logged locally regardless of connectivity.', 'carried', 'afya.location.service:LocationHistory', None),
+	('LOC-003', 'Privacy', 'Never uploaded without explicit consent.', 'carried', 'afya.privacy.service:ConsentScope', None),
+	('LOC-003', 'Privacy', 'Deletable at any time.', 'carried', 'afya.retention.service:DELETION_COMMANDS', None),
+	('LOC-003', 'Privacy', 'Clearly explained in plain language.', 'carried', 'afya.strings:consent_scope_text', None),
+	('LOC-004', 'Benefit', 'Contactless, fast, works offline, and creates an auditable record without manual data entry.', 'carried', 'afya.location.service:CheckInReceipt', None),
+	('AI-001', 'Consumers', 'County health teams, PHEOC.', 'carried', 'afya.content_audit.service:content_report', None),
+	('AI-001', 'Privacy', 'All data anonymised and aggregated.', 'carried', 'afya.ai.views:MIN_CELL_SIZE', None),
+	('AI-001', 'Privacy', 'Minimum cell size of 10 to prevent re-identification.', 'carried', 'afya.ai.views:MIN_CELL_SIZE', None),
+	('AI-001', 'Privacy', 'No individual-level data used for prediction without consent.', 'carried', 'afya.privacy.service:ConsentScope', None),
+	('AI-002', 'Privacy', 'Calculated on-device.', 'carried', 'afya.ai.service:ON_DEVICE_MODELS', None),
+	('AI-002', 'Privacy', 'No personal data transmitted for scoring.', 'carried', 'afya.ai.service:SERVER_MODELS', None),
+	('AI-003', 'Alerting', 'Signals above threshold trigger a review by PHEOC epidemiologists.', 'carried', 'afya.ai.service:AIService', None),
+	('AI-003', 'Alerting', 'Never automatic public alerts.', 'carried', 'afya.ai.service:AIService', None),
+	('AI-003', 'Value', 'This is how the app contributes to detecting the *next* outbreak before it is clinically recognised.', 'carried', 'afya.ai.service:WARNING_Z', None),
+	('ALT-004', 'Delivery', 'Push notification, SMS fallback, WhatsApp fallback.', 'carried', 'afya.channels.service:ChannelService', None),
+	('ALT-004', 'Follow-up', 'Enrols the user in MON-009.', 'carried', 'afya.monitoring.service:MonitoringService', None),
+	('ALT-004', 'Follow-up', 'Provides immediate guidance.', 'carried', 'afya.strings:TRIAGE_RECS', None),
+	('ALT-004', 'Follow-up', 'Offers a callback from a health worker.', 'carried', 'afya.channels.service:ChannelService', None),
+	('ALT-004', 'Tone', 'Calm, clear, non-stigmatising.', 'carried', 'afya.community.service:CORRECTION_LIBRARY', None),
+	('ALT-004', 'Tone', 'Tested with community representatives.', 'narrative', None, 'a fact about a workshop the copy was tested in, as in §COM-102; the copy itself is carried'),
+	('ACC-002', 'Languages', 'Priority order — Kiswahili, English, Dholuo, Luhya (Bukusu, Maragoli), Kalenjin, Kikuyu, Kamba, Somali, Maasai, Kisii, Meru, Taita.', 'carried', 'afya.strings:SMS_LANG_PREFIXES', None),
+	('SENS-009', 'Integration', 'Data flows into the health wallet (REC-002) and monitoring diary (MON-009).', 'carried', 'afya.records.service:WALLET_ITEMS', None),
+	('SENS-009', 'Value', 'Converts consumer measurements into clinical-grade data, improving triage accuracy and monitoring quality.', 'carried', 'afya.sensors.service:SensorService', None),
 )
 
 # Every bold label the spec prints on a feature section falls in one of these two sets, and
@@ -804,6 +1034,21 @@ assert all(note for _, _, _, kind, _, note in FEATURE_CONTENT if kind != 'carrie
 assert all(label in _LABELS for _, label, _, _, _, _ in FEATURE_CONTENT), \
 	'every label is one of the content labels the spec uses'
 
+assert all(kind in ('carried', 'deferred', 'narrative') for _, _, _, kind, _, _ in CLAIM_CONTENT), \
+	'every claim has one of the three claim verdicts'
+assert all(ref for _, _, _, kind, ref, _ in CLAIM_CONTENT if kind == 'carried'), \
+	'a carried claim must name the code that carries it'
+assert all(note for _, _, _, kind, _, note in CLAIM_CONTENT if kind != 'carried'), \
+	'a deferred or narrative claim must say why'
+assert all(label in _CLAIM_LABELS for _, label, _, _, _, _ in CLAIM_CONTENT), \
+	'every claim label is one of the claim labels the spec uses'
+assert all(label not in _LABELS for _, label, _, _, _, _ in CLAIM_CONTENT), \
+	'the two vocabularies are a partition, so a claim label is never a content label'
+# The metadata labels carry no claim: a `Description` restates the section's heading and a `Tier` is
+# a position in §7's ladder. Reading them would put the spec's own index into the audit.
+assert not ({'Description', 'Feature ID', 'Tier'} & {label for _, label, _, _, _, _ in CLAIM_CONTENT}), \
+	'a metadata label is not a claim'
+
 
 def content_report() -> FeatureContentReport:
 	"""Every audited feature section, its bullets, and the three verdicts separated.
@@ -831,4 +1076,38 @@ def content_report() -> FeatureContentReport:
 			if b.carried_by and not b.resolves],
 		audited_features=len(features),
 		unaudited_features=list(UNAUDITED_FEATURES),
+	)
+
+
+def claim_report() -> ClaimContentReport:
+	"""The claim side of the audit — every passage the claim labels print, and its verdict.
+
+	`unresolved` is the finding, and it is the one this report was built for: a `carried` claim whose
+	reference no longer imports is a claim about the code that stopped being true. `narrative` and
+	`deferred` are counted rather than listed, because a list of thirty-eight sentences about
+	adoption would read as thirty-eight gaps.
+
+	The coverage statement is `pairs_read` against the spec's own count, which is what
+	`test_every_claim_label_a_section_prints_has_a_verdict_under_it` asserts: the report says how much
+	of the claim side it read rather than inviting a reader to take the totals as complete.
+	"""
+	pairs = dict.fromkeys((f, label) for f, label, _, _, _, _ in CLAIM_CONTENT)
+	sections = [
+		ClaimContent(
+			feature_id=f, label=label,
+			claims=[claim for ff, ll, claim, _, _, _ in CLAIM_CONTENT if (ff, ll) == (f, label)],
+			kinds={k: sum(1 for ff, ll, _, kk, _, _ in CLAIM_CONTENT
+				if (ff, ll) == (f, label) and kk == k) for k in ('carried', 'deferred', 'narrative')},
+		)
+		for f, label in pairs
+	]
+	return ClaimContentReport(
+		sections=sections,
+		pairs_read=len(pairs),
+		claims_read=len(CLAIM_CONTENT),
+		carried=sum(1 for _, _, _, k, _, _ in CLAIM_CONTENT if k == 'carried'),
+		deferred=sum(1 for _, _, _, k, _, _ in CLAIM_CONTENT if k == 'deferred'),
+		narrative=sum(1 for _, _, _, k, _, _ in CLAIM_CONTENT if k == 'narrative'),
+		unresolved=[f'§{f}: {ref}' for f, _, _, k, ref, _ in CLAIM_CONTENT
+			if k == 'carried' and ref and not resolves(ref)],
 	)

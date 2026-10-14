@@ -17,7 +17,7 @@ from typing import cast
 
 from afya.brand.service import BRAND, NON_GOALS, PRINCIPLES, VISION, brand_is_clean, brand_violations
 from afya.problem.service import gap_report, lesson_report
-from afya.content_audit.service import content_report
+from afya.content_audit.service import claim_report, content_report
 from afya.config import ServiceConfig
 from afya.crypto.service import KEY_BYTES, CryptoService
 from afya.persistence.service import SqliteStore
@@ -929,6 +929,17 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		fifteen gaps cannot be mistaken for a complete audit.
 		"""
 		return content_report().model_dump(mode='json')
+
+	@app.get('/features/claims')
+	async def features_claims(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
+		"""The other half of the same audit: the sentences the sections print about their features.
+
+		`/features/content` reads the labels whose body is a list. This reads the ones whose body is
+		a claim, which had no gate at all until it did — and the two claims that were unread there are
+		why §CHAN-2's single-report-backend sentence described a flow that did not exist and §AI-003's
+		early-warning ledger had no channel feeding it.
+		"""
+		return claim_report().model_dump(mode='json')
 
 	# --- triage ---
 	@app.post('/triage/preliminary', response_model=TriageResult)

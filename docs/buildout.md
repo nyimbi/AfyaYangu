@@ -5408,3 +5408,115 @@ a check).
 
 **No new source.** The governing text is §5 of this repo's own spec, and the Swahili symptom words are
 the ordinary words the section's own Kiswahili menu already uses; no published table is cited.
+
+## The claim side of the spec audit had no gate at all (2026-10-14)
+
+### The finding
+
+`src/afya/content_audit/service.py` reads the spec's feature sections two ways, and it only ever
+gated one of them.
+
+`_LABELS` (42 labels, the ones whose body enumerates what a feature does) had **two** coverage
+gates: every (section, label) pair the spec prints has rows under it, and every row is the section's
+own words. `_CLAIM_LABELS` (53 labels, the ones whose body is a sentence *about* a feature) had
+one **shape** rule — a label declared out of scope must not print a bullet list — which asks whether
+the body is a list and never whether anyone read it.
+
+So a claim label could carry a normative sentence for as long as the spec has existed and no test
+would notice. Measured: **92 (section, label) pairs, 165 passages, none of them read.**
+
+Two of the 165 were defects, and both are the ones the §CHAN-1/§CHAN-2 work had just closed by hand:
+
+* §CHAN-2 Integration — *"Reports flow into the same backend as app and WhatsApp reports,
+  deduplicated by phone number."* No channel wrote to that backend. The dedup machinery
+  (`CaseReport.reporter_msisdn` → `IdentityService.dedup_key`) was real and reachable only through
+  `POST /community/cases`, guarded `assigned`, which a USSD caller has no token to hold.
+* §AI-003 Value/Alerting — the early-warning ledger was fed by six app surfaces through
+  `_record_signal` and by no channel at all, on exactly the population an outbreak in a
+  low-connectivity county shows up in first.
+
+Neither was found by a count. Both were found by reading the claim table, which is the argument for
+the table existing.
+
+### What closed it
+
+`CLAIM_CONTENT` — 165 rows over 92 (section, label) pairs, tuple shape identical to `FEATURE_CONTENT`:
+
+	(feature_id, section_label, claim, kind, ref, note)
+
+with a third verdict that is not `missing`:
+
+* `carried` (107) — `ref` names the code that does it, and `resolves` walks the reference
+* `deferred` (20) — a property of the handset, the broadcaster or the platform, or a claim the spec
+  itself conditions on something this tree does not hold
+* `narrative` (38) — a sentence about the world, the product's case, or a decision made outside this
+  tree. No code can carry or refute it, and calling one a gap would put an argument about adoption
+  into a defect list
+
+The pair counts differ because the spec's do: 78 sections print a content list and all 78 are in
+`FEATURE_CONTENT` (567 rows over 99 pairs), while **49 print a claim label and 29 print none** — a
+section whose body is a list and nothing else has no sentence for a claim verdict to be about. The
+two vocabularies partition the spec's 95 labels (`_LABELS` 42, `_CLAIM_LABELS` 53), so no label is
+read twice.
+
+`narrative` is where an unbuilt capability could hide, so it is held down two ways: a non-carried
+claim must carry a note and no reference, and the set is **pinned per section** by
+`test_the_narrative_claims_are_the_ones_no_code_can_carry` — a claim moved into that verdict to make
+a gap disappear changes the pinned dict and fails there.
+
+**The unit is the passage, not the sentence**, and the parser difference is the reason. A content
+cell enumerates; `_split_items` splits it on top-level commas and semicolons, which is right for a
+list and would **shred 47 of the 92 claim passages**, because a claim is prose. §CHAN-001's Critical
+requirement is *"Zero-rated at the telco level. If a user is charged, adoption collapses."* — a
+comma split cuts it into *"…If a user is charged"* and *"adoption collapses."*, and neither fragment
+is a sentence the section prints. `_spec_passage` takes the passage whole; `_spec_claims` finds the
+sentences in it as an editorial aid, and nothing is asserted on where a sentence ends.
+
+Served at `GET /features/claims`, scoped `audit_logs`, beside `/features/content`. `unresolved` is
+the finding (a `carried` claim whose reference rotted); `narrative` and `deferred` are counts rather
+than lists, because a list of thirty-eight sentences about adoption would read as thirty-eight gaps.
+
+**The module's own docstring was stale, in the class this unit exists to catch.** It said
+`_LABELS` (30), `_CLAIM_LABELS` (44), 69 sections, 490 items. The real figures are 42, 53, 78 and
+567. Corrected.
+
+**§CHAN-1's "Follow-up after a USSD report" stays `missing`, with its note split.** The row welded
+two absences together — the report was not filed *and* no follow-up was sent. The filing half is
+closed (`ChannelService.record_report`); the sentence the bullet actually prints is the follow-up
+message, and nothing sends one. The note now says which half closed rather than reading as though
+the whole row had.
+
+### Canaries
+
+`tests/ci/canary_claim_coverage.py` — three, each a way this gate can fail open:
+
+	CAUGHT  a claim label leaves the vocabulary
+	CAUGHT  a claim is reworded away from the spec
+	CAUGHT  a carried claim is filed as narrative to make it disappear
+
+The third is the one that matters: moving §AI-003's early-warning claim into `narrative` with a
+plausible reason passes every other test in the file — it has a note, it has no reference, the
+verdict is legal. Only the pinned set and the named-closure test can see it.
+
+### Live probe
+
+Through the front door. USSD `1*1*1*1` → `END`; `GET /channels/reports` (CHW token) → `held: 1`,
+`countable_into_a_locality: 0`, the report carrying `county: null` and `dedup_key:
+'+254711999888'`; `POST …/handled` → `{"handled": true}`, and `unhandled_only=true` → `0` while the
+record stays. No token → 401 on both `/channels/reports` and `/features/claims`. `GET
+/features/claims` (auditor) → `pairs 92, claims 165, carried 107, deferred 20, narrative 38,
+unresolved []`. `GET /mobile/actions` serves both new actions with **no spec feature code anywhere
+in the payload**.
+
+### Verified
+
+- `uv run pytest -q tests/ci` (full suite checkpoint) → **2152 passed**
+- `uv run pyright` → **0 errors, 0 warnings, 0 informations**
+- `uv run python tests/ci/canary_claim_coverage.py` → **3/3**
+
+**Across the repo 532 → 532 `carried`, 18 → 18 `missing`** on the content side (this unit changed no
+content row's verdict; the §CHAN-1 note was reworded, not re-verdict). The claim side is new
+coverage rather than a moved number: **92 pairs over 49 sections, 165 passages, 107 carried, 20
+deferred, 38 narrative, `unresolved == []`.**
+
+**No new source.** The governing text is this repo's own `docs/spec.md`.
