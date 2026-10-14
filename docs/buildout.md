@@ -5050,11 +5050,12 @@ the offer fails.
 **§LOC-002 1 `missing` → 0 and §SEC-006 1 `missing` → 0.** Across the repo **476 → 478 `carried`,
 4 → 2 `missing`**, `deferred` 17 unchanged, `unresolved == []`.
 
-**The two remaining `missing` rows are both §ACC-002's language work** — §ACC-001's video tutorials and
-§ACC-002's six-language voice reporting — and §ACC-002 is deliberately open, pinned by
+**The two remaining `missing` rows are both in §ACC-001/§ACC-002's language work** — §ACC-001's video
+tutorials and §ACC-002's six-language voice reporting. §ACC-002 is deliberately open, pinned by
 `test_personas.py` and `test_acc002.py::test_the_six_language_bullet_stays_open`. Neither is closable
 by declaring a language set: they need recorded audio and a trained recogniser, and §ACC-002's own row
-records that a machine-translated table would report the gap as closed.
+records that a machine-translated table would report the gap as closed. §ACC-001's row is open for the
+same reason and its disposition is recorded in the section below.
 
 **One pre-existing abort, not this unit's.** The combined run aborted once with
 `recursive_mutex lock failed` *after* reporting all 110 passed. Already recorded at the head of this
@@ -5063,3 +5064,67 @@ subsequent runs exited 0.
 
 **No new source.** MIT is the owner's decision rather than a figure from a published table, and the
 licence text is the standard MIT grant. Nothing here cites an external measurement.
+
+## §ACC-001 — the tutorial a renderer cannot supply (2026-10-14)
+
+### What was asked
+
+§ACC-001's low-literacy interface lists *Video tutorials in local languages*, and the row was `missing`
+with the note *"no video asset or tutorial payload anywhere"*. The question put to the tree was whether
+a generator — `manim` or `heygen` — could close it.
+
+### Why neither does
+
+The bullet's load-bearing words are **in local languages**, and the gap is not a rendering one.
+
+- **`manim`** renders programmatic animation. It draws motion graphics and produces **no narration**, so
+  the local-language half the bullet names would be absent. A silent animation is not a tutorial in a
+  local language.
+- **`heygen`** is a commercial AI-avatar service. Using it would be a new external integration that sends
+  clinical content to a third party, and its synthetic narration would be a voice no Dholuo, Luhya,
+  Kalenjin or Kikuyu speaker has validated — the unvalidated-voice claim §ACC-002 refuses to count one
+  row down.
+
+The deciding constraint is §6.5, which this repo **implements** rather than describes. Every published
+health item clears *English draft → clinical review → translation → back-translation → community
+validation*: `POST /info/content/back-translation` records the rendered text, the community-validation
+route refuses before a back-translation is on file, and `ContentItem` cannot be constructed without an
+`owner`, a `reviewer` and a `reviewed_on_iso`. A generated tutorial bypasses every step the code
+enforces — and does so for the one audience that cannot read a disclaimer.
+
+### What changed
+
+The row **stays `missing`** and now says so in the register §ACC-002's open row established: `STAYS
+OPEN, and deliberately`, with the reasoning above recorded in the note rather than left to the next
+reader. Nothing was closed by declaration, and no generator was integrated.
+
+The tree already carries the *place* a §6.5-cleared asset lands — `ContentFormat.video` and
+`ContentFormat.audio` with a `media_ref` on the §INF-003/§INF-008 corpus — so the row waits on content
+from the MoH Health Promotion Unit, not on a schema that cannot receive it. That distinction is what
+`test_the_video_tutorial_bullet_stays_open` asserts: the row is `missing`, its `carried_by` is `None`,
+its note carries the reason, and a video format is still a rendition rather than prose.
+
+### Canaries
+
+`uv run python tests/ci/canary_acc001.py` → **16/16 fired**. The three added here are the ways a
+stays-open gate fails open:
+
+- **#14** flips the row to `carried` citing `ContentFormat` — the closure a renderer tempts someone
+  into, reporting a gap shut that no clinical review has touched.
+- **#15** strips the note to a bare *"no video asset or tutorial payload anywhere"*. The row stays open
+  and nothing says why, so the next reader sees a gap with no boundary.
+- **#16** makes `ContentFormat.video.is_text` return `True`, so a video needs no `media_ref` and a
+  cleared asset has nowhere to land.
+
+### Verified
+
+- `uv run pytest -q -p no:randomly tests/ci/test_acc001.py` → **20 passed** (exit 134 after the summary
+  is the documented dependency-shutdown flake, recorded at the head of this file)
+- `uv run pyright tests/ci/test_acc001.py src/afya/content_audit/service.py` → **0 errors**
+- `uv run python tests/ci/canary_acc001.py` → **16/16**
+
+**Counts unchanged: 478 `carried`, 2 `missing`, 17 `deferred`, `unresolved == []`.** The row was open
+before this unit and is open after it; what changed is that the reason is now recorded and pinned.
+
+**No new source.** The governing text is §6.5 of this repo's own spec, and the workflow it describes is
+implemented in `afya.info`. No external table or measurement is cited.

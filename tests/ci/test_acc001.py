@@ -335,3 +335,43 @@ def test_the_module_reads_requiredness_rather_than_restating_it() -> None:
 	assert seen[('POST', '/emergency/sos')] >= model_required
 	assert inspect.signature(SOSEvent) is not None  # the import is used, not decorative
 	assert typing.get_type_hints(SOSEvent.__init__) is not None
+
+
+def test_the_video_tutorial_bullet_stays_open() -> None:
+	"""§ACC-001's "Video tutorials in local languages" — stays `missing`, and this is the test that
+	says why.
+
+	The temptation is to read the bullet as a rendering problem and close it with a generator: `manim`
+	draws programmatic animation, `heygen` synthesises an avatar. Neither closes it. `manim` produces
+	no narration, so it cannot supply the local-language half the bullet names; `heygen` would be a
+	new external integration sending clinical content to a third party, and a synthetic Dholuo or
+	Kalenjin voice is the unvalidated-voice claim §ACC-002 refuses to count one row down.
+
+	The bar is §6.5, which this repo *implements* rather than describes — every published health item
+	clears English draft → clinical review → translation → back-translation → community validation,
+	and `ContentItem` cannot even be constructed without an `owner`, a `reviewer` and a review date.
+	A tutorial in a local language is clinical content, so it is the workflow and not the renderer
+	that decides when the row closes.
+
+	What the tree does carry is the *place* the asset lands: `ContentFormat.video` with a `media_ref`
+	on the §INF-003/§INF-008 corpus. That is asserted below, because it is the difference between a
+	row that is open for want of an asset and a row that is open for want of somewhere to put one.
+	"""
+	from afya.content_audit.service import content_report
+	from afya.info.views import ContentFormat
+
+	report = content_report()
+	feature = next((f for f in report.features if f.feature_id == 'ACC-001'), None)
+	assert feature is not None, '§ACC-001 left the report'
+	row = next((b for b in feature.bullets if b.bullet == 'Video tutorials in local languages'), None)
+	assert row is not None, 'the row disappeared rather than staying open'
+	assert row.kind == 'missing', (
+		'a renderer cannot close this row: the bullet names local languages and §6.5 governs what may '
+		'be published in one'
+	)
+	assert row.carried_by is None, 'an open row cites nothing'
+	assert row.note is not None and 'STAYS OPEN' in row.note, 'the reason must be recorded, not implied'
+
+	# The destination exists. A video format with a `media_ref` is the shape a §6.5-cleared asset
+	# takes, so the row is waiting on content rather than on a schema that cannot receive it.
+	assert ContentFormat.video.is_text is False, 'a video is a rendition, not prose'

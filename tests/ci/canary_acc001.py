@@ -44,6 +44,7 @@ F = ROOT / 'src/afya/access/forms.py'
 G = ROOT / 'src/afya/service.py'
 IDS = ROOT / 'src/afya/ids.py'
 V = ROOT / 'src/afya/triage/views.py'
+C = ROOT / 'src/afya/content_audit/service.py'
 
 CANARIES = [
 	# 1. The flag reaches the screens and not the forms — the defect exactly as it was found. The
@@ -157,6 +158,29 @@ CANARIES = [
 	 "\tentry_id: str = Field(default_factory=lambda: 'DIARY-' + ref8())",
 	 "\tentry_id: str = ''",
 	 'test_two_diary_entries_in_the_same_breath_are_two_entries'),
+
+	# 14. The row is *closed* by the flip a renderer would tempt someone into: a generated video is
+	#     not a §6.5-cleared local-language tutorial, so `carried` here would report a gap shut that
+	#     no clinical review, back-translation or community validation has touched.
+	('the video tutorial row is closed by a generator', C,
+	 "('ACC-001', 'Features', 'Video tutorials in local languages', 'missing', None, 'STAYS OPEN",
+	 "('ACC-001', 'Features', 'Video tutorials in local languages', 'carried', 'afya.info.views:ContentFormat', 'STAYS OPEN",
+	 'test_the_video_tutorial_bullet_stays_open'),
+
+	# 15. The reason is stripped to a bare "missing". The row stays open and nothing says why, so the
+	#     next reader sees a gap with no boundary and closes it with whatever renders a video.
+	('the open row loses its reason', C,
+	 "'STAYS OPEN, and deliberately. The gap is not a rendering one.",
+	 "'no video asset or tutorial payload anywhere.",
+	 'test_the_video_tutorial_bullet_stays_open'),
+
+	# 16. The destination disappears: a video format that reads as prose needs no `media_ref`, so a
+	#     §6.5-cleared asset has nowhere to land and the row is open for want of a schema rather than
+	#     of content — the distinction the test's last assertion draws.
+	('a video format is allowed to read as prose', ROOT / 'src/afya/info/views.py',
+	 "		return self in (ContentFormat.article, ContentFormat.card)",
+	 "		return True",
+	 'test_the_video_tutorial_bullet_stays_open'),
 ]
 
 
