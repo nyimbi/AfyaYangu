@@ -141,6 +141,27 @@ async def main() -> None:
 	held = loc.shared_reports('+254711222333')
 	print('held envelopes:', len(held), '| sealed places:', held[0].places)
 
+	# §LOC-004's check-in is "logged locally; synced with consent" — two halves, and the receipt says
+	# which one happened. The flag on the body is the person's *request*; `synced` is the queue's
+	# answer, and the four states read as four different sentences because they are four different
+	# things to tell someone standing at a gate.
+	from afya.location.views import CheckIn, CheckInPoint
+
+	await loc.register_point(CheckInPoint(point_id='P-BUSIA', kind='border_post',
+	                                      label='Busia border post', county='Busia', token='BUSIA001'))
+	# A different person, so the LOC-003 grant above is not standing consent for this act either.
+	walked = CheckIn(checkin_id='CHK-DEMO0001', point_token='BUSIA001', subject_ref='+254700000001',
+	                 method='qr', at_iso='2026-10-01T09:00:00Z', share_with_authority=True, lang='sw')
+	loc._sync = SyncService()  # a deployment with §16.2's queue wired
+	print('check-in, asked, no permission:', (await loc.check_in(walked)).message)
+	await privacy.record_consent(ConsentRecord(
+		subject_ref='+254700000001', purpose='share_health_authorities',
+		data_types=['checkin'], retention_days=21,
+		legal_basis=LegalBasis.consent, lang='sw'))
+	sent = await loc.check_in(walked)
+	print('check-in ->', sent.synced, sent.synced_with, '|', sent.message)
+	print('what left:', [o.payload for o in loc._sync._queue.values()])
+
 
 if __name__ == '__main__':
 	asyncio.run(main())

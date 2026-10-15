@@ -553,7 +553,8 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# person who allowed a diary and refused the Ministry must keep the diary on the phone.
 		'location': LocationService(info_svc.dashboard, monitoring_svc, surveillance_svc.geofences_at,
 		                            sealer=_app_layer_sealer(crypto_svc),
-		                            share_consent=_share_authority_consent(privacy_svc)),
+		                            share_consent=_share_authority_consent(privacy_svc),
+		                            sync=sync_svc),
 		'ai': ai_svc,
 		'analytics': analytics_svc,
 		'metrics': MetricsService(),
@@ -4470,6 +4471,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/location/checkin')
 	async def location_checkin(checkin: CheckIn, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§LOC-004's check-in. The receipt's `synced` is the queue's answer, not the request's.
+
+		`share_with_authority` on the body is what the person asked for at the gate; whether anything
+		left the phone is decided by `check_in`, which checks §SEC-001's sharing permission and hands
+		the check-in to §16.2's queue. The two were one field, so a check-in that was refused still
+		told the person it had been shared.
+		"""
 		try:
 			return (await location.check_in(checkin)).model_dump(mode='json')
 		except AssertionError as exc:

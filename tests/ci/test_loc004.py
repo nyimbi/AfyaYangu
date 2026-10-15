@@ -77,7 +77,7 @@ async def test_a_check_in_resolves_to_the_point_it_names() -> None:
 	assert row.point_id == 'P-1' and row.point_label == 'Busia border post'
 	assert row.kind == 'border_post' and row.county == 'Busia'
 	assert row.checkin_id == 'CHK-BORDER01' and row.day == '2026-10-01'
-	assert row.method == 'qr' and row.shared is False
+	assert row.method == 'qr' and row.synced is False, 'nothing was sent, and the record says so'
 
 
 async def test_attendance_is_numbered_per_point_not_globally() -> None:

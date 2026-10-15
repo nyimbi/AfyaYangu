@@ -112,12 +112,38 @@ def instant_iso(at_ms: int) -> str:
 	return datetime.fromtimestamp(at_ms // 1000, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+def instant_ms(iso: str) -> int:
+	"""An ISO instant as the epoch milliseconds `instant_iso` renders back — the inverse of that pair.
+
+	The `Z` suffix is stripped before parsing because `datetime.fromisoformat` did not accept it
+	before 3.11 and the corpus writes every stamp that way; a naive stamp is read as UTC for the
+	reason `instant_iso` gives, that an instant rendered in the server's zone is one nobody can
+	compare against their own clock.
+
+	This exists because `midnight_ms` is *not* it. That function reads a **bare date** — a §6.5
+	review date, a seed row — and truncates anything longer to its first ten characters, so passing a
+	full instant to it returns midnight of that day and two stamps hours apart become one number. A
+	`SyncOp.client_ts` is an instant, so truncating it there puts a different reading of the same
+	fact next to the `at_iso` in the payload.
+	"""
+	text = iso.strip().replace('Z', '+00:00')
+	parsed = datetime.fromisoformat(text)
+	if parsed.tzinfo is None:
+		parsed = parsed.replace(tzinfo=timezone.utc)
+	return int(parsed.timestamp() * 1000)
+
+
 def midnight_ms(iso: str) -> int:
 	"""A bare ISO date as the instant it begins, in UTC.
 
 	A corpus dated by day — §6.5's review date, a seed row — still has to carry §6.2.3's stamp, which
 	is an instant. Midnight UTC is the only reading of a bare date that does not depend on the
 	server's timezone, the same choice `afya.operations.service._instant` makes for §24.8's deadlines.
+
+	For a full instant use `instant_ms`: this truncates to the first ten characters, which is the
+	right answer for a date and the wrong one for a timestamp. `LocationService._window` calls it on
+	an instant deliberately — a 21-day window is measured in days, so the day boundary is what it
+	wants — which is why the difference is documented here rather than asserted.
 	"""
 	return int(datetime.fromisoformat(iso[:10]).replace(tzinfo=timezone.utc).timestamp() * 1000)
 

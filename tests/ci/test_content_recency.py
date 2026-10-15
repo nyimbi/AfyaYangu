@@ -26,7 +26,7 @@ from pydantic import ValidationError
 
 from afya.info.recency import (
 	HOUR_MS, MINUTE_MS, UNDATED_MS, age_label, band_for, freshness, freshness_line, instant_iso,
-	midnight_ms,
+	instant_ms, midnight_ms,
 )
 from afya.info.service import InfoService
 from afya.info.views import ContentItem, ContentStage, CountyRisk, HotlineInfo
@@ -162,6 +162,28 @@ def test_the_seed_ships_every_item_stamped_and_dated_by_its_review() -> None:
 	assert all(c.updated_at_ms == midnight_ms(c.reviewed_on_iso) for c in svc.all_items())
 	assert all(c.updated_at_ms > UNDATED_MS for c in svc.all_items())
 	assert svc.item_freshness(svc.library('en')[0], T0).line == 'Updated 9 days ago'
+
+
+def test_a_date_helper_and_an_instant_helper_are_two_different_answers() -> None:
+	"""`midnight_ms` reads a bare date and `instant_ms` reads a stamp, and the two must not be swapped.
+
+	`midnight_ms` truncates its argument to ten characters, which is right for §6.5's review date and
+	wrong for anything carrying a time: two check-ins hours apart at one border post both come back as
+	midnight of that day. A `SyncOp.client_ts` is an instant, and a queue whose ops for one afternoon
+	all share a timestamp is one §16.3's last-write-wins row resolves against the wrong pair.
+
+	Pinned from both sides, because the failure is symmetric: the instant helper must separate two
+	stamps on one day, and the date helper must still collapse them to the day they fall on.
+	"""
+	morning, evening = '2026-10-01T09:00:00Z', '2026-10-01T21:30:00Z'
+	assert instant_ms(morning) != instant_ms(evening), 'two instants on one day are two instants'
+	assert instant_iso(instant_ms(morning)) == morning, 'the pair round-trips'
+	assert instant_ms(morning) - midnight_ms(morning) == 9 * HOUR_MS
+	assert midnight_ms(morning) == midnight_ms(evening), (
+		'a bare date reads as the day it begins, so both instants land on one day boundary — which is '
+		'the property `LocationService._window` wants and a `client_ts` must not have')
+	assert instant_ms(morning.replace('Z', '+00:00')) == instant_ms(morning), 'both spellings parse'
+	assert instant_ms('2026-10-01T09:00:00') == instant_ms(morning), 'a naive stamp is read as UTC'
 
 
 async def test_a_client_cannot_choose_its_own_freshness() -> None:

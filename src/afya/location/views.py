@@ -173,6 +173,16 @@ class CheckInPoint(BaseModel):
 
 
 class CheckIn(BaseModel):
+	"""One scan. `share_with_authority` is the person's *request* at the moment of the scan.
+
+	It is not the answer to whether anything was sent, and reading it as one is the defect this
+	unit closes: `CheckInReceipt.shared` was set from this field, so a check-in that was refused a
+	standing consent still reported `shared: true`, and `CheckInAttendance.shared` read it back off
+	the stored record months later. `synced` is the service's own outcome and is written by
+	`check_in`; a caller that sets it has the value discarded, exactly as `SyncService.enqueue`
+	discards a caller's `synced` on a `SyncOp`.
+	"""
+
 	model_config = MODEL_CONFIG
 	checkin_id: str = Field(pattern=r'^CHK-[A-Z0-9]{8,}$')
 	point_token: str = Field(pattern=r'^[A-Z0-9]{6,16}$')
@@ -180,15 +190,34 @@ class CheckIn(BaseModel):
 	method: str = Field(pattern=CHECKIN_METHOD_PATTERN)
 	at_iso: str
 	share_with_authority: bool = False
+	synced: bool = False
+	# The language the guidance and the receipt's sentence are served in. §ACC-002's rule applies to
+	# a person standing at a gate as much as to a triage answer, and a receipt built with no `lang`
+	# was English guidance on a screen the person may not read.
+	lang: str = 'en'
 
 
 class CheckInReceipt(BaseModel):
+	"""What the scan did, as two facts that are not the same fact.
+
+	`logged_locally` is §16.1 principle 1 — the local write always succeeds, and it is the whole of
+	the feature when the person has not asked to share. `synced` is the second half of §LOC-004's
+	third Behaviour bullet, "synced with consent", and it is read off the sync queue rather than off
+	the request. The three ways it can be False are three different things a person should be told
+	apart, which is what `message` carries: not asked, asked and no standing consent, and no queue
+	to hand it to. `synced_with` names the dataset it went out under, so a client can tell a
+	check-in that left from one that did not without parsing prose.
+	"""
+
 	model_config = MODEL_CONFIG
 	checkin_id: str
 	point_label: str
 	guidance: str
 	logged_locally: bool
-	shared: bool
+	synced: bool
+	synced_with: str | None = None
+	message: str = Field(min_length=1)
+	served_in: str = 'en'
 
 
 class CheckInAttendance(BaseModel):
@@ -215,7 +244,7 @@ class CheckInAttendance(BaseModel):
 	day: str
 	visit_no: int = Field(ge=1)
 	method: str
-	shared: bool
+	synced: bool
 
 
 class FollowUpStep(BaseModel):

@@ -6471,3 +6471,91 @@ checking that a field is non-empty.
 
 **No new source.** The governing text is this repo's own `docs/spec.md` §11.5 LOC-003, and the
 precedent followed is §COM-103's `CommunityService.share_contacts`.
+
+---
+
+## §LOC-004 — the check-in was "synced" by a checkbox (2026-10-15)
+
+§LOC-004's third Behaviour bullet reads "Check-in logged locally; synced with consent". The tree had
+the first half and a boolean for the second:
+
+	shared=checkin.share_with_authority
+
+`CheckInReceipt.shared` answered *did the person tick the box*, not *did anything leave the phone*,
+and `follow_up`'s `CheckInAttendance.shared` read the same stored flag back months later as if it
+were the delivery. The audit row was `carried` on `afya.location.service:LocationService.check_in` —
+a ref that resolves, on a claim that was false. A person who asked to share with no standing
+consent, or on a device with no queue, was told their visit had reached the health team.
+
+**The two halves are now two facts.** The local write is unconditional — §16.1 principle 1, "every
+user action is written to the local database first" — and it happens *before* the send, so a queue
+that raises costs the send and not the record. `_sync_checkin` gates on §SEC-001's
+`share_health_authorities` category and hands the check-in to §16.2's queue.
+
+**The gate is on the send path, not in the prose.** The first cut of the tests wired no queue on any
+refusal, so `_sync_checkin` returned at the `self._sync is None` check and the consent block was
+never reached — a gate that lived only in the receipt's branch would have passed every one of them
+and sent anyway. `test_the_permission_is_checked_on_the_send_path_and_not_only_in_the_prose` wires a
+queue and asserts it stays empty; that test exists because a canary missed.
+
+**Four states, four sentences.** Not asked, asked and not permitted, permitted with nowhere to send
+it, and sent. One sentence covering the middle two is exactly what shipped, so the four are pinned as
+a set of four distinct strings rather than each asserted alone.
+
+**What goes out names the place and not the person.** The consent this act runs under says "counts of
+illness, **with no names**", so the payload carries the point id, the kind, the county, the instant
+and the method — never `subject_ref`. The dataset is §16.3's `facility` row, whose strategy is
+server-authoritative because "the facility is the central source of truth": a check-in the county has
+not seen has not happened to its attendance figure.
+
+**`synced` has one writer.** `check_in` overwrites whatever the caller sent, the way
+`SyncService.enqueue` overwrites the `synced` on the op it is handed. A field a caller can set to
+True is a field that says nothing. The first cut cleared it *before* the append and assigned it
+after the call, so the clearing was dead code that read like a guard. Pyright said so and the line
+went; that the sentence about the single writer was true while the code had two writes is the part
+worth keeping — the comment described the design and the line next to it did nothing.
+
+| # | Mutation | Caught by |
+|---|---|---|
+| 1 | `synced` is read off the request again | `test_attendance_reports_the_send_rather_than_the_request` |
+| 2 | the receipt reports the send off the request | `test_asking_to_share_without_the_permission_is_refused_in_those_words` |
+| 3 | the sharing gate stops asking for the permission | `test_the_permission_is_checked_on_the_send_path_and_not_only_in_the_prose` |
+| 4 | a missing consent ledger fails open | `test_a_deployment_with_no_consent_ledger_refuses_to_send` |
+| 5 | a caller's `synced: true` is believed | `test_a_caller_cannot_assert_its_own_sync_outcome` |
+| 6 | the payload names the person | `test_what_is_queued_names_the_place_and_not_the_person` |
+| 7 | the dataset is one §16.3 has no rule for | `test_the_dataset_is_the_one_the_conflict_matrix_carries_a_rule_for` |
+| 8 | the op id takes its head, so a burst collapses to one op | `test_two_check_ins_in_one_millisecond_do_not_collide_in_the_queue` |
+| 9 | the not-asked and no-permission states collapse into one sentence | `test_a_check_in_nobody_asked_to_share_stays_local_and_says_so` |
+| 10 | the local write is made conditional on the send | `test_a_queue_that_raises_costs_the_send_and_not_the_record` |
+| 11 | attendance reads the request flag off the stored record | `test_attendance_reports_the_send_rather_than_the_request` |
+| 12 | the receipt is built in English regardless of `lang` | `test_the_receipt_is_served_in_the_language_the_person_asked_for` |
+| 13 | the local write is announced as a send | `test_a_check_in_nobody_asked_to_share_stays_local_and_says_so` |
+| 14 | the audit row goes back to the local-half method | `test_the_audit_row_names_the_sync_half` |
+| 15 | the route stops serving the outcome | `test_the_route_serves_the_sync_outcome_and_not_the_flag` |
+| 16 | `synced` is dropped from the receipt model | `test_a_check_in_that_was_sent_says_so_and_names_where_it_went` |
+| 17 | the op carries the day its check-in falls on, not the instant | `test_the_op_carries_the_instant_and_not_the_day_it_falls_on` |
+| 18 | the instant helper truncates like the date helper | `test_a_date_helper_and_an_instant_helper_are_two_different_answers` |
+
+**A third defect, found while writing the payload test.** The first cut built the op's `client_ts`
+with `midnight_ms`, which reads a **bare date** and truncates anything longer to its first ten
+characters. So a check-in at 09:00 and one at 21:30 at the same post carried the same timestamp while
+the payload beside it said `2026-10-01T09:00:00Z` — one fact, two readings. §16.3's `facility` row is
+server-authoritative *because the server compares versions*, so a queue of one afternoon's check-ins
+all bearing midnight is a set the server cannot order. There was no ISO-instant-to-epoch helper in
+the tree at all, so `instant_ms` is added as the inverse of the existing `instant_iso`, and the pair
+is pinned from both sides: the instant helper must separate two stamps on one day, the date helper
+must still collapse them to the day they fall on (which is what `LocationService._window` wants, and
+why the difference is documented rather than asserted).
+
+Three of these missed on the first pass, and each miss was a finding about the *instrument* rather
+than the gate. Two named nodes that wired no queue, so `_sync_checkin` returned at the `self._sync is
+None` check and never reached the consent block the canary had removed — the tests were blind to the
+gate because they never got that far, and the fix was two new tests rather than two new node names.
+The third pointed at a test passing a *function* ledger at a canary that removed the null check, so
+the test could not observe its own mutation; it was re-pointed at the null-ledger test. A canary that
+misses is a claim that the code is uncovered, and here three of the four claims were true.
+
+**No new source.** The governing text is `docs/spec.md` §11.5 LOC-004 and §16.1–16.3; the precedent
+followed is §MON-004's dose queue (`monitoring/service.py:_queue_adherence`) and §COM-101's report
+queue (`community/service.py:_queue_case`), both of which take the *tail* of a UUID7 for the op id
+and both of which gate the send on the dataset's own §16.3 row.

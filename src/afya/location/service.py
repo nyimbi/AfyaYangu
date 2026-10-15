@@ -12,7 +12,8 @@ from typing import Any, Protocol
 import json
 
 from afya.info.counties import COUNTIES
-from afya.info.recency import DAY_MS, UNDATED_MS, instant_iso, iso_add_days, midnight_ms
+from afya.ids import uuid7str
+from afya.info.recency import DAY_MS, UNDATED_MS, instant_iso, instant_ms, iso_add_days, midnight_ms
 # §INF-005's county half reads §INF-001's risk rows rather than keeping a second table. The import is
 # a plain one and not a `TYPE_CHECKING`-guarded name, because the protocol below has to name the
 # return type at class-creation time; it is safe because `afya.info.service` reaches nothing in
@@ -39,8 +40,10 @@ from afya.location.views import (
 from afya.logmixin import LogMixin
 from afya.monitoring.service import MONITORING_ALERT_SYMPTOMS
 from afya.strings import (
-	answerable, checkin, geofence_alert, traveller, zone_privacy_note, zone_transition,
+	answerable, checkin as checkin_text, geofence_alert, traveller, zone_privacy_note,
+	zone_transition,
 )
+from afya.sync.views import SyncOp, SyncQueue
 
 
 # Geofenced alert zones — county-configurable radii (§COM-102: 500 m, 1 km, 5 km). Re-exported
@@ -54,6 +57,14 @@ assert ALLOWED_RADII_M is ALERT_ZONE_RADII_M, 'the zone set is one tuple, not tw
 # edge to `afya.privacy` — the same reason the county risk, the diary and the zone registry arrive
 # as collaborators. `test_loc003_share.py` asserts the two agree, so the copy cannot drift.
 SHARE_AUTHORITY_CATEGORY = 'share_health_authorities'
+
+# §16.3's row this act syncs under. A check-in is not one of the eight datasets the matrix names —
+# the matrix is a table about *data types*, and "where a person scanned in" is attendance at a
+# facility rather than a personal log — so the row is `facility`, whose strategy is
+# server-authoritative because "the facility is the central source of truth". That is the right
+# rule for it: a check-in the server has not seen has not happened as far as the county's
+# attendance figure is concerned, and a client's copy must not win.
+CHECKIN_SYNC_DATASET = 'facility'
 
 
 def _geohash_cell(geohash: str) -> str:
@@ -159,7 +170,8 @@ class LocationService(LogMixin):
 	             zones: ZoneRead | None = None,
 	             authority: LocationAuthorityPort | None = None,
 	             sealer: AppLayerSealer | None = None,
-	             share_consent: ShareAuthorityConsent | None = None) -> None:
+	             share_consent: ShareAuthorityConsent | None = None,
+	             sync: SyncQueue | None = None) -> None:
 		# §INF-005's county half is §INF-001's dashboard read, the traveller enrolment's diary is
 		# §MON-009's, and §LOC-001's entry/exit is §11.1's zone registry. All three are collaborators
 		# rather than imports, so this service owns no second copy of a risk table, a 21-day window
@@ -176,6 +188,10 @@ class LocationService(LogMixin):
 		# §SEC-001's sharing category, kept as a collaborator for the reason the other three are: a
 		# service that owned the consent ledger would be a second copy of it.
 		self._share_consent = share_consent
+		# §16.2's queue, for §LOC-004's "synced with consent". A check-in with no queue wired is a
+		# check-in that stays on the phone and says so, which is the state the flag alone used to
+		# misreport as a delivery.
+		self._sync = sync
 		# The outbox: a sealed report is kept whether or not a transport took it, so a share made
 		# with no signal is ready when there is, and the receipt says which of the two happened.
 		self._shares: dict[str, LocationShare] = {}
@@ -394,15 +410,88 @@ class LocationService(LogMixin):
 	)
 
 	async def check_in(self, checkin: CheckIn) -> CheckInReceipt:
+		"""§LOC-004's third Behaviour bullet: "Check-in logged locally; synced with consent".
+
+		Both halves. The local write is unconditional — §16.1 principle 1, "every user action is
+		written to the local database first" — and the sync is the half that was missing. The route
+		took a `share_with_authority` flag, wrote a log line behind it and put the flag straight on
+		the receipt, so `shared` was the *request* wearing the answer's name: a check-in with the
+		flag set and no standing consent reported `shared: true`, and `follow_up` read that same flag
+		back off the stored record months later as if it were the delivery. A person was told their
+		visit had reached the health team when nothing had left the phone.
+
+		So the flag stays where it belongs — the person's own `share_with_authority` on the stored
+		record, which is what they asked for — and `synced` is the service's own outcome, written
+		onto the check-in by this method. Three refusals produce three different receipts rather than
+		one, because "not asked", "asked and not permitted" and "nowhere to send it" are three
+		different things to tell someone standing at a gate.
+
+		What goes out is the §16.3 `facility` dataset — "Central source of truth", server-
+		authoritative — because a check-in is a fact about a place's attendance rather than a
+		personal log the person owns, and the queue's own rule for it is therefore the spec's. The
+		payload carries the point's *id* and the check-in's instant and method, never the subject:
+		the standing consent for this act is §SEC-001's `share_health_authorities`, whose own words
+		are "counts of illness, with no names", so a payload naming the person would be a share under
+		a consent that does not cover it.
+		"""
 		point = self._points.get(checkin.point_token)
 		assert point is not None, 'unknown check-in point'
 		self._checkins.append(checkin)
-		if checkin.share_with_authority:
-			self._log_info('check-in shared with authority', point=point.point_id)
+		synced = await self._sync_checkin(checkin, point)
+		# The single writer of `synced`. A caller's own value is overwritten here rather than
+		# cleared first: two assignments would be one assignment and a line that reads like a guard
+		# and is not one — `SyncService.enqueue` overwrites the `synced` on the op it is handed, and
+		# this is that rule at the model instead of at the op.
+		checkin.synced = synced
+		place = point.label
+		if synced:
+			key, sent_with = 'sync_sent', CHECKIN_SYNC_DATASET
+		elif not checkin.share_with_authority:
+			key, sent_with = 'sync_local_only', None
+		elif self._share_consent is None or not self._share_consent(
+				checkin.subject_ref, SHARE_AUTHORITY_CATEGORY):
+			key, sent_with = 'sync_no_consent', None
+		else:
+			key, sent_with = 'sync_no_queue', None
 		return CheckInReceipt(
-			checkin_id=checkin.checkin_id, point_label=point.label,
-			guidance=self.GUIDANCE[point.kind], logged_locally=True, shared=checkin.share_with_authority,
+			checkin_id=checkin.checkin_id, point_label=place,
+			guidance=self.GUIDANCE[point.kind], logged_locally=True, synced=synced,
+			synced_with=sent_with, served_in=answerable(checkin.lang),
+			message=checkin_text(checkin.lang, key, place=place),
 		)
+
+	async def _sync_checkin(self, checkin: CheckIn, point: CheckInPoint) -> bool:
+		"""Hand the check-in to the queue, if the person asked and holds the consent for it.
+
+		The consent is checked here and *not* only in the receipt branch above, because the two
+		questions are different: this one decides whether anything is sent, and the other decides
+		which sentence the person reads about it. A gate that lived only in the prose branch would
+		be a gate the send path never consults.
+		"""
+		if not checkin.share_with_authority or self._sync is None:
+			return False
+		if self._share_consent is None or not self._share_consent(
+				checkin.subject_ref, SHARE_AUTHORITY_CATEGORY):
+			self._log_info('check-in kept on the phone: no sharing permission',
+				point=point.point_id, subject=checkin.subject_ref)
+			return False
+		# The *tail* of the id, not the head, for the reason §MON-004's dose queue states: a UUID7's
+		# leading bytes are its millisecond timestamp, so a prefix collides for two check-ins made in
+		# the same millisecond and the queue — keyed on `op_id` — keeps the last and drops the first.
+		# A coach-load arriving at a border post is exactly that burst.
+		op = SyncOp(
+			op_id='OP-' + uuid7str().replace('-', '').upper()[-8:],
+			dataset=CHECKIN_SYNC_DATASET,
+			client_ts=instant_ms(checkin.at_iso),
+			payload={
+				'checkin_id': checkin.checkin_id, 'point_id': point.point_id,
+				'point_kind': point.kind, 'county': point.county, 'at_iso': checkin.at_iso,
+				'method': checkin.method,
+			},
+		)
+		await self._sync.enqueue(op)
+		self._log_info('check-in queued for sync', point=point.point_id, op=op.op_id)
+		return True
 
 	def checkins_for(self, subject_ref: str) -> list[CheckIn]:
 		return [c for c in self._checkins if c.subject_ref == subject_ref]
@@ -442,7 +531,7 @@ class LocationService(LogMixin):
 			return CheckInFollowUp(
 				subject_ref=subject_ref, attendance=None, schedule=[], window=None,
 				points_attended=0, checkins=0, next_due_iso=None, served_in=answerable(lang),
-				note=checkin(lang, 'no_checkins'),
+				note=checkin_text(lang, 'no_checkins'),
 			)
 
 		attendance = self._attendance(mine)
@@ -457,7 +546,7 @@ class LocationService(LogMixin):
 			subject_ref=subject_ref, attendance=attendance, schedule=schedule, window=window,
 			points_attended=len({a.point_id for a in attendance}), checkins=len(mine),
 			next_due_iso=next_due, served_in=answerable(lang),
-			note=window.note if window is not None else checkin(lang, 'no_watch'),
+			note=window.note if window is not None else checkin_text(lang, 'no_watch'),
 		)
 
 	def _opens_watch(self, checkin: CheckIn) -> bool:
@@ -479,7 +568,7 @@ class LocationService(LogMixin):
 			rows.append(CheckInAttendance(
 				checkin_id=c.checkin_id, point_id=point.point_id, point_label=point.label,
 				kind=point.kind, county=point.county, at_iso=c.at_iso, day=c.at_iso[:10],
-				visit_no=seen[point.point_id], method=c.method, shared=c.share_with_authority,
+				visit_no=seen[point.point_id], method=c.method, synced=c.synced,
 			))
 		return rows
 
@@ -491,7 +580,7 @@ class LocationService(LogMixin):
 		elapsed = max(0, (now_ms - start_ms) // DAY_MS)
 		remaining = max(0, LOCATION_WINDOW_DAYS - elapsed)
 		open_ = now_ms < closes_ms
-		note = checkin(lang, 'window_open' if open_ else 'window_closed', place=point.label,
+		note = checkin_text(lang, 'window_open' if open_ else 'window_closed', place=point.label,
 		               day=opened.at_iso[:10], remaining=remaining, closes=instant_iso(closes_ms)[:10])
 		assert (remaining == 0) == (not open_), 'an open window with nothing left is not a state'
 		return ExposureWindow(
@@ -517,7 +606,7 @@ class LocationService(LogMixin):
 			due = iso_add_days(start, day - 1)
 			steps.append(FollowUpStep(
 				day=day, due_iso=due, due=due == today, past=due < today,
-				question=checkin(lang, 'prompt', day=day),
+				question=checkin_text(lang, 'prompt', day=day),
 			))
 		assert len(steps) == len(EXPOSURE_FOLLOWUP_DAYS), 'one step per scheduled day'
 		return steps

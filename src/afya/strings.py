@@ -184,6 +184,25 @@ CHECKIN_STRINGS: dict[str, dict[str, str]] = {
 			'Your check-ins are on file. None of them is at a point that opens a symptom watch, so '
 			'no follow-up is scheduled. Call 719 if you feel unwell.'
 		),
+		# §LOC-004's third Behaviour bullet is two halves — "logged locally; synced with consent" —
+		# and the four strings below are the four states the second half can be in. They are four
+		# because the states are four: a person who did not ask to share, a person who asked and has
+		# no standing consent for it, a person whose check-in went out, and a person whose device had
+		# no queue to hand it to. One string covering the last three would tell a person their
+		# check-in had been sent when it had been refused, which is the defect this replaces.
+		'sync_local_only': (
+			'Checked in at {place}. This is saved on your phone. Turn on sharing with the health '
+			'team to send it.'
+		),
+		'sync_no_consent': (
+			'Checked in at {place} and saved on your phone. Nothing was sent: sharing with the '
+			'health team needs your permission, and it is not switched on.'
+		),
+		'sync_sent': 'Checked in at {place}. This has been sent to the health team.',
+		'sync_no_queue': (
+			'Checked in at {place} and saved on your phone. This device has nowhere to send it '
+			'from, so it stays here.'
+		),
 	},
 	'sw': {
 		'prompt': (
@@ -206,6 +225,19 @@ CHECKIN_STRINGS: dict[str, dict[str, str]] = {
 		'no_watch': (
 			'Kuingia kwako kumerekodiwa. Hakuna kulikofanyika katika kituo kinachofungua kipindi cha '
 			'kufuatilia dalili, hivyo hakuna ufuatiliaji uliopangwa. Piga 719 kama unajihisi mgonjwa.'
+		),
+		'sync_local_only': (
+			'Umeingia katika {place}. Hii imehifadhiwa kwenye simu yako. Washa kushiriki na timu ya '
+			'afya ili kuituma.'
+		),
+		'sync_no_consent': (
+			'Umeingia katika {place} na imehifadhiwa kwenye simu yako. Hakuna kilichotumwa: '
+			'kushiriki na timu ya afya kunahitaji idhini yako, na haijawashwa.'
+		),
+		'sync_sent': 'Umeingia katika {place}. Hii imetumwa kwa timu ya afya.',
+		'sync_no_queue': (
+			'Umeingia katika {place} na imehifadhiwa kwenye simu yako. Kifaa hiki hakina mahali pa '
+			'kuituma, hivyo inabaki hapa.'
 		),
 	},
 }

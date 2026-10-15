@@ -166,16 +166,40 @@ async def test_checkin_guidance_differs_per_point_kind() -> None:
 	assert school.guidance == LocationService.GUIDANCE['school']
 	assert border.guidance != school.guidance
 	assert border.logged_locally is True
-	assert border.shared is False
-	assert school.shared is False
+	# Neither asked to share, so neither was sent. `synced` is the queue's answer rather than the
+	# request's, which is the whole of what §LOC-004's "synced with consent" needed.
+	assert border.synced is False and school.synced is False
+	assert border.synced_with is None
 
 
-async def test_checkin_shares_only_when_the_user_asks() -> None:
+async def test_a_checkin_asked_to_be_shared_is_refused_without_the_permission() -> None:
+	"""The flag is the person's request; `synced` is what happened. A deployment with no consent
+	ledger cannot establish §SEC-001's sharing permission, so the check-in stays on the phone and
+	the receipt says so rather than reporting a share that did not happen — the defect this unit
+	closes. Consent is checked before the transport, because which of the two is missing decides
+	what the person should be told."""
 	svc = LocationService()
 	await svc.register_point(CheckInPoint(point_id='P-1', kind='health_facility', label='Clinic', county='Kisumu', token='CLINIC1'))
 	receipt = await svc.check_in(CheckIn(checkin_id='CHK-CLINIC01', point_token='CLINIC1', subject_ref='U-1', method='manual', at_iso='2026-10-01T00:00:00Z', share_with_authority=True))
-	assert receipt.shared is True
+	assert receipt.synced is False and receipt.synced_with is None
+	assert 'needs your permission' in receipt.message
 	assert len(svc.checkins_for('U-1')) == 1
+	assert svc.checkins_for('U-1')[0].share_with_authority is True, (
+		'the request is kept on the record; only the outcome is refused')
+
+
+async def test_a_checkin_with_the_permission_but_no_queue_says_so_in_its_own_words() -> None:
+	"""The fourth state. With the permission held and no queue wired, the refusal is about the
+	deployment rather than the person, and telling them their permission is missing would send them
+	to a settings screen that is already switched on."""
+	def holds(subject_ref: str, category: str) -> bool:
+		return True
+
+	svc = LocationService(share_consent=holds)
+	await svc.register_point(CheckInPoint(point_id='P-1', kind='health_facility', label='Clinic', county='Kisumu', token='CLINIC1'))
+	receipt = await svc.check_in(CheckIn(checkin_id='CHK-CLINIC01', point_token='CLINIC1', subject_ref='U-1', method='manual', at_iso='2026-10-01T00:00:00Z', share_with_authority=True))
+	assert receipt.synced is False and 'nowhere to send it' in receipt.message
+	assert 'permission' not in receipt.message
 
 
 async def test_checkin_at_unknown_point_is_refused() -> None:
