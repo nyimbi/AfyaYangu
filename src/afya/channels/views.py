@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 
 from afya.channels.outbound import PlainLanguageReading, plain_language
 from afya.derived import DerivedFields
-from afya.ids import uuid7str
+from afya.ids import ref8
 from afya.strings import LANGUAGE_NAME_FOR
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -188,7 +188,7 @@ class RadioVignette(DerivedFields, BaseModel):
 	"""
 
 	model_config = MODEL_CONFIG
-	vignette_id: str = Field(default_factory=lambda: 'VIG-' + uuid7str().replace('-', '').upper()[:8])
+	vignette_id: str = Field(default_factory=lambda: 'VIG-' + ref8())
 	station: str = Field(min_length=1)
 	air_date: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
 	duration_s: int = Field(ge=15, le=3600)
@@ -264,7 +264,7 @@ class CallbackRequest(BaseModel):
 	location would be the invented data this model exists to avoid.
 	"""
 	model_config = MODEL_CONFIG
-	request_id: str = Field(default_factory=lambda: 'CB-' + uuid7str().replace('-', '').upper()[:8])
+	request_id: str = Field(default_factory=lambda: 'CB-' + ref8())
 	msisdn: str = Field(pattern=r'^\+254\d{9}$')
 	session_id: str
 	# The symptom the caller selected, by the engine's own key, or None when the request came from
@@ -278,6 +278,43 @@ class CallbackRequest(BaseModel):
 	# that was never looked at. §CHAN-1's bullet is that the request is *recorded*; a record with no
 	# way to say it was answered is a record that fills up.
 	handled: bool = False
+
+
+class CallOutcome(BaseModel):
+	"""§18.4's fifth row: "Call outcome | 719 → App | Outcome code (where consented) | On close".
+
+	Its own record rather than a field on the callback queue, and the reason is the row's own
+	Frequency and Direction columns. The row closes **every** call the section opens, and only one
+	of the three files a callback request: rows 1 and 2 are a one-tap call and the auto-call on
+	fall detection, both dispatched from the SOS path, and neither produces a `CallbackRequest`.
+	Carrying the outcome on the queue therefore made the section's last row reachable for a third
+	of its own calls — the strict-subset failure, where the predicate is narrower than the thing
+	it claims to cover.
+
+	The spec's Data column is the code alone, with no phone number, so a route that demanded one
+	refused the body the section describes — which is exactly what the pre-existing webhook
+	fixture (`{'outcome_code': 'transported', 'consented': True}`) caught.
+
+	`call_ref` is the join and not the subject: when the report names a number matching an open
+	callback request, the outcome settles that request too, because the queue is what a deployment
+	works and a call that closed is a call that left it. When it matches nothing — a one-tap call,
+	a fall call, a number that never asked for a callback — the outcome is still a real outcome and
+	is still recorded. `None` here is the ordinary case rather than a missing field.
+
+	There is no `consented` field, and its absence is deliberate: "where consented" is the
+	precondition for this record existing at all, so a boolean would be `True` on every row and
+	would restate the record's own existence — the flag-that-restates-a-field defect. Consent is
+	enforced at the route, which is the only place that can refuse.
+	"""
+	model_config = MODEL_CONFIG
+	outcome_id: str = Field(default_factory=lambda: 'OUT-' + ref8())
+	outcome_code: str = Field(min_length=1)
+	# The callback request this outcome settled, when the report named a number that matched one.
+	call_ref: str | None = None
+	# Stored in §5.4's E.164 spelling rather than as the hotline wrote it, so the join above is on
+	# one key — the same rule every other channel entry point follows.
+	msisdn: str | None = Field(default=None, pattern=r'^\+254\d{9}$')
+	at_ms: int
 
 
 class ChannelReport(BaseModel):
@@ -311,7 +348,7 @@ class ChannelReport(BaseModel):
 	wiring mistake, which is the direction `may_store_symptoms` was written to refuse.
 	"""
 	model_config = MODEL_CONFIG
-	report_id: str = Field(default_factory=lambda: 'CHR-' + uuid7str().replace('-', '').upper()[:8])
+	report_id: str = Field(default_factory=lambda: 'CHR-' + ref8())
 	channel: str = Field(pattern=r'^(ussd|sms|whatsapp|app)$')
 	msisdn: str = Field(pattern=r'^\+254\d{9}$')
 	# What the engine heard, in its own vocabulary, in the order it was named. Empty is a real

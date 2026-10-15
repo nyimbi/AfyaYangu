@@ -12,7 +12,7 @@ from typing import Any, Protocol
 import json
 
 from afya.info.counties import COUNTIES
-from afya.ids import uuid7str
+from afya.ids import ref8
 from afya.info.recency import DAY_MS, UNDATED_MS, instant_iso, instant_ms, iso_add_days, midnight_ms
 # §INF-005's county half reads §INF-001's risk rows rather than keeping a second table. The import is
 # a plain one and not a `TYPE_CHECKING`-guarded name, because the protocol below has to name the
@@ -480,7 +480,7 @@ class LocationService(LogMixin):
 		# the same millisecond and the queue — keyed on `op_id` — keeps the last and drops the first.
 		# A coach-load arriving at a border post is exactly that burst.
 		op = SyncOp(
-			op_id='OP-' + uuid7str().replace('-', '').upper()[-8:],
+			op_id='OP-' + ref8(),
 			dataset=CHECKIN_SYNC_DATASET,
 			client_ts=instant_ms(checkin.at_iso),
 			payload={

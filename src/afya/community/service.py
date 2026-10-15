@@ -19,7 +19,7 @@ from afya.community.views import (
 )
 from afya.crypto.service import CryptoService
 from afya.identity.service import IdentityService
-from afya.ids import uuid7str
+from afya.ids import ref8
 from afya.info.myths import (
 	DRAFTED_ON_ISO, FALLBACK_CORRECTION, FALLBACK_TOPIC, classify, correction_library, myth_for,
 )
@@ -375,7 +375,7 @@ class CommunityService(LogMixin):
 		# outage files them in a burst, which is exactly when a collision costs the most; §MON-004's
 		# dose queue takes its suffix for the same reason.
 		op = SyncOp(
-			op_id='OP-' + uuid7str().replace('-', '').upper()[-8:],
+			op_id='OP-' + ref8(),
 			dataset='case_reports',
 			client_ts=now_ms(),
 			payload={name: json.dumps(value) for name, value in report.model_dump(mode='json').items()},

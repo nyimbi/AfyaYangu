@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 from afya.facilities.service import haversine_km
 from afya.facilities.views import FacilityKind
-from afya.ids import uuid7str
+from afya.ids import ref8
 from afya.logmixin import LogMixin
 from afya.monitoring.views import (
 	CATCH_UP_GRACE_WEEKS, DUSK_HOUR, EPI_DUE_WEEKS,
@@ -297,7 +297,7 @@ class MonitoringService(LogMixin):
 		# after an outage), which is exactly when a collision costs the most. `CampaignNotice` takes
 		# its suffix for the same reason.
 		op = SyncOp(
-			op_id='OP-' + uuid7str().replace('-', '').upper()[-8:],
+			op_id='OP-' + ref8(),
 			dataset='medication',
 			client_ts=int(datetime.now(timezone.utc).timestamp() * 1000),
 			payload={'schedule_id': event.schedule_id, 'at_iso': event.at_iso,

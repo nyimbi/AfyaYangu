@@ -7,7 +7,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from afya.ids import uuid7str
+from afya.ids import ref8
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -133,7 +133,7 @@ class LocationShare(BaseModel):
 	receipt can say without repeating it.
 	"""
 	model_config = MODEL_CONFIG
-	share_id: str = Field(default_factory=lambda: 'LSH-' + uuid7str().replace('-', '').upper()[:8])
+	share_id: str = Field(default_factory=lambda: 'LSH-' + ref8())
 	subject_ref: str
 	with_who: str = Field(min_length=2, max_length=120)
 	sealed: str = Field(min_length=1)

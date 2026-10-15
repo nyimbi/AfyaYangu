@@ -16,6 +16,9 @@ These tests pin the guarantee rather than the implementation: a reference is dis
 eight characters, because the point of the short form is that it survives being read aloud.
 """
 
+import ast
+import pathlib
+
 from afya.emergency.views import SOSEvent
 from afya.ids import ref8, uuid7str
 from afya.registry.service import FeatureRegistry
@@ -83,3 +86,68 @@ def test_the_prefixed_references_are_distinct_within_a_burst() -> None:
 	refs = [ReproductiveReferral(subject_ref='U1', reason='r', services=[], unreachable=[],
 	                             advise='a').referral_id for _ in range(2_000)]
 	assert len(set(refs)) == len(refs)
+
+
+def _truncations_in(source: str, label: str) -> list[str]:
+	"""Every truncation of a UUID7 in one module's source.
+
+	The predicate is a function of the *text*, so the canary below can point this exact walk at a
+	string it wrote instead of re-deriving the rule — a canary that tests a second implementation of
+	the gate proves nothing about the gate that runs. Parsing with `ast` rather than grepping is the
+	other half: `afya/ids.py` and the two modules that already carry the fix *describe* this defect
+	in prose, and a text scan flags its own documentation, which is a gate failing for a reason its
+	operator cannot act on.
+	"""
+	found: list[str] = []
+	for node in ast.walk(ast.parse(source, filename=label)):
+		# A Subscript whose value is a `uuid7str()` call (possibly through `.replace`/`.upper`) and
+		# whose slice is a `Slice` — i.e. an id truncated out of a UUID7.
+		if not isinstance(node, ast.Subscript) or not isinstance(node.slice, ast.Slice):
+			continue
+		base: ast.expr = node.value
+		while isinstance(base, ast.Call) and isinstance(base.func, ast.Attribute):
+			base = base.func.value
+		if isinstance(base, ast.Call) and isinstance(base.func, ast.Name) \
+				and base.func.id == 'uuid7str':
+			found.append(f'{label}:{node.lineno}')
+	return found
+
+
+def _truncated_id_sources() -> list[str]:
+	"""Every truncation of a UUID7 used as an id, read out of the source tree."""
+	found: list[str] = []
+	for path in sorted(pathlib.Path('src/afya').rglob('*.py')):
+		found += _truncations_in(path.read_text(), str(path))
+	return found
+
+
+def test_the_truncation_scan_sees_the_shape_it_is_looking_for() -> None:
+	"""The scan's own canary, run against source it is meant to catch.
+
+	An empty offender list is the pass condition, and an empty list is also what a scan that walks
+	nothing returns. This points `_truncations_in` — the exact predicate the gate calls — at every
+	spelling the tree has used, so a scan that stopped matching reports here rather than reading as
+	a clean tree. A second implementation written for the canary would prove nothing about this one.
+	"""
+	for form in ("doc_id = 'DOC-' + uuid7str().replace('-', '').upper()[:12]",
+	             "op_id = 'OP-' + uuid7str().replace('-', '').upper()[-8:]",
+	             "rid = f'MH-{uuid7str()[:12].upper()}'",
+	             "cid = 'CMP-' + uuid7str().replace('-', '')[-8:].upper()",
+	             "sid = 'MED-' + uuid7str().replace('-', '').upper()[:6]"):
+		assert _truncations_in(form, 'canary'), f'the scan no longer matches: {form}'
+	assert not _truncations_in("entry_id = 'X-' + ref8()", 'canary'), 'the scan flags the fix'
+
+
+def test_no_model_truncates_a_uuid7_into_a_reference() -> None:
+	"""The gate the four-model fix did not have, which is why the fix stopped at four.
+
+	`test_the_prefixed_references_are_distinct_within_a_burst` above enumerates its models by hand,
+	so a model added later is not covered by it — and twenty-five fields across eleven modules were
+	still reading a millisecond timestamp as a random reference while that test passed. A hand-kept
+	list is the thing that drifts; the scan is over the tree, so the next model is covered the day
+	it is written. `ref8()` is the counter that carries the guarantee (`afya/ids.py`).
+	"""
+	offenders = _truncated_id_sources()
+	assert offenders == [], (
+		'these read a UUID7 timestamp as a random reference, so they repeat within a 65.5-second '
+		'window (or by birthday, for a trailing slice); use `ref8()`: ' + ', '.join(offenders))

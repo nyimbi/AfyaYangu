@@ -5,7 +5,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from afya.derived import DerivedFields
-from afya.ids import uuid7str
+from afya.ids import ref8
 from afya.location.views import ALERT_ZONE_RADII_M
 
 from afya.registry.diseases import DISEASE_PATTERN
@@ -43,7 +43,7 @@ ISSUE_ROUTING: dict[IssueKind, str] = {
 
 class CommunityIssue(BaseModel):
 	model_config = MODEL_CONFIG
-	issue_id: str = Field(default_factory=lambda: 'CIS-' + uuid7str().replace('-', '').upper()[:8])
+	issue_id: str = Field(default_factory=lambda: 'CIS-' + ref8())
 	kind: IssueKind
 	county: str
 	description: str = Field(min_length=5, max_length=300)
@@ -78,7 +78,7 @@ class CaseStatus(str, Enum):
 class CaseReport(BaseModel):
 	"""WHO IDSR / Kenya MoH structured report. Patient name optional — anonymous is a first-class path."""
 	model_config = MODEL_CONFIG
-	report_id: str = Field(default_factory=lambda: 'CR-' + uuid7str().replace('-', '').upper()[:8])
+	report_id: str = Field(default_factory=lambda: 'CR-' + ref8())
 	chw_ref: str
 	county: str
 	community: str
@@ -316,7 +316,7 @@ class ContactShare(BaseModel):
 	discloses nothing about the contacts inside.
 	"""
 	model_config = MODEL_CONFIG
-	share_id: str = Field(default_factory=lambda: 'CSH-' + uuid7str().replace('-', '').upper()[:8])
+	share_id: str = Field(default_factory=lambda: 'CSH-' + ref8())
 	subject_ref: str
 	with_who: str = Field(min_length=2, max_length=120)
 	sealed: str = Field(min_length=1)
@@ -361,7 +361,7 @@ class MisinfoSubmission(BaseModel):
 	content in any medium — the audit row's own gap, wearing a `medium` value that looks filled in.
 	"""
 	model_config = MODEL_CONFIG
-	submission_id: str = Field(default_factory=lambda: 'MIS-' + uuid7str().replace('-', '').upper()[:8])
+	submission_id: str = Field(default_factory=lambda: 'MIS-' + ref8())
 	claim: str = Field(min_length=5, max_length=500)
 	county: str
 	medium: str = Field(pattern=r'^(text|voice|screenshot|whatsapp_forward)$')

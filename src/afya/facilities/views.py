@@ -4,7 +4,7 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from afya.derived import DerivedFields
-from afya.ids import uuid7str
+from afya.ids import ref8
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -218,7 +218,7 @@ class BookingRequest(BaseModel):
 	"""
 
 	model_config = MODEL_CONFIG
-	booking_id: str = Field(default_factory=lambda: 'BOOK-' + uuid7str().replace('-', '').upper()[:6])
+	booking_id: str = Field(default_factory=lambda: 'BOOK-' + ref8())
 	slot_iso: str
 	# The route takes the facility in its path, so a body copy would be a second spelling of one
 	# fact. Optional and echoed into the result, which is where a client reads it back.
@@ -229,7 +229,7 @@ class Booking(BaseModel):
 	"""The booking as it stands: the reference, the slot, and the place in the queue."""
 
 	model_config = MODEL_CONFIG
-	booking_id: str = Field(default_factory=lambda: 'BOOK-' + uuid7str().replace('-', '').upper()[:6])
+	booking_id: str = Field(default_factory=lambda: 'BOOK-' + ref8())
 	facility_id: str
 	slot_iso: str
 	queue_position: int = Field(ge=1, le=500)

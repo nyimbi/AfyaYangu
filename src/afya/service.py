@@ -5509,13 +5509,45 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/integrations/hotline/outcome')
 	async def hotline_outcome(payload: dict[str, object], _body: bytes = Depends(require_webhook())) -> dict[str, object]:
 		"""719 → App: the outcome code, where consented. No consent flag, no record — the code alone
-		still says a named person called an outbreak hotline."""
+		still says a named person called an outbreak hotline.
+
+		The code is recorded as its own §18.4 row and, when the report names a number with an open
+		callback request behind it, settles that request too. The route used to return
+		`{'recorded': True}` and store nothing, so §18.4's fifth row was a wire that acknowledged a
+		write it never made — and `outcome_code` was read nowhere in the tree, which is the tell: a
+		field whose only occurrences are the line that reads it off the payload and the line that
+		echoes it back is data the system collects and never uses.
+
+		`msisdn` is *optional*, because the section's Data column for this row is the code alone.
+		Requiring one refused the body the section describes — which the pre-existing webhook
+		fixture (`{'outcome_code': 'transported', 'consented': True}`) caught — and it would also
+		have made the row unreachable for two of the three calls it closes: a one-tap call and the
+		auto-call on fall detection are dispatched from the SOS path and file no callback request,
+		so an outcome that required a queue entry could only ever close the third.
+		"""
 		if payload.get('consented') is not True:
 			return {'recorded': False, 'reason': 'outcome is recorded only with consent'}
 		code = str(payload.get('outcome_code', '')).strip()
 		if not code:
 			raise HTTPException(status_code=422, detail='an outcome needs a code')
-		return {'recorded': True, 'outcome_code': code}
+		msisdn = str(payload.get('msisdn', '')).strip() or None
+		try:
+			outcome = channels.record_call_outcome(code, msisdn)
+		except (AssertionError, ValueError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return {'recorded': True, 'outcome_id': outcome.outcome_id, 'outcome_code': code,
+		        'settled_request_id': outcome.call_ref}
+
+	@app.get('/integrations/hotline/outcomes')
+	async def hotline_outcomes(_subject: str = Depends(require_scope('assigned', purpose='outbreak_surveillance'))) -> list[dict[str, object]]:
+		"""§18.4's outcomes, for the deployment that asked the hotline to ring someone.
+
+		Scoped `assigned` and not opened, for the reason `/channels/callbacks` is: a row carries the
+		number a call was about, which is a person's contact detail and, where it settled a request,
+		the symptom behind it. The record has to be readable or the row is written and never used —
+		the defect this wire was fixed from.
+		"""
+		return [o.model_dump(mode='json') for o in channels.call_outcomes()]
 
 	# §18.5 MoHF — pull the facility list, and the two inbound wires (corrections out, verification in).
 	@app.post('/facilities/import-mohf')
@@ -5531,8 +5563,17 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=502, detail='the facility registry is unreachable') from exc
 		return {'county': county, 'offered': len(rows), 'accepted': accepted}
 
+	# The one MoHF wire that carried no guard, while its two siblings on the same block did. §18.5's
+	# second row writes to the *national registry* under this deployment's credentials, so an open
+	# route here is a proxy that spends our API key on someone else's behalf — the class
+	# `sha_verify`'s own docstring already named it as ("the same class as the open facility proxy")
+	# while the proxy itself stayed open. `infrastructure` is the scope both siblings carry, because
+	# all three are the same wire to the same authority. §FND-001's citizen-facing crowdsourced half
+	# is `POST /facilities/{facility_id}/reports`, which is free text published on a public feed;
+	# this route forwards structured field corrections to MoHF's intake and is not that.
 	@app.post('/facilities/{facility_id}/correction')
-	async def facility_correction(facility_id: str, correction: dict[str, object]) -> dict[str, object]:
+	async def facility_correction(facility_id: str, correction: dict[str, object],
+	                              _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
 		"""App → MoHF, on report: a crowdsourced correction. A correction is not applied locally —
 		the registry is the authority, and a local edit would diverge from it silently."""
 		body = {'facility_id': facility_id, **correction}

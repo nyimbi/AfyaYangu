@@ -601,7 +601,13 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	# filed without one has no owner and so can never be moved or released by whoever presents its
 	# six-character reference. The walker counts the optional dependency as a guard, and that is the
 	# honest reading: the route now reads the token to decide who the appointment belongs to.
-	('POST', '/facilities/{facility_id}/correction'),
+	# `/facilities/{facility_id}/correction` left this list when §18.5's Direction column was read
+	# against the routes. It sat here bare, with no justification comment while every neighbour had
+	# one, and it was the only unguarded route on the §18 surface that *writes to a national
+	# registry* — a proxy spending this deployment's MoHF credentials on someone else's behalf, the
+	# class `sha_verify`'s own docstring named while the proxy itself stayed open. Its two siblings
+	# on the same block (`/facilities/import-mohf`, `/facilities/verification`) both carry
+	# `infrastructure`, and all three are one wire to one authority, so it carries it too.
 	('POST', '/facilities/{facility_id}/wait'),
 	('POST', '/insurance/prices'),
 	('POST', '/insurance/sha-check'),

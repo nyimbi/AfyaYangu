@@ -7,7 +7,7 @@ from afya.channels.cost import ChannelCostVerdict, ZeroRatingRule, cost_report, 
 from afya.channels.outbound import follow_up_message
 from afya.access.views import LANGUAGE_MATRIX, VoiceAudioRequest, VoiceResult
 from afya.channels.views import (
-	CallbackRequest, ChannelReport, ChwTask, PushPayload, RadioBulletin, RadioVignette, SmsOut,
+	CallbackRequest, CallOutcome, ChannelReport, ChwTask, PushPayload, RadioBulletin, RadioVignette, SmsOut,
 	UssdRequest, UssdResponse, WhatsAppIn, WhatsAppOut,
 )
 from afya.identity.service import IdentityService
@@ -108,6 +108,10 @@ class ChannelService(LogMixin):
 		# deployment reads; a request with no queue is a request recorded nowhere, which is the
 		# state this was in until the prompt was walked.
 		self._callbacks: list[CallbackRequest] = []
+		# §18.4's fifth row. Its own sink rather than a field on the queue above, because the row
+		# closes every 719 call and only the callback row files a request — the one-tap call and the
+		# fall auto-call go out through the SOS path and leave nothing here to attach to.
+		self._outcomes: list[CallOutcome] = []
 		# §5.4's "single case-report backend" for the channels with no CHW behind them. The sink the
 		# USSD walk and the WhatsApp router write into; before it existed, both channels answered a
 		# person and recorded nothing, and §AI-003's signal ledger — which six app surfaces feed —
@@ -139,6 +143,7 @@ class ChannelService(LogMixin):
 		self._pushes: list[PushPayload] = []
 		assert self._ussd_state == {} and self._ussd_answers == {} and self._ussd_symptom == {}
 		assert self._callbacks == [] and self._reports == [] and self._signalled == set()
+		assert self._outcomes == []
 		assert self._chw_tasks == [] and self._pushes == []
 
 	async def zero_rating_rules(self) -> list[ZeroRatingRule] | None:
@@ -477,6 +482,50 @@ class ChannelService(LogMixin):
 				self._log_info('callback request handled', request=request_id, symptom=c.symptom)
 				return c
 		raise KeyError(request_id)
+
+	def record_call_outcome(self, outcome_code: str, msisdn: str | None = None) -> CallOutcome:
+		"""§18.4's fifth row: the code the hotline closed a call with, recorded.
+
+		The route that received this returned `{'recorded': True, 'outcome_code': code}` and stored
+		nothing, so the section's one inbound row was a wire acknowledging a write it never made —
+		and `outcome_code` was read nowhere in the tree, which is the tell: a field whose only
+		occurrences are the line that reads it off the payload and the line that echoes it back is
+		data the system collects and never uses.
+
+		It is its own record rather than a field on the callback queue because the row closes every
+		call the section opens, and only one of the three files a request: rows 1 and 2 are the
+		one-tap call and the fall auto-call, both dispatched from the SOS path with no
+		`CallbackRequest` behind them. Hanging the outcome on the queue made this row reachable for
+		a third of its own calls.
+
+		`msisdn` is optional because the spec's Data column is the code alone. When it is given and
+		matches an *open* callback request, the outcome settles that request as well — oldest first,
+		because the queue is ordered and a person who asked twice is rung twice, so attaching to the
+		most recent would settle the wrong call. When it matches nothing the outcome is still
+		recorded: a one-tap call and a call from a number that never asked for a callback are both
+		real calls that closed, and refusing their outcome would be the section losing the row it
+		exists to carry.
+		"""
+		assert outcome_code, 'a call outcome is a code'
+		normalised = self._normalise(msisdn) if msisdn else None
+		settled: CallbackRequest | None = None
+		if normalised:
+			open_calls = [c for c in self._callbacks if c.msisdn == normalised and not c.handled]
+			if open_calls:
+				settled = open_calls[0]
+				settled.handled = True
+		outcome = CallOutcome(
+			outcome_code=outcome_code, call_ref=settled.request_id if settled else None,
+			msisdn=normalised, at_ms=now_ms(),
+		)
+		self._outcomes.append(outcome)
+		self._log_info('call outcome recorded', outcome=outcome.outcome_id, code=outcome_code,
+		               settled=outcome.call_ref)
+		return outcome
+
+	def call_outcomes(self) -> list[CallOutcome]:
+		"""§18.4's outcomes as the deployment reads them, newest last."""
+		return list(self._outcomes)
 
 	# --- §5.4's "single case-report backend", on the channels that had no writer ------------------
 

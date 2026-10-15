@@ -4,7 +4,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from afya.ids import uuid7str
+from afya.ids import ref8
 
 from afya.registry.diseases import DISEASES
 
@@ -47,7 +47,7 @@ assert tuple(k.value.removeprefix('outbreak_') for k in OUTBREAK_KINDS) == DISEA
 
 class CommunityAlert(BaseModel):
 	model_config = MODEL_CONFIG
-	alert_id: str = Field(default_factory=lambda: 'AL-' + uuid7str().replace('-', '').upper()[:8])
+	alert_id: str = Field(default_factory=lambda: 'AL-' + ref8())
 	kind: AlertKind
 	county: str
 	headline: str = Field(max_length=80)

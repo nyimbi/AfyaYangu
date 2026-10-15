@@ -575,12 +575,95 @@ async def test_hotline_follow_up_lands_in_the_feed(webhook_env: str) -> None:
 		assert (await c.post('/integrations/hotline/follow-up', content=bad_raw, headers=bad_headers)).status_code == 401
 
 		# An outcome code without consent is not recorded — the code alone names a caller.
-		out_raw, out_h = _signed({'outcome_code': 'transported'})
+		out_raw, out_h = _signed({'outcome_code': 'transported', 'msisdn': '+254711222333'})
 		out = await c.post('/integrations/hotline/outcome', content=out_raw, headers=out_h)
 		assert out.json()['recorded'] is False
-		con_raw, con_h = _signed({'outcome_code': 'transported', 'consented': True})
+		# §18.4's fifth row is inbound, and the code has to land somewhere readable. A route that
+		# answered `recorded: True` and stored nothing satisfied the consent assertion above while
+		# writing nothing at all, so the consent case is driven against a real request and read back
+		# off the queue — the one place the code means anything.
+		from afya.auth.views import s256
+		verifier = 'v' * 64
+		authz = (await c.post('/auth/pkce/authorize', json={
+			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234',
+		})).json()
+		chw = (await c.post('/auth/pkce/token', params={'role': 'chw'}, json={
+			'authorization_code': authz['authorization_code'], 'client_id': 'app',
+			'redirect_uri': 'afya://cb', 'code_verifier': verifier,
+		})).json()['access_token']
+		h = {'authorization': f'Bearer {chw}'}
+		assert (await c.get('/channels/callbacks', headers=h)).json() == [], 'nothing has asked for a call yet'
+		assert (await c.get('/integrations/hotline/outcomes', headers=h)).json() == [], 'and none has closed'
+		# The USSD walk's second prompt is answered `1`, which files the callback against the handset.
+		walk = await c.post('/channels/ussd', json={'session_id': 'S1', 'msisdn': '+254712345678', 'text': '1*1*1*1'})
+		assert walk.status_code == 200, walk.text
+		queue = (await c.get('/channels/callbacks', headers=h)).json()
+		assert len(queue) == 1 and queue[0]['handled'] is False, queue
+		request_id = queue[0]['request_id']
+		con_raw, con_h = _signed({'outcome_code': 'transported', 'msisdn': '+254712345678', 'consented': True})
 		consented = await c.post('/integrations/hotline/outcome', content=con_raw, headers=con_h)
 		assert consented.json()['recorded'] is True
+		assert consented.json()['settled_request_id'] == request_id, 'the code landed on the wrong call'
+		# Read back both ways: the queue says the call was taken, and the outcome ledger holds the
+		# code with the request it settled. This is the assertion the old route could not pass,
+		# because there was nothing to read.
+		settled = (await c.get('/channels/callbacks?unhandled_only=false', headers=h)).json()
+		assert len(settled) == 1 and settled[0]['handled'] is True, settled
+		ledger = (await c.get('/integrations/hotline/outcomes', headers=h)).json()
+		assert len(ledger) == 1, ledger
+		assert ledger[0]['outcome_code'] == 'transported'
+		assert ledger[0]['call_ref'] == request_id, 'the ledger lost the join to the call it closed'
+		# §18.4's rows 1 and 2 — the one-tap call and the auto-call on fall detection — file no
+		# callback request, so their outcome has nothing to settle and is still a real outcome. A
+		# route that refused it would drop the section's last row for two of the three calls it
+		# closes, which is the subset failure the row's own Frequency column rules out.
+		fall_raw, fall_h = _signed({'outcome_code': 'advised_self_care', 'msisdn': '+254733000111', 'consented': True})
+		fall = await c.post('/integrations/hotline/outcome', content=fall_raw, headers=fall_h)
+		assert fall.json()['recorded'] is True and fall.json()['settled_request_id'] is None, fall.text
+		# And a code with no number at all is the section's Data column verbatim — "Outcome code
+		# (where consented)" names no number — so it records rather than being refused.
+		bare_raw, bare_h = _signed({'outcome_code': 'no_answer', 'consented': True})
+		bare = await c.post('/integrations/hotline/outcome', content=bare_raw, headers=bare_h)
+		assert bare.json()['recorded'] is True and bare.json()['settled_request_id'] is None, bare.text
+		assert len((await c.get('/integrations/hotline/outcomes', headers=h)).json()) == 3
+		# An unsigned code is someone else's word for what happened on our hotline call.
+		assert (await c.post('/integrations/hotline/outcome', json={'outcome_code': 'transported', 'consented': True})).status_code == 401
+		# A code with no code is not an outcome.
+		empty_raw, empty_h = _signed({'outcome_code': '  ', 'consented': True})
+		assert (await c.post('/integrations/hotline/outcome', content=empty_raw, headers=empty_h)).status_code == 422
+		# The ledger names a person's number, so it is scoped like the queue it joins to.
+		assert (await c.get('/integrations/hotline/outcomes')).status_code == 401
+
+
+async def test_the_facility_correction_route_is_guarded_like_its_siblings() -> None:
+	"""§18.5's second row writes to the national registry under this deployment's credentials, and it
+	was the only route on that block with no guard at all.
+
+	Probed through the front door, the unguarded version answered 502 — which is the proof it reached
+	the vendor code path, not that it was refused: `mohf.report_correction` posts to MoHF with our
+	config, so a caller with no token could spend this deployment's API key on a correction of their
+	choosing. Its two siblings on the same block, `/facilities/import-mohf` and
+	`/facilities/verification`, both carry `infrastructure`, and all three are one wire to one
+	authority.
+
+	`test_ui_vocabulary.py`'s `UNGATED_WRITES` list is the app-wide gate and this route came off it in
+	the same commit — the list's own stale-check asserts every entry is *still* unguarded, so leaving
+	it there would have failed there instead.
+	"""
+	import httpx as _httpx
+
+	from afya.service import build_services, create_app
+
+	app = create_app(build_services())
+	body = {'field': 'phone', 'value': '+254700000000'}
+	async with _httpx.AsyncClient(transport=_httpx.ASGITransport(app=app), base_url='http://t') as c:
+		for headers in ({}, {'authorization': 'Bearer nonsense'}):
+			resp = await c.post('/facilities/F1/correction', json=body, headers=headers)
+			assert resp.status_code == 401, f'{resp.status_code} without a usable token, not 401'
+		# The siblings the guard was copied from, asserted in the same test so the three cannot drift
+		# apart again: one of them guarded and one of them not is exactly how this was found.
+		assert (await c.post('/facilities/import-mohf?county=Busia')).status_code == 401
+		assert (await c.get('/facilities/verification?facility_ids=F1')).status_code == 401
 
 
 async def test_inbound_sms_is_routed_by_intent(webhook_env: str) -> None:

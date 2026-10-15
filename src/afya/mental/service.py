@@ -8,7 +8,7 @@ names services and reports what it could not reach.
 """
 import statistics
 
-from afya.ids import uuid7str
+from afya.ids import ref8
 from afya.logmixin import LogMixin
 from afya.mental.instruments import (
 	AVAILABLE_LANGS, GAD7_FURTHER_EVALUATION_AT, ITEM_BANKS, PHQ9_IMPAIRMENT_QUESTION, RESPONSE_OPTIONS,
@@ -223,7 +223,7 @@ class MentalHealthService(LogMixin):
 			if row.get('verified') != 'True':
 				unreachable.append(f'{row["name"]} ({row["number"]}) — number not verified against the provider')
 		referral = ServiceReferral(
-			referral_id=f'MH-{uuid7str()[:12].upper()}', subject_ref=subject_ref, reason=reason,
+			referral_id=f'MH-{ref8()}', subject_ref=subject_ref, reason=reason,
 			urgency=urgency, services=services, unreachable=unreachable,
 			advise='Contact one of these services. If the number does not answer, use 719.')
 		self._referrals.append(referral)

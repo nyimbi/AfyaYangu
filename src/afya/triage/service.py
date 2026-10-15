@@ -133,9 +133,9 @@ class TriageService(LogMixin):
 			self._log_info('rrt notification withheld: no county', subject_ref=subject_ref)
 			return None
 		from afya.alerting.views import CountyRrtNotification
-		from afya.ids import uuid7str
+		from afya.ids import ref8
 		notification = CountyRrtNotification(
-			notification_id='RRT-' + uuid7str().replace('-', '').upper()[-8:],
+			notification_id='RRT-' + ref8(),
 			county=inp.county,
 			subject_ref=subject_ref,
 			case_ref=case_ref,

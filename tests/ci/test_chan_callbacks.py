@@ -42,8 +42,10 @@ class AfricaTalkingSmsPort:
 		return 'at:queued'
 
 
-def _walk(svc: ChannelService, text: str, lang: str = 'en') -> UssdResponse:
-	return svc.ussd(UssdRequest(session_id='s1', msisdn=MSISDN, text=text), lang)
+def _walk(svc: ChannelService, text: str, lang: str = 'en', session: str = 's1') -> UssdResponse:
+	"""`session` is a parameter because a callback request is filed against the session it came from,
+	and two requests by one handset have to be two records for the queue's order to mean anything."""
+	return svc.ussd(UssdRequest(session_id=session, msisdn=MSISDN, text=text), lang)
 
 
 def test_the_two_prompts_are_reached_and_the_spec_prints_them() -> None:
@@ -159,6 +161,58 @@ def test_a_handled_request_leaves_the_default_read() -> None:
 	assert [c.request_id for c in svc.callback_requests(unhandled_only=False)] == [req.request_id]
 	with pytest.raises(KeyError):
 		svc.handle_callback('CB-NOSUCH')
+
+
+def test_a_call_outcome_settles_the_request_it_closes() -> None:
+	"""§18.4's fifth row: the code is recorded, and settles the call it closes.
+
+	`record_call_outcome` is the carrier §18.4's outcome code was missing. The route that received it
+	returned `{'recorded': True, 'outcome_code': code}` and stored nothing, so the section's inbound
+	row was a wire acknowledging a write it never made — and the code was read nowhere in the tree,
+	which is the tell: a field whose only occurrences are the line reading it off the payload and the
+	line echoing it back is data the system collects and never uses.
+
+	The outcome is its **own** record, not a field on the queue, and the second half of this test is
+	why: the section's row closes every 719 call, but only one of the three rows above it files a
+	callback request. A one-tap call and the auto-call on fall detection are dispatched from the SOS
+	path and leave nothing in this queue, so an outcome carried on the queue could only ever close a
+	third of the calls the row is about.
+	"""
+	svc = _svc()
+	_walk(svc, '1*1*1*1')
+	req = svc.callback_requests()[0]
+	outcome = svc.record_call_outcome('transported', MSISDN)  # the hotline's spelling, not ours
+	assert outcome.call_ref == req.request_id, 'the outcome did not settle the call it closed'
+	assert outcome.outcome_code == 'transported'
+	assert svc.callback_requests() == [], 'a settled request left the work queue'
+	assert svc.callback_requests(unhandled_only=False)[0].handled is True
+	# The queue is ordered and a person who asks twice is rung twice, so the code settles the
+	# *oldest* open request. Taking the newest is the plausible-looking bug: every "an outcome was
+	# recorded" assertion still passes and the call that was actually closed is left open. Two
+	# requests is what makes the two orders distinguishable — with one, `[0]` and `[-1]` are the same
+	# object and the test proves nothing.
+	_walk(svc, '1*1*1*1', session='s2')
+	_walk(svc, '1*1*1*1', session='s3')
+	first, second = [c.request_id for c in svc.callback_requests()]
+	settled_first = svc.record_call_outcome('self_care', MSISDN)
+	assert settled_first.call_ref == first, 'the outcome settled the newer call'
+	assert [c.request_id for c in svc.callback_requests()] == [second], 'the newer call is still open'
+
+	# A code for a call nobody asked for is still a real outcome. Rows 1 and 2 of §18.4's table —
+	# the one-tap call and the fall auto-call — file no callback request, so refusing an outcome
+	# with no queue entry behind it would lose the row for two of the three calls it closes.
+	orphan = svc.record_call_outcome('transported', '+254799999999')
+	assert orphan.call_ref is None, 'an unmatched number settled nothing'
+	assert orphan.msisdn == '+254799999999'
+	# And a code with no number at all is the section's own Data column — "Outcome code (where
+	# consented)" names no number — so it records too rather than being refused.
+	nameless = svc.record_call_outcome('self_care')
+	assert nameless.call_ref is None and nameless.msisdn is None
+	assert [o.outcome_code for o in svc.call_outcomes()] == ['transported', 'self_care', 'transported', 'self_care']
+	# A number that is not Kenyan is refused by §5.4's identity model rather than normalised into
+	# something that looks like one, which is the same rule every channel entry point follows.
+	with pytest.raises(ValueError):
+		svc.record_call_outcome('transported', '+15551234567')
 
 
 def test_the_carrier_envelope_reports_the_request() -> None:

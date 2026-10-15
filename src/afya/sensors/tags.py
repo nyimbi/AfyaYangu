@@ -35,7 +35,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from afya.ids import uuid7str
+from afya.ids import ref8
 from afya.logmixin import LogMixin
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -106,7 +106,7 @@ class TagReading(BaseModel):
 	"""
 
 	model_config = MODEL_CONFIG
-	reading_id: str = Field(default_factory=lambda: 'TAP-' + uuid7str().replace('-', '').upper()[:8])
+	reading_id: str = Field(default_factory=lambda: 'TAP-' + ref8())
 	tag_id: str = Field(pattern=TAG_ID_PATTERN)
 	target: TagTarget
 	target_ref: str

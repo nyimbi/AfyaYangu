@@ -6,7 +6,7 @@ from typing import Self
 from afya.sensors.views import MeasurementSource
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from afya.ids import uuid7str
+from afya.ids import ref8
 from afya.records.views import EPI_SCHEDULE
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
@@ -80,7 +80,7 @@ class CampaignNotice(BaseModel):
 	"""
 
 	model_config = MODEL_CONFIG
-	campaign_id: str = Field(default_factory=lambda: 'CMP-' + uuid7str().replace('-', '')[-8:].upper())
+	campaign_id: str = Field(default_factory=lambda: 'CMP-' + ref8())
 	disease: str
 	counties: list[str]
 	target_age_months: tuple[int, int]
@@ -134,7 +134,7 @@ def reminder_times(times_per_day: int) -> list[str]:
 
 class MedSchedule(BaseModel):
 	model_config = MODEL_CONFIG
-	schedule_id: str = Field(default_factory=lambda: 'MED-' + uuid7str().replace('-', '').upper()[:6])
+	schedule_id: str = Field(default_factory=lambda: 'MED-' + ref8())
 	member_ref: str
 	drug: str
 	dose: str
@@ -287,7 +287,7 @@ class LarvicidingNotice(BaseModel):
 	"""
 
 	model_config = MODEL_CONFIG
-	campaign_id: str = Field(default_factory=lambda: 'LSM-' + uuid7str().replace('-', '')[-8:].upper())
+	campaign_id: str = Field(default_factory=lambda: 'LSM-' + ref8())
 	counties: list[str]
 	larvicide: str
 	habitats: list[str]
@@ -503,7 +503,7 @@ REMINDER_SLOTS: tuple[ReminderSlot, ...] = (ReminderSlot.morning, ReminderSlot.e
 
 class MonitoringDay(BaseModel):
 	model_config = MODEL_CONFIG
-	entry_id: str = Field(default_factory=lambda: 'MON-' + uuid7str().replace('-', '').upper()[:8])
+	entry_id: str = Field(default_factory=lambda: 'MON-' + ref8())
 	subject_ref: str
 	day: int = Field(ge=1, le=21)
 	temperature_c: float = Field(ge=30, le=45)
