@@ -202,3 +202,181 @@ async def test_the_contents_view_is_auditor_scoped() -> None:
 			headers={'authorization': f'Bearer {tok}'})).json()
 		assert body['unbacked_items'] == []
 		assert body['max_profiles'] == 10 and body['max_profiles_enforced'] is True
+
+
+# --- §17.6's last line: "Extra protections for adolescent reproductive health data" -------------
+
+def test_the_adolescent_band_is_grounded_and_below_the_age_of_majority() -> None:
+	"""WHO defines the phase the word names — "Adolescence is the phase of life between childhood and
+	adulthood, from ages 10 to 19" — and the band is intersected with this tree's age of majority.
+	Above 18 `owns` already returns False for a guardian, so the 18–19 half is unreachable and a
+	bound carrying it would be a claim with no member behind it."""
+	from afya.records.service import ADOLESCENT_YEARS, MAJORITY_YEARS
+	assert ADOLESCENT_YEARS == (10, 17)
+	assert ADOLESCENT_YEARS[1] < MAJORITY_YEARS, 'the band must end below the transfer of control'
+	# The import-time assert is the gate; this is the same fact asserted where a reader will look.
+	assert ADOLESCENT_YEARS[0] > 0, 'a lower bound is what keeps a six-year-old out of the band'
+
+
+def test_the_classifier_reads_the_document_and_not_a_caller_supplied_flag() -> None:
+	"""The whole mechanism. A `sensitive: bool` on the request would be a value the person filing
+	the record attests about itself, and the case this protection exists for — a guardian filing
+	their daughter's contraceptive under a benign title — is exactly the case the flag would be set
+	to False on. So the classification is computed from the document's own fields.
+
+	The negative cases are the ones that matter: a rule that swept in every minor's record would
+	withhold from a parent what §17.6's third line gives them."""
+	from afya.women.content import REPRODUCTIVE_TERMS, is_reproductive_health_data as is_rh
+	assert is_rh(kind='prescription', title='Prescription: Levonorgestrel'), 'a drug name is the method'
+	assert is_rh(kind='prescription', title='Prescription: Norethisterone')
+	assert is_rh(kind='anc', title='Antenatal visit 1'), 'the kind is itself a term'
+	assert is_rh(kind='referral', title='Family planning referral')
+	assert is_rh(kind='appointment', title='Postnatal check')
+	# Not reproductive health data — the guardian keeps every one of these.
+	assert not is_rh(kind='immunisation', title='OPV dose 1')
+	assert not is_rh(kind='lab', title='Malaria RDT')
+	assert not is_rh(kind='prescription', title='Prescription: Amoxicillin')
+	assert not is_rh(kind='discharge', title='Discharge summary')
+	# `REFERRAL_SERVICES` also lists counselling and GBV support and neither is in the vocabulary:
+	# §17.6 names *reproductive* health data, and sweeping a mental-health referral in would be this
+	# protection widening itself past the sentence it implements.
+	assert not is_rh(kind='referral', title='Counselling and emotional support')
+	assert not is_rh(kind='referral', title='Gender-based violence support')
+	# A short term must not match inside an unrelated word, which is why the short ones are matched
+	# on a word boundary. "anc" is a real clinical abbreviation and also the start of "balance".
+	assert not is_rh(kind='lab', title='Balance test')
+	assert 'anc' in REPRODUCTIVE_TERMS, 'the boundary guard is for a term that is really there'
+
+
+async def test_a_guardian_cannot_read_an_adolescents_reproductive_documents() -> None:
+	"""§17.6's last line, at the service boundary. The section gives the guardian control of the
+	record and then asks for extra protection for adolescent reproductive health data; if the third
+	line were absolute the last line would be vacuous. WHO names the mechanism — adolescents are
+	kept from care by "parental or partner control" and "lack of confidentiality" — so the
+	protection with content is the one that withholds these documents from the guardian."""
+	from datetime import date
+	from afya.records.views import WalletDocument
+	svc = RecordsService()
+	await svc.add_member(WalletMember(member_ref='TEEN', dob_iso='2011-03-02', guardian_ref='GUARD'),
+		today=date(2026, 10, 12))
+	for doc in (
+		WalletDocument(member_ref='TEEN', kind='prescription', title='Contraceptive pill',
+		               occurred_iso='2026-09-05'),
+		WalletDocument(member_ref='TEEN', kind='anc', title='Antenatal visit 1',
+		               occurred_iso='2026-09-01'),
+		WalletDocument(member_ref='TEEN', kind='immunisation', title='OPV dose 1',
+		               occurred_iso='2026-08-01'),
+		WalletDocument(member_ref='TEEN', kind='prescription', title='Amoxicillin',
+		               occurred_iso='2026-07-01'),
+	):
+		await svc.add_document(doc)
+	today = date(2026, 10, 12)
+	seen = {d.title for d in svc.documents('TEEN', reader='GUARD', today=today)}
+	assert seen == {'OPV dose 1', 'Amoxicillin'}, seen
+	# The adolescent reads all four of her own — the first condition in `readable` is that the
+	# reader is the subject, checked before any band or classifier, so no rule locks a person out
+	# of their own record.
+	own = {d.title for d in svc.documents('TEEN', reader='TEEN', today=today)}
+	assert len(own) == 4, own
+	assert svc.readable('TEEN', next(d for d in svc.documents('TEEN') if d.kind == 'anc'), today)
+	# And the unfiltered read still exists for the internal callers that need it — the count and
+	# the certificate — so the protection is a filter on readers and not a deletion.
+	assert len(svc.documents('TEEN')) == 4
+
+
+async def test_an_adult_guardian_reads_everything_and_so_does_a_young_childs() -> None:
+	"""The band has two bounds and both are load-bearing. Above 17 the guardian is not a guardian at
+	all — `owns` has already refused — so the protection cannot be what stops them. Below 10 the
+	record is a child's and §17.6's third line gives the parent the whole of it."""
+	from datetime import date
+	from afya.records.views import WalletDocument
+	svc = RecordsService()
+	await svc.add_member(WalletMember(member_ref='KID', dob_iso='2020-01-01', guardian_ref='GUARD'),
+		today=date(2026, 10, 12))
+	await svc.add_document(WalletDocument(member_ref='KID', kind='prescription',
+	                                      title='Contraceptive pill', occurred_iso='2026-09-05'))
+	# A nine-year-old is outside the band, so the document is served: a rule with no lower bound
+	# would withhold a child's record from their parent on the strength of a word in its title.
+	kid = svc.documents('KID', reader='GUARD', today=date(2026, 10, 12))
+	assert [d.title for d in kid] == ['Contraceptive pill']
+	# A seventeen-year-old is inside it, and the same document is withheld.
+	await svc.add_member(WalletMember(member_ref='TEEN', dob_iso='2009-03-02', guardian_ref='GUARD'),
+		today=date(2026, 10, 12))
+	await svc.add_document(WalletDocument(member_ref='TEEN', kind='prescription',
+	                                      title='Contraceptive pill', occurred_iso='2026-09-05'))
+	assert svc.documents('TEEN', reader='GUARD', today=date(2026, 10, 12)) == []
+	# An eighteen-year-old: `owns` refuses the guardian outright, so the protection is not what
+	# stops them and the band's upper bound is asserted against the ownership rule rather than
+	# against this filter.
+	assert svc.owns('GUARD', 'TEEN', date(2027, 3, 2)) is False
+
+
+async def test_the_export_says_it_is_short_rather_than_being_silently_short() -> None:
+	"""A guardian's export is missing the documents the protection withholds, and a short record
+	that does not say it is short reads as a complete one. The count travels on the document; the
+	list does not, because naming them would hand over the index of what was kept back."""
+	from datetime import date
+	from afya.records.views import WalletDocument
+	svc = RecordsService()
+	await svc.add_member(WalletMember(member_ref='TEEN', dob_iso='2011-03-02', guardian_ref='GUARD'),
+		today=date(2026, 10, 12))
+	for kind, title in (('prescription', 'Contraceptive pill'), ('immunisation', 'OPV dose 1')):
+		await svc.add_document(WalletDocument(member_ref='TEEN', kind=kind, title=title,
+		                                      occurred_iso='2026-09-05'))
+	doc = svc.export('GUARD', 'TEEN', 'json', '2026-10-12T00:00:00+00:00')
+	assert doc.document_count == 1 and doc.withheld_count == 1
+	assert 'adolescent reproductive health data' in doc.withheld_note
+	assert 'Contraceptive' not in doc.content, 'the withheld document is not in the export body'
+	# The adolescent's own export is complete and says nothing about withholding.
+	own = svc.export('TEEN', 'TEEN', 'json', '2026-10-12T00:00:00+00:00')
+	assert own.document_count == 2 and own.withheld_count == 0 and own.withheld_note == ''
+	# Past the eighteenth birthday there is no guardianship left for the protection to bite on, so
+	# the export is empty and carries no note — the field is not a warning that fires on every
+	# record. `today` is threaded through both `assert_owns` and the filter, so a birthday cannot
+	# transfer control in one and not the other.
+	with pytest.raises(AssertionError, match='belong to someone else'):
+		svc.export('GUARD', 'TEEN', 'json', '2033-01-01T00:00:00+00:00', today=date(2033, 1, 1))
+
+
+async def test_the_protection_holds_at_the_front_door_and_on_both_doors() -> None:
+	"""The service filter is only half the claim; this is what the app serves. Two doors reach the
+	same data — the document envelope and the typed lab row — and a control fitted to one is the
+	control the other walks past, which is how the evidence consent and the §17.4 ledger both failed
+	before they were moved to the boundary. The lab is filed with a value that names a pregnancy
+	test and a `test` code that says nothing, which is the shape a real record has."""
+	import httpx
+	from afya.service import build_services, create_app
+	svc = build_services()
+	app = create_app(svc)
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		tok = (await c.post('/auth/anonymous', json={})).json()['token']
+		h = {'authorization': f'Bearer {tok}'}
+		subj = (await c.get('/auth/whoami', headers=h)).json()['subject_ref']
+		await c.post('/records/member', json={
+			'member_ref': 'teen-1', 'guardian_ref': subj, 'dob_iso': '2011-03-02'}, headers=h)
+		for body in (
+			{'member_ref': 'teen-1', 'kind': 'prescription', 'title': 'Contraceptive pill',
+			 'occurred_iso': '2026-09-05'},
+			{'member_ref': 'teen-1', 'kind': 'immunisation', 'title': 'OPV dose 1',
+			 'occurred_iso': '2026-08-01'},
+		):
+			assert (await c.post('/records/documents', json=body, headers=h)).status_code == 200
+		assert (await c.post('/records/labs', json={
+			'member_ref': 'teen-1', 'test': 'other', 'value': 'positive pregnancy test',
+			'performed_iso': '2026-09-02', 'flag': 'abnormal'}, headers=h)).status_code == 200
+
+		docs = (await c.get('/records/teen-1/documents', headers=h)).json()
+		assert [d['title'] for d in docs] == ['OPV dose 1'], docs
+		assert (await c.get('/records/teen-1/labs', headers=h)).json() == [], 'the second door is closed'
+		tl = (await c.get('/records/timeline', headers=h)).json()
+		assert [e['title'] for e in tl] == ['OPV dose 1'], tl
+		search = (await c.get('/records/search', params={'q': 'Contraceptive'}, headers=h)).json()
+		assert search == [], 'search is a third door and is filtered too'
+		exp = (await c.get('/records/teen-1/export', params={'fmt': 'json'}, headers=h)).json()
+		assert exp['document_count'] == 1 and exp['withheld_count'] == 2, exp['withheld_count']
+		# The unfiltered set still exists behind the filter, so the protection is a rule about who
+		# reads rather than a deletion — and the guardian's refusal is not the record being gone.
+		# Asked for by omitting `reader`, which is the same argument the route passes: if this ever
+		# returned 1, the filter would have become a deletion.
+		records: RecordsService = svc['records']  # type: ignore[assignment]
+		assert len(records.documents('teen-1')) == 3

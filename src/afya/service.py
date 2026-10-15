@@ -2167,11 +2167,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/records/{ref}/labs')
 	async def records_labs(ref: str, _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['ref']))) -> list[dict[str, object]]:
 		# Lab results are personal data; the ref is a member of the caller's own wallet, not anyone's.
+		# `reader=_subject` carries §17.6's last line to this second door: a lab result is also filed
+		# as a wallet document, so filtering the document route alone would withhold a pregnancy test
+		# there and serve it here.
 		try:
 			records.assert_owns(_subject, ref)
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
-		return [l.model_dump(mode='json') for l in records.labs(ref)]
+		return [l.model_dump(mode='json') for l in records.labs(ref, reader=_subject)]
 
 	@app.get('/records/{guardian_ref}/wallet')
 	async def records_wallet(guardian_ref: str, _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['guardian_ref']))) -> dict[str, object]:
@@ -2216,11 +2219,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.get('/records/{member_ref}/documents')
 	async def records_documents(member_ref: str, kind: str | None = None,
 	                            _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> list[dict[str, object]]:
-		"""One member's wallet documents, newest first, optionally narrowed to one of §9.2's kinds."""
+		"""One member's wallet documents, newest first, optionally narrowed to one of §9.2's kinds.
+
+		`reader=_subject` is §17.6's last line at the door: a guardian reading an adolescent's record
+		gets everything except her reproductive health documents. The filter is applied in
+		`RecordsService.documents` rather than here, so this route and the timeline, search, export
+		and backup cannot disagree about what a guardian may read.
+		"""
 		try:
 			records.assert_owns(_subject, member_ref)
 			kinds = [kind] if kind else None
-			return [d.model_dump(mode='json') for d in records.documents(member_ref, kinds)]
+			return [d.model_dump(mode='json')
+			        for d in records.documents(member_ref, kinds, reader=_subject)]
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 

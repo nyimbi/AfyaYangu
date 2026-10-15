@@ -676,3 +676,34 @@ async def test_the_vaccination_certificate_route_seals_the_doses() -> None:
 		secret = ServiceConfig.from_env().webhook_secret or 'afya-dev-seal'
 		assert RecordsService().certificate_seal_holds(
 			VaccinationCertificate(**cert), secret), 'the served certificate must verify'
+
+
+def test_every_route_that_serves_a_member_says_who_is_reading() -> None:
+	"""§17.6's last line is enforced by an argument, and an argument is a thing a new route forgets.
+
+	`documents()` and `labs()` take a *member* first, so nothing in the call itself says who is
+	reading and the filter is opt-in — a route added tomorrow that calls `records.documents(ref)`
+	serves an adolescent's contraceptive record to her guardian and every existing test still
+	passes. This is the "control that exists is not a control that is applied" class the repo keeps
+	meeting, and the fix is the same one `check_product_sync` and `undocumented_access` use: read
+	the source, so the gate moves with the code rather than with a list someone maintains.
+
+	The jurisdiction is exactly these two functions. `timeline`, `search`, `export` and `backup`
+	take the *subject* first and apply the filter inside themselves, so their call sites are safe by
+	construction — which is why they are not asserted here. A gate scoped wider than its
+	jurisdiction fails for reasons its operator cannot act on, and the pressure that creates is to
+	disable it.
+	"""
+	from pathlib import Path
+	src = (Path(__file__).resolve().parents[2] / 'src' / 'afya' / 'service.py').read_text(encoding='utf-8')
+	serving = [m for m in re.finditer(r'records\.(documents|labs)\(', src)]
+	assert len(serving) == 2, f'expected the two member-first readers, found {len(serving)}'
+	for m in serving:
+		# The whole call, so a `reader=` in a later expression cannot be mistaken for this one's.
+		call = src[m.start():src.index(')', m.start()) + 1]
+		assert 'reader=' in call, f'{call} serves a member without saying who is reading'
+	# And the reader must be the authenticated subject, not a value off the request body — the
+	# protection is against the caller, so a reader the caller supplies is the caller's own claim.
+	for m in serving:
+		call = src[m.start():src.index(')', m.start()) + 1]
+		assert 'reader=_subject' in call, call

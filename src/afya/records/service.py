@@ -21,6 +21,26 @@ MAJORITY_YEARS = 18
 """§17.6's age of majority. Children under 18 require guardian consent for an identified profile
 and a guardian controls their records; at 18 control transfers to the individual."""
 
+ADOLESCENT_YEARS = (10, 17)
+"""§17.6's last line — "Extra protections for adolescent reproductive health data" — and the band
+those protections apply to.
+
+WHO defines the phase the word names: *"Adolescence is the phase of life between childhood and
+adulthood, from ages 10 to 19"* (archived at `sources/who-adolescent-health/`). The upper bound here
+is 17 rather than 19 because the band is intersected with `MAJORITY_YEARS`: above 18 `owns` already
+returns False for a guardian, control has transferred, and no protection this module applies could
+bite on the 18–19 half. Carrying 19 would be a bound with no reachable member behind it — the same
+shape as a scope with no route — so the two constants are asserted to agree below rather than
+written independently.
+
+The lower bound matters in the other direction. A six-year-old's immunisation record is not
+adolescent reproductive health data, and a rule that protected every minor would withhold from a
+parent a record §17.6's third line gives them.
+"""
+
+assert ADOLESCENT_YEARS[1] < MAJORITY_YEARS, (
+	'the adolescent band must end below the age of majority, or its upper years are unreachable')
+
 MAX_WALLET_PROFILES = 10
 """§9.2 REC-001: "Multiple profiles (up to 10)". A number in the section, enforced at enrolment."""
 
@@ -96,6 +116,20 @@ def _parse_iso(value: str) -> datetime:
 	return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+def _lab_text(res: LabResult) -> dict[str, str]:
+	"""A `LabResult` as the `title`/`detail` a document would carry, so one classifier reads both.
+
+	`_lab_document` composes these from the same fields, and `labs()` classifies the typed row. If
+	the two composed them differently, a lab could be reproductive health data as a document and
+	not as a row — which is the shape of every second-door bug in this repo: the same fact written
+	twice and the two copies drifting.
+	"""
+	return {
+		'title': f'{res.test} result',
+		'detail': f'{res.value}{" " + res.unit if res.unit else ""} ({res.flag})',
+	}
+
+
 def _lab_document(res: LabResult) -> WalletDocument:
 	"""A `LabResult` as a wallet document, with its own fields kept in `payload`.
 
@@ -107,9 +141,9 @@ def _lab_document(res: LabResult) -> WalletDocument:
 	return WalletDocument(
 		doc_id=f'lab-{res.member_ref}-{res.performed_iso}-{res.test}',
 		member_ref=res.member_ref, kind='lab',
-		title=f'{res.test} result', occurred_iso=res.performed_iso,
-		detail=f'{res.value}{" " + res.unit if res.unit else ""} ({res.flag})',
+		occurred_iso=res.performed_iso,
 		payload=res.model_dump(mode='json'),
+		**_lab_text(res),
 	)
 
 
@@ -268,8 +302,53 @@ class RecordsService(LogMixin):
 		year, month, day = (int(p) for p in member.dob_iso.split('-')[:3])
 		return date(year + MAJORITY_YEARS, month, day).isoformat()
 
-	def assert_owns(self, subject_ref: str, member_ref: str) -> None:
-		assert self.owns(subject_ref, member_ref), 'these records belong to someone else'
+	def assert_owns(self, subject_ref: str, member_ref: str, today: date | None = None) -> None:
+		assert self.owns(subject_ref, member_ref, today), 'these records belong to someone else'
+
+	def readable(self, subject_ref: str, doc: WalletDocument, today: date | None = None) -> bool:
+		"""Whether `subject_ref` may read one wallet document — §17.6's last line, applied.
+
+		`owns` answers "is this member yours", which is the right question for a growth chart or an
+		immunisation card and the wrong one for an adolescent's reproductive health record. §17.6
+		gives the guardian control of the record *and*, two lines later, asks for "extra protections
+		for adolescent reproductive health data" — and if the third line were absolute the last line
+		would be vacuous. WHO names the mechanism: adolescents are kept from care by "parental or
+		partner control" and "lack of confidentiality", so the protection that has content is the one
+		that withholds these documents from the guardian and leaves them with the person they are
+		about.
+
+		Three conditions, all of which must hold for the guardian to be refused: the reader is not
+		the subject, the member is in the adolescent band, and the document is reproductive health
+		data. Anything else is unchanged, so a parent still reads their child's immunisations, growth,
+		labs and every other kind — which is what §17.6's third line asks for and what a rule scoped
+		any wider would take away.
+
+		The adolescent herself always reads her own documents: the first condition exempts the
+		subject, and it is checked first so no band or classifier can lock a person out of their own
+		record.
+		"""
+		if subject_ref == doc.member_ref:
+			return True
+		member = self._members.get(doc.member_ref)
+		if member is None:
+			return False
+		at = today or date.today()
+		age = age_years(member.dob_iso, at)
+		if not (ADOLESCENT_YEARS[0] <= age <= ADOLESCENT_YEARS[1]):
+			return True
+		from afya.women.content import is_reproductive_health_data
+		return not is_reproductive_health_data(kind=doc.kind, title=doc.title, detail=doc.detail)
+
+	def withheld_from(self, subject_ref: str, member_ref: str, today: date | None = None) -> int:
+		"""How many of a member's documents §17.6's last line keeps back from this reader.
+
+		A count rather than a list: the caller is a guardian who has just been served a record with
+		a document missing, and a list would name the documents the protection exists to keep from
+		them. The count is enough to tell them the record is complete and their view of it is not.
+		"""
+		if subject_ref == member_ref:
+			return 0
+		return sum(1 for d in self.documents(member_ref) if not self.readable(subject_ref, d, today))
 
 	async def record_immunisation(self, rec: ImmunisationRecord) -> None:
 		self._imm.append(rec)
@@ -533,10 +612,28 @@ class RecordsService(LogMixin):
 		if res.member_ref in self._members:
 			await self.add_document(_lab_document(res))
 
-	def labs(self, member_ref: str) -> list[LabResult]:
+	def labs(self, member_ref: str, reader: str | None = None) -> list[LabResult]:
+		"""One member's typed lab rows, optionally as read by `reader`.
+
+		A second door to the same data the document envelope holds, and it was the door §17.6's last
+		line would have walked past: `_lab_document` files a lab as a wallet document, so filtering
+		`documents()` alone would withhold a pregnancy test filed there and serve the same result
+		through this route as a `LabResult`. The control belongs at both, or the second one is the
+		one that leaks.
+
+		The classification reads the same fields the document builder writes — `test`, `value` and
+		`unit`, composed exactly as `_lab_document` composes its title and detail — so the two
+		readers cannot disagree about whether one lab is reproductive health data. `_lab_text` below
+		is that composition, stated once.
+		"""
 		if not hasattr(self, '_labs'):
 			self.__init_labs()
-		return [l for l in self._labs if l.member_ref == member_ref]
+		held = [l for l in self._labs if l.member_ref == member_ref]
+		if reader is not None and reader != member_ref:
+			from afya.women.content import is_reproductive_health_data
+			held = [l for l in held
+			        if not is_reproductive_health_data(kind='lab', **_lab_text(l))]
+		return held
 
 	async def add_prescription(self, rx: Prescription) -> None:
 		if not hasattr(self, '_rx'):
@@ -565,12 +662,28 @@ class RecordsService(LogMixin):
 		self._log_info('wallet document filed', member=doc.member_ref, kind=doc.kind)
 		return doc
 
-	def documents(self, member_ref: str, kinds: list[str] | None = None) -> list[WalletDocument]:
-		"""One member's documents, newest first, optionally narrowed to some of §9.2's kinds."""
+	def documents(self, member_ref: str, kinds: list[str] | None = None,
+	              reader: str | None = None, today: date | None = None) -> list[WalletDocument]:
+		"""One member's documents, newest first, optionally narrowed to some of §9.2's kinds.
+
+		`reader` is the subject the documents are being read *by*, and it is optional so the internal
+		callers that need the whole set — the count `withheld_from` makes, a certificate built from
+		the dose log — can ask for it. Every path that serves documents to a person passes it, and
+		the filter is applied here rather than at each route because this is the one function all of
+		them already call: a second filter at a second door is the control fitted to one door that
+		the other walks past, which is how the evidence consent and the §17.4 ledger both failed
+		before they were moved to the boundary.
+
+		A caller that omits `reader` gets the unfiltered set, which is why the readers that face a
+		person are enumerated in `test_wallet.py` rather than trusted: the argument is a thing a new
+		route can forget, and the test is what notices.
+		"""
 		assert member_ref in self._members, 'unknown member'
 		held = [d for d in self._documents if d.member_ref == member_ref]
 		if kinds:
 			held = [d for d in held if d.kind in kinds]
+		if reader is not None:
+			held = [d for d in held if self.readable(reader, d, today)]
 		return sorted(held, key=lambda d: (d.occurred_iso, d.doc_id), reverse=True)
 
 	def timeline(self, subject_ref: str, today: date | None = None) -> list[TimelineEntry]:
@@ -589,7 +702,7 @@ class RecordsService(LogMixin):
 		for member in self._members.values():
 			if not self.owns(subject_ref, member.member_ref, today):
 				continue
-			for doc in self.documents(member.member_ref):
+			for doc in self.documents(member.member_ref, reader=subject_ref, today=today):
 				entries.append(TimelineEntry(
 					occurred_iso=doc.occurred_iso, kind=doc.kind, title=doc.title,
 					who=member.member_ref, doc_id=doc.doc_id, facility_id=doc.facility_id,
@@ -610,7 +723,7 @@ class RecordsService(LogMixin):
 		for member in self._members.values():
 			if not self.owns(subject_ref, member.member_ref):
 				continue
-			for doc in self.documents(member.member_ref):
+			for doc in self.documents(member.member_ref, reader=subject_ref):
 				haystack = f'{doc.title} {doc.detail} {doc.kind}'.lower()
 				if needle in haystack:
 					out.append(doc)
@@ -660,10 +773,15 @@ class RecordsService(LogMixin):
 		assert at <= _parse_iso(grant.expires_iso), (
 			f'this share ended on {grant.expires_iso}'
 		)
+		# Read as the subject, not as the clinician: the grant is the subject's own act, so what
+		# travels through it is what the subject may read of themselves. §17.6's last line protects
+		# an adolescent from a *guardian*, and a share the adolescent issued herself is the opposite
+		# of the control that line is about — reading it as the clinician would withhold from a
+		# provider the very records she chose to share.
 		return ShareView(
 			grant_id=grant.grant_id, member_ref=grant.member_ref, recipient=grant.recipient,
 			expires_iso=grant.expires_iso,
-			documents=self.documents(grant.member_ref, grant.kinds or None),
+			documents=self.documents(grant.member_ref, grant.kinds or None, reader=grant.member_ref),
 		)
 
 	async def revoke_share(self, grant_id: str) -> ShareGrant:
@@ -694,7 +812,8 @@ class RecordsService(LogMixin):
 
 	# --- §REC-001/§10.1 export and backup ---------------------------------------------------------
 
-	def export(self, subject_ref: str, member_ref: str, fmt: str, at_iso: str) -> ExportDocument:
+	def export(self, subject_ref: str, member_ref: str, fmt: str, at_iso: str,
+	           today: date | None = None) -> ExportDocument:
 		"""§REC-001's "PDF export" and §10.1's "Export to PDF for school, travel, or employment".
 
 		The PDF is rendered by `afya.records.pdf` here rather than by a library, because none is
@@ -703,8 +822,18 @@ class RecordsService(LogMixin):
 		a school office and a software system want different things from the same export.
 		"""
 		assert fmt in ('pdf', 'json'), f'{fmt} is not an export format'
-		self.assert_owns(subject_ref, member_ref)
-		docs = self.documents(member_ref)
+		# `today` is optional and threaded through both the ownership rule and the §17.6 filter, so
+		# the two cannot disagree about whether the reader is still a guardian — a birthday that
+		# transfers control in one and not the other would export a record it had just refused. It
+		# is also what makes the transfer testable, which `owns` and `add_member` already are.
+		self.assert_owns(subject_ref, member_ref, today)
+		docs = self.documents(member_ref, reader=subject_ref, today=today)
+		# §17.6's last line, said out loud on the document rather than left as a silent absence.
+		withheld = self.withheld_from(subject_ref, member_ref, today)
+		withheld_note = (
+			f'{withheld} document(s) in this record are adolescent reproductive health data and are '
+			'not included here. They are available to the young person themselves.'
+		) if withheld else ''
 		member = self._members[member_ref]
 		who = member.name or member_ref
 		if fmt == 'json':
@@ -727,12 +856,15 @@ class RecordsService(LogMixin):
 				if doc.facility_id:
 					lines.append(f'    Facility: {doc.facility_id}')
 				lines.append('')
+			if withheld_note:
+				lines.extend(['', withheld_note])
 			content = render(f'Health record — {who}', lines).decode('latin-1')
 			media, suffix = 'application/pdf', 'pdf'
 		return ExportDocument(
 			export_id=f'EXP-{member_ref}-{at_iso}', member_ref=member_ref, format=fmt,
 			media_type=media, filename=f'health-record-{member_ref}.{suffix}',
 			document_count=len(docs), content=content,
+			withheld_count=withheld, withheld_note=withheld_note,
 		)
 
 	async def backup(self, subject_ref: str, member_ref: str, at_iso: str,
@@ -757,7 +889,7 @@ class RecordsService(LogMixin):
 		# §SEC-001's cloud-backup consent, named here rather than in the message a caller reads back.
 		assert consented, 'an encrypted cloud backup needs the cloud backup consent'
 		self.assert_owns(subject_ref, member_ref)
-		docs = self.documents(member_ref)
+		docs = self.documents(member_ref, reader=subject_ref)
 		import json
 		blob = json.dumps([d.model_dump(mode='json') for d in docs],
 		                  sort_keys=True, separators=(',', ':')).encode()

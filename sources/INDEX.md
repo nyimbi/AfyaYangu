@@ -1703,3 +1703,48 @@ against the rendered page.
   **The client's own number is not verified by anything in this repo** — no Android build runs in CI
   — so the client change is a rendering of the served table and not an independently checked claim.
   The server-side table is what the audit row cites.
+
+## WHO adolescent health — §17.6's "Extra protections for adolescent reproductive health data"
+
+The World Health Organization's adolescent health topic page, retrieved 2026-10-15 from
+`https://www.who.int/health-topics/adolescent-health`. Archived as
+`who-adolescent-health/who-adolescent-health.html` and a text extraction beside it.
+
+	sha256  2e2acabe1faadb3fa7a45fdd07879335d5a7395c7a980c94fa8a9b87b1533677  who-adolescent-health.html
+	sha256  0e99fb3b4d436127567e24bba5554319527158292369ee6c64e1f3dfdd9e7cf3  who-adolescent-health.txt
+
+Used by `afya.records.service.ADOLESCENT_YEARS` and `afya.women.content.is_reproductive_health_data`,
+which carry §17.6's last line.
+
+**What the source supports.**
+
+- The definition of the phase the section's word names, verbatim: *"Adolescence is the phase of life
+  between childhood and adulthood, from ages 10 to 19."* That is the whole basis for the band's lower
+  bound of 10. The upper bound is 17 rather than the source's 19 because it is intersected with this
+  tree's `MAJORITY_YEARS = 18` — above 18 `owns` already refuses a guardian, so the 18–19 half is
+  unreachable and a bound carrying it would name no member. The intersection is asserted in code
+  (`ADOLESCENT_YEARS[1] < MAJORITY_YEARS`), so the two cannot drift.
+- The mechanism, in the page's own list of what keeps adolescents from care: *"Restrictive laws and
+  policies, parental or partner control, limited knowledge, distance, cost, lack of confidentiality,
+  and provider bias can all restrict adolescents from getting the care they need to grow and develop
+  in good health."* "Parental or partner control" and "lack of confidentiality" are the two the code
+  acts on: the protection with content is the one that withholds an adolescent's reproductive health
+  records from the guardian and leaves them with the person they are about.
+
+**What the source does not support, and what is therefore not claimed.**
+
+- It gives **no** list of what "reproductive health data" is, and **no** rule about who may read a
+  record. `REPRODUCTIVE_TERMS` is therefore derived from the WHO family-planning method table and the
+  SRH referral services this repo already archives at `who-reproductive-health/` — so the classifier
+  reads the same method vocabulary the contraception feature records against, rather than a second
+  list that could drift from it. The spec names no vocabulary either; §17.6's line is the whole of it.
+- It states no **legal** rule for Kenya. The Kenyan position is the Data Protection Act 2019's
+  s.33 (a child's data) and the age of majority, which this tree already carries as `MAJORITY_YEARS`;
+  the page is cited for the *phase* and the *barrier*, not for a statutory threshold. The Kenyan
+  statute is **not archived in this repo** — see the Kenya Data Protection Act section below for the
+  four retrieval attempts that failed — so no citation here rests on it.
+- It gives **no** age-specific consent rule for reproductive health services, and the code invents
+  none. The protection implemented is a **read** restriction inside the app, not a claim about
+  whether a Kenyan adolescent may consent to care without a guardian — that is a clinical and legal
+  question this repo does not answer and does not need to, because withholding a record from a
+  guardian in the wallet is not the same act as providing a service without consent.

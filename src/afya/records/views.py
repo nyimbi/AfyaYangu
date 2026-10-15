@@ -484,6 +484,13 @@ class ExportDocument(BaseModel):
 	filename: str
 	document_count: int
 	content: str
+	# §17.6's last line, as a number on the document. A guardian exporting an adolescent's record
+	# gets one that is short by the documents the protection withholds, and a short record that does
+	# not say it is short reads as a complete one — which is the failure this field exists to
+	# prevent. It is a count and not a list: naming them would hand over the index of what was kept
+	# back. Zero for every export that is not a guardian's of an adolescent.
+	withheld_count: int = 0
+	withheld_note: str = ''
 
 
 class BackupEnvelope(BaseModel):

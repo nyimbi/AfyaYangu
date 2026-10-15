@@ -175,3 +175,102 @@ REFERRAL_SERVICES: tuple[dict[str, str], ...] = (
 	 'note': f'Infertility is defined as {INFERTILITY_DEFINITION}, and treating it is part of '
 	         'family planning.'},
 )
+
+
+# --- §17.6's last line: "Extra protections for adolescent reproductive health data" --------------
+#
+# What "reproductive health data" *is*, as a classification the server computes from a document's
+# own content rather than a field a caller sets. The distinction is the whole of the mechanism: a
+# `sensitive: bool` on the request would be a value the person filing the record attests about
+# itself, and the one case this protection exists for — a guardian filing their daughter's
+# contraceptive under a benign title — is exactly the case that flag would be set to `False` on.
+# The DPIA gate in `afya.privacy` refuses a boolean the caller supplies about itself for the same
+# reason, and this is that rule applied to a wallet document.
+#
+# The vocabulary is the WHO family-planning table above plus the SRH referral services, both of
+# which this module already carries from archived sources — so the classifier reads the *same*
+# method list the contraception feature records against, and a method added there is classified
+# here without a second list to keep in step.
+#
+# The match is on the words a clinical record actually contains: a prescription names the drug
+# ("Levonorgestrel"), a referral names the service ("Family planning"), and an ANC document names
+# the visit. Substring matching is deliberately loose in one direction only — it may over-classify
+# (a document mentioning "condom" in passing is withheld from a guardian) and must not
+# under-classify, because the failure that matters is an adolescent's record being readable by the
+# person she is avoiding, not a guardian being asked to look at one document fewer.
+_DERIVED_TERMS: tuple[str, ...] = (
+	# WHO's method labels and slugs, read off `CONTRACEPTIVE_METHODS` rather than retyped.
+	*tuple(str(m['label']).lower() for m in CONTRACEPTIVE_METHODS),
+	*tuple(str(m['slug']).replace('_', ' ').lower() for m in CONTRACEPTIVE_METHODS),
+)
+
+_EXPLICIT_TERMS: tuple[str, ...] = (
+	# The drugs the contraception feature records against, which is how a prescription names the
+	# method: a pill is filed as `Levonorgestrel`, never as "Pill". These are the progestogens and
+	# estrogens the WHO Model Formulary lists for contraception, plus the two long-acting methods
+	# that appear by name in a procedure note.
+	'levonorgestrel', 'medroxyprogesterone', 'norethisterone', 'etonogestrel', 'desogestrel',
+	'ethinylestradiol', 'contracept', 'implanon', 'jadelle', 'depo-provera', 'depo provera',
+	'intrauterine', 'iud', 'iucd',
+	# Pregnancy and its care. An ANC visit, a maternity booking and a delivery are reproductive
+	# health data about the adolescent herself, and the spec's own §17.6 line names adolescent
+	# pregnancy as the case the protection is for.
+	'antenatal', 'prenatal', 'anc', 'pregnan', 'maternity', 'postnatal', 'obstetric',
+	# The SRH services `REFERRAL_SERVICES` names, so a referral document is classified by the
+	# service it refers to rather than by the word "referral". `REFERRAL_SERVICES` also lists
+	# counselling and GBV support, and those are deliberately **not** here: §17.6's line names
+	# *reproductive* health data, and a mental-health counselling referral is not that. Sweeping it
+	# in would withhold a record §17.6's third line gives the guardian, which is this protection
+	# widening itself past the sentence it implements.
+	'family planning', 'reproductive health', 'fertility', 'infertility',
+)
+
+# The two sources overlap on purpose — a method's label and its slug can be the same word ("iud"),
+# and the explicit list names a drug the WHO table gives no slug for. Deduped in order rather than
+# asserted disjoint, because the overlap is the two sources agreeing, not a mistake.
+REPRODUCTIVE_TERMS: tuple[str, ...] = tuple(dict.fromkeys(_DERIVED_TERMS + _EXPLICIT_TERMS))
+
+# The terms above are matched as substrings, and two of them are short enough to appear inside
+# unrelated words: "anc" is in "balance", "iud" is in nothing but "anc" needs the guard. Rather than
+# shorten the list — an abbreviation a clinical note really uses is worth keeping — the short ones
+# are matched on a word boundary and the long ones as substrings. `_SHORT_TERMS` is the split, and
+# it is asserted below so a term added to one tuple cannot be silently matched the other way.
+_SHORT_TERMS = frozenset({'anc', 'iud', 'iucd'})
+
+assert _SHORT_TERMS <= set(REPRODUCTIVE_TERMS), 'every short term is one of the classified terms'
+assert len(REPRODUCTIVE_TERMS) >= len(_DERIVED_TERMS), 'the WHO table survives dedup whole'
+
+
+def is_reproductive_health_data(*, kind: str, title: str, detail: str = '') -> bool:
+	"""Whether a wallet document is reproductive health data under §17.6's last line.
+
+	Reads the document's own fields — the kind, the title and the free-text detail — and nothing the
+	caller separately asserts. A `prescription` for Levonorgestrel is caught by the drug name in its
+	title; an `anc` document is caught by its kind; a `referral` to family planning is caught by the
+	service in its title or detail.
+
+	The `kind` argument is matched against the reproductive terms too rather than compared to a set
+	of kinds, because `anc` is both a wallet kind (§9.2's contents) and a term in the list — one
+	spelling, read once, rather than a kind list that could drift from the term list beside it.
+	"""
+	import re
+	haystack = f'{kind} {title} {detail}'.lower()
+	for term in REPRODUCTIVE_TERMS:
+		if term in _SHORT_TERMS:
+			if re.search(rf'\b{re.escape(term)}\b', haystack):
+				return True
+		elif term in haystack:
+			return True
+	return False
+
+
+assert is_reproductive_health_data(kind='prescription', title='Prescription: Levonorgestrel'), \
+	'the classifier finds a contraceptive by its drug name'
+assert is_reproductive_health_data(kind='anc', title='Antenatal visit 1'), \
+	'the classifier finds an ANC document by its kind'
+assert not is_reproductive_health_data(kind='immunisation', title='OPV dose 1'), \
+	'an immunisation is not reproductive health data'
+assert not is_reproductive_health_data(kind='lab', title='Malaria RDT'), \
+	'a malaria test is not reproductive health data'
+assert not is_reproductive_health_data(kind='lab', title='Balance test'), \
+	'the short term "anc" does not match inside "balance"'
