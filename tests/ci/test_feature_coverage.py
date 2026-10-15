@@ -16,6 +16,8 @@ rather than leaving it to a reader's head:
 A feature that is neither fails here. The list is deliberately small: if it grows, the question is
 whether the new entry is a real on-device capability or a route somebody did not write.
 """
+import pytest
+
 from afya.mobile.actions import FEATURE_OF
 from afya.registry.service import FeatureRegistry
 
@@ -80,10 +82,19 @@ ON_DEVICE: dict[str, str] = {
 	# while the corpus held the corrections as prose and nothing could be done with them. §INF-004
 	# prints four Features over that corpus — search, browse by category, ask about a rumour, share
 	# the card — and each has its own action now, so the entry came off.
-	'INF-008': 'health-tip items are in the health library corpus',
-	'INF-009': 'first-aid items are in the health library corpus',
-	'INF-010': 'burial-guidance items are in the health library corpus',
-	'INF-015': 'herbal-safety items are in the health library corpus',
+	# These three name a harmony tag the seed corpus actually carries, and
+	# `test_the_corpus_reasons_name_a_tag_the_corpus_has` holds each to it — `tips` (20 items),
+	# `first-aid` (33) and `burial` (10). The tag is the reason, so the reason is checkable.
+	'INF-008': 'health-tip items are in the health library corpus (harmony tag `tips`)',
+	'INF-009': 'first-aid items are in the health library corpus (harmony tag `first-aid`)',
+	'INF-010': 'burial-guidance items are in the health library corpus (harmony tag `burial`)',
+	# INF-015 was here as "herbal-safety items are in the health library corpus", and that reason
+	# named something the corpus does not have: there is no herbal tag and no herbal item. The
+	# capability is real and it is carried one module over — `afya.info.myths` holds §6.4's
+	# `cure_claim` correction, whose fact reads "No herbal or religious remedy cures Ebola", drafted
+	# in en and sw with a named authority. A registry-only id whose stated carrier does not exist is
+	# the citation defect this repo keeps meeting, so the entry names the carrier it has.
+	'INF-015': 'traditional and herbal safety is the `cure_claim` correction in afya.info.myths',
 }
 
 
@@ -115,6 +126,51 @@ def test_the_on_device_list_does_not_drift() -> None:
 	assert stale == [], f'ON_DEVICE names features that are covered, dormant or unknown: {stale}'
 	for fid, reason in ON_DEVICE.items():
 		assert len(reason) > 20, f'{fid} has no real reason, only {reason!r}'
+
+
+def test_the_corpus_reasons_name_a_tag_the_corpus_has() -> None:
+	"""A reason that cites a carrier is a citation, and a citation can point at nothing.
+
+	Four entries said their feature's content "is in the health library corpus". Three of those are
+	true and one was not: there is no herbal harmony tag and no herbal item, so INF-015's reason sent
+	a reader to look for something that does not exist — which is how the §17.6 dangling
+	`kenya-dpa-2019/` citation and the duplicated `gate.py` both went wrong. The capability was real
+	and lived in `afya.info.myths`; only the pointer was wrong.
+
+	The check is deliberately narrow: it reads the backticked tag out of a reason that says
+	"harmony tag" and asserts the seed corpus carries it. A gate scoped wider than its jurisdiction
+	fails for reasons its operator cannot act on, and the pressure that creates is to delete the
+	gate. This one can only fail when a reason names a tag, and then only when the tag is absent.
+	"""
+	import re
+	from afya.info.content_seed import rendition_rows, seed_rows
+	tags = {r.harmony_tag for r in seed_rows() + rendition_rows()}
+	named = {fid: m.group(1) for fid, reason in ON_DEVICE.items()
+	         if (m := re.search(r'harmony tag `([a-z-]+)`', reason))}
+	assert named, 'the corpus reasons stopped naming their tag, so this gate checks nothing'
+	for fid, tag in named.items():
+		assert tag in tags, f'{fid} cites harmony tag {tag!r}, which the corpus does not carry'
+	# And the reason must name a tag with items under it, not merely a tag that exists — a tag
+	# present and empty would satisfy the check above while pointing at the same nothing.
+	for fid, tag in named.items():
+		held = [r for r in seed_rows() + rendition_rows() if r.harmony_tag == tag]
+		assert held, f'{fid} cites harmony tag {tag!r}, which has no items'
+
+
+def test_the_corpus_reason_gate_catches_a_tag_the_corpus_lacks() -> None:
+	"""Canary. Driven against a synthetic reason, so it proves the comparison rather than restating
+	the current data — the mutation is a tag that is genuinely absent, not one spelled differently."""
+	import re
+	from afya.info.content_seed import rendition_rows, seed_rows
+	tags = {r.harmony_tag for r in seed_rows() + rendition_rows()}
+	synthetic = {'INF-999': 'x items are in the health library corpus (harmony tag `herbal-safety`)'}
+	named = {fid: m.group(1) for fid, reason in synthetic.items()
+	         if (m := re.search(r'harmony tag `([a-z-]+)`', reason))}
+	assert named == {'INF-999': 'herbal-safety'}, 'the extraction must find the tag it is given'
+	assert 'herbal-safety' not in tags, 'the canary tag must be one the corpus genuinely lacks'
+	with pytest.raises(AssertionError, match='which the corpus does not carry'):
+		for fid, tag in named.items():
+			assert tag in tags, f'{fid} cites harmony tag {tag!r}, which the corpus does not carry'
 
 
 def test_the_gate_catches_an_unaccounted_feature() -> None:

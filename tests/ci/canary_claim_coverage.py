@@ -28,6 +28,7 @@ import sys
 ROOT = pathlib.Path('/Users/nyimbiodero/src/pjs/afya')
 T = ROOT / 'tests/ci/test_content_audit.py'
 S = ROOT / 'src/afya/content_audit/service.py'
+F = ROOT / 'tests/ci/test_feature_coverage.py'
 
 CANARIES = [
 	# 1. A claim label the spec prints leaves the vocabulary, so the coverage gate stops demanding a
@@ -56,7 +57,40 @@ CANARIES = [
 	 "	('AI-003', 'Value', 'This is how the app contributes to detecting the *next* outbreak before it is clinically recognised.', 'carried', 'afya.ai.service:WARNING_Z', None),",
 	 "	('AI-003', 'Value', 'This is how the app contributes to detecting the *next* outbreak before it is clinically recognised.', 'narrative', None, 'a statement about what the product is for, which is an argument rather than a capability'),",
 	 'test_the_narrative_claims_are_the_ones_no_code_can_carry'),
+
+	# 4. An `ON_DEVICE` reason goes back to citing a carrier that does not exist — the state INF-015
+	#    was actually in. It names a harmony tag the seed corpus has never carried, which is a
+	#    citation pointing at nothing: a reader who chases it finds no herbal tag and no herbal item,
+	#    and the capability is one module over in `afya.info.myths`. The mutation restores the false
+	#    reason rather than inventing a new one, so the canary is the real defect reproduced.
+	('a corpus reason cites a tag the corpus does not have', F,
+	 "	'INF-015': 'traditional and herbal safety is the `cure_claim` correction in afya.info.myths',",
+	 "	'INF-015': 'herbal-safety items are in the health library corpus (harmony tag `herbal-safety`)',",
+	 'test_the_corpus_reasons_name_a_tag_the_corpus_has'),
 ]
+
+_FILES = ['tests/ci/test_content_audit.py', 'tests/ci/test_feature_coverage.py']
+
+
+def _node(canary_node: str) -> str:
+	"""Resolve a bare test name to `file::name` by asking pytest, so a renamed or moved test fails
+	here rather than being reported as a canary that fired against nothing."""
+	for f, names in _KNOWN.items():
+		if canary_node in names:
+			return f'{f}::{canary_node}'
+	raise AssertionError(f'no test file declares {canary_node}')
+
+
+_KNOWN: dict[str, set[str]] = {}
+for _f in _FILES:
+	_collected = subprocess.run(['uv', 'run', 'pytest', '-q', '-p', 'no:randomly', '--collect-only', _f],
+		cwd=ROOT, capture_output=True, text=True)
+	assert _collected.returncode == 0, _collected.stdout[-2000:]
+	_KNOWN[_f] = {line.strip().split('::')[-1] for line in _collected.stdout.splitlines() if '::' in line}
+
+_missing = sorted({c[-1] for c in CANARIES if not any(c[-1] in v for v in _KNOWN.values())})
+assert not _missing, f'canaries name tests that do not exist: {_missing}'
+
 
 failures = []
 for name, path, old, new, node in CANARIES:
@@ -68,7 +102,10 @@ for name, path, old, new, node in CANARIES:
 	path.write_text(s.replace(old, new))
 	for cache in path.parent.rglob('__pycache__'):
 		shutil.rmtree(cache, ignore_errors=True)
-	target = f'tests/ci/test_content_audit.py::{node}'
+	# The node resolves to the file that declares it rather than to a fixed path. Canary #4 aims at
+	# a test in `test_feature_coverage.py` while #1-#3 aim at `test_content_audit.py`, and a
+	# hardcoded target would make #4 fail collection — which reads as CAUGHT while proving nothing.
+	target = _node(node)
 	try:
 		proc = subprocess.run(['uv', 'run', 'pytest', '-q', '-p', 'no:randomly', target],
 			cwd=ROOT, capture_output=True, text=True)
