@@ -120,10 +120,9 @@ def test_report_truncates_geohash_to_a_five_character_cell() -> None:
 	svc = LocationService()
 	svc.enable_history('U-1')
 	svc.log_location('U-1', LocationPoint(geohash='kzcvx1234', at_iso='2026-10-01T00:00:00Z'))
-	report = svc.build_report('U-1', share=True)
-	assert report.places == ['kzcvx'], 'only the 5-character cell may be shared'
+	report = svc.build_report('U-1')
+	assert report.places == ['kzcvx'], 'the report names a coarse cell, never a coordinate'
 	assert all(len(p) == 5 for p in report.places)
-	assert report.shared_with == 'county health team (geohashed)'
 	assert report.points == 1
 
 

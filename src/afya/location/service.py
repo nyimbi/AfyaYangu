@@ -7,7 +7,9 @@ Design commitments carried in code, not policy:
   * LOC-005 pairs a pre-travel advisory with the same 21-day window as MON-009.
 """
 from datetime import datetime, timezone
-from typing import Protocol
+from typing import Any, Protocol
+
+import json
 
 from afya.info.counties import COUNTIES
 from afya.info.recency import DAY_MS, UNDATED_MS, instant_iso, iso_add_days, midnight_ms
@@ -30,9 +32,9 @@ from afya.location.views import (
 	ALERT_ZONE_RADII_M, EBID_ROTATION_MINUTES, EXPOSURE_FOLLOWUP_DAYS, LOCATION_WINDOW_DAYS,
 	WATCH_KINDS, BorderPost, CheckIn, CheckInAttendance, CheckInFollowUp, CheckInPoint,
 	CheckInReceipt, EncounterToken, EphemeralId, ExposureDeclaration, ExposureMatch, ExposureWindow,
-	FollowUpStep, LocationHistory, LocationPoint, LocationReport, PlaceAdvisory, PostArrivalReport,
-	PostArrivalVerdict, PostTravelStep, RiskBand, TravellerEnrolment, TravelerDeclaration,
-	TravelAdvisoryReport, ZoneEvent, ZoneWatch,
+	FollowUpStep, LocationHistory, LocationPoint, LocationReport, LocationShare, LocationShareReceipt,
+	PlaceAdvisory, PostArrivalReport, PostArrivalVerdict, PostTravelStep, RiskBand, TravellerEnrolment,
+	TravelerDeclaration, TravelAdvisoryReport, ZoneEvent, ZoneWatch,
 )
 from afya.logmixin import LogMixin
 from afya.monitoring.service import MONITORING_ALERT_SYMPTOMS
@@ -46,6 +48,12 @@ from afya.strings import (
 # second tuple is a second answer to "which zones exist" the moment one of them moves.
 ALLOWED_RADII_M: tuple[int, ...] = ALERT_ZONE_RADII_M
 assert ALLOWED_RADII_M is ALERT_ZONE_RADII_M, 'the zone set is one tuple, not two that agree today'
+
+# §SEC-001's category for this act, named once. It is `ConsentCategory.share_health_authorities`'s
+# value and the string is written here rather than imported so that `afya.location` keeps no import
+# edge to `afya.privacy` — the same reason the county risk, the diary and the zone registry arrive
+# as collaborators. `test_loc003_share.py` asserts the two agree, so the copy cannot drift.
+SHARE_AUTHORITY_CATEGORY = 'share_health_authorities'
 
 
 def _geohash_cell(geohash: str) -> str:
@@ -96,10 +104,62 @@ class ZoneRead(Protocol):
 	def __call__(self, lat: float, lon: float) -> list[Geofence]: ...
 
 
+class LocationAuthorityPort(Protocol):
+	"""The one thing §LOC-003's share needs from a health authority: a way to take a sealed report.
+
+	The same shape §COM-103's `HealthAuthorityPort` has, and for the same reason — the transport is
+	a deployment's, not this module's, and a service that named a concrete client could not be built
+	without one. `deliver_report` takes the envelope rather than a payload so the wire carries
+	ciphertext by construction: the only bytes handed over are already sealed.
+	"""
+	async def deliver_report(self, envelope: dict[str, Any]) -> str: ...
+
+
+class AppLayerSealer(Protocol):
+	"""§SEC-003's application-layer key, as the one operation this module performs with it.
+
+	`CryptoService.seal(..., app_layer=True)` already says location history gets the second layer;
+	the protocol keeps the coupling to that one call rather than to the whole crypto service.
+
+	`available` is on the protocol because "is there a second key" and "seal this" are different
+	questions and the share needs the first one *before* it builds an envelope. A deployment holding
+	only the at-rest key still has a sealer object, so asserting the object exists would pass and
+	then let the seal fail underneath — a refusal indistinguishable from a crypto error, and the
+	difference between a gate and a fallback that happens to trip. §COM-103's share checks its own
+	`has_app_layer` up front for the same reason.
+
+	Read-only, because it is a question about the deployment and not a switch: a caller that could
+	set it would be able to talk the share past the gate it exists to be.
+	"""
+	@property
+	def available(self) -> bool: ...
+
+	def __call__(self, plaintext: bytes) -> str: ...
+
+
+class ShareAuthorityConsent(Protocol):
+	"""§SEC-001's `share_health_authorities` category, as the one question §LOC-003's share asks it.
+
+	`ConsentCategory.share_health_authorities` is the ledger's own name for "Counts of illness, with
+	no names, go to the Ministry", and it is the permission §LOC-003's sentence needs: a report of
+	places visited, shared with a health authority.
+
+	It is *not* `LocationHistory.consent_granted`, which is a different toggle. `enable_history` is
+	§LOC-003's `location_tracking` decision — may this phone keep a diary of where I have been — and
+	a person who said yes to that and no to the Ministry is a person whose diary must stay on the
+	phone. Reading the tracking flag as the sharing permission is the shape §COM-103's row was in:
+	a consent that exists and is not the one the act requires.
+	"""
+	def __call__(self, subject_ref: str, category: str) -> bool: ...
+
+
 class LocationService(LogMixin):
 	def __init__(self, county_risk: CountyRiskRead | None = None,
 	             monitoring: DiaryLink | None = None,
-	             zones: ZoneRead | None = None) -> None:
+	             zones: ZoneRead | None = None,
+	             authority: LocationAuthorityPort | None = None,
+	             sealer: AppLayerSealer | None = None,
+	             share_consent: ShareAuthorityConsent | None = None) -> None:
 		# §INF-005's county half is §INF-001's dashboard read, the traveller enrolment's diary is
 		# §MON-009's, and §LOC-001's entry/exit is §11.1's zone registry. All three are collaborators
 		# rather than imports, so this service owns no second copy of a risk table, a 21-day window
@@ -107,6 +167,18 @@ class LocationService(LogMixin):
 		self._county_risk = county_risk
 		self._monitoring = monitoring
 		self._zones = zones
+		# §LOC-003's share. `_sealer` is §SEC-003's application-layer key and `_authority` is the
+		# transport, kept apart because a deployment can have either without the other: one with a
+		# key and no endpoint still seals and holds, one with an endpoint and no key must refuse
+		# rather than send a report under the at-rest key the operator holds.
+		self._sealer = sealer
+		self._authority = authority
+		# §SEC-001's sharing category, kept as a collaborator for the reason the other three are: a
+		# service that owned the consent ledger would be a second copy of it.
+		self._share_consent = share_consent
+		# The outbox: a sealed report is kept whether or not a transport took it, so a share made
+		# with no signal is ready when there is, and the receipt says which of the two happened.
+		self._shares: dict[str, LocationShare] = {}
 		self._tokens: list[EncounterToken] = []
 		self._declarations: list[ExposureDeclaration] = []
 		self._histories: dict[str, LocationHistory] = {}
@@ -186,22 +258,110 @@ class LocationService(LogMixin):
 		history.points = history.points[-5000:]
 		return len(history.points)
 
-	def build_report(self, subject_ref: str, share: bool = False) -> LocationReport:
+	def build_report(self, subject_ref: str) -> LocationReport:
+		"""The report a person reads on their screen. It is a *view* and it shares nothing.
+
+		It used to take a `share` flag and compose "Report generated and shared as coarse locations
+		only." from it, with a log line behind it and nothing on the wire — so the sentence asserted a
+		disclosure that had not happened, and §SEC-006's dashboard, which reads the share ledger, would
+		answer "nothing shared" about a report the person believed the county held. Sharing is now
+		`share_report`, which has a transport and a receipt; this method's `message` says only what it
+		did. `shared_with` stays `None` for the same reason — the field is on the model because the
+		client shows the report beside whatever it has already shared, and the report itself never
+		says a share happened.
+		"""
 		history = self._histories.get(subject_ref)
 		assert history is not None, 'no history on file'
 		places = sorted({p.place_label or _geohash_cell(p.geohash) for p in history.points})
-		report = LocationReport(
+		return LocationReport(
 			subject_ref=subject_ref, points=len(history.points), places=places,
-			window_days=history.window_days,
-			shared_with='county health team (geohashed)' if share else None,
+			window_days=history.window_days, shared_with=None,
+			message='Report generated on your phone. Nothing has been sent.',
+		)
+
+	async def share_report(self, subject_ref: str, with_who: str = '',
+	                       at_ms: int | None = None) -> LocationShareReceipt:
+		"""§LOC-003's "report shared with health authorities through a secure channel".
+
+		Three things the spec's own sentence requires, in the order it requires them: the person
+		consented, the data is geohashed, and the channel is secure — which here means sealed under
+		the application-layer key before it is handed to a transport, refused rather than sent in the
+		clear when that key is absent. The precedent is §COM-103's contact-list share, which does all
+		three.
+
+		The consent is **two** decisions and both are checked, because they are different toggles:
+		§LOC-003's `location_tracking` (may this phone keep a diary of where I have been) and
+		§SEC-001's `share_health_authorities` (may counts of it reach the Ministry). A person who said
+		yes to the first and no to the second is a person whose diary must stay on the phone, and
+		reading the tracking flag as the sharing permission would be a consent that exists and is not
+		the one the act requires.
+
+		A share that could not be delivered is *kept*, not lost: the envelope is sealed and held, and
+		the receipt says held rather than delivered. §16.1 principle 5 — nothing is lost — and the
+		reason it matters here is that the person sharing a location history is a person who has been
+		told they tested positive, which is not a moment to depend on the county's endpoint being up.
+		"""
+		history = self._histories.get(subject_ref)
+		assert history is not None, 'no history on file'
+		assert history.consent_granted, (
+			'the location diary needs the person\'s explicit consent before it can be read (§LOC-003)')
+		assert self._share_consent is not None and self._share_consent(
+			subject_ref, SHARE_AUTHORITY_CATEGORY), (
+			'sharing with a health authority needs §SEC-001\'s "share with health authorities" '
+			'permission, which is a different decision from keeping a location diary; refusing rather '
+			'than treating the tracking consent as the sharing one')
+		assert self._sealer is not None and self._sealer.available, (
+			'the deployment holds no application-layer key, so a location report cannot be sealed; '
+			'refusing rather than sharing it under the at-rest key alone')
+		recipient = with_who or self._default_authority()
+		shared_at = at_ms if at_ms is not None else int(datetime.now(timezone.utc).timestamp() * 1000)
+		# Geohashed cells only — the report's `places` labels never leave, which is the spec's own
+		# "Geohashing anonymises location data before sharing". `_geohash_cell` truncates to five
+		# characters, which is the whole of the generalisation: a 9-character geohash is a doorway.
+		cells = sorted({_geohash_cell(p.geohash) for p in history.points})
+		held = self._shares.get(f'{subject_ref}:{recipient}')
+		if held is not None:
+			envelope = held
+		else:
+			payload = json.dumps({
+				'subject_ref': subject_ref, 'window_days': history.window_days,
+				'cells': cells, 'points': len(history.points),
+			}).encode('utf-8')
+			envelope = LocationShare(
+				subject_ref=subject_ref, with_who=recipient, sealed=self._sealer(payload),
+				places=len(cells), shared_at_ms=shared_at,
+			)
+			# Kept before it is sent, so a transport that fails does not lose the sealed report.
+			self._shares[f'{subject_ref}:{recipient}'] = envelope
+		delivered = False
+		if self._authority is not None:
+			try:
+				await self._authority.deliver_report(envelope.model_dump(mode='json'))
+				delivered = True
+			except Exception as exc:  # noqa: BLE001 — any transport failure means the same thing here
+				self._log_warn('location report could not be delivered', subject=subject_ref,
+					error=str(exc)[:120])
+		self._log_info('location report share', subject=subject_ref, places=envelope.places,
+			delivered=delivered, recipient=recipient)
+		return LocationShareReceipt(
+			share_id=envelope.share_id, with_who=recipient, places=envelope.places,
+			shared_at_ms=shared_at, algorithm=envelope.algorithm, delivered=delivered,
 			message=(
-				'Report generated and shared as coarse locations only.'
-				if share else 'Report generated on your phone. Nothing has been sent.'
+				f'Your report was sent to {recipient} as coarse locations only.'
+				if delivered else
+				'Encrypted and kept on this device. It will be sent as soon as the health team\'s '
+				'channel is reachable.'
 			),
 		)
-		if share:
-			self._log_info('location report shared', sub=subject_ref, points=len(history.points))
-		return report
+
+	@staticmethod
+	def _default_authority() -> str:
+		"""The recipient a share goes to when the caller names none. An office, never a person."""
+		return 'county health team'
+
+	def shared_reports(self, subject_ref: str) -> list[LocationShare]:
+		"""The sealed reports held for this subject — what the receipt's `held` state points at."""
+		return [e for key, e in self._shares.items() if e.subject_ref == subject_ref]
 
 	def purge_history(self, subject_ref: str) -> int:
 		history = self._histories.pop(subject_ref, None)

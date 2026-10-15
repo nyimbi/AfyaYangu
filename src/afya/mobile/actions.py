@@ -228,7 +228,8 @@ FEATURE_OF: dict[str, str] = {
 	'link_family': 'ALT-002', 'family_check_in': 'ALT-002', 'family_board': 'ALT-002', 'my_checkins': 'ALT-002',
 	'send_exposure_notice': 'ALT-004', 'ack_exposure': 'ALT-004',
 	'rotate_ebid': 'LOC-002', 'log_encounter': 'LOC-002', 'declare_exposure': 'LOC-002', 'check_exposure': 'LOC-002',
-	'enable_location_history': 'LOC-003', 'log_location': 'LOC-003', 'location_report': 'LOC-003', 'purge_location': 'LOC-003',
+	'enable_location_history': 'LOC-003', 'log_location': 'LOC-003', 'location_report': 'LOC-003',
+	'share_location_report': 'LOC-003', 'location_report_shares': 'LOC-003', 'purge_location': 'LOC-003',
 	'register_checkin_point': 'LOC-004', 'check_in': 'LOC-004', 'checkin_points': 'LOC-004', 'checkin_list': 'LOC-004',
 	'checkin_followup': 'LOC-004',
 	'register_border': 'LOC-005', 'border_status': 'LOC-005', 'travel_advisory': 'INF-005', 'traveller_declare': 'LOC-005',
@@ -372,7 +373,8 @@ DORMANT_SLUGS: frozenset[str] = frozenset({
 	'send_exposure_notice', 'ack_exposure',
 	# Proximity log (LOC-002), location history (LOC-003), check-in points (LOC-004), border (LOC-005)
 	'rotate_ebid', 'log_encounter', 'declare_exposure', 'check_exposure',
-	'enable_location_history', 'log_location', 'location_report', 'purge_location',
+	'enable_location_history', 'log_location', 'location_report', 'share_location_report',
+	'location_report_shares', 'purge_location',
 	'register_checkin_point', 'check_in', 'checkin_points', 'checkin_list', 'checkin_followup',
 	'register_border', 'border_status', 'traveller_declare', 'traveller_prompt', 'traveller_report',
 	# Outbreak AI (AI-001..003)
@@ -713,7 +715,12 @@ def catalogue() -> list[MobileAction]:
 		# client could say neither where nor when. §LOC-003 keeps raw coordinates off this boundary,
 		# which is why the client sends the geohash it already computed rather than a lat/lon pair.
 		_a('log_location', 'Save where I am', 'Outbreak', 'POST', '/location/history/point', [_s(), _f('geohash', 'Where you are', ph='the location code your phone shows'), _f('at_iso', 'When', ph='2026-10-12T08:30'), _f('place_label', 'What to call this place', ph='optional; e.g. Kisumu CBD')]),
-		_a('location_report', 'Where I have been', 'Outbreak', 'GET', '/location/history/{subject_ref}/report', [_s('path'), _f('share', 'Share with the health team?', 'bool')]),
+		# `share` used to be a field on this action, and the report route composed its sharing sentence
+		# from it — so the form offered a switch that sent nothing and the screen said it had. Sharing
+		# is a separate act with a receipt, so it is a separate action.
+		_a('location_report', 'Where I have been', 'Outbreak', 'GET', '/location/history/{subject_ref}/report', [_s('path')]),
+		_a('share_location_report', 'Send my location history to the health team', 'Outbreak', 'POST', '/location/history/{subject_ref}/share', [_s('path'), _f('with_who', 'Who should get it?', ph='optional; the county health team by default')]),
+		_a('location_report_shares', 'Location reports I have sent', 'Outbreak', 'GET', '/location/history/{subject_ref}/shares', [_s('path')]),
 		_a('purge_location', 'Delete my location diary', 'Outbreak', 'DELETE', '/location/history/{subject_ref}', [_s('path')]),
 		_a('checkin_points', 'Check-in points near me', 'Outbreak', 'GET', '/location/checkin/points', [_f('county', 'County', ph='optional')]),
 		_a('checkin_list', 'Where I checked in', 'Outbreak', 'GET', '/location/checkin/{subject_ref}', [_s('path')]),

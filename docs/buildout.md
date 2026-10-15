@@ -6370,3 +6370,104 @@ has a voice exactly when the reply comes back *in that language*.
 | 2 | `tts` collapses back into `tier == 1` on every row that differs | the new test |
 
 **No new source.** The governing text is this repo's own `docs/spec.md` §12.1 ACC-002.
+
+## §LOC-003 — the report claimed a share that had not happened (2026-10-15)
+
+The audit row read:
+
+> `Report shared with health authorities through a secure channel` — **carried** →
+> `afya.location.views:LocationReport`
+
+Two things were wrong with it, and only the second is the one the row's *kind* hides.
+
+### The ref named a data shape
+
+`LocationReport` is the model the report is *read* as. It has a `shared_with` field and a `message`,
+and both were filled from a `share: bool` parameter on `build_report`:
+
+```python
+def build_report(self, subject_ref: str, share: bool = False) -> LocationReport:
+	...
+	message='Report generated and shared as coarse locations only.' if share
+	        else 'Report generated on your phone. Nothing has been sent.'
+```
+
+With `share=True` the method wrote one log line and put **nothing on the wire**. So a person who
+tapped share was told "Report generated and shared as coarse locations only.", and §SEC-006's
+dashboard — which reads `RetentionService.inventory`, the share ledger — would have answered
+"nothing shared" about a report the person believed the county held. The audit row was `carried` on
+a data class; there was no channel, no transport and no receipt.
+
+### What the section's own sentence requires
+
+Three gates, in the order the sentence names them, and the same three §COM-103's contact-list share
+already holds:
+
+1. **Consent — and there are two of them.** §LOC-003 says "If the user tests positive **and
+   consents**". The first cut read `LocationHistory.consent_granted` and called it the consent. It is
+   not: `enable_history` records §LOC-003's `location_tracking` decision — *may this phone keep a
+   diary of where I have been* — and the act this row describes needs §SEC-001's
+   `share_health_authorities` — *may counts of it reach the Ministry*. Two toggles, two sentences in
+   the string table, and a person who allowed the first and refused the second had their diary sent
+   anyway. The share now asks the real ledger through a one-question collaborator
+   (`_share_authority_consent`), so `afya.location` keeps no import edge to `afya.privacy`, and the
+   tracking flag is checked *as well* rather than instead — a history written by a path that never
+   consented is still a history that must not leave.
+2. **Generalisation.** "Geohashing anonymises location data before sharing." This is where the unit
+   found a second defect: the first draft of `share_report` sealed
+   `{p.geohash for p in history.points}` — the **full 9-character** geohash. `_geohash_cell`
+   truncates to five, which is roughly a 4.9 km box; nine characters is a doorway. The report's own
+   `places` list had always truncated, so the one path that leaves the device was the one that did
+   not.
+3. **A secure channel.** Sealed under §SEC-003's **application-layer** key, refused rather than sent
+   when that key is absent. The at-rest key is the one an operator holds, so a share sealed under it
+   is one the operator could read without being the recipient — and a location history is the record
+   that can put a person somewhere.
+
+### The gate that was a fallback
+
+The first cut asserted only `self._sealer is not None`. A deployment holding an at-rest key and no
+app-layer key still has a sealer object, so the assert passed and `CryptoService.seal` raised
+underneath — a refusal indistinguishable from a crypto error, which is the difference between a gate
+and a fallback that happens to trip. The protocol now carries a read-only `available`, and the share
+checks it *before* it builds an envelope. `test_a_deployment_with_no_application_layer_key_refuses_to_share`
+matches on the service's own wording rather than on "application-layer key", because the sealer's
+own refusal contains that phrase and a looser match would pass either way.
+
+### Held versus delivered
+
+The envelope is sealed and kept **before** the transport is consulted, so a share made with no signal
+is ready when there is. `delivered` is read off the transport, never off the request, and the receipt
+says which of the two happened. §16.1 principle 5 — nothing is lost — matters more here than on most
+paths: the person sharing a location history is a person who has been told they tested positive,
+which is not a moment to depend on the county's endpoint being up.
+
+The ledger is written **only when `delivered` is true**. A share the county never received is not a
+disclosure, and recording it would put the dashboard's "what has been shared, with whom, when" at
+odds with the wire in the other direction — claiming a share that did not happen, which is the
+original defect wearing the opposite coat.
+
+### The canaries
+
+`tests/ci/canary_loc003_share.py` adds ten; all ten fired.
+
+| # | Mutation | Caught by |
+|---|---|---|
+| 1 | the tracking-consent gate stops refusing an unconsented history | `test_a_history_without_the_tracking_consent_cannot_be_shared` |
+| 2 | the tracking consent is read as the sharing permission | `test_a_diary_without_the_sharing_permission_cannot_be_shared` |
+| 3 | a missing consent ledger fails open instead of closed | `test_a_deployment_with_no_consent_ledger_refuses_to_share` |
+| 4 | the missing-key gate stops checking for a key | `test_a_deployment_with_no_application_layer_key_refuses_to_share` |
+| 5 | the seal becomes a passthrough, so the wire carries plaintext | `test_the_report_travels_as_ciphertext_and_the_at_rest_key_does_not_open_it` |
+| 6 | the geohash is not generalised before it leaves | `test_what_travels_is_a_coarse_cell_and_never_the_coordinate` |
+| 7 | `delivered` is set in the failure branch | `test_a_share_that_could_not_be_delivered_is_kept_and_says_so` |
+| 8 | the envelope is not kept when the transport fails | same |
+| 9 | the report claims a share again | `test_the_report_on_the_persons_screen_never_claims_a_share` |
+| 10 | the ledger is written for an undelivered share | `test_the_route_shares_for_a_signed_in_person_and_reaches_the_dashboard` |
+
+Mutation 5 is worth naming: the passthrough is `payload.decode('utf-8')`, which is a *string* and
+therefore satisfies `LocationShare.sealed: str = Field(min_length=1)`. The model does not know what
+ciphertext looks like, which is why the test opens the blob and checks the layer rather than
+checking that a field is non-empty.
+
+**No new source.** The governing text is this repo's own `docs/spec.md` §11.5 LOC-003, and the
+precedent followed is §COM-103's `CommunityService.share_contacts`.

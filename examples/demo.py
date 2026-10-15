@@ -7,6 +7,9 @@ from afya.channels.outbound import plain_language_report
 from afya.channels.service import AfricaTalkingSmsPort, ChannelService
 from afya.channels.views import UssdRequest
 from afya.chw.service import ChwService
+from afya.privacy.service import PrivacyService
+from afya.privacy.views import ConsentRecord
+from afya.service import _app_layer_sealer, _share_authority_consent
 from afya.emergency.service import EmergencyService, Inline719Port
 from afya.emergency.views import SOSEvent
 from afya.identity.service import IdentityService
@@ -83,8 +86,6 @@ async def main() -> None:
 	# published. Approval hands the story to §6.5's workflow, so moderation is not publication.
 	from afya.info.service import InfoService
 	from afya.info.submissions import StoryKind, StoryService, StorySubmission
-	from afya.privacy.service import PrivacyService
-	from afya.privacy.views import ConsentRecord
 
 	privacy = PrivacyService()
 	info = InfoService()
@@ -111,6 +112,34 @@ async def main() -> None:
 	sheet = ChwService.job_aid_sheet('safe_burial')
 	raw = sheet.content.encode('latin-1')
 	print('job aid printed ->', sheet.filename, '|', len(raw), 'bytes | pdf:', raw.startswith(b'%PDF-1.4'))
+
+	# §LOC-003's report share. The report on the person's screen is a *view* and says so; sharing is
+	# a separate act with two consent gates, an application-layer seal and a transport. The sealed
+	# envelope is kept whether or not anything took it, so the receipt distinguishes held from sent.
+	from afya.crypto.service import CryptoService
+	from afya.location.service import LocationService
+	from afya.location.views import LocationPoint
+
+	crypto = CryptoService(at_rest_key=b'a' * 32, app_layer_key=b'b' * 32)
+	privacy = PrivacyService()
+	loc = LocationService(sealer=_app_layer_sealer(crypto),
+	                      share_consent=_share_authority_consent(privacy))
+	loc.enable_history('+254711222333')  # §LOC-003's tracking consent
+	loc.log_location('+254711222333', LocationPoint(geohash='kzcvx1234', at_iso='2026-10-01T00:00:00Z'))
+	print('report:', loc.build_report('+254711222333').message)
+	try:
+		await loc.share_report('+254711222333')
+	except AssertionError as exc:
+		print('share without the Ministry permission:', exc)
+	# §SEC-001's sharing category is a *second* toggle, not the tracking one.
+	await privacy.record_consent(ConsentRecord(
+		subject_ref='+254711222333', purpose='share_health_authorities',
+		data_types=['location_history'], retention_days=21,
+		legal_basis=LegalBasis.consent, lang='en'))
+	receipt = await loc.share_report('+254711222333')
+	print('share ->', receipt.with_who, '| delivered:', receipt.delivered, '|', receipt.message)
+	held = loc.shared_reports('+254711222333')
+	print('held envelopes:', len(held), '| sealed places:', held[0].places)
 
 
 if __name__ == '__main__':

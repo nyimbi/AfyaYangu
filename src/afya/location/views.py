@@ -7,6 +7,8 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from afya.ids import uuid7str
+
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
 EBID_ROTATION_MINUTES = 15
@@ -114,6 +116,48 @@ class LocationReport(BaseModel):
 	places: list[str]
 	window_days: int = Field(ge=1, le=28)
 	shared_with: str | None
+	message: str
+
+
+class LocationShare(BaseModel):
+	"""§LOC-003's "report shared with health authorities through a secure channel": the envelope.
+
+	`sealed` is a `Sealed.to_blob()` string, so the geohashed report is ciphertext before it leaves
+	the process. It is sealed under the *application-layer* key, which `CryptoService.has_app_layer`
+	describes as the layer contact lists **and location history** get — the same standard §COM-103's
+	contact list meets, and the same reason: the at-rest key is the one an operator holds, so a share
+	sealed under it is one the operator could read without being the recipient.
+
+	`places` is the count of geohashed places, not the places. The report's own `places` list is what
+	a person reads on their screen; what leaves is the cell set, and the count is the only thing the
+	receipt can say without repeating it.
+	"""
+	model_config = MODEL_CONFIG
+	share_id: str = Field(default_factory=lambda: 'LSH-' + uuid7str().replace('-', '').upper()[:8])
+	subject_ref: str
+	with_who: str = Field(min_length=2, max_length=120)
+	sealed: str = Field(min_length=1)
+	places: int = Field(ge=0)
+	shared_at_ms: int
+	algorithm: str = 'AES-256-GCM'
+
+
+class LocationShareReceipt(BaseModel):
+	"""What actually happened to the report: sent, or sealed and held for when the channel is up.
+
+	`delivered` is read off the transport rather than off the request. The route used to take a
+	`share` flag and compose "Report generated and shared as coarse locations only." from it, with a
+	log line behind it and nothing on the wire — so the sentence asserted a disclosure that had not
+	happened and the §SEC-006 dashboard, which reads the share ledger, would answer "nothing shared"
+	about a report the person believed the county held.
+	"""
+	model_config = MODEL_CONFIG
+	share_id: str
+	with_who: str
+	places: int
+	shared_at_ms: int
+	algorithm: str
+	delivered: bool
 	message: str
 
 

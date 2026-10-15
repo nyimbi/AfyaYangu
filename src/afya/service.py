@@ -13,7 +13,7 @@ import tempfile
 import wave as wavmod
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from afya.brand.service import BRAND, NON_GOALS, PRINCIPLES, VISION, brand_is_clean, brand_violations
 from afya.problem.service import gap_report, lesson_report
@@ -285,6 +285,47 @@ def _at_rest_key_for(db_path: str | None) -> bytes:
 	return key
 
 
+def _app_layer_sealer(crypto: Any) -> Any:
+	"""§SEC-003's application-layer key as the one operation §LOC-003's share performs with it.
+
+	Returned rather than the crypto service itself so `afya.location` depends on a single operation.
+	The refusal for a missing key lives in the returned object and not here, because the crypto
+	service is built before a deployment knows whether it has an application-layer key, and a build
+	that raised would make an unconfigured deployment unable to start rather than unable to share.
+
+	`available` is a property rather than a value latched at build time, so a deployment that
+	installs its second key without a restart gets a working share — and, more to the point here, so
+	the flag cannot disagree with what `seal` will do.
+	"""
+	class _Sealer:
+		@property
+		def available(self) -> bool:
+			return bool(crypto.has_app_layer)
+
+		def __call__(self, plaintext: bytes) -> str:
+			assert crypto.has_app_layer, (
+				'no application-layer key is configured, so a location report cannot be sealed; '
+				'refusing rather than sharing it under the at-rest key alone')
+			return str(crypto.seal(plaintext, app_layer=True).to_blob())
+	return _Sealer()
+
+
+def _share_authority_consent(privacy: Any) -> Any:
+	"""§SEC-001's `share_health_authorities` category as the one question §LOC-003's share asks.
+
+	Returned rather than the privacy service itself so `afya.location` depends on a single question
+	and keeps no import edge to `afya.privacy` — the same shape as `_app_layer_sealer` above, and
+	for the same reason.
+
+	The category is passed in as a string rather than read off `ConsentCategory` here, because the
+	coupling this keeps is one predicate. `test_loc003_share.py` asserts the string the location
+	module holds is the enum's own value, so the two cannot drift.
+	"""
+	def holds(subject_ref: str, category: str) -> bool:
+		return bool(privacy.has_consent(subject_ref, category))
+	return holds
+
+
 def build_services(http: AsyncClient | None = None, db_path: str | None = None) -> dict[str, object]:
 	client = http or AsyncClient(timeout=10)
 	cfg = ServiceConfig.from_env()
@@ -502,7 +543,17 @@ def build_services(http: AsyncClient | None = None, db_path: str | None = None) 
 		# and the diary stays empty". §LOC-001's third is the zone registry: `geofences_at` is one
 		# method of the surveillance service, handed over as a callable so this module depends on a
 		# read and not on a service.
-		'location': LocationService(info_svc.dashboard, monitoring_svc, surveillance_svc.geofences_at),
+		# §LOC-003's share seals under §SEC-003's application-layer key, which is the layer the crypto
+		# service's own docstring assigns to location history. The transport is the deployment's, so
+		# it is left unwired here: a share with no endpoint still seals and holds, and the receipt
+		# says held rather than delivered. Sealing is passed as a callable so the location module
+		# depends on one operation and not on the crypto service.
+		# The share's consent is §SEC-001's `share_health_authorities` category read off the one
+		# ledger, not the location diary's own `consent_granted` flag: those are two toggles, and a
+		# person who allowed a diary and refused the Ministry must keep the diary on the phone.
+		'location': LocationService(info_svc.dashboard, monitoring_svc, surveillance_svc.geofences_at,
+		                            sealer=_app_layer_sealer(crypto_svc),
+		                            share_consent=_share_authority_consent(privacy_svc)),
 		'ai': ai_svc,
 		'analytics': analytics_svc,
 		'metrics': MetricsService(),
@@ -4364,11 +4415,49 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 	@app.get('/location/history/{subject_ref}/report')
-	async def location_report(subject_ref: str, share: bool = False, _subject: str = Depends(require_self())) -> dict[str, object]:
+	async def location_report(subject_ref: str, _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""The report on the person's own screen. It shares nothing — see `/share` below."""
 		try:
-			return location.build_report(subject_ref, share).model_dump(mode='json')
+			return location.build_report(subject_ref).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.post('/location/history/{subject_ref}/share')
+	async def location_report_share(subject_ref: str, with_who: str = '',
+	                                _subject: str = Depends(require_self())) -> dict[str, object]:
+		"""§LOC-003's "report shared with health authorities through a secure channel".
+
+		The report is sealed under §SEC-003's application-layer key and handed to the deployment's
+		transport; a share that could not be delivered is held rather than lost. §SEC-006's "what has
+		been shared, with whom, when" reads `RetentionService.inventory`, so a share that did not
+		reach it would leave the dashboard answering "nothing shared" about a report the person
+		believes the county holds — recorded here rather than inside the location service so the two
+		services stay unaware of each other, exactly as the contact-list share does.
+		"""
+		try:
+			receipt = await location.share_report(subject_ref, with_who)
+		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		if receipt.delivered:
+			retention.record_share(
+				subject_ref, receipt.with_who,
+				f'location report ({receipt.places} place{"" if receipt.places == 1 else "s"})',
+				datetime.fromtimestamp(receipt.shared_at_ms / 1000, tz=timezone.utc).isoformat())
+		return receipt.model_dump(mode='json')
+
+	@app.get('/location/history/{subject_ref}/shares')
+	async def location_report_shares(subject_ref: str, _subject: str = Depends(require_self())) -> list[dict[str, object]]:
+		"""The sealed reports held for this person — what the receipt's held state points at.
+
+		The ciphertext is dropped from every row, for the reason the contact-list listing drops it: a
+		response that echoed `sealed` would put the one value worth protecting into a log, a cache and
+		a client for no gain.
+		"""
+		return [
+			{'share_id': s.share_id, 'with_who': s.with_who, 'places': s.places,
+			 'shared_at_ms': s.shared_at_ms, 'algorithm': s.algorithm}
+			for s in location.shared_reports(subject_ref)
+		]
 
 	@app.delete('/location/history/{subject_ref}')
 	async def location_purge(subject_ref: str, _subject: str = Depends(require_self())) -> dict[str, int]:
