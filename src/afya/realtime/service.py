@@ -67,7 +67,7 @@ class RealtimeService(LogMixin):
 
 	def publish(self, item: FeedItem) -> int:
 		"""Fan an item out to matching subscribers. Returns how many received it."""
-		assert item.verified, 'an unverified item must not reach a socket either (§ALT-001)'
+		assert item.verified, 'an unverified item must not reach a socket'
 		event = SocketEvent(kind='alert', at_iso=now_iso(), item=item)
 		delivered = 0
 		for sub in list(self._subscribers):

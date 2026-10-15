@@ -6559,3 +6559,59 @@ misses is a claim that the code is uncovered, and here three of the four claims 
 followed is §MON-004's dose queue (`monitoring/service.py:_queue_adherence`) and §COM-101's report
 queue (`community/service.py:_queue_case`), both of which take the *tail* of a UUID7 for the op id
 and both of which gate the send on the dataset's own §16.3 row.
+
+---
+
+## The refusal that named the section (2026-10-15)
+
+The UI-vocabulary gate walks every surface a person reads — the mobile action catalogue, the
+friendly-copy table, the served `/mobile/*` payloads, the native clients' string literals, and four
+named refusals. It is structural: it scans the *served object*, so a code that reaches a screen
+through any route is caught rather than one written into a literal.
+
+It missed the widest surface there is. 159 routes wrap a service call in `except AssertionError as
+exc: raise HTTPException(status_code=422, detail=str(exc))`, so an assert message **is** the refusal
+a caller reads — and 19 of them named a feature id. Probed through the front door, as a citizen:
+
+	POST /location/history/+254700000009/share   ->  422
+	detail: sharing with a health authority needs §SEC-001's "share with health authorities"
+	        permission, which is a different decision from keeping a location diary; ...
+
+A spec code, served to a person, on a route the gate had never pointed at. The four refusals the gate
+did check were four refusals; the class is every string that becomes a response body.
+
+**The fix is where, not whether.** The section may be named — in a comment above the assert, or in a
+docstring, which is where traceability belongs. What it may not do is ride in the message, because
+the message is what a person reads. So each of the 19 moved its code up into a comment and its
+message became a sentence:
+
+	assert history.consent_granted, (
+		'the location diary needs the person\'s explicit consent before it can be read')
+
+**The gate is now read off the source.** `test_no_assert_message_reachable_from_a_route_names_a_code`
+walks every `src/afya/**/*.py`, parses it, and fails on any `assert` *inside a function body* whose
+message matches the registry's own id grammar. Module-level asserts are excluded deliberately: they
+run at import, so a failure is a stack trace in a log and never a response. A comment is not scanned.
+Enumerating routes would rot — the list of surfaces is exactly what failed here.
+
+The pattern is `FEATURE_CODE`, which matches a bare `SEC-001` as well as `§SEC-001`, and that matters:
+the scan that found the first eighteen was anchored on the section sign, and the gate's own first run
+caught `records/service.py` spelling it `(spec SEC-001)`. One of the two spellings again — the bug the
+checker wears when its author enumerates the way they thought of.
+
+| # | Mutation | Caught by |
+|---|---|---|
+| 1 | a real assert message gets its code back | `test_no_assert_message_reachable_from_a_route_names_a_code` |
+| 2 | the walk matches nothing (a vacuous gate) | `test_the_assert_gate_reads_messages_and_not_just_source_text` |
+| 3 | the same message moves to module level | same canary — the scope exclusion must be scope, not pattern |
+| 4 | the bare `(spec SEC-001)` spelling | same canary |
+
+Canary 1 was run against the live tree, not a fixture: `§EMG-003` planted into
+`emergency/service.py`'s card assert, the node went red, and the file was restored from a `cp` backup
+(the cache cleared, because a same-second same-size revert can serve the old bytecode). The canary
+inside the test file drives the *same* `_assert_messages_in_functions` the gate uses, on a planted
+file, so it cannot pass while the real walk is broken — the first cut of it reimplemented the walk,
+which would have tested the reimplementation.
+
+**No new source.** The governing text is the repo's own `docs/spec.md` §SEC-001 and the user-facing
+rule the gate already encodes; nothing here is a new claim about the product.

@@ -48,7 +48,8 @@ class ChwService(LogMixin):
 		assert self._chws == {} and self._activity == []
 
 	async def provision(self, profile: ChwProfile) -> ChwProfile:
-		assert profile.registry_verified, 'CHW must be verified against the national registry (§COM-101)'
+		# §COM-101's registry check, named here rather than in the message a caller reads back.
+		assert profile.registry_verified, 'a community health worker must be verified against the national registry'
 		assert profile.provisioned_by in ('County', 'MoH'), 'accounts are provisioned by a county health team'
 		self._chws[profile.chw_ref] = profile
 		self._log_info('chw provisioned', chw=profile.chw_ref, county=profile.county)

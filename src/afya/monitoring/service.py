@@ -602,7 +602,7 @@ class MonitoringService(LogMixin):
 		# refused rather than silently stored without it.
 		if entry.location_logged:
 			assert household.location_consent, (
-				'location logging requires consent recorded against the household (§MON-009)')
+				'location logging needs consent recorded against the household')
 		# A member's day is filed against the member, and the contact's diary stays the contact's:
 		# the predecessor accepted `household_member` and read nothing, so a member's fever counted
 		# as the contact's and the member had no series of their own.

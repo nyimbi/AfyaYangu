@@ -117,7 +117,7 @@ class AdamClient(LogMixin):
 		assert envelope.get('subject_ref'), 'a share must name the person it belongs to'
 		assert envelope.get('sealed'), (
 			'a contact list reaches ADaM sealed; this envelope carries no ciphertext, so the caller '
-			'skipped the application-layer encryption §SEC-003 asks for')
+			'skipped the application-layer encryption the deployment asks for')
 		assert envelope.get('with_who'), 'a share must name its recipient'
 		resp = await self._http.post(f'{self._base}/contact-lists', json=envelope, headers=self._headers())
 		resp.raise_for_status()

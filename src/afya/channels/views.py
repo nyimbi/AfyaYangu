@@ -206,14 +206,14 @@ class RadioVignette(DerivedFields, BaseModel):
 
 	def model_post_init(self, _context: object) -> None:
 		assert self.lang in LANGUAGE_NAME_FOR, (
-			f'{self.lang!r} is not a §CHAN-000 language; the section lists '
+			f'{self.lang!r} is not a language this station broadcasts in; the section lists '
 			f'{sorted(LANGUAGE_NAME_FOR)}'
 		)
 		assert all(role.strip() for role in self.roles), 'a cast member has no name'
 		# Numbered, and consecutive from 1: a script whose scenes skip a number is a script with a
 		# missing scene, and the director reads the numbers off the page.
 		assert [s.number for s in self.scenes] == list(range(1, len(self.scenes) + 1)), (
-			'§CHAN-000 vignette scenes are numbered from 1 without gaps'
+			'the scenes are numbered from 1 without gaps'
 		)
 		speakers = {line.speaker for scene in self.scenes for line in scene.lines}
 		unknown = speakers - self.roles

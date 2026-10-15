@@ -508,8 +508,7 @@ class ServiceStatus(BaseModel):
 		# the reader can reach care, and a road closure filed under a kind the section scopes to
 		# facility access but flagged as not affecting it is a row the feed should not be carrying.
 		assert self.kind != 'road_closure' or self.affects_facility_access, (
-			'§INF-007 carries "road closures affecting facility access" — a closure that does not '
-			'affect reaching care belongs in a traffic feed, not this one'
+			'a road closure that does not affect reaching care belongs in a traffic feed, not this one'
 		)
 
 	@property

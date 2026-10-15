@@ -239,7 +239,7 @@ class InfoService(LogMixin):
 		# video the sections ask for. Asserted here rather than only in the audit view because the
 		# seed is where the corpus is loaded, and an empty rendition set is a silent regression.
 		assert any(i.media_ref for i in self._content.values()), \
-			'the corpus carries no rendition, so §INF-003 and §INF-008 print formats nothing delivers'
+			'the corpus carries no rendition, so the formats that need one deliver nothing'
 		return n
 
 	async def upsert_content(self, item: ContentItem, at_ms: int | None = None) -> ContentItem:
@@ -375,7 +375,7 @@ class InfoService(LogMixin):
 			c for c in self.library(lang) if c.harmony_tag == MYTH_TAG
 		]
 		assert all(c.claim and c.source for c in items), \
-			'a myth row without its claim or authority is a correction with no rumour (§INF-004)'
+			'a myth row without its claim or authority is a correction with no rumour'
 		return items
 
 	def renditions_of(self, slug: str) -> list[ContentItem]:

@@ -134,7 +134,8 @@ class AlertingService(LogMixin):
 	# --- ALT-001 community alert feed -----------------------------------------------------
 
 	async def publish(self, item: FeedItem) -> FeedItem:
-		assert item.verified, 'unverified items must not reach the feed (§ALT-001)'
+		# §ALT-001's verification rule, named here rather than in the message a caller reads back.
+		assert item.verified, 'an unverified item must not reach the feed'
 		assert item.source, 'source attribution is mandatory'
 		self._feed.append(item)
 		self._log_info('feed item published', category=item.category, county=item.county)

@@ -328,7 +328,9 @@ class AccessService(LogMixin):
 			# overriding the person who asked for it.
 			duty = 0.0
 			reason = 'Battery saver is on, so the sensors are off and nothing is being sampled.'
-		assert pct <= 5.0, 'battery budget is <5% per day with all Tier 4 sensors on (§ACC-004)'
+		# §ACC-004's budget, named in the comment rather than in the message: a refusal is read by a
+		# person, and a spec id is an internal traceability handle.
+		assert pct <= 5.0, 'the sensors would use more than the daily battery budget'
 		# The context scales the drain as well as the rate: a profile that ran sampling at 2x while
 		# reporting the un-scaled figure would be the settings screen lying about the cost of the
 		# setting it just applied. The scaled figure is reported **unclamped** — §ACC-004's <5% is a
@@ -338,7 +340,7 @@ class AccessService(LogMixin):
 		# The saver's residual figure is the app's own cost, not sensor sampling, so the duty must not
 		# scale it: a saver reporting 0.0% would say the app costs nothing to run.
 		scaled = pct if battery_saver else round(pct * duty, 2)
-		assert INTENSITY_BATTERY[intensity] <= 5.0, 'the §ACC-004 budget is <5% per day'
+		assert INTENSITY_BATTERY[intensity] <= 5.0, 'this intensity would exceed the daily battery budget'
 		return BatteryProfile(
 			subject_ref=subject_ref, intensity=intensity, sensors_enabled=sensors,
 			readings_enabled=readings, estimated_daily_pct=scaled,
@@ -372,7 +374,8 @@ class AccessService(LogMixin):
 		"""
 		bucket = self.screen_bucket(smallest_width_dp)
 		row = next(r for r in SCREEN_LAYOUTS if r.bucket == bucket)
-		assert row.touch_target_dp >= MIN_TOUCH_TARGET_DP, 'below the §ACC-001 floor'
+		# §ACC-001's floor, in the comment rather than the message for the reason above.
+		assert row.touch_target_dp >= MIN_TOUCH_TARGET_DP, 'the layout shrinks its controls below the touch-target floor'
 		return row.model_copy(update={'smallest_width_dp': smallest_width_dp})
 
 	@staticmethod

@@ -289,7 +289,8 @@ class EmergencyService(LogMixin):
 		the field is tri-state and collapsing "never said" into "no" is the one reading error on this
 		card with a clinical consequence.
 		"""
-		assert card.emergency_contacts, 'at least one emergency contact is required (§EMG-003)'
+		# §EMG-003's requirement, named here rather than in the message a caller reads back.
+		assert card.emergency_contacts, 'an emergency card needs at least one contact to ring'
 		donor = {True: 'yes', False: 'no', None: 'unknown'}[card.organ_donor]
 		return 'AFYA|' + '|'.join([
 			card.name, card.blood_group, ','.join(card.allergies), ','.join(card.conditions),

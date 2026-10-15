@@ -320,12 +320,12 @@ class LocationService(LogMixin):
 		history = self._histories.get(subject_ref)
 		assert history is not None, 'no history on file'
 		assert history.consent_granted, (
-			'the location diary needs the person\'s explicit consent before it can be read (§LOC-003)')
+			'the location diary needs the person\'s explicit consent before it can be read')
 		assert self._share_consent is not None and self._share_consent(
 			subject_ref, SHARE_AUTHORITY_CATEGORY), (
-			'sharing with a health authority needs §SEC-001\'s "share with health authorities" '
-			'permission, which is a different decision from keeping a location diary; refusing rather '
-			'than treating the tracking consent as the sharing one')
+			'sharing with a health authority needs the "share with health authorities" permission, '
+			'which is a different decision from keeping a location diary; refusing rather than '
+			'treating the tracking consent as the sharing one')
 		assert self._sealer is not None and self._sealer.available, (
 			'the deployment holds no application-layer key, so a location report cannot be sealed; '
 			'refusing rather than sharing it under the at-rest key alone')

@@ -754,7 +754,8 @@ class RecordsService(LogMixin):
 		stood here was that the envelope inherited a claim from a posture boolean three modules away;
 		it now reports what it did, and the two outcomes are distinguishable on the payload.
 		"""
-		assert consented, 'encrypted cloud backup needs the cloud_backup consent (spec SEC-001)'
+		# §SEC-001's cloud-backup consent, named here rather than in the message a caller reads back.
+		assert consented, 'an encrypted cloud backup needs the cloud backup consent'
 		self.assert_owns(subject_ref, member_ref)
 		docs = self.documents(member_ref)
 		import json

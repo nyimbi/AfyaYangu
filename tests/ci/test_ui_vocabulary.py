@@ -680,3 +680,89 @@ def test_every_unguarded_write_is_named_and_justified() -> None:
 	# removed, must come off it, or the list stops meaning anything.
 	stale = sorted(UNGATED_WRITES - unguarded)
 	assert stale == [], f'listed as unguarded but now guarded or gone: {stale}'
+
+
+def _assert_messages_in_functions(root: Path | None = None) -> list[tuple[str, int, str]]:
+	"""Every `assert` inside a function body whose message carries a feature code.
+
+	Module-level asserts are excluded because they run at import: a failure there is a stack trace
+	in a log, never a response, so a code in one cannot reach a person. An assert inside a function
+	is different — 159 routes catch `AssertionError` and serve `str(exc)` as the 422/404/403 `detail`,
+	so the message *is* the refusal a caller reads.
+
+	`root` is a parameter rather than a constant so the canary below can point this exact walk at a
+	file it planted, instead of reimplementing it. A canary that re-derives the gate's logic tests
+	the re-derivation, and the two drift the first time either changes.
+	"""
+	import ast
+
+	base = root if root is not None else REPO / 'src' / 'afya'
+	found: list[tuple[str, int, str]] = []
+	for path in sorted(base.rglob('*.py')):
+		tree = ast.parse(path.read_text())
+		in_function: set[int] = set()
+		for node in ast.walk(tree):
+			if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+				in_function.update(id(child) for child in ast.walk(node))
+		for node in ast.walk(tree):
+			if not isinstance(node, ast.Assert) or node.msg is None or id(node) not in in_function:
+				continue
+			try:
+				message = ast.literal_eval(node.msg)
+			except ValueError:
+				continue  # an f-string or a concatenation: not a literal this gate can read
+			if isinstance(message, str) and FEATURE_CODE.search(message):
+				found.append((str(path.relative_to(base)), node.lineno, message))
+	return found
+
+
+def test_no_assert_message_reachable_from_a_route_names_a_code() -> None:
+	"""The leak this gate's jurisdiction missed, one level up from the surfaces it walks.
+
+	Every other test here scans a *served object*: the catalogue, the friendly-copy table, a
+	`/mobile/*` payload, a native client's literals, four named refusals. That is a list of surfaces,
+	and a list of surfaces is a subset of the ways a code can reach a screen. An assert message is
+	not a surface — it is a string that becomes one, through 159 `except AssertionError` handlers
+	that serve `str(exc)` verbatim as the response's `detail`. The `/location/history/{ref}/share`
+	route answered a citizen's 422 with "sharing with a health authority needs §SEC-001's ...", and
+	no test here could see it, because the gate asked which surfaces carry a code rather than which
+	strings become one.
+
+	Read off the source rather than enumerated, so a message written next month is covered by
+	construction. The rule is not "never name the section" — it is *where*: a module-level assert or
+	a comment may name it freely, and a comment is where the traceability goes instead.
+
+	The pattern is `FEATURE_CODE`, which matches a bare `SEC-001` as well as `§SEC-001` — the first
+	run of this gate caught `records/service.py` spelling it `(spec SEC-001)` while the scan that
+	found the other eighteen was anchored on the section sign.
+	"""
+	offenders = _assert_messages_in_functions()
+	assert offenders == [], (
+		'assert messages reachable from a route name a feature code; put the code in a comment above '
+		f'the assert and let the message say what a person should read: {offenders}')
+
+
+def test_the_assert_gate_reads_messages_and_not_just_source_text() -> None:
+	"""Canary, in both directions, because this gate's failure mode is being vacuous.
+
+	An `ast` walk that silently matched nothing would report a clean tree forever — the "exit 0 from
+	a gate you have never watched fail" failure. The canary drives `_assert_messages_in_functions`
+	itself, on a planted file, so it cannot pass while the real walk is broken.
+	"""
+	import tempfile
+
+	planted = 'a refusal that names §SEC-001 out loud'
+	with tempfile.TemporaryDirectory() as tmp:
+		root = Path(tmp)
+		path = root / 'planted.py'
+		path.write_text(f'def f():\n\tassert False, {planted!r}\n')
+		hits = _assert_messages_in_functions(root)
+		assert len(hits) == 1, f'the walk must find a code in an in-function assert: {hits}'
+		# Module level is not the leak: nothing catches an import-time AssertionError into a response.
+		path.write_text(f'assert True, {planted!r}\n')
+		assert _assert_messages_in_functions(root) == [], (
+			'the same message at module level must be excluded by scope, not by the pattern')
+		# And the bare spelling, with no section sign, is the same defect.
+		path.write_text("def g():\n\tassert False, 'needs the cloud_backup consent (spec SEC-001)'\n")
+		assert len(_assert_messages_in_functions(root)) == 1, 'the bare spelling must be caught too'
+

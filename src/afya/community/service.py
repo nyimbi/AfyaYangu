@@ -313,7 +313,7 @@ class CommunityService(LogMixin):
 		"""
 		assert report.symptoms, 'symptom checklist required'
 		if report.photo_sha256 is not None:
-			assert report.geotagged, 'photo evidence requires geotag consent (§COM-101)'
+			assert report.geotagged, 'a photo needs its location consent before it can be filed'
 		# §COM-101's "Offline report queue". Queued here, with the *recording*, rather than with the
 		# alert below — both paths record the report and only one of them alerts, and a duplicate
 		# that arrived offline is still a report the server does not have. Queueing it beside the
@@ -402,7 +402,7 @@ class CommunityService(LogMixin):
 	# --- COM-102 peer alert network -------------------------------------------------------
 
 	async def send_peer_alert(self, alert: PeerAlert) -> PeerAlertReceipt:
-		assert alert.verified_by in ('County', 'PHEOC', 'MoH'), 'peer alerts require county verification (§COM-102)'
+		assert alert.verified_by in ('County', 'PHEOC', 'MoH'), 'a peer alert needs county verification first'
 		# §6.2.5 and §6.2.9, through the one table that holds them. The peer alert carried its own
 		# four-word alarmist list, which missed the stigmatising substitutions the section states and
 		# would not have moved if the section did. It is instruction text — a peer alert tells someone
@@ -557,9 +557,10 @@ class CommunityService(LogMixin):
 		"""
 		bucket = self._contacts.get(subject_ref)
 		assert bucket is not None, 'no contact list is held for this person'
+		# §COM-103's consent rule, named here rather than in the message a caller reads back.
 		assert bucket.share_consent, (
-			'sharing a contact list needs the person\'s explicit consent (§COM-103); the list is '
-			'held on the phone until they give it')
+			'sharing a contact list needs the person\'s explicit consent; the list is held on the '
+			'phone until they give it')
 		assert bucket.entries, 'there is nothing to share — an empty list is not a statement about contacts'
 		assert self._crypto is not None and self._crypto.has_app_layer, (
 			'the deployment holds no application-layer key, so a contact list cannot be sealed; '
