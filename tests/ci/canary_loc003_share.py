@@ -23,7 +23,7 @@ CANARIES: list[tuple[str, Path, str, str, str]] = [
 		'the consent gate stops refusing a history that was never consented to',
 		SERVICE,
 		"		assert history.consent_granted, (\n"
-		"			'the location diary needs the person\\'s explicit consent before it can be read (§LOC-003)')\n",
+		"			'the location diary needs the person\\'s explicit consent before it can be read')\n",
 		'',
 		'tests/ci/test_loc003_share.py::test_a_history_without_the_tracking_consent_cannot_be_shared',
 	),
@@ -32,9 +32,9 @@ CANARIES: list[tuple[str, Path, str, str, str]] = [
 		SERVICE,
 		"		assert self._share_consent is not None and self._share_consent(\n"
 		"			subject_ref, SHARE_AUTHORITY_CATEGORY), (\n"
-		"			'sharing with a health authority needs §SEC-001\\'s \"share with health authorities\" '\n"
-		"			'permission, which is a different decision from keeping a location diary; refusing rather '\n"
-		"			'than treating the tracking consent as the sharing one')\n",
+		"			'sharing with a health authority needs the \"share with health authorities\" permission, '\n"
+		"			'which is a different decision from keeping a location diary; refusing rather than '\n"
+		"			'treating the tracking consent as the sharing one')\n",
 		'',
 		'tests/ci/test_loc003_share.py::test_a_diary_without_the_sharing_permission_cannot_be_shared',
 	),

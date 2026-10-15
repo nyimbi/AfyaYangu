@@ -97,17 +97,19 @@ CANARIES = [
 	 'test_two_reports_filed_in_one_millisecond_are_two_ops'),
 
 	# 7. The composition root hands the service no queue. The service takes one and production does
-	#    not pass it, which is invisible to every test that constructs the service itself.
+	#    not pass it, which is invisible to every test that constructs the service itself. The target
+	#    is the *whole* wiring line: it grew four arguments since this canary was written and the old
+	#    prefix silently stopped matching, so the canary had been reporting a pass without running.
 	('the composition root hands the service no queue', G,
-	 "		'community': CommunityService(identity_svc, sync_svc),",
-	 "		'community': CommunityService(identity_svc),",
+	 "		'community': CommunityService(identity_svc, sync_svc, crypto_svc, adam_svc, channels_svc, alerting_svc),",
+	 "		'community': CommunityService(identity_svc, None, crypto_svc, adam_svc, channels_svc, alerting_svc),",
 	 'test_the_route_queues_a_report_for_a_signed_in_chw'),
 
 	# 8. The queue is written before the consent refusal, so §COM-101's geotag gate becomes advisory:
 	#    a report refused for want of consent is queued anyway and reaches the server on the next
 	#    flush. The order is the control.
 	('the queue is written before the consent refusal', S,
-	 "		assert report.symptoms, 'symptom checklist required'\n		if report.photo_sha256 is not None:\n			assert report.geotagged, 'photo evidence requires geotag consent (§COM-101)'",
+	 "		assert report.symptoms, 'symptom checklist required'\n		if report.photo_sha256 is not None:\n			assert report.geotagged, 'a photo needs its location consent before it can be filed'",
 	 "		assert report.symptoms, 'symptom checklist required'",
 	 'test_a_photo_without_geotag_is_still_refused_before_anything_is_queued'),
 

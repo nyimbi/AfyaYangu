@@ -63,7 +63,9 @@ def test_the_road_qualifier_is_the_sections_and_is_enforced() -> None:
 	the qualifier is the reason the row is in *this* feed. A closure that does not affect reaching
 	care is a traffic report, and carrying it here makes the feed's own name a lie."""
 	assert _status(kind='road_closure', state='closed', affects_facility_access=True).headline
-	with pytest.raises(Exception, match='affecting facility access'):
+	# The message is the sentence a caller reads back in the 422, so it is asserted as words and not
+	# as the section id — a spec code in a refusal is the leak the vocabulary gate now catches.
+	with pytest.raises(Exception, match='does not affect reaching care'):
 		_status(kind='road_closure', state='closed', affects_facility_access=False)
 	# The other five are unqualified, so the flag is free on them.
 	assert _status(kind='market_closure', affects_facility_access=False).body

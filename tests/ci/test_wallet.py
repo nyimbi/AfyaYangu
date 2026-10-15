@@ -501,7 +501,7 @@ async def test_the_backup_refuses_without_consent_and_reports_its_own_cipher() -
 	"""
 	svc = await _family()
 	await svc.add_document(_doc('d1'))
-	with pytest.raises(AssertionError, match='cloud_backup consent'):
+	with pytest.raises(AssertionError, match='needs the cloud backup consent'):
 		await svc.backup('G1', 'G1', '2026-10-12T09:00:00', consented=False)
 	envelope = await svc.backup('G1', 'G1', '2026-10-12T09:00:00', consented=True)
 	assert envelope.document_count == 1 and envelope.member_count == 1

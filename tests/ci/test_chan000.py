@@ -130,8 +130,12 @@ def test_scenes_are_numbered_from_one_without_gaps() -> None:
 
 
 def test_a_language_outside_the_sections_coverage_is_refused() -> None:
-	"""§CHAN-000 lists the languages it broadcasts in. A code outside the registry is not one."""
-	with pytest.raises(ValidationError, match='not a §CHAN-000 language'):
+	"""§CHAN-000 lists the languages it broadcasts in. A code outside the registry is not one.
+
+	The message is asserted as the sentence a caller reads, not as the section id: this refusal is
+	served verbatim in a 422, and a spec code in it is the leak the vocabulary gate now catches.
+	"""
+	with pytest.raises(ValidationError, match='not a language this station broadcasts in'):
 		_vignette(lang='fr')
 
 

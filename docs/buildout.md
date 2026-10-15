@@ -6615,3 +6615,29 @@ which would have tested the reimplementation.
 
 **No new source.** The governing text is the repo's own `docs/spec.md` §SEC-001 and the user-facing
 rule the gate already encodes; nothing here is a new claim about the product.
+
+Two tests pinned the reworded messages as regexes and went red on the first checkpoint —
+`test_chan000.py`'s language refusal and `test_inf007.py`'s road qualifier — which is the test doing
+its job: it had been asserting the *code* in the message, so the assertion was itself an instance of
+the leak. Both now match the sentence. `test_wallet.py` matched `cloud_backup consent`, which the new
+message still contains; it was re-anchored to the whole phrase anyway, so a later reword does not
+have to be hunted.
+
+**A canary that had stopped running.** `canary_com101.py`'s #7 patched the composition root's
+community wiring line, which has grown four arguments since the canary was written:
+
+	-  'community': CommunityService(identity_svc, sync_svc),
+	+  'community': CommunityService(identity_svc, sync_svc, crypto_svc, adam_svc, channels_svc, alerting_svc),
+
+The old prefix matched nothing, so `assert count == 1` fired and the canary reported a failure rather
+than a pass — which is the good direction, but it means the mutation it guards has not been exercised
+since that line changed. Re-pointed at the whole line. The general rule: a canary's target is a
+*string in a file*, and a file that grows around it disarms the canary silently when the patch is a
+prefix, and loudly when it is not. Both are worth knowing about, and only the loud one gets noticed.
+
+**One process discipline note.** A sweep that ran every `canary_*.py` in a loop was started while a
+full-suite checkpoint was already running. Canary files patch the source tree in place, so the two
+were mutating the same files: the checkpoint was reading a tree a canary had just broken, and killing
+the sweep mid-flight left `service.py` carrying a canary's mutation. Both runs were discarded, the
+file restored from HEAD, `__pycache__` cleared, and the checkpoint re-run with nothing else touching
+the tree. A canary and a suite cannot share a working tree.
