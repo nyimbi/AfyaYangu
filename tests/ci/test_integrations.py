@@ -195,10 +195,14 @@ async def test_pheoc_push_refuses_an_empty_batch(client: httpx.AsyncClient, http
 async def test_jali_full_wire(client: httpx.AsyncClient, httpserver: HTTPServer) -> None:
 	httpserver.expect_request('/v1/links', method='POST').respond_with_json({'url': 'https://jali.health.go.ke/go/abc'})
 	httpserver.expect_request('/v1/corrections', method='GET').respond_with_json([{'topic': 'bleach'}])
+	httpserver.expect_request('/v1/assessments', method='POST').respond_with_json({'assessment_ref': 'A1'})
 	httpserver.expect_request('/v1/assessments/A1/review', method='GET').respond_with_json({'clinician': 'Dr X'})
 	jali = JaliClient(httpserver.url_for('/'), 'sk-1', client)
 	assert (await jali.launch_link('triage', 'U1')).endswith('/abc')
 	assert (await jali.corrections('2026-01-01T00:00:00Z'))[0]['topic'] == 'bleach'
+	# The push returns the ref the review is pulled by, so the two rows of §18.2's table are one
+	# wire rather than two: without it the app has an id for nothing.
+	assert await jali.share_assessment({'subject_ref': 'U1', 'consented': True}) == 'A1'
 	review = await jali.clinician_response('A1')
 	assert review is not None and review['clinician'] == 'Dr X'
 
@@ -359,6 +363,156 @@ async def test_integration_routes_are_reachable_and_guarded(no_webhook_env: None
 		# webhook is an open write attributed to a real person.
 		assert (await c.post('/integrations/telco/sms/inbound', json={'from': '0712345678', 'text': 'x'})).status_code == 503
 		assert (await c.post('/channels/ussd/callback', json={'session_id': 's', 'phone_number': '+254711222333', 'text': ''})).status_code == 503
+
+
+async def test_the_clinician_review_route_refuses_a_caller_with_no_token() -> None:
+	"""§18.2's fourth row is a clinician's answer about one person's assessment, and it was the only
+	unguarded route on the §18 surface that serves a person's data: it answered 200 with no token at
+	all, so anyone could read any assessment by guessing an id.
+
+	The other guard tests could not see it. `test_self_scope.py`'s gate keys on a route naming a
+	*subject*, and this one names an `assessment_id` — a vendor reference, not a subject — so the
+	route sat outside the gate's jurisdiction while serving exactly the data the gate exists for.
+	This asserts the front door, and `test_the_integration_surface_has_no_unguarded_person_route`
+	asserts the whole surface so the next such route fails there rather than here.
+	"""
+	import httpx as _httpx
+
+	from afya.service import build_services, create_app
+
+	app = create_app(build_services())
+	async with _httpx.AsyncClient(transport=_httpx.ASGITransport(app=app), base_url='http://t') as c:
+		for headers in ({}, {'authorization': 'Bearer nonsense'}):
+			resp = await c.get('/integrations/jali/assessments/A1/review', headers=headers)
+			assert resp.status_code == 401, f'{resp.status_code} without a usable token, not 401'
+		# The sibling that pushes the same person's assessment is guarded, so the pair cannot
+		# disagree about who may touch it — which is the shape the ADaM twin already had.
+		assert (await c.post('/integrations/jali/assessments', json={'consented': True})).status_code == 401
+
+
+async def test_an_unconsented_assessment_is_refused_at_the_boundary_not_only_in_the_client() -> None:
+	"""The consent rule lived in `JaliClient` and nowhere else, and JALI has two implementations: the
+	client, and `InlineJaliPort`, which is what runs whenever no JALI key is configured — the default
+	a deployment without the integration has. `InlineJaliPort.share_assessment` has no assert, so an
+	unconsented summary was accepted and answered 200 on the offline port while the identical call
+	was refused on the online one.
+
+	A control present in one of two implementations is a control at half the paths, and which half
+	you get is a configuration detail the caller cannot see. The route is the boundary both share,
+	so the rule is enforced there, and this drives the front door with the offline port in place.
+	"""
+	import httpx as _httpx
+
+	from afya.auth.views import s256
+	from afya.service import build_services, create_app
+
+	services = build_services()
+	# The premise of the test: this is the offline port, the one whose `share_assessment` carries no
+	# consent assert of its own. If a JALI key were configured the premise would be false and the
+	# test would be passing for the client's reason rather than the boundary's.
+	assert services['jali'].__class__.__name__ == 'InlineJaliPort', services['jali'].__class__.__name__
+	app = create_app(services)
+	verifier = 'v' * 64
+	async with _httpx.AsyncClient(transport=_httpx.ASGITransport(app=app), base_url='http://t') as c:
+		authz = (await c.post('/auth/pkce/authorize', json={
+			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234',
+		})).json()
+		chw = (await c.post('/auth/pkce/token', params={'role': 'chw'}, json={
+			'authorization_code': authz['authorization_code'], 'client_id': 'app',
+			'redirect_uri': 'afya://cb', 'code_verifier': verifier,
+		})).json()['access_token']
+		h = {'authorization': f'Bearer {chw}'}
+		# No flag, and a flag that is merely truthy rather than `True`: the check is `is True`, so a
+		# string or a 1 cannot stand in for consent somebody actually gave.
+		for body in ({'subject_ref': 'U1'}, {'subject_ref': 'U1', 'consented': 'yes'}, {'subject_ref': 'U1', 'consented': 1}):
+			resp = await c.post('/integrations/jali/assessments', json=body, headers=h)
+			assert resp.status_code == 403, f'{body} was accepted with {resp.status_code}'
+		assert (await c.post('/integrations/jali/assessments', json={'subject_ref': 'U1', 'consented': True}, headers=h)).status_code == 200
+
+
+# The §18 routes that must carry no guard, each with the reason. These serve no person's data:
+# published content, a capability list, or a health of the deployment. Naming them is what makes
+# the surface check below a decision rather than a blanket rule that someone would have to weaken.
+OPEN_INTEGRATION_ROUTES: dict[tuple[str, str], str] = {
+	('GET', '/integrations/status'): 'the wiring report: which systems are configured, and no person in it',
+	('GET', '/integrations/pheoc/feeds'): 'the feed catalogue: names, granularity and the min-cell floor',
+	('GET', '/integrations/telco/zero-rating'): 'which domains are zero-rated, which is carrier configuration',
+	('GET', '/integrations/jali/corrections'): 'published health corrections, meant to be shown to everyone',
+}
+
+
+def _integration_routes(app: Any) -> list[tuple[str, str]]:
+	inner = next((getattr(r, 'app') for r in app.routes if hasattr(getattr(r, 'app', None), 'routes')), app)
+	out: list[tuple[str, str]] = []
+	for route in getattr(inner, 'routes', []):
+		path = getattr(route, 'path', '')
+		if not path.startswith('/integrations'):
+			continue
+		for method in sorted(getattr(route, 'methods', set()) - {'HEAD', 'OPTIONS'}):
+			out.append((method, path))
+	return sorted(out)
+
+
+def _guard_name(app: Any, method: str, path: str) -> str | None:
+	inner = next((getattr(r, 'app') for r in app.routes if hasattr(getattr(r, 'app', None), 'routes')), app)
+	for route in getattr(inner, 'routes', []):
+		if getattr(route, 'path', None) != path or method not in getattr(route, 'methods', set()):
+			continue
+		for dep in getattr(getattr(route, 'dependant', None), 'dependencies', []):
+			name = getattr(dep.call, '__qualname__', '')
+			for guard in ('require_webhook', 'require_self_or_guardian', 'require_self', 'require_any_scope', 'require_scope'):
+				if guard in name:
+					return guard
+	return None
+
+
+def test_the_integration_surface_has_no_unguarded_person_route() -> None:
+	"""The gate, scoped to §18. Every route on the integration surface either carries a guard or is
+	named in `OPEN_INTEGRATION_ROUTES` with the reason it serves no person's data.
+
+	This is the check the review route needed and did not have. It is deliberately scoped to
+	`/integrations` rather than to the whole app: `test_self_scope.py` owns the app-wide personal
+	data surface, and a second gate over the same ground would drift against it. What this adds is
+	the jurisdiction that gate cannot see — routes that name a vendor reference instead of a subject.
+	"""
+	from afya.service import build_services, create_app
+
+	app = create_app(build_services())
+	unguarded = [(m, p) for m, p in _integration_routes(app)
+	             if _guard_name(app, m, p) is None and (m, p) not in OPEN_INTEGRATION_ROUTES]
+	assert unguarded == [], (
+		f'§18 routes that reach a person with no guard: {unguarded}. '
+		'Add the guard, or name the route in OPEN_INTEGRATION_ROUTES with the reason it holds no personal data.'
+	)
+
+
+def test_the_open_integration_routes_are_still_open_and_still_real() -> None:
+	"""The list must not drift into a place a guard was dropped: every entry must name a route that
+	exists and still carries no guard, and every guarded route must stay out of it."""
+	from afya.service import build_services, create_app
+
+	app = create_app(build_services())
+	paths = set(_integration_routes(app))
+	for (method, path), reason in OPEN_INTEGRATION_ROUTES.items():
+		assert (method, path) in paths, f'{method} {path} is named as open but no such route exists'
+		assert _guard_name(app, method, path) is None, f'{method} {path} is named as open but carries a guard'
+		assert len(reason) > 20, f'{method} {path} has no real reason, only {reason!r}'
+
+
+def test_the_integration_surface_gate_catches_an_unguarded_person_route() -> None:
+	"""Canary. The defect is planted as a route under a vendor-shaped name, which is the shape that
+	fooled the app-wide gate — a subject-name key would not see it, and this one must."""
+	from fastapi import FastAPI
+
+	planted = FastAPI()
+
+	@planted.get('/integrations/jali/assessments/{assessment_id}/review')
+	async def planted_review(assessment_id: str) -> dict[str, str]:
+		return {'review': assessment_id}
+
+	bad = [(m, p) for m, p in _integration_routes(planted)
+	       if _guard_name(planted, m, p) is None and (m, p) not in OPEN_INTEGRATION_ROUTES]
+	assert bad == [('GET', '/integrations/jali/assessments/{assessment_id}/review')], f'the gate missed it: {bad}'
 
 
 async def test_pheoc_preview_applies_the_same_suppression_as_the_push() -> None:

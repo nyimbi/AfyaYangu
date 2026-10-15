@@ -54,16 +54,23 @@ class JaliClient:
 		assert isinstance(rows, list), 'correction payload must be a list'
 		return [dict(r) for r in rows]
 
-	async def share_assessment(self, summary: dict[str, object]) -> bool:
+	async def share_assessment(self, summary: dict[str, object]) -> str:
 		"""App → JALI, on request, consented only. Same consent rule as the ADaM summary, for the same
-		reason: a summary pushed without the flag is a disclosure nobody agreed to."""
+		reason: a summary pushed without the flag is a disclosure nobody agreed to.
+
+		Returns the vendor's assessment reference. It has to come back: §18.2's fourth row is the
+		clinician's answer, which is pulled *by that id*, and a push that discards the response leaves
+		the app with no id to pull with — so the review wire is unreachable however it is guarded.
+		The ADaM twin returns its ref for exactly this reason (`{'adam_case_ref': ref}`).
+		"""
 		assert summary.get('consented') is True, 'assessments are shared only with consent'
 		resp = await self._http.post(f'{self._base}/v1/assessments', json=summary, headers=self._headers())
 		resp.raise_for_status()
-		return resp.status_code < 300
+		return str(resp.json().get('assessment_ref', ''))
 
 	async def clinician_response(self, assessment_id: str) -> dict[str, object] | None:
 		"""JALI → App, on review. `None` while a human has not yet answered, which is not an error."""
+		assert assessment_id, 'a review is pulled by assessment id'
 		resp = await self._http.get(f'{self._base}/v1/assessments/{assessment_id}/review', headers=self._headers())
 		if resp.status_code == 404:
 			return None
@@ -270,10 +277,11 @@ class InlineJaliPort:
 	async def corrections(self, since_iso: str) -> list[dict[str, object]]:
 		return []
 
-	async def share_assessment(self, summary: dict[str, object]) -> bool:
-		# There is nowhere to send it, and reporting success would tell the caller a clinician will
-		# see it. False is the honest answer.
-		return False
+	async def share_assessment(self, summary: dict[str, object]) -> str:
+		# There is nowhere to send it, and returning an id would tell the caller a clinician will see
+		# it and that a review can be polled. The empty string is the honest answer — the same one
+		# `launch_link` gives for the same reason.
+		return ''
 
 	async def clinician_response(self, assessment_id: str) -> dict[str, object] | None:
 		return None
@@ -282,7 +290,7 @@ class InlineJaliPort:
 class JaliPort(Protocol):
 	async def launch_link(self, context: str, subject_ref: str) -> str: ...
 	async def corrections(self, since_iso: str) -> list[dict[str, object]]: ...
-	async def share_assessment(self, summary: dict[str, object]) -> bool: ...
+	async def share_assessment(self, summary: dict[str, object]) -> str: ...
 	async def clinician_response(self, assessment_id: str) -> dict[str, object] | None: ...
 
 

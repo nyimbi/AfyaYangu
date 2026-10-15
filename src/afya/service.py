@@ -5412,18 +5412,44 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	# The ADaM twin of this route carries `assigned`; a summary of one person's assessment
 	# pushed to a national system without a guard is the same disclosure with the guard missing.
 	@app.post('/integrations/jali/assessments')
-	async def jali_share_assessment(summary: dict[str, object], _subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, bool]:
+	async def jali_share_assessment(summary: dict[str, object], _subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, str]:
+		"""Push a consented assessment and return the reference the review is pulled by.
+
+		The ref has to come back: the clinician's answer is §18.2's fourth row and it is read by id,
+		so a push that returned only a boolean left the app with nothing to pull with.
+
+		The consent check is made *here* as well as in the client, because the two ports are not
+		equally guarded: `JaliClient.share_assessment` asserts it and `InlineJaliPort` does not, so
+		with JALI unconfigured — which is the default, and what a deployment without a JALI key
+		runs — an unconsented summary was accepted and answered 200. A control present in one of two
+		implementations is a control at half the paths, and the route is the boundary both share.
+		"""
+		if summary.get('consented') is not True:
+			raise HTTPException(status_code=403, detail='assessments are shared only with consent')
 		try:
-			await jali.share_assessment(dict(summary))
+			ref = await jali.share_assessment(dict(summary))
 		except AssertionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
-		return {'ok': True}
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='JALI did not accept the assessment') from exc
+		return {'assessment_ref': ref}
 
+	# §18.2's fourth row is a clinician's answer about one person's assessment. It carried no guard
+	# at all — the only unguarded route on the §18 surface that serves a person's data — so anyone
+	# could read any assessment by guessing an id. It carries the push route's scope, because the
+	# same clinician relationship that may send an assessment out is the one that may read what came
+	# back; a citizen route would be wrong, since a citizen never holds the assessment id.
 	@app.get('/integrations/jali/assessments/{assessment_id}/review')
-	async def jali_review(assessment_id: str) -> dict[str, object]:
-		out = await jali.clinician_response(assessment_id)
-		# `None` is "a human has not answered yet", which is a state, not an error — so it is a 200
-		# with a null body rather than a 404 the client would read as "no such assessment".
+	async def jali_review(assessment_id: str, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, object]:
+		"""The clinician's answer to an assessment this deployment pushed.
+
+		`None` is "a human has not answered yet", which is a state, not an error — so it is a 200
+		with a null body rather than a 404 the client would read as "no such assessment".
+		"""
+		try:
+			out = await jali.clinician_response(assessment_id)
+		except Exception as exc:
+			raise HTTPException(status_code=502, detail='JALI is unreachable') from exc
 		return {'review': out}
 
 	# §18.3 PHEOC — the six dashboard feeds. Built by `feeds.py` (which enforces min-cell-10),
