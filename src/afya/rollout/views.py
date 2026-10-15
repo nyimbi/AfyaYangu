@@ -82,13 +82,23 @@ class PhaseSpec(BaseModel):
 class GrowthLever(BaseModel):
 	"""One §20.2 row. `checkable` is True only where the lever makes a claim about this repo, and
 	then `check` names the property the code must hold. The other four are partnership or design
-	commitments with no artefact to inspect, and they say so rather than being given a fake check."""
+	commitments with no artefact to inspect, and they say so rather than being given a fake check.
+
+	`lever` and `why` are the section's own columns. `action` is the Action column with any spec id
+	resolved, and `action_cell` is that column verbatim — the `channels_cell`/`tiers_cell` split
+	§21.1 already makes, and for the same reason. §20.2 writes lever 4's Action as
+	`Structured intermediary programme (CHAN-5)`, an abbreviated handle that resolves to no row in
+	the registry as written; carrying the cell as-is and serving it would put a traceability handle
+	on a route a telco reads, which is what the standing constraint forbids. The cell is kept so
+	the substitution is checked against the section's text rather than a retyped name.
+	"""
 
 	model_config = MODEL_CONFIG
 	number: int = Field(ge=1, le=6)
 	lever: str = Field(min_length=1)
 	why: str = Field(min_length=1)
 	action: str = Field(min_length=1)
+	action_cell: str = Field(min_length=1)
 	checkable: bool
 	check: str | None = None
 
@@ -353,6 +363,21 @@ class PartnerType(BaseModel):
 	partner_type: str = Field(min_length=1)
 	partners: list[str] = Field(min_length=1)
 	role: str = Field(min_length=1)
+
+
+class LeverPlan(BaseModel):
+	"""§20.2's six levers as one served answer, with the two repo claims answered from the artefacts.
+
+	`unbacked_claims` is the finding, and it is the §15.4 rule applied here: a lever marked
+	checkable whose check is failing — no licence file, an over-budget build — is a growth strategy
+	resting on a property the repository does not have, and it is named rather than dropped. A
+	lever that quietly vanished from the plan would read as a lever nobody had to deliver.
+	"""
+
+	model_config = MODEL_CONFIG
+	levers: list[GrowthLever]
+	unbacked_claims: list[str]
+	note: str
 
 
 class AcquisitionPlan(BaseModel):

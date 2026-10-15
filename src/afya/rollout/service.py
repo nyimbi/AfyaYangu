@@ -17,7 +17,7 @@ from afya.metrics.service import KPIS
 from afya.registry.service import CHANNELS, FeatureRegistry
 from afya.rollout.views import (
 	AcquisitionChannel, AcquisitionPlan, AntiPattern, AppSizePlan, Deliverable, GrowthLever,
-	LaunchStep, ModuleDelivery, PartnerType, Phase, PhasePlan, PhaseReadiness, PhaseSpec,
+	LaunchStep, LeverPlan, ModuleDelivery, PartnerType, Phase, PhasePlan, PhaseReadiness, PhaseSpec,
 	ReadinessReport, RetentionMechanism, RolloutStatus, SuccessCriterion,
 )
 
@@ -66,26 +66,55 @@ PHASES: tuple[PhaseSpec, ...] = (
 		channels=list(ALL_CHANNELS), channels_cell='All', max_tier=4, tiers_cell='All', weeks_start=52, weeks_end=None),
 )
 
-# §20.2's six levers. `checkable` is True only for the two that make a claim about this repo.
+# §20.2's six levers, cell for cell. `checkable` is True only for the two that make a claim about
+# this repo, and `action_cell` is the Action column verbatim.
+#
+# Three of these cells had drifted from the section, and the drift was invisible because the only
+# gate over the table counted rows. Lever 5's `why` and `action` were swapped, so the section's
+# *reason* ("Under 15 MB; no account; Android Go; offline") was stored as the act and the act
+# ("Engineering requirements") was missing entirely; lever 6's `why` was an invented sentence
+# ("A health profile nobody completes is not a profile") appearing nowhere in the spec. Both were
+# plausible, which is what made them survive — a swapped cell reads as prose either way.
+LEVER_ID_RESOLUTIONS: dict[int, tuple[str, str]] = {
+	# §20.2 lever 4's Action cell writes `CHAN-5`, the abbreviated handle §7.2's scheme expands to
+	# `CHAN-005` — the same abbreviation §21.1's Channels column uses. The cell is kept so the
+	# substitution is checked against the section's text; the id is kept here so a registry rename
+	# fails at import rather than silently serving a stale name.
+	4: ('CHAN-5', 'CHAN-005'),
+}
+
 GROWTH_LEVERS: tuple[GrowthLever, ...] = (
 	GrowthLever(number=1, lever='Zero-rated data',
 		why='The single largest barrier to app use in Kenya',
-		action='Negotiate with Safaricom, Airtel, Telkom before launch', checkable=False),
+		action='Negotiate with Safaricom, Airtel, Telkom before launch',
+		action_cell='Negotiate with Safaricom, Airtel, Telkom before launch', checkable=False),
 	GrowthLever(number=2, lever='Utility in 60 seconds', why='Value before commitment',
-		action='Tier 1 designed for immediate payoff', checkable=False),
+		action='Tier 1 designed for immediate payoff',
+		action_cell='Tier 1 designed for immediate payoff', checkable=False),
 	GrowthLever(number=3, lever='Trust', why='Government-only branding limits adoption',
 		action='Co-brand with Kenya Red Cross, AMREF, WHO, faith networks; open-source client',
+		action_cell='Co-brand with Kenya Red Cross, AMREF, WHO, faith networks; open-source client',
 		checkable=True, check='a licence file exists in the repository'),
 	GrowthLever(number=4, lever='Social proof',
 		why='CHWs, chemists, faith leaders drive adoption, not app stores',
-		action='Structured intermediary programme (CHAN-005)', checkable=False),
+		action='Structured intermediary programme (Human Intermediaries)',
+		action_cell='Structured intermediary programme (CHAN-5)', checkable=False),
 	GrowthLever(number=5, lever='Friction removal',
-		why='Adoption falls off with every step between intent and use',
-		action='Under 15 MB; no account; Android Go; offline',
+		why='Under 15 MB; no account; Android Go; offline',
+		action='Engineering requirements',
+		action_cell='Engineering requirements',
 		checkable=True, check='the APK base-size budget is met'),
-	GrowthLever(number=6, lever='Incentive', why='A health profile nobody completes is not a profile',
-		action='Telco partnership; short-term boost', checkable=False),
+	GrowthLever(number=6, lever='Incentive',
+		why='Airtime or data bundles for health profile completion',
+		action='Telco partnership; short-term boost',
+		action_cell='Telco partnership; short-term boost', checkable=False),
 )
+
+# The resolution is asserted against the registry in `tests/ci/test_rollout.py` rather than here.
+# A module-level assert tripped by a mutation turns the whole file into a collection error, so every
+# other test stops running and the canary cannot name its node — the lesson §21.1's channel-set
+# expansion already recorded, repeated once by putting this loop at module scope.
+
 
 # §20.2's closing list, verbatim. Two of the five are checkable against the shipped artefacts.
 ANTIPATTERNS: tuple[AntiPattern, ...] = (
@@ -403,6 +432,43 @@ class RolloutService(LogMixin):
 	@staticmethod
 	def growth_levers() -> list[GrowthLever]:
 		return list(GROWTH_LEVERS)
+
+	def lever_plan(self) -> LeverPlan:
+		"""§20.2's six levers as a served answer, with the two repo claims answered rather than
+		restated.
+
+		The levers reached no surface at all: `/rollout/acquisition` served `lever_partners`, which
+		is the *join* between a lever and §20.4's map, so a reader got "lever 1 names Safaricom,
+		Airtel Kenya, Telkom Kenya" and never saw the lever, its reason or its action. The table was
+		carried in code and read by nothing but its own test — the §22 Measurement shape, where the
+		register held a value no route served.
+
+		`unbacked_claims` is the finding. Two levers claim something about this repository and
+		`readiness` answers both from the artefacts, so a lever marked checkable whose check is
+		currently *failing* is a growth strategy resting on a property the build does not have. It
+		is reported rather than asserted because a deployment with no licence file is a real state,
+		and a plan that silently omitted the lever would be the more dangerous answer.
+		"""
+		readiness = self.readiness()
+		backed = {3: readiness.open_source, 5: readiness.apk_within_budget}
+		unbacked: list[str] = []
+		for lever in GROWTH_LEVERS:
+			if not lever.checkable:
+				continue
+			answer = backed.get(lever.number)
+			if answer is None:
+				unbacked.append(f'lever {lever.number} ({lever.lever}): {lever.check} — not measured')
+			elif not answer:
+				unbacked.append(f'lever {lever.number} ({lever.lever}): {lever.check} — does not hold')
+		self._log_info('lever plan read', levers=len(GROWTH_LEVERS), unbacked=len(unbacked))
+		return LeverPlan(
+			levers=list(GROWTH_LEVERS), unbacked_claims=unbacked,
+			note=(
+				f'{len(unbacked)} of {sum(1 for le in GROWTH_LEVERS if le.checkable)} checkable '
+				f'lever(s) rest on a property the build does not currently have'
+				if unbacked else
+				'every checkable §20.2 lever is answered from the artefacts and holds'),
+		)
 
 	@staticmethod
 	def launch_sequence() -> list[LaunchStep]:

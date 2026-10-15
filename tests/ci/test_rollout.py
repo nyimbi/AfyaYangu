@@ -146,7 +146,12 @@ def test_a_tier_above_the_phase_ceiling_is_a_mismatch() -> None:
 def test_every_lever_is_present_and_only_the_repo_claims_are_checkable() -> None:
 	"""Six levers in §20.2, of which exactly two make a claim about this repository. Marking all
 	six checkable would be the dodge this module exists to avoid — four of them are partnership and
-	design commitments with nothing to inspect."""
+	design commitments with nothing to inspect.
+
+	This is the *count* half. `test_the_lever_table_is_the_sections_six_rows` is the other, and it
+	exists because this one passed for a revision against a table with three drifted cells: a
+	predicate over `[le.number]` and the checkable set is a strict subset of what §20.2 prints.
+	"""
 	svc = _svc()
 	levers = svc.growth_levers()
 	assert [le.number for le in levers] == [1, 2, 3, 4, 5, 6]
@@ -156,9 +161,84 @@ def test_every_lever_is_present_and_only_the_repo_claims_are_checkable() -> None
 	assert 'APK' in (checkable[5] or '') or 'size' in (checkable[5] or '')
 
 
+def test_the_lever_table_is_the_sections_six_rows() -> None:
+	"""§20.2, cell for cell, all four columns. Three cells had drifted and no test could see it:
+
+	* **Lever 5's `why` and `action` were swapped.** The section's reason is the size/offline
+	  constraint and its act is "Engineering requirements"; the code stored the reason as the act,
+	  so the lever said *what* to do where it owed *why* and the section's action was absent.
+	* **Lever 6's `why` was invented** — "A health profile nobody completes is not a profile" is a
+	  sentence the spec does not contain anywhere.
+	* **Lever 4's Action cell was normalised**, `CHAN-5` to `CHAN-005`, which is the §21.1
+	  abbreviation defect in a second place.
+
+	The swapped and invented cells read as plausible prose, which is why a row count and a
+	checkable-set assertion passed over them for a revision. `action_cell` is the column verbatim
+	and `action` the same column with any spec id resolved, so the resolution is compared against
+	the section's own text rather than a name retyped here.
+	"""
+	from afya.rollout.service import LEVER_ID_RESOLUTIONS
+	from afya.registry.service import FeatureRegistry
+	spec = _spec_table('### 20.2 The Six Growth Levers', '\n**What does not work', 4)
+	levers = _svc().growth_levers()
+	assert len(spec) == 6, f'§20.2 lists six levers, found {len(spec)}'
+	assert [le.number for le in levers] == [int(r[0]) for r in spec]
+	assert [le.lever for le in levers] == [r[1].replace('**', '') for r in spec], 'the Lever column'
+	assert [le.why for le in levers] == [r[2] for r in spec], 'the Why-it-matters column'
+	assert [le.action_cell for le in levers] == [r[3] for r in spec], 'the Action column verbatim'
+	# The resolution, checked against the cell it came from: substituting the cell's own id must
+	# produce what the row serves, so a renamed feature fails here rather than serving a stale name.
+	names = {f.id: f.name for f in FeatureRegistry().FEATURES}
+	for number, (cell_id, feature_id) in LEVER_ID_RESOLUTIONS.items():
+		row = next(le for le in levers if le.number == number)
+		assert feature_id in names, f'lever {number} resolves {cell_id} to an id the registry lacks'
+		assert row.action == row.action_cell.replace(cell_id, names[feature_id]), f'lever {number}'
+	# And no cell may carry a spec handle onto a surface: §20.2 lever 4 is the only one that names
+	# an id, and it is the only row whose two spellings differ.
+	resolved = [le.number for le in levers if le.action != le.action_cell]
+	assert resolved == [4], f'levers whose served action differs from the section: {resolved}'
+	assert 'CHAN-5' in levers[3].action_cell and 'CHAN-5' not in levers[3].action
+
+
+async def test_no_spec_handle_reaches_a_lever_surface() -> None:
+	"""The standing constraint, on the wire. §20.2's Action column writes `CHAN-5`, and the gate
+	every other surface uses matches `PREFIX-\\d{3}` — so an abbreviated handle is invisible to it.
+	That is the "one of two spellings" failure: the checker enumerates one of the two ways to write
+	an id and reports clean.
+
+	The pattern here is deliberately loose (`\\d{1,3}`), because the defect this guards against is
+	the *short* spelling. It is read off the served response, not the model, for the same reason
+	`test_the_acquisition_plan_is_public_and_the_coverage_evidence_is_scoped` is: the failure is a
+	served string.
+	"""
+	import re as _re
+	handle = _re.compile(r'\b(?:CHAN|INF|TRI|FND|MED|EMG|REC|MON|SENS|LOC|COM|ALT|AI|ACC|SEC)-\d{1,3}\b')
+	from afya.rollout.service import GROWTH_LEVERS
+	app = create_app(build_services())
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		body = (await c.get('/rollout/acquisition')).text
+		resp = await c.get('/rollout/acquisition/levers')
+		levers = resp.text
+	assert resp.status_code == 200, levers
+	assert not handle.findall(body), f'a spec handle on a partner-facing surface: {handle.findall(body)}'
+	assert not handle.findall(levers), f'a spec handle on the lever surface: {handle.findall(levers)}'
+	# The count and the served action, so the gate above cannot pass by serving an empty plan — a
+	# `findall` over nothing is clean for the same reason a gate that never ran is green.
+	served = resp.json()['levers']
+	assert len(served) == 6, f'§20.2 prints six levers; the route serves {len(served)}'
+	assert [le['number'] for le in served] == [1, 2, 3, 4, 5, 6]
+	assert served[3]['action'] == 'Structured intermediary programme (Human Intermediaries)', \
+		'the id resolved to a registry name, not to itself and not to nothing'
+	assert 'action_cell' not in served[3], 'the verbatim cell carries the handle and must not travel'
+	# The gate is not vacuous: the section's cell it is derived from *does* carry the handle, so a
+	# build that served the cell verbatim would fail above.
+	assert handle.findall(GROWTH_LEVERS[3].action_cell) == ['CHAN-5'], \
+		'the gate would pass against a table that never had the defect'
+
+
 def test_a_checkable_lever_with_no_check_is_refused() -> None:
 	with pytest.raises(ValidationError, match='checkable but names no check'):
-		GrowthLever(number=1, lever='x', why='y', action='z', checkable=True)
+		GrowthLever(number=1, lever='x', why='y', action='z', action_cell='z', checkable=True)
 
 
 def test_the_apk_budget_comes_from_the_metric_not_a_second_copy() -> None:
@@ -579,7 +659,12 @@ async def test_the_phase_plan_surfaces_carry_no_spec_code() -> None:
 # --- §20.3 channel acquisition, §20.4 partnership map ----------------------------------------
 
 def _spec_table(heading: str, stop: str, columns: int) -> list[list[str]]:
-	"""A spec table's rows, read out of `docs/spec.md` so a revision to the section fails here."""
+	"""A spec table's rows, read out of `docs/spec.md` so a revision to the section fails here.
+
+	The header is skipped by its first cell, which each of the three tables spells differently:
+	§20.2's is `#` (its first column is a number) and §20.3/§20.4 name a label. A skip list of one
+	spelling would let the header through as a row and every count below would read one too high.
+	"""
 	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
 	section = text.split(heading, 1)[1].split(stop, 1)[0]
 	rows: list[list[str]] = []
@@ -587,7 +672,7 @@ def _spec_table(heading: str, stop: str, columns: int) -> list[list[str]]:
 		if not line.startswith('|') or set(line) <= set('|-: '):
 			continue
 		cells = [c.strip() for c in line.strip('|').split('|')]
-		if len(cells) != columns or cells[0] in ('Channel', 'Partner type'):
+		if len(cells) != columns or cells[0] in ('#', 'Channel', 'Partner type'):
 			continue
 		rows.append(cells)
 	return rows

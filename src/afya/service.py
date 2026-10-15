@@ -6045,6 +6045,30 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			'note': plan.note,
 		}
 
+	@app.get('/rollout/acquisition/levers')
+	async def rollout_levers() -> dict[str, object]:
+		"""§20.2's six growth levers, with the two that claim something about this repository answered
+		from the artefacts rather than restated.
+
+		Open like `/rollout/phases` and `/rollout/acquisition`: it is the strategy a telco, an NGO or
+		a county team reads to see what is being asked of them, and it names no person.
+
+		`action_cell` is dropped from the payload, the way `/rollout/acquisition` drops `feature_id`:
+		it is the section's Action column verbatim and §20.2 lever 4's carries the handle `CHAN-5`, so
+		serving the model as-is would put a traceability handle on the one rollout surface a partner
+		reads. `action` is that cell with the id resolved to the registry's name, which is what
+		travels."""
+		plan = rollout.lever_plan()
+		return {
+			'levers': [
+				{'number': le.number, 'lever': le.lever, 'why': le.why, 'action': le.action,
+				 'checkable': le.checkable, 'check': le.check}
+				for le in plan.levers
+			],
+			'unbacked_claims': plan.unbacked_claims,
+			'note': plan.note,
+		}
+
 	@app.get('/rollout/acquisition/coverage')
 	async def rollout_acquisition_coverage(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
 		"""The evidence half: the §20.3 rows with their registry handles, the §5.2 channels §20.3
