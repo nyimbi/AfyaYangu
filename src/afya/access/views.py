@@ -5,14 +5,25 @@ MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_ali
 
 # §ACC-002 priority order for the voice interface. `tier` is 1 for languages that must ship at
 # launch and 2 for those that follow; `asr` records whether on-device recognition exists yet.
+#
+# `tts` records whether a spoken form of this language exists to read a reply in, and it is **not**
+# `tier == 1` restated, which is what it was: every tier-1 language carried `True`, so Dholuo, Luhya
+# (Bukusu) and Kikuyu were advertised as having text-to-speech while `answerable()` served them
+# English — `transcribe` composes `spoken_reply` from `VOICE_*[served]`, and `served` is English for
+# every language with no table. A client reading `/access/languages` was told a voice exists for a
+# language the server will not speak. The flag is true only where the product has words to say, which
+# is the same rule `asr` follows and for the same reason: §ACC-001's video row states the tree's
+# position that a synthetic voice no speaker of the language has validated does not count as one, so
+# `tts` must not count it either. The two flags can diverge — a language can gain a validated voice
+# before it gains a recognition model — which is why they are separate fields and not one.
 LANGUAGE_MATRIX: dict[str, dict[str, object]] = {
 	'Kiswahili': {'code': 'sw', 'tier': 1, 'asr': True, 'tts': True},
 	'English': {'code': 'en', 'tier': 1, 'asr': True, 'tts': True},
-	'Dholuo': {'code': 'luo', 'tier': 1, 'asr': False, 'tts': True},
-	'Luhya (Bukusu)': {'code': 'bxk', 'tier': 1, 'asr': False, 'tts': True},
+	'Dholuo': {'code': 'luo', 'tier': 1, 'asr': False, 'tts': False},
+	'Luhya (Bukusu)': {'code': 'bxk', 'tier': 1, 'asr': False, 'tts': False},
 	'Luhya (Maragoli)': {'code': 'rag', 'tier': 2, 'asr': False, 'tts': False},
 	'Kalenjin': {'code': 'kln', 'tier': 2, 'asr': False, 'tts': False},
-	'Kikuyu': {'code': 'ki', 'tier': 1, 'asr': False, 'tts': True},
+	'Kikuyu': {'code': 'ki', 'tier': 1, 'asr': False, 'tts': False},
 	'Kamba': {'code': 'kam', 'tier': 2, 'asr': False, 'tts': False},
 	'Somali': {'code': 'so', 'tier': 2, 'asr': False, 'tts': False},
 	'Maasai': {'code': 'mas', 'tier': 2, 'asr': False, 'tts': False},

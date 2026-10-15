@@ -6323,3 +6323,50 @@ which is inside it, so the note would have stayed true and the canary would have
 did not mutate.
 
 **No new source.** The governing text is this repo's own `tests/ci/test_feature_coverage.py`.
+
+## §ACC-002 — the text-to-speech flag was a restatement of the tier it sat beside (2026-10-15)
+
+### The finding
+
+`LANGUAGE_MATRIX` carries `tier` (the spec's launch *priority order*) and `tts` (whether a spoken
+form of the language exists). `tts` was `tier == 1` on every row — the same fact written twice — and
+it is **served** on the public `GET /access/languages` route, so a client was told Dholuo, Luhya
+(Bukusu) and Kikuyu had text-to-speech while `answerable()` composed their replies in English. The
+audit's row cited the flag as the first thing carrying §ACC-002's "text-to-speech for reading alerts
+and guidance aloud", which made a decorative field read as the feature.
+
+The tell was the flag's *reads*: `grep -rn '\.tts'` over `src/` returned the matrix literal and
+nothing else — not `access/service.py`, not any route. A field whose only occurrences are the
+declaration and a serialiser is data the system collects and never uses, and here it was also served
+to a client that could only be misled by it.
+
+### The fix
+
+The flag is true for `en` and `sw` and false for the other eleven, because a spoken reply is composed
+in `answerable(lang)` and every language with no table is served English. This is the rule `asr`
+already followed, and the same one §ACC-001's video row states: a synthetic voice no speaker of the
+language has validated is not a voice. The two flags stay separate fields because they can diverge —
+a language can gain a validated voice before it gains a recognition model.
+
+### The test and the near-miss in it
+
+`test_the_tts_flag_says_whether_a_voice_exists_not_which_tier_a_language_is` walks every row against
+the **served** reply rather than against a second list, and asserts the inequality with `tier`
+directly (some tier-1 row must have `tts: False`), because the defect *was* that the two agreed.
+
+Its first draft checked `result.served_in in SUPPORTED_LANGS` and failed on Dholuo: Dholuo is answered
+in `en`, and `en` is in the set, so the weaker predicate called an English-spoken Dholuo reply
+Dholuo-spoken. The predicate is a strict subset of the claim — the same failure shape as a canary
+whose mutation is not disjoint from what the assertion looks for. The correct rule is that a language
+has a voice exactly when the reply comes back *in that language*.
+
+### The canaries
+
+`tests/ci/canary_tts_flag.py` adds two; both fired.
+
+| # | Mutation | Caught by |
+|---|---|---|
+| 1 | Dholuo advertises a voice it does not have | the new test |
+| 2 | `tts` collapses back into `tier == 1` on every row that differs | the new test |
+
+**No new source.** The governing text is this repo's own `docs/spec.md` §12.1 ACC-002.

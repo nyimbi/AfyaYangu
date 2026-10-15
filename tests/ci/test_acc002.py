@@ -450,3 +450,42 @@ async def test_the_voice_langs_offered_are_the_ones_recognition_ships_for() -> N
 	from afya.mobile.actions import VOICE_LANGS, VOICE_PURPOSES
 	assert VOICE_LANGS == ['en', 'sw'], VOICE_LANGS
 	assert VOICE_PURPOSES == ['symptoms', 'note']
+
+
+async def test_the_tts_flag_says_whether_a_voice_exists_not_which_tier_a_language_is() -> None:
+	"""`tts` was `tier == 1` restated and read by nothing, and it is served on `/access/languages`.
+
+	Every tier-1 language carried `True`, so the route told a client that Dholuo, Luhya (Bukusu) and
+	Kikuyu had text-to-speech — while `transcribe` composes `spoken_reply` in `answerable(lang)`,
+	which is English for all three. A client that believed the flag would offer a read-aloud button
+	in a language the server will not speak. The flag now agrees with what the server actually does,
+	which is the only thing it can be checked against, and the check is run against the *served*
+	reply rather than against a second list.
+
+	The inequality with `tier` is asserted rather than the count, because the defect was precisely
+	that the two were equal: a future edit that collapses them again fails here whatever the rows are.
+	"""
+	from afya.access.service import AccessService
+	from afya.access.views import VoiceRequest
+	from afya.strings import SUPPORTED_LANGS
+
+	svc = AccessService()
+	tiers = {meta['tier'] for meta in LANGUAGE_MATRIX.values()}
+	assert tiers == {1, 2}, 'the matrix must still carry both tiers, or this test proves nothing'
+	assert any(meta['tier'] == 1 and meta['tts'] is False for meta in LANGUAGE_MATRIX.values()), (
+		'a tier-1 language with no voice must exist, or `tts` has collapsed back into `tier == 1`'
+	)
+	for name, meta in LANGUAGE_MATRIX.items():
+		code = str(meta['code'])
+		result = svc.transcribe(VoiceRequest(
+			subject_ref='U-1', lang=code, utterance='I have fever', purpose='symptoms'))
+		# A language has a voice exactly when the reply comes back *in that language*. Checking
+		# membership of `SUPPORTED_LANGS` would be wrong and did fail here first: Dholuo is answered
+		# in `en`, and `en` is of course in the set, so the weaker predicate called a Dholuo reply
+		# English-spoken — which is true of the text and false of the claim the flag makes.
+		spoken = result.served_in == code
+		assert meta['tts'] is spoken, (
+			f'{name} ({code}) reports tts={meta["tts"]} and the server answers in '
+			f'{result.served_in!r}, which has {"a" if spoken else "no"} table'
+		)
+		assert result.served_in == (code if code in SUPPORTED_LANGS else 'en'), result.served_in
