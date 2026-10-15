@@ -37,22 +37,33 @@ LICENCE_FILES: tuple[str, ...] = ('LICENSE', 'LICENSE.md', 'LICENSE.txt', 'COPYI
 # §21.1, verbatim. `weeks_start`/`weeks_end` are the timeline column as numbers so a phase can be
 # located on a clock rather than in a string; Phase 0 starts negative, which is the point — the
 # eight weeks before launch are part of the plan.
+#
+# `channels` is the Channels column *expanded and accumulated* and `channels_cell` is the column
+# verbatim. §21.1 writes it three ways: `CHAN-0,1,2,3,4,5` (abbreviated), `+ CHAN-6` (cumulative —
+# the `+` means in addition to the phase before) and `All` (a quantifier over §5.2's seven, not an
+# id). The first cut carried the cell as-is, which put the literal string `'all'` on
+# `/rollout/phases` — an anonymous route — where it read as a channel id beside `CHAN-006`.
+ALL_CHANNELS: tuple[str, ...] = tuple(f'CHAN-{n:03d}' for n in range(7))
+
 PHASES: tuple[PhaseSpec, ...] = (
 	PhaseSpec(phase=Phase.phase_0_foundation, timeline='Weeks -8 to 0', objective='Build, partner, prepare',
-		channels=[], max_tier=None, weeks_start=-8, weeks_end=0),
-	PhaseSpec(phase=Phase.phase_1_information, timeline='Weeks 0-4', objective='Maximum reach, minimum friction',
+		channels=[], channels_cell='—', max_tier=None, tiers_cell='—', weeks_start=-8, weeks_end=0),
+	PhaseSpec(phase=Phase.phase_1_information, timeline='Weeks 0–4', objective='Maximum reach, minimum friction',
 		channels=['CHAN-000', 'CHAN-001', 'CHAN-002', 'CHAN-003', 'CHAN-004', 'CHAN-005'],
-		max_tier=1, weeks_start=0, weeks_end=4),
-	PhaseSpec(phase=Phase.phase_2_utility, timeline='Weeks 2-8', objective='App launch with Tier 1',
-		channels=['CHAN-006'], max_tier=1, weeks_start=2, weeks_end=8),
-	PhaseSpec(phase=Phase.phase_3_retention, timeline='Months 2-6', objective='Tier 2 features, CHW scale',
-		channels=['all'], max_tier=2, weeks_start=8, weeks_end=26),
-	PhaseSpec(phase=Phase.phase_4_daily_habit, timeline='Months 4-12', objective='Tier 3 features',
-		channels=['all'], max_tier=3, weeks_start=17, weeks_end=52),
-	PhaseSpec(phase=Phase.phase_5_outbreak_ready, timeline='Months 6-12', objective='Tier 4 build and test',
-		channels=['all'], max_tier=4, weeks_start=26, weeks_end=52),
+		channels_cell='CHAN-0,1,2,3,4,5', max_tier=1, tiers_cell='Info only', weeks_start=0, weeks_end=4),
+	# `+ CHAN-6`: phase 2 opens CHAN-006 *in addition to* phase 1's six, so the row's channel set is
+	# cumulative and seven ids, not the one id the cell spells.
+	PhaseSpec(phase=Phase.phase_2_utility, timeline='Weeks 2–8', objective='App launch with Tier 1',
+		channels=['CHAN-000', 'CHAN-001', 'CHAN-002', 'CHAN-003', 'CHAN-004', 'CHAN-005', 'CHAN-006'],
+		channels_cell='+ CHAN-6', max_tier=1, tiers_cell='Tier 1', weeks_start=2, weeks_end=8),
+	PhaseSpec(phase=Phase.phase_3_retention, timeline='Months 2–6', objective='Tier 2 features, CHW scale',
+		channels=list(ALL_CHANNELS), channels_cell='All', max_tier=2, tiers_cell='Tier 1–2', weeks_start=8, weeks_end=26),
+	PhaseSpec(phase=Phase.phase_4_daily_habit, timeline='Months 4–12', objective='Tier 3 features',
+		channels=list(ALL_CHANNELS), channels_cell='All', max_tier=3, tiers_cell='Tier 1–3', weeks_start=17, weeks_end=52),
+	PhaseSpec(phase=Phase.phase_5_outbreak_ready, timeline='Months 6–12', objective='Tier 4 build and test',
+		channels=list(ALL_CHANNELS), channels_cell='All', max_tier=4, tiers_cell='Tier 1–4', weeks_start=26, weeks_end=52),
 	PhaseSpec(phase=Phase.phase_6_scale, timeline='Month 12+', objective='Multi-disease, national integration',
-		channels=['all'], max_tier=4, weeks_start=52, weeks_end=None),
+		channels=list(ALL_CHANNELS), channels_cell='All', max_tier=4, tiers_cell='All', weeks_start=52, weeks_end=None),
 )
 
 # §20.2's six levers. `checkable` is True only for the two that make a claim about this repo.
@@ -350,6 +361,13 @@ PHASE_PLANS: tuple[PhasePlan, ...] = (
 
 # §21.2–21.7 by phase, for the readiness check. Built from the tuple rather than kept beside it, so
 # a phase cannot be in one and missing from the other.
+#
+# The Channels column's expansion and accumulation are asserted in `tests/ci/test_rollout.py` rather
+# than at import. They were module-level asserts for one revision, and the cost was concrete: a
+# mutation to one phase's channel set tripped the assert, which turned the whole file into a
+# *collection error* — every other test in it stopped running and the canary could not name the node
+# it aimed at, which is the failure the canary harness exists to refuse. A guard that takes the file
+# down with it is a guard that hides the thing it caught.
 PLAN_BY_PHASE: dict[Phase, PhasePlan] = {p.phase: p for p in PHASE_PLANS}
 
 
@@ -499,7 +517,7 @@ class RolloutService(LogMixin):
 	def phase_readiness(self, phase: Phase) -> PhaseReadiness:
 		"""A phase's plan crossed against the registry and against §22.
 
-		Three findings, and they are genuinely different problems:
+		Four findings, and they are genuinely different problems:
 
 		* **A deliverable the registry does not carry.** §21.4 lists "Family health wallet (basic)"
 		and the registry holds it; a phase listing a capability nobody built is a schedule for
@@ -512,6 +530,10 @@ class RolloutService(LogMixin):
 		and they disagree — §21.3's 300,000 installs against §22.2's 2,000,000, §21.4's 25% DAU/MAU
 		against §22.1's 35%. Averaging them or picking one would be this code overruling the product
 		owner; what it owes is the finding.
+		* **A deliverable above the phase's own tier ceiling.** §21.1 gives each phase a ceiling and
+		§21.2–§21.7 schedule features under it, so a plan that schedules a feature the ceiling does
+		not authorise contradicts itself in two adjacent columns. See `_tier_over_ceiling` for why
+		this is reported rather than resolved.
 
 		`ready` is False when any of the first two holds. Drift does not make a phase unready — the
 		phase can ship — it makes the *document* inconsistent, which is a different reader's problem.
@@ -537,17 +559,20 @@ class RolloutService(LogMixin):
 				drift.append(
 					f'{c.text} against §22\'s {c.kpi_id} target of {target:g} {c.unit}'
 				)
+		over_ceiling = self._tier_over_ceiling(phase)
 		ready = not unregistered and not unmeasurable
 		if unregistered:
 			note = f'{len(unregistered)} deliverable(s) name a feature the registry does not carry'
 		elif unmeasurable:
 			note = f'{len(unmeasurable)} criterion/criteria have no §22 KPI to measure against'
+		elif over_ceiling:
+			note = f'{len(over_ceiling)} deliverable(s) sit above the phase\'s own tier ceiling'
 		elif drift:
 			note = f'plan ships; {len(drift)} criterion/criteria disagree with §22'
 		else:
 			note = 'every deliverable that names a feature resolves and every criterion maps to a §22 KPI'
 		self._log_info('phase readiness', phase=phase.value, unbuilt=len(unregistered),
-		               unmeasurable=len(unmeasurable), drift=len(drift))
+		               unmeasurable=len(unmeasurable), drift=len(drift), over_ceiling=len(over_ceiling))
 		return PhaseReadiness(
 			phase=phase, objective=plan.objective,
 			deliverable_count=len(plan.deliverables),
@@ -555,8 +580,42 @@ class RolloutService(LogMixin):
 			unbuilt_deliverables=unbuilt, unregistered_features=sorted(set(unregistered)),
 			criteria=list(plan.criteria), criterion_drift=drift,
 			unmeasurable_criteria=unmeasurable, testing=list(plan.testing),
+			over_ceiling_deliverables=over_ceiling,
 			ready=ready, note=note,
 		)
+
+	def _tier_over_ceiling(self, phase: Phase) -> list[str]:
+		"""Deliverables whose feature tier is above the phase's own §21.1 ceiling.
+
+		Two are live, both `CHAN-005` ("200 CHWs trained as information intermediaries" in §21.2 and
+		"2,000 CHWs trained" in §21.3) against a ceiling of 1 in both phases. **Reported, not
+		resolved**, and the reason is that the two columns disagree with no third authority to break
+		the tie:
+
+		* §21.1's Channels column opens `CHAN-0,1,2,3,4,5` in Phase 1, and its Tiers column says
+		  `Info only`; Phase 2's says `+ CHAN-6` / `Tier 1`. So the section *schedules* the channel
+		  in Phase 1 and *caps* the phase at Tier 1 in the same row.
+		* §7.3's tier map names **no CHAN id at all** — `unmapped_features()` reports all seven — and
+		  no CHAN section in §5.3 states a `**Tier:**` line. The registry's `CHAN-005 → Tier 2` is
+		  therefore this repo's assignment with no section behind it, which is what
+		  `test_registry.py` already says about the CHAN ids ("§7.3 names no CHAN id at all").
+
+		So moving `CHAN-005` to Tier 1 or the ceilings to Tier 2 would each be this code overruling
+		one §21 column on the strength of a registry value the spec does not state. What it owes is
+		the finding, which is the same call §21/§22's criterion drift already makes.
+		"""
+		ceiling = self.phase_spec(phase).max_tier
+		if ceiling is None:
+			return []
+		plan = self.phase_plan(phase)
+		out: list[str] = []
+		for d in plan.deliverables:
+			if d.feature_id is None or not self.is_registered(d.feature_id):
+				continue
+			tier = int(self._registry.get(d.feature_id).tier)
+			if tier > ceiling:
+				out.append(f'{d.text} — Tier {tier}, above the phase ceiling of Tier {ceiling}')
+		return out
 
 	@staticmethod
 	def public_plans() -> list[dict[str, object]]:
@@ -637,5 +696,6 @@ class RolloutService(LogMixin):
 			self._log_warn('rollout phase mismatch', phase=phase.value, active_tier=active_tier, ceiling=ceiling)
 		return RolloutStatus(
 			phase=phase, objective=spec.objective, max_tier=ceiling, active_tier=active_tier,
-			phase_mismatch=mismatch, channels_open=list(spec.channels), note=note,
+			phase_mismatch=mismatch, channels_open=list(spec.channels),
+			channels_cell=spec.channels_cell, note=note,
 		)

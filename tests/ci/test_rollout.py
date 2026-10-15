@@ -16,7 +16,7 @@ from typing import Any
 
 from afya.privacy.views import RBACRole
 from afya.registry.service import FeatureRegistry
-from afya.rollout.service import APK_BUDGET_MB, PHASES, RETENTION, RolloutService
+from afya.rollout.service import ALL_CHANNELS, APK_BUDGET_MB, PHASES, RETENTION, RolloutService
 from afya.rollout.views import GrowthLever, Phase, PhaseSpec, RetentionMechanism
 from afya.service import build_services, create_app
 
@@ -50,12 +50,80 @@ def test_the_phase_table_matches_the_spec() -> None:
 	assert [p.phase.order for p in PHASES] == list(range(7)), 'phases must be in spec order'
 
 
+def _spec_phase_rows() -> list[list[str]]:
+	"""§21.1's seven rows read out of `docs/spec.md`, so a revision to the section fails here.
+
+	The Channels cell is the interesting one and it is carried verbatim: §21.1 writes it three ways
+	(`CHAN-0,1,2,3,4,5`, `+ CHAN-6`, `All`) and none of them is a list of ids. Reading the cell is
+	what lets the expansion below be checked against the section rather than against itself.
+	"""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split('### 21.1 Phase Overview', 1)[1].split('\n---', 1)[0]
+	rows: list[list[str]] = []
+	for line in section.splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip().replace('**', '') for c in line.strip('|').split('|')]
+		if len(cells) != 5 or cells[0] == 'Phase':
+			continue
+		rows.append(cells)
+	return rows
+
+
+def test_the_channels_column_is_expanded_and_accumulated() -> None:
+	"""§21.1's Channels column, and the two ways carrying it as-is went wrong.
+
+	The column is written in three shapes and the first cut carried the cell verbatim as `channels`.
+	Two defects followed from that, and neither is visible to a check on the ceilings:
+
+	* **`All` was served as a channel id.** `/rollout/phases` is open by design, and it answered
+	  `"channels": ["all"]` for four of the seven phases — a quantifier sitting in a list of
+	  `CHAN-` ids, on the one rollout surface a partner reads. `'all'` is not one of §5.2's seven
+	  channels and the expansion is what makes it seven ids instead.
+	* **`+ CHAN-6` was read as exclusive.** The `+` means *in addition to the phase before*, so
+	  §21.1's Phase 2 row opens all seven channels and the cell names only the seventh. Carried
+	  as-is, Phase 2's channel set **shrank** from six to one as the rollout advanced — a plan
+	  reaching fewer people in its second month than its first.
+
+	The accumulation is asserted across all rows rather than on Phase 2 alone, because the property
+	is what the `+` means and a later row written the same way has to inherit it.
+	"""
+	spec = _spec_phase_rows()
+	assert len(spec) == 7, f'§21.1 lists seven phases, found {len(spec)}'
+	assert [p.channels_cell for p in PHASES] == [r[3] for r in spec], 'the Channels column verbatim'
+	assert [p.timeline for p in PHASES] == [r[1] for r in spec], 'the Timeline column verbatim'
+	assert [p.objective for p in PHASES] == [r[2] for r in spec], 'the Objective column'
+	# The Tiers column, read the same way and carried verbatim. Without this a ceiling could be
+	# raised to make a deliverable fit under it — the "resolve the contradiction by picking a
+	# column" move the crossing check deliberately refuses — and the ceiling assertions in
+	# `test_the_phase_table_matches_the_spec` would read the new number as self-consistent.
+	assert [p.tiers_cell for p in PHASES] == [r[4] for r in spec], 'the Tiers column verbatim'
+
+	# Every served channel is a §5.2 CHAN id, so the quantifier cannot come back.
+	for spec_row, phase in zip(spec, PHASES):
+		assert all(c.startswith('CHAN-') and len(c) == 8 for c in phase.channels), \
+			f'{phase.phase.value} serves a non-id channel: {phase.channels}'
+		if spec_row[3] == 'All':
+			assert phase.channels == list(ALL_CHANNELS), f'{phase.phase.value} reads All as a channel'
+		if spec_row[3] == '—':
+			assert phase.channels == [], f'{phase.phase.value} is the empty row'
+
+	# The accumulation, in both directions: the set grows or holds, and Phase 2 is the row that
+	# proves it (`+ CHAN-6` is seven ids, not one).
+	sets = [(p.phase.value, set(p.channels)) for p in PHASES if p.max_tier is not None]
+	for (prev_name, prev), (cur_name, cur) in zip(sets, sets[1:]):
+		assert prev <= cur, f'{cur_name} opens {sorted(prev - cur)} that {prev_name} already opened'
+	assert sets[1] == ('phase_2_utility', set(ALL_CHANNELS)), '§21.1 row 2 writes `+ CHAN-6`'
+	assert PHASES[2].channels_cell == '+ CHAN-6', 'and the cell is still the section\'s own words'
+
+
 def test_a_phase_authorising_a_tier_over_no_channel_is_refused() -> None:
 	"""Canary at the model: §21.1's Channels column is empty only for Phase 0, because a phase that
 	promises a tier with no way to reach a person is a capability nobody can use."""
 	with pytest.raises(ValidationError, match='over no channel'):
 		PhaseSpec(phase=Phase.phase_1_information, timeline='x', objective='y', channels=[],
-		          max_tier=1, weeks_start=0, weeks_end=4)
+		          channels_cell='—', max_tier=1, tiers_cell='Tier 1', weeks_start=0, weeks_end=4)
 
 
 def test_a_tier_above_the_phase_ceiling_is_a_mismatch() -> None:
@@ -199,6 +267,17 @@ async def test_the_routes_are_scoped_and_the_plan_is_public() -> None:
 		# §21.1 names no person and no number about one, so the plan is readable by anyone.
 		plan = (await c.get('/rollout/phases')).json()
 		assert len(plan['phases']) == 7 and plan['current']['phase'] == 'phase_1_information'
+		# The front door, on the anonymous route: §21.1's Channels column is served as ids, and the
+		# quantifier `All` is not one of them. Asserted on the wire rather than on the model because
+		# the defect this replaced was a *served* string — a unit test on `channels` would have
+		# passed against the cell-carrying version if it only asked whether the list was non-empty.
+		served = [p['channels'] for p in plan['phases']]
+		assert all(isinstance(c, str) and c.startswith('CHAN-') for row in served for c in row), served
+		assert not any(c == 'all' for row in served for c in row), 'the quantifier is served as a channel'
+		# And the section's own words travel beside the ids, so a reader of the plan still sees them.
+		assert [p['channels_cell'] for p in plan['phases']][3] == 'All'
+		assert plan['current']['channels_open'] == [
+			'CHAN-000', 'CHAN-001', 'CHAN-002', 'CHAN-003', 'CHAN-004', 'CHAN-005']
 		# The readiness report is evidence and takes the auditor's scope.
 		assert (await c.get('/rollout/readiness')).status_code in (401, 403)
 		report = (await c.get('/rollout/readiness', headers=h)).json()
@@ -345,6 +424,36 @@ def test_the_phase_plans_are_the_sections_deliverables_and_criteria() -> None:
 	# §21.6 is the only section with a Testing paragraph, so a plan carrying testing elsewhere is
 	# a plan that gained one from the wrong section.
 	assert [p.phase for p in plans.values() if p.testing] == [Phase.phase_5_outbreak_ready]
+
+
+def test_a_deliverable_above_its_own_phases_ceiling_is_reported() -> None:
+	"""The finding §21 has against itself, and the one a check on either column alone cannot see.
+
+	§21.1 gives Phase 1 a ceiling of `Tier 1` and §21.2 schedules "200 CHWs trained as information
+	intermediaries" under it; §21.1 gives Phase 2 the same ceiling and §21.3 schedules "2,000 CHWs
+	trained". Both rows carry `CHAN-005`, which the registry holds at Tier 2.
+
+	**Reported, not resolved**, because the two columns disagree with no third authority between
+	them: §21.1's Channels column opens `CHAN-0,1,2,3,4,5` in Phase 1 *and* caps that row at Tier 1,
+	while §7.3's tier map names no CHAN id at all (`unmapped_features()` reports all seven) and no
+	CHAN section states a `**Tier:**` line. So the registry's Tier 2 is this repo's assignment with
+	no section behind it, and moving either column would be this code overruling the spec on the
+	strength of its own value — the same call the §21/§22 criterion drift already makes.
+	"""
+	svc = _svc()
+	over = {p.phase.value: p.over_ceiling_deliverables for p in svc.rollout_plan() if p.over_ceiling_deliverables}
+	assert set(over) == {'phase_1_information', 'phase_2_utility'}, f'the crossing is in two phases: {set(over)}'
+	assert over['phase_1_information'] == [
+		'200 CHWs trained as information intermediaries — Tier 2, above the phase ceiling of Tier 1'], over['phase_1_information']
+	assert over['phase_2_utility'] == [
+		'2,000 CHWs trained — Tier 2, above the phase ceiling of Tier 1'], over['phase_2_utility']
+	# Phase 0 authorises no tier, so nothing can be above its ceiling — a `None` ceiling is not a
+	# ceiling of zero, which would report every deliverable of every later phase.
+	assert not any(p.over_ceiling_deliverables for p in svc.rollout_plan()
+	               if p.phase is Phase.phase_3_retention), 'Tier 2 under a Tier 2 ceiling is inside it'
+	# The finding travels on the readiness report, so an auditor reading `/rollout/plan/readiness`
+	# sees it rather than having to cross §21.1 against §21.2 by eye.
+	assert all(hasattr(p, 'over_ceiling_deliverables') for p in svc.rollout_plan())
 
 
 def test_a_deliverable_naming_a_capability_that_does_not_exist_is_reported() -> None:

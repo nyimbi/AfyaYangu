@@ -38,14 +38,32 @@ class Phase(str, Enum):
 
 class PhaseSpec(BaseModel):
 	"""One §21.1 row. `max_tier` is the ceiling the phase authorises and `channels` the CHAN ids it
-	opens; both are None/empty for Phase 0, which delivers nothing to a user."""
+	opens; both are None/empty for Phase 0, which delivers nothing to a user.
+
+	`channels` is the section's Channels column **expanded and accumulated**, and `channels_cell` is
+	that column verbatim. Both are needed, and the first cut of this model had only the second:
+
+	* §21.1 writes the column in three different shapes — `CHAN-0,1,2,3,4,5`, `+ CHAN-6` and `All` —
+	  and the last two are not lists of ids at all. `+ CHAN-6` is *cumulative* (phase 2 opens CHAN-6
+	  in addition to phase 1's six), and `All` is a quantifier over the seven §5.2 channels. Carrying
+	  the cell as-is and serving it put the literal string `'all'` on `/rollout/phases`, an anonymous
+	  partner-facing route, where it reads as a channel id beside `CHAN-006`.
+	* The ids are abbreviated (`CHAN-0`, not `CHAN-000`), so nothing could compare the cell against
+	  the registry without an expansion step, which is why the abbreviation survived unnoticed.
+
+	`tiers_cell` is the Tiers column verbatim for the same reason, and it is not derivable from
+	`max_tier`: §21.1 writes `Info only` for Phase 1 and `Tier 1` for Phase 2, and both carry a
+	ceiling of 1. The cell is the section's own words; the ceiling is the gate.
+	"""
 
 	model_config = MODEL_CONFIG
 	phase: Phase
 	timeline: str = Field(min_length=1)
 	objective: str = Field(min_length=1)
 	channels: list[str]
+	channels_cell: str = Field(min_length=1)
 	max_tier: int | None = Field(default=None, ge=1, le=4)
+	tiers_cell: str = Field(min_length=1)
 	weeks_start: int
 	weeks_end: int | None
 
@@ -182,11 +200,13 @@ class PhasePlan(BaseModel):
 class PhaseReadiness(BaseModel):
 	"""One phase's plan crossed against what exists, as the answer a programme manager reads.
 
-	Three findings, and they are different problems: `unbuilt_deliverables` is a plan naming a
+	Four findings, and they are different problems: `unbuilt_deliverables` is a plan naming a
 	capability the registry does not carry; `unregistered_features` is the same failure caught at
-	the id level; `criterion_drift` is §21 and §22 stating different numbers for the same measure.
-	`unmeasurable_criteria` is the fourth — a criterion with no KPI behind it, which is a phase exit
-	that cannot be computed at all.
+	the id level; `criterion_drift` is §21 and §22 stating different numbers for the same measure;
+	`unmeasurable_criteria` is a criterion with no KPI behind it, which is a phase exit that cannot
+	be computed at all. `over_ceiling_deliverables` is the fifth and the only one that is a
+	contradiction *inside* §21 — a deliverable scheduled under a tier ceiling that does not
+	authorise it.
 	"""
 
 	model_config = MODEL_CONFIG
@@ -199,6 +219,7 @@ class PhaseReadiness(BaseModel):
 	criteria: list[SuccessCriterion]
 	criterion_drift: list[str]
 	unmeasurable_criteria: list[str]
+	over_ceiling_deliverables: list[str]
 	testing: list[str]
 	ready: bool
 	note: str
@@ -216,6 +237,12 @@ class RolloutStatus(BaseModel):
 	`phase_mismatch` is the finding: a tier active above the current phase's ceiling means the
 	rollout skipped its own gate, and the report names both the phase and the tier rather than
 	returning a boolean.
+
+	`channels_open` is the phase's channel set *expanded and accumulated* — always CHAN ids — and
+	`channels_cell` is §21.1's Channels column verbatim, which is one of `CHAN-0,1,2,3,4,5`,
+	`+ CHAN-6`, `All` or `—`. Both travel because a reader of the plan wants the section's own
+	words and a program wants the ids; the first cut carried only the cell, which is how the
+	literal string `'all'` reached an anonymous route where it read as a channel id.
 	"""
 
 	model_config = MODEL_CONFIG
@@ -225,6 +252,7 @@ class RolloutStatus(BaseModel):
 	active_tier: int
 	phase_mismatch: bool
 	channels_open: list[str]
+	channels_cell: str
 	note: str
 
 
