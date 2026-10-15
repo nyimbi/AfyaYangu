@@ -53,6 +53,36 @@ async def test_blanket_delete_removes_user_data_keeps_case_and_consent() -> None
 	assert remaining == {'case_reports': 3, 'consent_records': 3}
 
 
+async def test_the_retention_reason_names_only_what_is_actually_kept() -> None:
+	"""`retention_reason` asserted both types whenever either was kept.
+
+	`POLICY_RETAINED` holds two types, and the blanket branch reached for one fixed sentence for any
+	non-empty `retained` — so a person holding only case reports was told their consent records were
+	also being kept under a legal obligation. The receipt's own `message` interpolated the real set,
+	so the two prose fields disagreed. Each count is asserted against the set the receipt carries,
+	rather than against a wording, because the defect was the sentence describing a different set
+	from the one beside it.
+	"""
+	svc = RetentionService()
+	svc.record_holding('U-only-case', 'case_reports', 2)
+	svc.record_holding('U-only-case', 'symptom_logs', 1)
+
+	receipt = await svc.delete(DeletionRequest(subject_ref='U-only-case'))
+	assert receipt.retained_types == ['case_reports']
+	assert 'consent records' not in receipt.retention_reason, receipt.retention_reason
+	assert 'Case reports is kept under a legal obligation.' == receipt.retention_reason
+	# The two fields must describe the same set; that is the property, not the phrasing.
+	for t in receipt.retained_types:
+		assert t.replace('_', ' ') in receipt.retention_reason.lower(), receipt.retention_reason
+
+	# And the other single-type case, so the fix is not one hardcoded sentence swapped for another.
+	svc.record_holding('U-only-consent', 'consent_records', 4)
+	other = await svc.delete(DeletionRequest(subject_ref='U-only-consent'))
+	assert other.retained_types == ['consent_records']
+	assert 'case reports' not in other.retention_reason.lower(), other.retention_reason
+	assert other.retention_reason != receipt.retention_reason, 'two sets, one sentence again'
+
+
 async def test_single_type_delete_removes_only_that_type() -> None:
 	svc = RetentionService()
 	svc.record_holding('U3', 'symptom_logs', 4)

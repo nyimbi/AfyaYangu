@@ -28,6 +28,20 @@ POLICY_RETAINED: frozenset[str] = frozenset({'case_reports', 'consent_records'})
 DELETION_COMMANDS: tuple[str, ...] = ('DELETE MY DATA', 'FUTA DATA YANGU')
 
 
+def _kept_reason(retained: list[str]) -> str:
+	"""The legal-obligation sentence, naming the types that are actually kept.
+
+	It named both — "Case reports and consent records are kept under a legal obligation" — whenever
+	`retained` was non-empty, so a person holding only case reports was told their consent records
+	were also being kept. The sibling `message` on the same receipt interpolated the real set, so the
+	two prose fields in one object disagreed about what survived the request.
+	"""
+	if not retained:
+		return ''
+	named = ' and '.join(t.replace('_', ' ') for t in retained)
+	return f'{named.capitalize()} {"is" if len(retained) == 1 else "are"} kept under a legal obligation.'
+
+
 class RetentionService(LogMixin):
 	def __init__(self) -> None:
 		self._holdings: dict[str, dict[str, int]] = {}
@@ -111,7 +125,7 @@ class RetentionService(LogMixin):
 				held.pop(t, None)
 			receipt = DeletionReceipt(
 				subject_ref=req.subject_ref, deleted_types=deleted, retained_types=retained,
-				retention_reason='Case reports and consent records are kept under a legal obligation.' if retained else '',
+				retention_reason=_kept_reason(retained),
 				message=(
 					f'Deleted {len(deleted)} data type(s). '
 					+ (f'Kept {", ".join(retained)} because the law requires it.' if retained else 'Nothing else is held about you.')
