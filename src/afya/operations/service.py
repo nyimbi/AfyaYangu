@@ -188,10 +188,12 @@ RCA_DEADLINE_DAYS = 5
 RISKS: tuple[Risk, ...] = (
 	# §23.1 strategic
 	Risk(risk_id='R-S1', domain=RiskDomain.strategic, statement='Low adoption due to data cost',
-		likelihood=Rating.high, impact=Rating.high, mitigation='Zero-rating agreements; multi-channel strategy',
+		likelihood=Rating.high, impact=Rating.high,
+		mitigation='Zero-rating agreements before launch; multi-channel strategy',
 		control_kind=ControlKind.process, owner='programme_manager'),
-	Risk(risk_id='R-S2', domain=RiskDomain.strategic, statement='Branded as an Ebola app and abandoned post-outbreak',
-		likelihood=Rating.high, impact=Rating.high, mitigation='Position as health companion; Tier 1–3 features',
+	Risk(risk_id='R-S2', domain=RiskDomain.strategic, statement='Branded as "Ebola app" and abandoned post-outbreak',
+		likelihood=Rating.high, impact=Rating.high,
+		mitigation='Position as health companion; Tier 1–3 features',
 		control_kind=ControlKind.code, control='afya.registry.service:FeatureRegistry', owner='programme_manager'),
 	Risk(risk_id='R-S3', domain=RiskDomain.strategic, statement='Government change of priorities',
 		likelihood=Rating.medium, impact=Rating.high, mitigation='Multi-stakeholder ownership; institutional embedding',
@@ -222,7 +224,7 @@ RISKS: tuple[Risk, ...] = (
 		likelihood=Rating.medium, impact=Rating.high, mitigation='Anonymity; non-stigmatising language; community engagement',
 		control_kind=ControlKind.code, control='afya.alerting.service:AlertingService.notify_exposure', owner='comms_lead'),
 	Risk(risk_id='R-O7', domain=RiskDomain.operational, statement='Alert fatigue',
-		likelihood=Rating.medium, impact=Rating.medium, mitigation='Granular preferences; critical-only defaults',
+		likelihood=Rating.high, impact=Rating.medium, mitigation='Granular preferences; critical-only defaults',
 		control_kind=ControlKind.code, control='afya.alerting.service:AlertingService.should_deliver', owner='comms_lead'),
 	# §23.3 technical
 	Risk(risk_id='R-T1', domain=RiskDomain.technical, statement='Telco zero-rating not secured',
@@ -275,7 +277,8 @@ RISKS: tuple[Risk, ...] = (
 		likelihood=Rating.low, impact=Rating.high, mitigation='Guardian consent; age-appropriate design; extra protections',
 		control_kind=ControlKind.code, control='afya.records.service:RecordsService', owner='dpo'),
 	Risk(risk_id='R-P7', domain=RiskDomain.privacy_ethical, statement='Misuse by authorities',
-		likelihood=Rating.low, impact=Rating.very_high, mitigation='Legal agreements; audit; independent oversight',
+		likelihood=Rating.low, impact=Rating.very_high,
+		mitigation='Legal agreements; audit; independent oversight; open source',
 		control_kind=ControlKind.code, control='afya.privacy.service:PrivacyService.check_access_logged', owner='dpo'),
 	# §23.5 reputational
 	Risk(risk_id='R-R1', domain=RiskDomain.reputational, statement='Perceived as government surveillance',
@@ -294,6 +297,28 @@ RISKS: tuple[Risk, ...] = (
 		likelihood=Rating.medium, impact=Rating.medium, mitigation='Proactive comms; media training; transparency',
 		control_kind=ControlKind.process, owner='comms_lead'),
 )
+
+# The cells where this register deliberately does not carry §23's table verbatim. Recorded rather
+# than silently dropped, for the reason `afya.registry.activation.DIVERGENCES` gives: a divergence a
+# reader cannot find is a divergence that reads as drift, and the next person to diff the two tables
+# finds the same cells again. `test_the_register_is_the_sections_table_cell_for_cell` reads this map
+# and the spec together, so an *unrecorded* divergence fails there while a recorded one is excused by
+# name — the two states are different and the gate has to tell them apart.
+#
+# R-S1, R-S2, R-O7 and R-P7 are not here: they were the register drifting from the section, and the
+# code was moved to the section. R-T2 is the one where the section is the thing that is out of date.
+MITIGATION_DIVERGENCES: dict[str, str] = {
+	'R-T2': '§23.3 names "Flutter" as the first mitigation for device fragmentation; §15.2 records '
+	        'Flutter → SwiftUI + Kotlin as a divergence and the clients are native. §23.3 also names '
+	        '"graceful degradation", which is the load-bearing half and is carried by '
+	        '`afya.access.service:AccessService`. The mitigation cell drops the framework and keeps '
+	        'the two mechanisms; the divergence is recorded here rather than repaired by claiming a '
+	        'framework the repo does not use.',
+}
+
+assert set(MITIGATION_DIVERGENCES) <= {r.risk_id for r in RISKS}, \
+	'a mitigation divergence names a risk row that does not exist'
+
 
 # §24's recurring duties. §24.2's content cadences and §24.7's legal/regulatory cadences are the two
 # tables with dates in them; §24.1's bodies and §24.4's training matrix are structural and are

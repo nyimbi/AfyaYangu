@@ -13,7 +13,9 @@ import pytest
 from pydantic import ValidationError
 from typing import Any
 
-from afya.operations.service import OBLIGATIONS, RCA_DEADLINE_DAYS, RISKS, OperationsService
+from afya.operations.service import (
+	MITIGATION_DIVERGENCES, OBLIGATIONS, RCA_DEADLINE_DAYS, RISKS, OperationsService,
+)
 from afya.operations.views import (
 	SUPPORT_SLA_HOURS, Incident, IncidentClass, IncidentSeverity, Obligation, Rating, Risk, RiskDomain,
 )
@@ -39,6 +41,32 @@ def _ops_app() -> tuple[Any, dict[str, dict[str, str]]]:
 	}
 
 
+def _spec_rows(heading: str, stop: str, columns: int, header: str) -> list[list[str]]:
+	"""A spec table's rows read out of `docs/spec.md`, so a revision to the section fails here.
+
+	`header` is the first cell of the table's header row, passed in rather than enumerated: the
+	first cut of this helper listed three header names and silently swallowed the two tables whose
+	header it had not thought of, which is a checker enumerating one of the ways its target can be
+	written. The caller knows which table it is reading.
+
+	Shared by §23 and §24. It sits above both because §23's register is compared cell for cell for
+	the same reason §24.1's governance bodies are: a check on row *counts* cannot see a row whose
+	*cells* drifted, and five cells across §23's thirty-three rows had.
+	"""
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split(heading, 1)[1].split(stop, 1)[0]
+	rows: list[list[str]] = []
+	for line in section.splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip() for c in line.strip('|').split('|')]
+		if len(cells) != columns or cells[0] == header:
+			continue
+		rows.append(cells)
+	return rows
+
+
 # --- §23 the register ------------------------------------------------------------------------
 
 def test_the_register_has_every_spec_row() -> None:
@@ -51,6 +79,99 @@ def test_the_register_has_every_spec_row() -> None:
 		RiskDomain.privacy_ethical: 7, RiskDomain.reputational: 5,
 	}, f'§23 row counts drifted: {counts}'
 	assert len(RISKS) == 33
+
+
+# §23's five tables, in the spec's own order. The heading is the section heading and the stop is the
+# next thing the file writes, so each table is read out of its own subsection rather than by position.
+_RISK_TABLES = (
+	('### 23.1 Strategic Risks', '\n### 23.2'),
+	('### 23.2 Operational Risks', '\n### 23.3'),
+	('### 23.3 Technical Risks', '\n### 23.4'),
+	('### 23.4 Privacy and Ethical Risks', '\n### 23.5'),
+	('### 23.5 Reputational Risks', '\n---'),
+)
+
+
+def _spec_risk_rows() -> list[list[str]]:
+	"""§23's thirty-three rows read out of `docs/spec.md`, in file order.
+
+	File order and register order are the same order — `RISKS` is written §23.1 through §23.5 and the
+	ids are assigned here rather than read from the section, which numbers none of its rows. That is
+	what lets the comparison be positional and therefore cell-exact; a `risk_id`-keyed comparison
+	would need the section to carry ids it does not have.
+	"""
+	rows: list[list[str]] = []
+	for heading, stop in _RISK_TABLES:
+		rows += _spec_rows(heading, stop, 4, 'Risk')
+	return rows
+
+
+def test_the_register_is_the_sections_table_cell_for_cell() -> None:
+	"""The gate §23 never had, and the reason the row-count test above is not enough.
+
+	`test_the_register_has_every_spec_row` asserts 5 + 7 + 9 + 7 + 5 and passes for a register whose
+	every cell has drifted — a count is blind to content, which is the strict-subset failure: the
+	predicate is a subset of the thing it claims to test, so it fails open and it fails toward
+	"clean". Five cells had drifted green while it passed:
+
+	* **R-O7's likelihood** read `medium` against §23.2's `High`, a plain transcription error, and the
+	  one that changes behaviour: `Risk.exposure()` is likelihood × impact, so the register ranked
+	  alert fatigue *below* the rows around it and would have sorted it later on a fix-first list.
+	* **R-P7's mitigation** dropped "open source" — the one mitigation in that row that is checkable
+	  from outside the repo, and the repo has a `LICENSE` at its root. The row read as covered while
+	  naming two mechanisms where §23.4 names three.
+	* **R-S1's mitigation** dropped "before launch", which is the whole of what makes a zero-rating
+	  agreement a mitigation: an agreement signed after launch is a response to the risk, not a
+	  control on it.
+	* **R-S2's statement** carried `an Ebola app` where §23.2 quotes the brand `"Ebola app"`. The
+	  quotes are the row — the risk is being *branded* as an outbreak app, and the paraphrase made it
+	  read as being one.
+
+	The remaining divergence is R-T2, where the *section* is what is out of date (§23.3 names Flutter;
+	§15.2 records Flutter → SwiftUI + Kotlin and the clients are native). It is excused by name
+	through `MITIGATION_DIVERGENCES` rather than left to pass, so an *unrecorded* divergence fails
+	here and the two states stay distinguishable — a gate that skipped any row it could not explain
+	would be the same failure as the count check, one level up.
+	"""
+	spec = _spec_risk_rows()
+	assert len(spec) == 33, f'§23 lists thirty-three risks, found {len(spec)}'
+	assert len(RISKS) == len(spec)
+
+	def _rating(cell: str) -> str:
+		return cell.strip().lower().replace(' ', '_')
+
+	mismatched: list[str] = []
+	for (statement, likelihood, impact, mitigation), risk in zip(spec, RISKS):
+		# §23.2 writes `Branded as "Ebola app"`; the double quotes are the section's own quoting of
+		# the brand and the register carries them verbatim, so no stripping is needed here. What *is*
+		# stripped is `**`, which §24's tables use for emphasis and §23's do not — kept so this
+		# comparison and the §24 ones normalise alike and a later emphasis pass on §23 cannot read as
+		# a cell drift.
+		if risk.statement != statement.replace('**', ''):
+			mismatched.append(f'{risk.risk_id} statement: §23 {statement!r} vs register {risk.statement!r}')
+		if risk.likelihood.value != _rating(likelihood):
+			mismatched.append(f'{risk.risk_id} likelihood: §23 {likelihood} vs register {risk.likelihood.value}')
+		if risk.impact.value != _rating(impact):
+			mismatched.append(f'{risk.risk_id} impact: §23 {impact} vs register {risk.impact.value}')
+		if risk.mitigation != mitigation and risk.risk_id not in MITIGATION_DIVERGENCES:
+			mismatched.append(f'{risk.risk_id} mitigation: §23 {mitigation!r} vs register {risk.mitigation!r}')
+	assert mismatched == [], '§23 cells drifted from the register: ' + '; '.join(mismatched)
+
+
+def test_the_recorded_mitigation_divergences_are_still_divergences() -> None:
+	"""A recorded divergence that has since been reconciled is a stale excuse, and a stale excuse
+	exempts a row from the gate above for no reason.
+
+	This is the other half of the cell test: that one reads the map to *excuse* a cell, so a map
+	entry naming a row that now matches the section silently widens the gate's blind spot. Same shape
+	as the §13.1 lossy-enum defect — a note a reader cannot check is a note that drifts.
+	"""
+	spec = {r.risk_id: row for r, row in zip(RISKS, _spec_risk_rows())}
+	for risk_id, reason in MITIGATION_DIVERGENCES.items():
+		assert spec[risk_id][3] != next(r.mitigation for r in RISKS if r.risk_id == risk_id), (
+			f'{risk_id} is recorded as a mitigation divergence but now carries §23 verbatim — '
+			f'remove it from MITIGATION_DIVERGENCES')
+		assert '§' in reason, f'{risk_id} divergence names no spec section: {reason!r}'
 
 
 def test_every_mitigation_naming_code_resolves() -> None:
@@ -290,28 +411,6 @@ async def test_a_duty_can_be_marked_done_through_the_route() -> None:
 
 
 # --- §24.1 governance, §24.3 support channels -------------------------------------------------
-
-def _spec_rows(heading: str, stop: str, columns: int, header: str) -> list[list[str]]:
-	"""A spec table's rows read out of `docs/spec.md`, so a revision to the section fails here.
-
-	`header` is the first cell of the table's header row, passed in rather than enumerated: the
-	first cut of this helper listed three header names and silently swallowed the two tables whose
-	header it had not thought of, which is a checker enumerating one of the ways its target can be
-	written. The caller knows which table it is reading.
-	"""
-	from pathlib import Path
-	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
-	section = text.split(heading, 1)[1].split(stop, 1)[0]
-	rows: list[list[str]] = []
-	for line in section.splitlines():
-		if not line.startswith('|') or set(line) <= set('|-: '):
-			continue
-		cells = [c.strip() for c in line.strip('|').split('|')]
-		if len(cells) != columns or cells[0] == header:
-			continue
-		rows.append(cells)
-	return rows
-
 
 def test_the_governance_bodies_are_the_sections_six_rows() -> None:
 	"""§24.1, cell for cell. The composition cell is the section's, split on its commas — the
