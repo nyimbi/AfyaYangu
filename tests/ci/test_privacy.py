@@ -4,8 +4,8 @@ from pydantic import ValidationError
 from afya.auth.service import AuthService
 from afya.privacy.service import PrivacyService
 from afya.privacy.views import (
-	AccessRequest, BreachEvent, ConsentCategory, ConsentRecord, ConsentScope, DPIAInput, LegalBasis,
-	RBACRole,
+	AccessPurpose, AccessRequest, BreachEvent, ConsentCategory, ConsentRecord, ConsentScope, DPIAInput,
+	LegalBasis, RBACRole,
 )
 
 
@@ -59,9 +59,13 @@ async def test_access_is_logged_durably(tmp_path) -> None:
 	# A new process reading the same file still sees both decisions, refusals included.
 	rows = await SqliteStore(db).audit_entries()
 	assert len(rows) == 2
-	role, dataset, allowed, at_ms = rows[0]  # most recent first
+	role, dataset, allowed, at_ms, purpose = rows[0]  # most recent first
 	assert (role, dataset, allowed) == ('sysadmin', 'clinical/records', False), 'refusals must be logged too'
 	assert at_ms > 0
+	# §17.4's "documented purpose" is the *second* sentence and it is only owed where the read is
+	# of another person's data — so a refusal on `clinical/records` carries none and that is not a
+	# gap. The next test is the one that shows a declared purpose reaching the ledger.
+	assert purpose is None
 
 
 async def test_access_log_is_append_only(tmp_path) -> None:
@@ -125,6 +129,63 @@ async def test_access_log_endpoint_is_auditor_only_and_records_real_access(tmp_p
 		assert any(e['role'] == 'chw' and e['dataset'] == 'assigned' and e['allowed'] for e in entries), entries
 		# Refusals are recorded too, including the citizen's attempt to read this very log.
 		assert any(e['role'] == 'citizen_anonymous' and e['dataset'] == 'audit_logs' and not e['allowed'] for e in entries), entries
+		# §17.4's second sentence reaches the auditor: the CHW read `assigned` through the route's own
+		# declaration, so the entry says *why* and not only *whether*.
+		assert any(e['role'] == 'chw' and e['purpose'] == 'case_management' for e in entries), entries
+		# And the citizen's read of the log carries none, which is correct — the ledger records the
+		# absence rather than inventing a purpose for a route that reaches no one else's data.
+		assert any(e['role'] == 'citizen_anonymous' and e['purpose'] is None for e in entries), entries
+
+
+async def test_a_declared_purpose_reaches_the_ledger(tmp_path) -> None:
+	"""§17.4 "Access to personal data requires a documented purpose", end to end through the service.
+
+	The purpose is declared on the route rather than sent by the caller, so what is asserted is that
+	the guard's argument arrives in the row — a value that stopped at the guard would leave the
+	ledger recording authorisation without accountability, which is the gap this closes.
+	"""
+	from afya.persistence.service import SqliteStore
+
+	db = str(tmp_path / 'afya.db')
+	svc = PrivacyService(SqliteStore(db))
+	await svc.check_access_logged(AccessRequest(role=RBACRole.chw, dataset='assigned',
+	                                            purpose=AccessPurpose.case_management))
+	await svc.check_access_logged(AccessRequest(role=RBACRole.clinician, dataset='consented_patient',
+	                                            purpose=AccessPurpose.consented_care))
+	rows = await SqliteStore(db).audit_entries()
+	# Newest first: the clinician's read, then the CHW's.
+	assert rows[0][4] == 'consented_care'
+	assert rows[1][4] == 'case_management'
+	# Two different purposes are two different rows, which is the whole point of recording one.
+	assert rows[0][4] != rows[1][4]
+
+
+async def test_an_audit_table_from_an_older_build_gains_the_purpose_column(tmp_path) -> None:
+	"""The migration, proven against a real old-schema file rather than asserted.
+
+	`access_audit` is `CREATE TABLE IF NOT EXISTS`, so a handset whose file already has the table
+	keeps its four columns and the first insert naming `purpose` fails — on the audit path, where
+	the failure is silent and the consequence is that §17.4's record stops being written. The row
+	already in the table is the record and must survive the `ALTER`.
+	"""
+	import sqlite3
+
+	from afya.persistence.service import SqliteStore
+
+	db = str(tmp_path / 'old.db')
+	con = sqlite3.connect(db)
+	con.execute('CREATE TABLE access_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL, '
+	            'dataset TEXT NOT NULL, allowed INTEGER NOT NULL, at_ms INTEGER NOT NULL)')
+	con.execute("INSERT INTO access_audit (role, dataset, allowed, at_ms) VALUES ('chw', 'assigned', 1, 111)")
+	con.commit()
+	con.close()
+
+	store = SqliteStore(db)
+	rows = await store.audit_entries()  # opening the file runs _migrate
+	assert len(rows) == 1, 'the ALTER must not drop the row that was already the record'
+	assert rows[0] == ('chw', 'assigned', True, 111, None), 'a pre-existing row has no declared purpose'
+	await store.append_audit('chw', 'assigned', True, 222, 'case_management')
+	assert (await store.audit_entries())[0] == ('chw', 'assigned', True, 222, 'case_management')
 
 
 def test_dpia_blocks_raw_retention() -> None:

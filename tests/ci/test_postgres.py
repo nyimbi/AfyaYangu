@@ -84,3 +84,22 @@ async def test_geo_bounds_enforced_by_db(pg: PostgresStore) -> None:
 	fac = Facility.model_construct(facility_id='F9', name='X', kind=FacilityKind.ed, county='X', lat=50.0, lon=36.0, open_now=True, ed_status=None, crowdload=0)
 	with pytest.raises(asyncpg.exceptions.CheckViolationError):
 		await pg.save_facility(fac)
+
+async def test_the_audit_ledger_round_trips_with_its_purpose(pg: PostgresStore) -> None:
+	"""§17.4 on the production adapter, which had **no writer at all** until now.
+
+	`afya.audit_log` existed with a `ref JSONB` column and nothing wrote to it, so the durable
+	"All access is logged" record was carried only by the SQLite adapter — a Postgres deployment
+	kept the log in memory and lost it on restart. The purpose goes in `ref` rather than a new
+	column, because `ref` was declared for exactly this.
+	"""
+	async with (await pg.pool()).acquire() as c:
+		await c.execute('DELETE FROM afya.audit_log')
+	await pg.append_audit('chw', 'assigned', True, 1234, 'case_management')
+	await pg.append_audit('citizen_anonymous', 'self', True, 1235)
+	rows = await pg.audit_entries()
+	assert len(rows) == 2
+	by_role = {r[0]: r for r in rows}
+	assert by_role['chw'][4] == 'case_management'
+	assert by_role['chw'][3] == 1234, 'the timestamp travels in ref'
+	assert by_role['citizen_anonymous'][4] is None, 'a read of your own data is owed no purpose'

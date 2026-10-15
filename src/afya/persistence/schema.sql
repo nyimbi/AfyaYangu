@@ -59,3 +59,10 @@ CREATE TABLE IF NOT EXISTS afya.audit_log (
 	ref JSONB NOT NULL DEFAULT '{}'::jsonb,
 	at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- §17.4's second sentence, on the table an existing deployment already has. The
+-- `CREATE TABLE IF NOT EXISTS` above is a no-op against a database that already carries
+-- `audit_log`, so without this the column would appear only on fresh installs and the first
+-- insert naming it would fail on every existing one — on the audit path, where a failure is
+-- silent and the consequence is that §17.4's record stops being written.
+ALTER TABLE afya.audit_log ADD COLUMN IF NOT EXISTS purpose TEXT;

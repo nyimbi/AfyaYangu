@@ -31,7 +31,9 @@ _SCHEMA = (
 	'CREATE TABLE IF NOT EXISTS facilities (facility_id TEXT PRIMARY KEY, json TEXT NOT NULL)',
 	# §17.4: "All access is logged." Append-only by construction — there is no UPDATE or DELETE
 	# path to this table anywhere in the store, so an entry can only be added, never rewritten.
-	'CREATE TABLE IF NOT EXISTS access_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL, dataset TEXT NOT NULL, allowed INTEGER NOT NULL, at_ms INTEGER NOT NULL)',
+	# `purpose` is the section's second sentence; nullable because a row written before this build
+	# has none, and a backfilled value would be a purpose nobody declared.
+	'CREATE TABLE IF NOT EXISTS access_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL, dataset TEXT NOT NULL, allowed INTEGER NOT NULL, at_ms INTEGER NOT NULL, purpose TEXT)',
 )
 
 
@@ -98,12 +100,23 @@ class SqliteStore(LogMixin):
 		handset that queued writes under the old build would keep its old schema and the first
 		insert naming `retry_at_ms` would fail — losing the queue the column was added to protect.
 		SQLite has no `ADD COLUMN IF NOT EXISTS`, so the column list is read first.
+
+		`access_audit` needs the same treatment for the same reason: a deployed handset's audit table
+		has four columns, and the first insert naming `purpose` would fail — on the *audit* path,
+		where a failure is silent and the consequence is a §17.4 record that stops being written.
+		The entry is added rather than the table rewritten, because the rows already in it are the
+		record and `CREATE TABLE IF NOT EXISTS` would leave them behind.
 		"""
 		rows = await (await c.execute('PRAGMA table_info(sync_ops)')).fetchall()
 		existing = {r[1] for r in rows}
 		if 'retry_at_ms' not in existing:
 			await c.execute('ALTER TABLE sync_ops ADD COLUMN retry_at_ms INTEGER')
 			self._log_info('sync_ops migrated', added='retry_at_ms')
+
+		audit_cols = {r[1] for r in await (await c.execute('PRAGMA table_info(access_audit)')).fetchall()}
+		if audit_cols and 'purpose' not in audit_cols:
+			await c.execute('ALTER TABLE access_audit ADD COLUMN purpose TEXT')
+			self._log_info('access_audit migrated', added='purpose')
 
 	async def save_sync_op(self, op: SyncOp) -> None:
 		async with self._conn() as c:
@@ -158,21 +171,28 @@ class SqliteStore(LogMixin):
 	async def stats(self) -> StoreStats:
 		return StoreStats(sync_ops=len(await self.sync_ops()), consents=len(await self.consents()), facilities=len(await self.facilities()))
 
-	async def append_audit(self, role: str, dataset: str, allowed: bool, at_ms: int) -> None:
-		"""Append one access decision. Insert-only; the table has no update path."""
+	async def append_audit(self, role: str, dataset: str, allowed: bool, at_ms: int,
+	                       purpose: str | None = None) -> None:
+		"""Append one access decision. Insert-only; the table has no update path.
+
+		`purpose` is §17.4's "documented purpose" for a read of another person's data. It is
+		nullable because a row written before this build has none and a backfilled value would be a
+		purpose nobody declared — the ledger's job is to record what was declared, and inventing a
+		declaration is the one thing it must not do.
+		"""
 		assert role and dataset, 'an audit entry must name the role and the dataset'
 		async with self._conn() as c:
 			await c.execute(
-				'INSERT INTO access_audit (role, dataset, allowed, at_ms) VALUES (?, ?, ?, ?)',
-				(role, dataset, int(allowed), at_ms),
+				'INSERT INTO access_audit (role, dataset, allowed, at_ms, purpose) VALUES (?, ?, ?, ?, ?)',
+				(role, dataset, int(allowed), at_ms, purpose),
 			)
 			await c.commit()
 
-	async def audit_entries(self, limit: int = 1000) -> list[tuple[str, str, bool, int]]:
+	async def audit_entries(self, limit: int = 1000) -> list[tuple[str, str, bool, int, str | None]]:
 		"""Most recent first. Read-only; nothing here can mutate an entry."""
 		assert limit > 0, 'limit must be positive'
 		async with self._conn() as c:
 			rows = await (await c.execute(
-				'SELECT role, dataset, allowed, at_ms FROM access_audit ORDER BY seq DESC LIMIT ?', (limit,),
+				'SELECT role, dataset, allowed, at_ms, purpose FROM access_audit ORDER BY seq DESC LIMIT ?', (limit,),
 			)).fetchall()
-		return [(r[0], r[1], bool(r[2]), r[3]) for r in rows]
+		return [(r[0], r[1], bool(r[2]), r[3], r[4]) for r in rows]

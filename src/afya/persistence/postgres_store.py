@@ -5,6 +5,7 @@ from pathlib import Path
 import asyncpg
 
 from afya.facilities.views import Facility
+from afya.ids import uuid7str
 from afya.logmixin import LogMixin
 from afya.privacy.views import ConsentRecord, LegalBasis
 from afya.sync.views import SyncOp
@@ -98,3 +99,31 @@ class PostgresStore(LogMixin):
 				consents=await c.fetchval('SELECT count(*) FROM afya.consents'),
 				facilities=await c.fetchval('SELECT count(*) FROM afya.facilities'),
 			)
+
+	async def append_audit(self, role: str, dataset: str, allowed: bool, at_ms: int,
+	                       purpose: str | None = None) -> None:
+		"""Append one §17.4 access decision. Insert-only, as the SQLite adapter is.
+
+		The table and the `ref` column already existed here and had **no writer at all** — the
+		durable §17.4 record was carried only by the SQLite adapter, so a deployment on Postgres
+		kept the log in memory and lost it on restart. `purpose` goes in the `ref` column rather
+		than a new one, because `ref` was declared for exactly this: the detail about an entry that
+		is not the role, the dataset or the decision. `entry_id` and `at` take their defaults.
+		"""
+		assert role and dataset, 'an audit entry must name the role and the dataset'
+		async with (await self.pool()).acquire() as c:
+			await c.execute(
+				'''INSERT INTO afya.audit_log (entry_id, role, dataset, allowed, ref, purpose)
+				VALUES ($1, $2, $3, $4, $5::jsonb, $6)''',
+				uuid7str(), role, dataset, allowed, json.dumps({'at_ms': at_ms}), purpose,
+			)
+
+	async def audit_entries(self, limit: int = 1000) -> list[tuple[str, str, bool, int, str | None]]:
+		"""Most recent first, in the shape `SqliteStore.audit_entries` returns."""
+		assert limit > 0, 'limit must be positive'
+		async with (await self.pool()).acquire() as c:
+			rows = await c.fetch(
+				'SELECT role, dataset, allowed, ref, purpose FROM afya.audit_log ORDER BY at DESC LIMIT $1', limit,
+			)
+		return [(r['role'], r['dataset'], bool(r['allowed']),
+		         int(json.loads(r['ref']).get('at_ms', 0)), r['purpose']) for r in rows]

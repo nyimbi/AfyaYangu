@@ -16,10 +16,12 @@ from afya.privacy.rbac import (
 	report,
 	roles_with_scope,
 	route_scopes,
+	undocumented_access,
 	unissuable_roles,
+	unknown_purposes,
 	unreachable_scopes,
 )
-from afya.privacy.views import CITIZEN_ROLES, RBACRole, _SCOPE
+from afya.privacy.views import CITIZEN_ROLES, PURPOSE_FOR_SCOPE, AccessPurpose, RBACRole, _SCOPE
 from afya.service import build_services, create_app
 
 
@@ -163,3 +165,69 @@ async def test_the_report_is_served_to_the_auditor() -> None:
 	assert [r['scope'] for r in body['unreachable_scopes']] == ['community_aggregate', 'family']
 	assert body['identity_gap'] == 'citizen_identified'
 	assert set(body['guarded_scopes']) >= {'assigned', 'audit_logs', 'infrastructure'}
+
+
+# --- §17.4's second sentence: "Access to personal data requires a documented purpose" ------------
+
+def test_the_regex_still_sees_every_scope_now_that_purposes_are_declared() -> None:
+	"""The hazard this unit had to avoid, asserted rather than trusted.
+
+	`_SCOPE_CALL` required the closing paren immediately after the scope, so the moment a route
+	declared `require_scope('assigned', purpose='case_management')` the scope stopped matching —
+	and `route_scopes()` feeds `unreachable_scopes()`, which feeds the auditor's own report. A
+	checker that stops seeing its subject does not fail; it reports the opposite of the truth, and
+	`assigned` would have been announced as a §17.4 row with no implementation.
+
+	The assertion is the *set*, not the presence of one member: a widening that found `assigned`
+	and lost `county_aggregate` would pass a weaker test.
+	"""
+	assert route_scopes() == frozenset({
+		'assigned', 'audit_logs', 'consented_patient', 'county_aggregate',
+		'infrastructure', 'national_aggregate', 'self',
+	})
+	# And the two scopes that were already unreachable still are — the widening must not invent a
+	# caller for a scope no route guards.
+	assert unreachable_scopes() == ['community_aggregate', 'family']
+
+
+def test_every_route_reaching_another_person_declares_a_purpose() -> None:
+	"""The requirement itself. A scope that reads another person's record and declares no purpose is
+	§17.4's second sentence unimplemented, and it is named here rather than exempted by a list.
+
+	Every *site* is judged, not one per scope: the first version of `route_purposes` returned a
+	mapping keyed by scope, so 38 `assigned` sites collapsed to one key and three documented routes
+	would have made the gate pass while thirty-five declared nothing.
+	"""
+	assert undocumented_access() == []
+	assert unknown_purposes() == [], 'a declared purpose must be a member of AccessPurpose'
+	# The finding has to be able to fire: a scope in the map with a site that declares nothing.
+	assert undocumented_access("require_scope('assigned')") == ['assigned']
+	assert undocumented_access("require_scope('assigned', purpose='case_management')") == []
+	# And it must fire on the *mixed* case, which is the one the real tree could become and the one
+	# the first version of this test could not see. Asserting `undocumented_access() == []` against
+	# a source where every site is documented passes for a correct implementation and for a
+	# fail-open one alike — the canary that keyed the result by scope was MISSED here, and the
+	# instrument was the bug rather than the gate. One documented site beside one undocumented one
+	# is the input that tells the two implementations apart.
+	mixed = "require_scope('assigned', purpose='case_management')\nrequire_scope('assigned')"
+	assert undocumented_access(mixed) == ['assigned'], 'one documented route must not cover the scope'
+	# A misspelling is caught, and it is caught as *unknown* rather than passing as documented.
+	assert unknown_purposes("require_scope('assigned', purpose='case_managment')") == ['case_managment']
+	assert undocumented_access("require_scope('assigned', purpose='case_managment')") == []
+
+
+def test_the_purpose_vocabulary_is_grounded_in_the_table_and_closed() -> None:
+	"""The section names no vocabulary — "a documented purpose" is the whole of it — so the set is
+	derived from what §17.4's Access cells say each role does, and asserted both ways: a purpose no
+	scope can declare fails here rather than sitting dead in the enum, and a scope that owes a
+	purpose must offer one or the map is a gate that refuses everything."""
+	assert {p.value for p in AccessPurpose} == {
+		'case_management', 'outbreak_surveillance', 'contact_tracing',
+		'community_health_delivery', 'consented_care',
+	}
+	assert set(PURPOSE_FOR_SCOPE) == {'assigned', 'consented_patient'}
+	# The exempt scopes are exempt by construction, not by a list: `self` is the data subject and
+	# `family` is their own minor, so neither is a read of another person's data.
+	assert 'self' not in PURPOSE_FOR_SCOPE and 'family' not in PURPOSE_FOR_SCOPE
+	# A citizen's own read is not owed a purpose, and the enum must not acquire one for it.
+	assert not any('self' in p.value for p in AccessPurpose)

@@ -625,10 +625,16 @@ class PrivacyService(LogMixin):
 		The in-memory list is kept because it is cheap and readable in-process; it is not the
 		record. Before this the record was *only* that list, so an access log survived exactly as
 		long as the process did.
+
+		`req.purpose` is the section's second sentence — "Access to personal data requires a
+		documented purpose" — recorded beside the decision rather than instead of it. It is `None`
+		on the scopes that reach no one else's data, and on any in-process caller with no route to
+		declare one; the ledger says so rather than inventing a value.
 		"""
 		allowed = self.check_access(req)
 		if self._store is not None:
-			await self._store.append_audit(req.role.value, req.dataset, allowed, now_ms())
+			await self._store.append_audit(req.role.value, req.dataset, allowed, now_ms(),
+			                               req.purpose.value if req.purpose else None)
 		return allowed
 
 	def audit_log(self) -> list[tuple[bool, AccessRequest]]:

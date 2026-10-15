@@ -736,19 +736,34 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 				return None
 		return dependency
 
-	def require_scope(dataset: str):  # type: ignore[no-untyped-def]
-		"""Route guard: the token's role must cover the dataset it is asking for (§17 RBAC)."""
+	def require_scope(dataset: str, *, purpose: str | None = None):  # type: ignore[no-untyped-def]
+		"""Route guard: the token's role must cover the dataset it is asking for (§17 RBAC).
+
+		`purpose` is §17.4's "Access to personal data requires a documented purpose", declared by the
+		route rather than sent by the caller: the route's jurisdiction *is* the purpose it serves, and
+		a caller-supplied purpose is a value the caller attests about itself — the failure
+		`DPIARecord` names for §17.3. It is required on the scopes that reach another person's data
+		and absent on the ones that do not; `rbac.undocumented_access()` reads the routes and names
+		any that should declare one and do not.
+
+		It is typed `str` and converted here rather than typed `AccessPurpose`, so a route declares
+		it in the same spelling `rbac.route_purposes` reads — one spelling, read from the source.
+		`rbac.unknown_purposes()` is the gate that a declared string is a member, so a typo fails a
+		test rather than reaching a request; the conversion below makes it fail loudly if one ever
+		does.
+		"""
 		async def guard(authorization: str | None = Header(default=None)) -> str:
 			subject, role = require_token(authorization)
-			from afya.privacy.views import AccessRequest
+			from afya.privacy.views import AccessPurpose, AccessRequest
 			# The logged variant, so every guarded route writes the durable §17.4 entry rather
 			# than only the in-memory list.
-			if not await privacy.check_access_logged(AccessRequest(role=role, dataset=dataset)):
+			declared = AccessPurpose(purpose) if purpose is not None else None
+			if not await privacy.check_access_logged(AccessRequest(role=role, dataset=dataset, purpose=declared)):
 				raise HTTPException(status_code=403, detail=f'role {role.value} may not read {dataset}')
 			return subject
 		return guard
 
-	def require_any_scope(datasets: tuple[str, ...]):  # type: ignore[no-untyped-def]
+	def require_any_scope(datasets: tuple[str, ...], *, purpose: str | None = None):  # type: ignore[no-untyped-def]
 		"""Route guard for a route §17.4 lets more than one role read, each through its own scope.
 
 		§19.4 names PHEOC, county health teams and MoH as the readers of the public-health
@@ -757,12 +772,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		alone locks out two thirds of the audience the spec names — so the guard takes the set, and
 		still requires the token's role to hold *one of* them through the same `_SCOPE` map rather
 		than widening any role. Each attempt is logged with the dataset that was actually tried.
+
+		`purpose` is carried for the same reason `require_scope` carries it. No current call site
+		declares one — the only set in use is `('infrastructure', 'audit_logs')`, neither of which
+		reaches another person's data — but the argument exists so a future multi-role personal-data
+		route is not forced to reach for a second guard.
 		"""
 		async def guard(authorization: str | None = Header(default=None)) -> str:
 			subject, role = require_token(authorization)
-			from afya.privacy.views import AccessRequest
+			from afya.privacy.views import AccessPurpose, AccessRequest
+			declared = AccessPurpose(purpose) if purpose is not None else None
 			for dataset in datasets:
-				if await privacy.check_access_logged(AccessRequest(role=role, dataset=dataset)):
+				if await privacy.check_access_logged(AccessRequest(role=role, dataset=dataset, purpose=declared)):
 					return subject
 			raise HTTPException(status_code=403, detail=f'role {role.value} may read none of {list(datasets)}')
 		return guard
@@ -1071,7 +1092,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return result
 
 	@app.get('/triage/rrt/{county}')
-	async def triage_rrt(county: str, _subject: str = Depends(require_scope('assigned'))) -> list[dict[str, object]]:
+	async def triage_rrt(county: str, _subject: str = Depends(require_scope('assigned', purpose='outbreak_surveillance'))) -> list[dict[str, object]]:
 		"""What the county rapid response team reads — §11.2's Escalation, from their side."""
 		return [n.model_dump(mode='json') for n in triage.rrt_notifications(county)]
 
@@ -2267,7 +2288,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.get('/records/share/{grant_id}/view')
 	async def records_share_view(grant_id: str, at_iso: str,
-	                             _subject: str = Depends(require_scope('consented_patient'))) -> dict[str, object]:
+	                             _subject: str = Depends(require_scope('consented_patient', purpose='consented_care'))) -> dict[str, object]:
 		"""§10.1's provider-side view: what a clinician reads through a grant, refused past its end.
 
 		Guarded on `consented_patient`, which is §17.4's clinician row — "Patients who have consented
@@ -2500,7 +2521,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return envelope
 
 	@app.get('/channels/reports')
-	async def channels_reports(_subject: str = Depends(require_scope('assigned')),
+	async def channels_reports(_subject: str = Depends(require_scope('assigned', purpose='outbreak_surveillance')),
 	                           channel: str | None = None,
 	                           unhandled_only: bool = False) -> dict[str, object]:
 		"""§5.4's "single case-report backend" as the deployment reads it, with what the detector sees.
@@ -2518,7 +2539,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		}
 
 	@app.post('/channels/reports/{report_id}/handled')
-	async def channels_report_handled(report_id: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
+	async def channels_report_handled(report_id: str, _subject: str = Depends(require_scope('assigned', purpose='outbreak_surveillance'))) -> dict[str, bool]:
 		"""Mark one report read. The record is kept, so a report looked at twice is one report."""
 		try:
 			channels.handle_report(report_id)
@@ -2527,7 +2548,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'handled': True}
 
 	@app.get('/channels/callbacks')
-	async def channels_callbacks(_subject: str = Depends(require_scope('assigned')),
+	async def channels_callbacks(_subject: str = Depends(require_scope('assigned', purpose='outbreak_surveillance')),
 	                             unhandled_only: bool = True) -> list[dict[str, object]]:
 		"""§CHAN-1's `CALLBACK` queue, for the deployment that rings people back.
 
@@ -2538,7 +2559,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return [c.model_dump(mode='json') for c in channels.callback_requests(unhandled_only=unhandled_only)]
 
 	@app.post('/channels/callbacks/{request_id}/handled')
-	async def channels_callback_handled(request_id: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
+	async def channels_callback_handled(request_id: str, _subject: str = Depends(require_scope('assigned', purpose='outbreak_surveillance'))) -> dict[str, bool]:
 		"""Mark one request rung back, so a second reader sees it was already answered."""
 		try:
 			channels.handle_callback(request_id)
@@ -2547,12 +2568,12 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'handled': True}
 
 	@app.post('/channels/chw/tasks')
-	async def chw_assign(task: ChwTask, _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
+	async def chw_assign(task: ChwTask, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, bool]:
 		await channels.assign_chw_task(task)
 		return {'ok': True}
 
 	@app.get('/channels/chw/tasks/{chw_ref}')
-	async def chw_open(chw_ref: str, _subject: str = Depends(require_scope('assigned'))) -> list[dict[str, object]]:
+	async def chw_open(chw_ref: str, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> list[dict[str, object]]:
 		return [t.model_dump(mode='json') for t in channels.open_tasks(chw_ref)]
 
 	@app.post('/channels/chw/tasks/{task_id}/done')
@@ -3055,7 +3076,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	# the role that carries a worker's report up — so issuing one is a worker action, not a
 	# citizen's. Without this guard an anonymous caller could publish "Ebola confirmed" to a county.
 	@app.post('/alerts')
-	async def alerts_issue(a: CommunityAlert, _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
+	async def alerts_issue(a: CommunityAlert, _subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, bool]:
 		try:
 			await alerts.issue(a)
 		except AssertionError as exc:
@@ -3976,21 +3997,21 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	# Marking a community problem fixed is the authority's act, not the reporter's: anyone who
 	# could resolve an issue could close one they filed against their own facility.
 	@app.post('/community/issues/{issue_id}/resolve')
-	async def community_resolve(issue_id: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, str]:
+	async def community_resolve(issue_id: str, _subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, str]:
 		try:
 			return {'status': (await community.resolve_issue(issue_id)).value}
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.post('/community/cases')
-	async def community_case(report: CaseReport, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	async def community_case(report: CaseReport, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, object]:
 		try:
 			return (await community.submit_case(report)).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/community/cases/{report_id}/advance')
-	async def community_advance(report_id: str, status: CaseStatus, _subject: str = Depends(require_scope('assigned'))) -> dict[str, str]:
+	async def community_advance(report_id: str, status: CaseStatus, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, str]:
 		try:
 			return {'status': (await community.advance_case(report_id, status)).value}
 		except AssertionError as exc:
@@ -4001,7 +4022,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'reminder': community.ppe_reminder()}
 
 	@app.post('/community/peer-alert')
-	async def community_peer_alert(alert: PeerAlert, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	async def community_peer_alert(alert: PeerAlert, _subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, object]:
 		try:
 			receipt = await community.send_peer_alert(alert)
 		except AssertionError as exc:
@@ -4169,7 +4190,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	# --- alerting (§9.6 ALT-003, §10.3 ALT-001/002, §11.8 ALT-004) ---
 	# The feed is the durable broadcast behind the socket. Writing it is publishing to everyone.
 	@app.post('/alerting/feed')
-	async def alerting_publish(item: FeedItem, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	async def alerting_publish(item: FeedItem, _subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, object]:
 		try:
 			stored = await alerting.publish(item)
 		except AssertionError as exc:
@@ -4225,7 +4246,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/alerting/service-status')
 	async def alerting_publish_status(status: ServiceStatus,
-			_subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+			_subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, object]:
 		"""Publish one §INF-007 status. This is the producer the read above was missing.
 
 		`assigned` rather than a citizen scope: a market closure or a border-post restriction is what
@@ -4322,7 +4343,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return realtime.stats().model_dump(mode='json')
 
 	@app.post('/alerting/exposure')
-	async def alerting_exposure(subject_ref: str, case_ref: str | None = None, county: str | None = None, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	async def alerting_exposure(subject_ref: str, case_ref: str | None = None, county: str | None = None, _subject: str = Depends(require_scope('assigned', purpose='contact_tracing'))) -> dict[str, object]:
 		"""§11.1 rows 1, 2 and 4: ALT-004 is activated by a declared event, by a case in the county, or
 		by the person entering a risk zone — three rows, so any one of them is enough."""
 		state = activation.state(county=county, subject_ref=subject_ref)
@@ -4998,6 +5019,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		Without a reader the log is write-only, which is not a control: nobody could answer "who
 		looked at this record". The entry names the role and the dataset it asked for; it carries
 		no subject reference, so reading the log does not itself disclose whose record was opened.
+
+		`purpose` is the section's second sentence, and it is the difference between a ledger that
+		records authorisation and one that records accountability: "the chw was allowed to read
+		`assigned`" answers *whether*, and "for case management" answers *why* — which is the
+		question a DPIA and the ODPC actually ask. A `null` means no purpose was declared, which is
+		correct on a route that reaches no one else's data and is a finding on one that does; the
+		auditor can tell the two apart because `GET /privacy/rbac` names the scopes that owe one.
 		"""
 		store = svc['store']
 		if store is None:
@@ -5007,7 +5035,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		rows = await store.audit_entries(limit)  # type: ignore[union-attr]
 		return {
 			'durable': True,
-			'entries': [{'role': r, 'dataset': d, 'allowed': a, 'at_ms': t} for r, d, a, t in rows],
+			'entries': [{'role': r, 'dataset': d, 'allowed': a, 'at_ms': t, 'purpose': p}
+			            for r, d, a, t, p in rows],
 		}
 
 	# --- §5.4 identity model ---
@@ -5164,29 +5193,29 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'reminder': chw.ppe_reminder()}
 
 	@app.get('/chw/{chw_ref}')
-	async def chw_get(chw_ref: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	async def chw_get(chw_ref: str, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, object]:
 		try:
 			return chw.profile(chw_ref).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.get('/chw/{chw_ref}/case-load')
-	async def chw_case_load(chw_ref: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, int]:
+	async def chw_case_load(chw_ref: str, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, int]:
 		return {'open_cases': chw.case_load(chw_ref)}
 
 	@app.post('/chw/{chw_ref}/cases')
-	async def chw_case(chw_ref: str, case: ChwCase, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	async def chw_case(chw_ref: str, case: ChwCase, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, object]:
 		try:
 			return (await chw.assign_case(chw_ref, case)).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.get('/chw/{chw_ref}/cases')
-	async def chw_cases(chw_ref: str, _subject: str = Depends(require_scope('assigned'))) -> list[dict[str, object]]:
+	async def chw_cases(chw_ref: str, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> list[dict[str, object]]:
 		return [c.model_dump(mode='json') for c in chw.cases(chw_ref)]
 
 	@app.post('/chw/activity')
-	async def chw_activity(entry: ActivityLogEntry, _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
+	async def chw_activity(entry: ActivityLogEntry, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, bool]:
 		try:
 			await chw.log_activity(entry)
 		except AssertionError as exc:
@@ -5194,7 +5223,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.get('/chw/{chw_ref}/activity')
-	async def chw_activity_summary(chw_ref: str, period: str | None = None, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	async def chw_activity_summary(chw_ref: str, period: str | None = None, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, object]:
 		"""One CHW's activity in a period, defaulting to the week the deployment is running in.
 
 		The default used to be the **literal** `'2026-W41'`, so the catalogue's "My activity this week"
@@ -5247,7 +5276,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return intermediary.model_dump(mode='json')
 
 	@app.post('/intermediaries/referrals')
-	async def intermediaries_referral(referral: Referral, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	async def intermediaries_referral(referral: Referral, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, object]:
 		"""Record a referral against a code. `assigned`-scoped like the CHW activity routes, because
 		it is the same kind of write: a worker recording what they did. The referral names the person
 		who arrived — §CHAN-5's "verified" is what makes the record checkable, and a referral with no
@@ -5259,7 +5288,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return referral.model_dump(mode='json')
 
 	@app.get('/intermediaries/{code}/attribution')
-	async def intermediaries_attribution(code: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	async def intermediaries_attribution(code: str, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, object]:
 		"""One intermediary's referrals, completions and payments."""
 		try:
 			return intermediaries.attribution(code).model_dump(mode='json')
@@ -5314,7 +5343,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# §18.1 ADaM — case reports out, status/assignments/definitions in.
 	@app.post('/integrations/adam/cases')
-	async def adam_push_case(report: dict[str, object], _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	async def adam_push_case(report: dict[str, object], _subject: str = Depends(require_scope('assigned', purpose='outbreak_surveillance'))) -> dict[str, object]:
 		try:
 			ref = await adam.push_case_report(dict(report))
 		except (AssertionError, ValueError) as exc:
@@ -5324,7 +5353,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'adam_case_ref': ref}
 
 	@app.post('/integrations/adam/monitoring')
-	async def adam_push_monitoring(summary: dict[str, object], _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
+	async def adam_push_monitoring(summary: dict[str, object], _subject: str = Depends(require_scope('assigned', purpose='outbreak_surveillance'))) -> dict[str, bool]:
 		"""Consented only. The refusal is the service's, so an unconsented summary cannot be pushed
 		by leaving the flag off — the check is `is True`, not truthiness."""
 		try:
@@ -5336,21 +5365,21 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.get('/integrations/adam/cases/{report_id}')
-	async def adam_case_status(report_id: str, _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	async def adam_case_status(report_id: str, _subject: str = Depends(require_scope('assigned', purpose='outbreak_surveillance'))) -> dict[str, object]:
 		try:
 			return await adam.pull_case_status(report_id)
 		except Exception as exc:
 			raise HTTPException(status_code=502, detail='ADaM is unreachable') from exc
 
 	@app.get('/integrations/adam/contacts')
-	async def adam_contacts(chw_ref: str, _subject: str = Depends(require_scope('assigned'))) -> list[dict[str, object]]:
+	async def adam_contacts(chw_ref: str, _subject: str = Depends(require_scope('assigned', purpose='contact_tracing'))) -> list[dict[str, object]]:
 		try:
 			return await adam.pull_contact_assignments(chw_ref)
 		except Exception as exc:
 			raise HTTPException(status_code=502, detail='ADaM is unreachable') from exc
 
 	@app.get('/integrations/adam/case-definitions')
-	async def adam_case_definitions(_subject: str = Depends(require_scope('assigned'))) -> list[dict[str, object]]:
+	async def adam_case_definitions(_subject: str = Depends(require_scope('assigned', purpose='outbreak_surveillance'))) -> list[dict[str, object]]:
 		try:
 			return await adam.pull_case_definitions()
 		except Exception as exc:
@@ -5373,7 +5402,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	# The ADaM twin of this route carries `assigned`; a summary of one person's assessment
 	# pushed to a national system without a guard is the same disclosure with the guard missing.
 	@app.post('/integrations/jali/assessments')
-	async def jali_share_assessment(summary: dict[str, object], _subject: str = Depends(require_scope('assigned'))) -> dict[str, bool]:
+	async def jali_share_assessment(summary: dict[str, object], _subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, bool]:
 		try:
 			await jali.share_assessment(dict(summary))
 		except AssertionError as exc:
@@ -6063,7 +6092,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/live/sessions/{session_id}/open')
 	async def live_open(session_id: str,
-                    _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+                    _subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, object]:
 		"""Start the programme. This is the instant the queue becomes writable."""
 		try:
 			return (await live.open(session_id)).model_dump(mode='json')
@@ -6072,7 +6101,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/live/sessions/{session_id}/close')
 	async def live_close(session_id: str,
-                     _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+                     _subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, object]:
 		"""End the programme, and report how many questions were left unanswered on it.
 
 		The count is in the response rather than left to a later read because it is the number the
@@ -6087,7 +6116,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.get('/live/sessions/{session_id}/queue')
 	async def live_queue(session_id: str, pending_only: bool = False,
-	                     _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+	                     _subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, object]:
 		"""The queue as the clinician running the programme reads it, oldest first.
 
 		Scoped `assigned` for the reason `/channels/callbacks` is: this is the one read of a live
@@ -6122,7 +6151,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/live/questions/{question_id}/answer')
 	async def live_answer(question_id: str, body: AnswerIn,
-                      subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+                      subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, object]:
 		"""Answer one queued question, with §6.2's finding on the answer carried rather than raised.
 
 		The verdicts come back in the response so the screen the clinician is typing on can show
@@ -6140,7 +6169,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/live/questions/{question_id}/decline')
 	async def live_decline(question_id: str, body: DeclineIn,
-                       _subject: str = Depends(require_scope('assigned'))) -> dict[str, object]:
+                       _subject: str = Depends(require_scope('assigned', purpose='community_health_delivery'))) -> dict[str, object]:
 		"""Decline a question, with the reason recorded. §6.2 is not consulted: there is no answer."""
 		try:
 			return (await live.decline(question_id, body.reason, clock_ms())).model_dump(mode='json')

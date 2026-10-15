@@ -2,6 +2,8 @@
 Run: uv run python examples/demo.py
 """
 import asyncio
+import pathlib
+import tempfile
 
 from afya.channels.outbound import plain_language_report
 from afya.channels.service import AfricaTalkingSmsPort, ChannelService
@@ -15,7 +17,9 @@ from afya.emergency.views import SOSEvent
 from afya.identity.service import IdentityService
 from afya.live.service import LiveService
 from afya.live.views import LivePlatform, LiveSession
-from afya.privacy.views import DPIARecord, LegalBasis
+from afya.persistence.service import SqliteStore
+from afya.privacy import rbac
+from afya.privacy.views import DPIARecord, AccessPurpose, AccessRequest, LegalBasis, RBACRole
 from afya.registry.service import FeatureRegistry, Tier4Activation
 from afya.surveillance.service import SurveillanceService
 from afya.sync.service import SyncService
@@ -161,6 +165,23 @@ async def main() -> None:
 	sent = await loc.check_in(walked)
 	print('check-in ->', sent.synced, sent.synced_with, '|', sent.message)
 	print('what left:', [o.payload for o in loc._sync._queue.values()])
+
+	# §17.4's two sentences, and the second one is the one that is easy to lose. "All access is
+	# logged" is the row; "Access to personal data requires a documented purpose" is why the row
+	# exists. The purpose is declared where the route is declared — a caller-supplied one is a
+	# value the caller attests about itself — so the ledger answers *why* and not only *whether*.
+	print()
+	print('§17.4 access ledger, as the auditor reads it:')
+	store = SqliteStore(str(pathlib.Path(tempfile.mkdtemp()) / 'audit.db'))
+	priv = PrivacyService(store)
+	await priv.check_access_logged(AccessRequest(role=RBACRole.chw, dataset='assigned',
+	                                             purpose=AccessPurpose.case_management))
+	await priv.check_access_logged(AccessRequest(role=RBACRole.citizen_anonymous, dataset='self'))
+	for role, dataset, allowed, _at, purpose in await store.audit_entries():
+		print(f'  {role:18s} {dataset:12s} allowed={allowed!s:5s} purpose={purpose or "(none — own data)"}')
+	# And the gate: no scope that reaches another person's data is missing one, and no route
+	# declares a purpose the vocabulary does not know.
+	print('  undocumented:', rbac.undocumented_access(), '| unknown:', rbac.unknown_purposes())
 
 
 if __name__ == '__main__':

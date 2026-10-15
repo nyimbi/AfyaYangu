@@ -40,7 +40,7 @@ import re
 from pathlib import Path
 
 from afya.auth.service import ISSUABLE_ROLES, OPERATIONAL_ROLES
-from afya.privacy.views import CITIZEN_ROLES, RBACRole, _SCOPE
+from afya.privacy.views import CITIZEN_ROLES, PURPOSE_FOR_SCOPE, AccessPurpose, RBACRole, _SCOPE
 
 # §17.4's eight rows, transcribed with the Access cell verbatim, so a revision that changes a role's
 # access fails here until the map moves with it. The cell is kept as the section writes it rather
@@ -69,9 +69,20 @@ _SERVICE = Path(__file__).resolve().parents[1] / 'service.py'
 # thing it checks — and the first version of this had a `GUARD_SCOPES = ('self',)` constant that
 # papered over the gap, which made the assertion that `self` was found vacuous: the canary that
 # emptied the constant still passed, because six routes also carry `require_scope('self')` literally.
-_SCOPE_CALL = re.compile(r"require_scope\('([a-z_]+)'\)")
+#
+# The optional second group is §17.4's purpose argument. It was added in the same commit that added
+# the first `purpose=`, and it is load-bearing: the paren-adjacent form
+# `require_scope\('([a-z_]+)'\)` does not match `require_scope('assigned', purpose='case_management')`
+# at all, so every purpose-bearing route would silently drop out of `route_scopes()` — which feeds
+# `unreachable_scopes()` and the auditor's own report, turning a carried scope into a reported gap.
+# A checker that stops seeing its subject does not fail; it reports the opposite of the truth.
+_SCOPE_CALL = re.compile(r"require_scope\('([a-z_]+)'(?:\s*,[^)]*)?\)")
 _DATASET_CALL = re.compile(r"dataset='([a-z_]+)'")
 _ANY_CALL = re.compile(r'require_any_scope\(\s*\(([^)]*)\)')
+# The purpose a route declares, for `undocumented_access()`. Same reasoning as `_SCOPE_CALL`: read
+# from the source, because a hand-kept list of which routes declare a purpose would agree with
+# whatever it was written beside rather than with the routes.
+_PURPOSE_CALL = re.compile(r"require_scope\('([a-z_]+)'(?:\s*,\s*purpose='([a-z_]+)')?\)")
 
 
 def route_scopes(source: str | None = None) -> frozenset[str]:
@@ -103,6 +114,51 @@ def unreachable_scopes(source: str | None = None) -> list[str]:
 def roles_with_scope(scope: str) -> list[RBACRole]:
 	"""Which §17.4 roles the table gives a scope. Used to say who is affected by a gap."""
 	return [role for role, scopes in _SCOPE.items() if scope in scopes]
+
+
+def route_purposes(source: str | None = None) -> list[tuple[str, str | None]]:
+	"""Every `require_scope` site as `(scope, purpose)`, with `None` where none is declared.
+
+	A **list**, not a mapping keyed by scope. The mapping was the fail-open shape: 38 `assigned`
+	sites collapse to one key, so three routes declaring a purpose would have made the gate pass
+	while thirty-five declared none — a check satisfied by the one good case among many, which is
+	the same defect as a blocklist assertion that enumerates one spelling of the thing it guards.
+	Every site is returned so the caller can count them.
+	"""
+	text = source if source is not None else _SERVICE.read_text(encoding='utf-8')
+	return [(scope, purpose or None) for scope, purpose in _PURPOSE_CALL.findall(text)]
+
+
+def undocumented_access(source: str | None = None) -> list[str]:
+	"""The `require_scope` sites that reach another person's data and declare no purpose.
+
+	§17.4's second sentence, reported in the shape `unreachable_scopes()` already has and for the
+	same reason: it reports itself rather than being a list somebody maintains. A site is named when
+	`PURPOSE_FOR_SCOPE` says its scope needs a purpose and it declares none, so a new `assigned`
+	route added without one appears the moment it exists, and the `self`/`family`/aggregate routes
+	stay out by construction rather than by exemption.
+
+	**Every site is judged, not one per scope** — a scope with one documented route and nine
+	undocumented ones is a 10% gate, and a gate that reports clean on it is worse than none.
+	"""
+	return sorted(
+		f'{scope}:{purpose}' if purpose else scope
+		for scope, purpose in route_purposes(source)
+		if scope in PURPOSE_FOR_SCOPE and purpose is None
+	)
+
+
+def unknown_purposes(source: str | None = None) -> list[str]:
+	"""Purposes a route declares that are not members of `AccessPurpose`.
+
+	The route declares its purpose as a string so there is one spelling, read from the source by
+	`route_purposes`; this is what stops that spelling being a typo. Without it `purpose='case_managment'`
+	would be accepted by the guard, written into the ledger as a value nothing recognises, and read
+	back by an auditor as a purpose — a misspelling in the one column whose whole job is to be
+	answerable. Fails the gate rather than a request.
+	"""
+	known = {p.value for p in AccessPurpose}
+	return sorted({p for _, p in route_purposes(source) if p is not None and p not in known})
 
 
 def unissuable_roles() -> list[RBACRole]:
@@ -145,4 +201,9 @@ def report(source: str | None = None) -> dict[str, object]:
 		'unissuable_roles': [r.value for r in unissuable_roles()],
 		'identity_gap': gap.value if gap else None,
 		'citizen_roles': sorted(r.value for r in CITIZEN_ROLES),
+		# §17.4's second sentence, reported the way the first two findings are: a scope that reaches
+		# another person's data with no purpose declared, and the purposes a route may declare.
+		'undocumented_access': undocumented_access(source),
+		'unknown_purposes': unknown_purposes(source),
+		'purposes': sorted(p.value for p in AccessPurpose),
 	}

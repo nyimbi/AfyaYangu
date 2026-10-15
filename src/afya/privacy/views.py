@@ -183,10 +183,68 @@ _SCOPE: dict[RBACRole, set[str]] = {
 }
 
 
+class AccessPurpose(str, Enum):
+	"""Why a route reaches the personal data it reaches (§17.4's last sentence).
+
+	The section names no vocabulary — "Access to personal data requires a documented purpose" is the
+	whole of it — so the set is derived from what §17.4's own Access cells say each role does with
+	another person's data, and `PURPOSE_FOR_SCOPE` below ties each purpose to the scope that carries
+	it. Inventing purposes the table does not describe would be a second, quieter spec.
+
+	`consented_care` is the clinician's: the cell is "Patients who have consented to share", and the
+	purpose is the share. It is deliberately not `case_management` — a clinician reading through a
+	grant is doing a different thing from a CHW managing an assigned case, and a vocabulary that
+	collapsed them could not tell the two apart in the ledger, which is the one question the ledger
+	exists to answer.
+	"""
+	case_management = 'case_management'
+	outbreak_surveillance = 'outbreak_surveillance'
+	contact_tracing = 'contact_tracing'
+	community_health_delivery = 'community_health_delivery'
+	consented_care = 'consented_care'
+
+
+# Which scopes reach another person's data, and the purposes each may declare. A scope absent from
+# this map needs no purpose because it reaches no one else's record: `self` is the data subject,
+# `family` is their own minor (§17.6), and the aggregate scopes carry no person at all.
+#
+# `assigned` carries four because a CHW's work is four different things — §17.4's cell is "Assigned
+# patients, community aggregates", and a case read, a surveillance report, a contact trace and a
+# community delivery are distinct enough that one word for all of them would document nothing.
+PURPOSE_FOR_SCOPE: dict[str, frozenset[AccessPurpose]] = {
+	'assigned': frozenset({
+		AccessPurpose.case_management,
+		AccessPurpose.outbreak_surveillance,
+		AccessPurpose.contact_tracing,
+		AccessPurpose.community_health_delivery,
+	}),
+	'consented_patient': frozenset({AccessPurpose.consented_care}),
+}
+
+# Both directions, the `ROLE_ACCESS` idiom: a purpose no scope can declare fails here rather than
+# sitting dead in the enum, and a scope that requires purposes must have at least one or the map is
+# a gate that refuses everything.
+assert set(PURPOSE_FOR_SCOPE) <= {s for scopes in _SCOPE.values() for s in scopes}, \
+	'every purpose-requiring scope is a scope §17.4 gives a role'
+assert all(PURPOSE_FOR_SCOPE.values()), 'a scope requiring a purpose must offer at least one'
+assert {p for ps in PURPOSE_FOR_SCOPE.values() for p in ps} == set(AccessPurpose), \
+	'every purpose is declarable by some scope, and no purpose is extra'
+
+
 class AccessRequest(BaseModel):
+	"""One access decision, as it is made and as it is logged.
+
+	`purpose` is optional *here* and mandatory at the route: `check_access` is also called in-process
+	— the in-memory list and the tests — where there is no route and nothing to declare. What makes
+	it mandatory is `require_scope(..., purpose=...)`, and what proves it did is
+	`rbac.undocumented_access()`, which reads the routes and reports the ones reaching another
+	person's data with nothing declared. A required field here would break the in-process callers
+	for no accountability gain, since a caller that wanted to lie could send any member.
+	"""
 	model_config = MODEL_CONFIG
 	role: RBACRole
 	dataset: str
+	purpose: AccessPurpose | None = None
 
 
 class Principal(BaseModel):
