@@ -54,10 +54,24 @@ class Kpi(BaseModel):
 	higher_is_better: bool
 	source: str  # the §22 subsection the row comes from
 	modelled: bool = False  # §22.1 "Lives saved" is estimated by modelling, so it has no fixed target
+	measurement: str | None = None  # §22.2–§22.4's Measurement cell, verbatim; those are the only
+	# three of §22's seven tables that print the column, so the field is absent rather than invented
+	# for the other four. It is the cell that says *where the number comes from* — "Station surveys",
+	# "Comms log", "MON-009 data" — and without it a target is a figure with no route to it.
+	also_printed_at: list[str] = Field(default_factory=list)  # §22 subsections that print this row a
+	# second time. §22.1's "Retention / DAU/MAU ratio / 35%" and §22.3's "DAU/MAU / 35% / Derived" are
+	# one KPI, so the register carries it once and a reader of §22.3 alone would find six rows where
+	# the section prints seven.
 
 
 class Measurement(BaseModel):
-	"""One observed value, optionally cut by the equity axes it is broken down along."""
+	"""One observed value, optionally cut by the equity axes it is broken down along.
+
+	`source` is the record of *who observed it* on this particular reading, not §22's Measurement
+	column: that column is a property of the KPI (`Kpi.measurement`) and is the same for every
+	reading of it, so restating it per row would be a second copy that can drift. The default is a
+	sentence rather than a `None` because a measurement with no attribution is one nobody can chase.
+	"""
 
 	model_config = MODEL_CONFIG
 	kpi_id: str

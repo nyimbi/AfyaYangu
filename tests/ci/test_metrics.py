@@ -8,7 +8,9 @@ import httpx
 
 from afya.auth.service import OPERATIONAL_ROLES, AuthService
 from afya.governance.service import SCALE_TARGETS
-from afya.metrics.service import EQUITY_CUTS, EVALUATION, KPIS, MetricsService, capacity_agreement
+from afya.metrics.service import (
+	EQUITY_CUTS, EVALUATION, KPIS, MEASURED_BY_FEATURE, MetricsService, capacity_agreement,
+)
 from afya.metrics.views import MetricFamily, Measurement
 from afya.service import build_services, create_app
 
@@ -36,6 +38,141 @@ def test_every_spec_section_22_subsection_is_represented() -> None:
 	assert sources >= {f'§22.{n}' for n in range(1, 8)}, f'missing subsections: {sources}'
 	families = {r[5] for r in KPIS}
 	assert families == set(MetricFamily), 'every §22 family must have at least one KPI'
+
+
+# --- §22.2–§22.4's Measurement column, and the row §22 prints twice ------------------------------
+
+_MEASUREMENT_TABLES = (
+	('### 22.2 Reach Metrics', '§22.2'),
+	('### 22.3 Engagement Metrics', '§22.3'),
+	('### 22.4 Health Outcome Metrics', '§22.4'),
+)
+
+
+def _spec_measurement_rows(heading: str, section: str) -> list[tuple[str, str]]:
+	"""§22.2–§22.4 as (KPI, Measurement), read out of the spec rather than restated.
+
+	The third column is the *Measurement* column, and it is the only place in §22 that says where a
+	number comes from. §22.3's table is the one that carries a row the register does not: "DAU/MAU"
+	here is §22.1's "Retention", so it is returned and the caller crosses it rather than the parser
+	dropping it — a parser that skipped it would make the coverage assertion pass by not looking.
+	"""
+	from pathlib import Path
+	text = Path('docs/spec.md').read_text(encoding='utf-8')
+	rows: list[tuple[str, str]] = []
+	for line in text.split(heading, 1)[1].split('\n---', 1)[0].splitlines():
+		if not line.startswith('|') or set(line) <= set('|-: '):
+			continue
+		cells = [c.strip() for c in line.strip('|').split('|')]
+		if len(cells) != 3 or cells[0] in ('KPI', ''):
+			continue
+		rows.append((cells[0], cells[2]))
+	assert rows, f'{section} parsed as no rows'
+	return rows
+
+
+def test_the_measurement_column_is_the_sections_cell_for_cell() -> None:
+	"""§22.2–§22.4 print a Measurement column and the register carried nothing from it, so a target
+	was a figure with no route to it: `app_downloads` read as one number among forty-three, and
+	"Station surveys", "Comms log" and "MON-009 data" — the cells that say who counts the thing —
+	appeared nowhere in the tree.
+
+	Three of §22.4's cells are a feature id, and the standing constraint is that a spec code does not
+	reach a surface a person reads. So the cell is compared *through* the resolution: the section's
+	own text is read, the id in it is looked up in `MEASURED_BY_FEATURE`, and the served string must
+	be the registry's name for that feature. Comparing the served string to the raw cell would fail
+	for the right reason; comparing it to a literal would let the section and the register drift.
+	"""
+	from afya.metrics.service import MEASURED_BY_FEATURE
+	from afya.registry.service import FeatureRegistry
+	names = {f.id: f.name for f in FeatureRegistry().available() + FeatureRegistry().dormant()}
+	by_id = {k.kpi_id: k for k in MetricsService().kpis()}
+	second_printing: list[tuple[str, str, str]] = []
+	for heading, section in _MEASUREMENT_TABLES:
+		spec = _spec_measurement_rows(heading, section)
+		# The section's own rows, plus any KPI that records being printed here a second time — so the
+		# count compares like with like and the crossing below is a lookup rather than a skip.
+		ours = [k for k in by_id.values() if k.source == section or section in k.also_printed_at]
+		assert len(ours) == len(spec), f'{section}: code has {len(ours)} rows, the section prints {len(spec)}'
+		for spec_name, spec_cell in spec:
+			matched = [k for k in ours if k.name == spec_name]
+			if not matched:
+				# A row this section prints a second time, under §22.1's name. Recorded on the KPI, so
+				# this is a lookup: the entry has to exist and has to name this section.
+				matched = [k for k in ours if section in k.also_printed_at]
+				assert matched, f'{section}: {spec_name!r} matches no KPI and is not a recorded second printing'
+				kpi = matched[0]
+				second_printing.append((kpi.kpi_id, section, spec_cell))
+				assert kpi.measurement == spec_cell, (
+					f'{section} {spec_name!r} is §22.1\'s {kpi.name!r}; the section measures it by '
+					f'{spec_cell!r}, the register says {kpi.measurement!r}')
+				continue
+			assert len(matched) == 1, f'{section}: {spec_name!r} matches {len(matched)} KPIs'
+			kpi = matched[0]
+			expected = spec_cell
+			if kpi.kpi_id in MEASURED_BY_FEATURE:
+				# §22.4's cell is `"MON-009 data"` or bare `"MON-001"`: the id is what the section
+				# wrote and the surrounding word, if any, is the section's. Only the id is resolved.
+				fid, recorded_cell = MEASURED_BY_FEATURE[kpi.kpi_id]
+				assert spec_cell == recorded_cell, (
+					f'{section} {spec_name!r}: the section now prints {spec_cell!r}; the resolution was '
+					f'taken from {recorded_cell!r}')
+				expected = spec_cell.replace(fid, names[fid])
+				assert fid not in expected, 'the resolution left the handle in the served string'
+			assert kpi.measurement == expected, (
+				f'{section} {spec_name!r}: the section measures it by {spec_cell!r} '
+				f'(served as {expected!r}), the register says {kpi.measurement!r}')
+	# The recorded second printing must be exactly the rows that did not line up, so a stale entry
+	# cannot excuse a row that has since been renamed into agreement.
+	assert [k for k, _, _ in second_printing] == ['retention_dau_mau'], second_printing
+	assert 'retention_dau_mau' in by_id and by_id['retention_dau_mau'].source == '§22.1'
+
+
+def test_the_tables_without_a_measurement_column_have_no_measurement() -> None:
+	"""The other four §22 tables print KPI and Target only. A measurement on one of those rows would
+	be a source invented for a cell the section does not have — the fabrication `lives_saved` is
+	already guarded against — and it would be invisible, because the coverage assertion above only
+	walks the three tables that do print the column.
+
+	The one legitimate exception is the row §22.1 and §22.3 both print: its measurement is read off
+	§22.3, which has the column. The exemption is derived from `also_printed_at` rather than named, so
+	a second exception cannot be added by editing a literal here.
+	"""
+	no_column = ('§22.1', '§22.5', '§22.6', '§22.7')
+	from afya.metrics.service import MEASURE_COLUMN_SECTIONS
+	assert sorted(no_column + MEASURE_COLUMN_SECTIONS) == sorted(f'§22.{n}' for n in range(1, 8)), \
+		'the two sets must partition §22.1–§22.7, or a table is in neither and is checked by nothing'
+	offenders = [(k.kpi_id, k.measurement) for k in MetricsService().kpis()
+		if k.source in no_column and k.measurement is not None
+		and not set(k.also_printed_at) & set(MEASURE_COLUMN_SECTIONS)]
+	assert not offenders, f'measurement invented for a row whose table has no such column: {offenders}'
+
+
+async def test_no_spec_code_reaches_the_served_target_register() -> None:
+	"""The standing constraint, and the one that caught this unit's first cut. §22.4 measures three of
+	its rows by a feature id — "MON-009 data", "MON-001", "MON-004" — and serving the cell verbatim put
+	all three on `/metrics/kpis`, a surface an auditor reads to find out who counts what. The ids are
+	traceability handles; the served string is the registry's name for the feature.
+
+	The gate is the wire, not the register: `MEASUREMENTS` could be clean while a route re-derived the
+	cell, and a `Kpi` model that grew a `feature_id` field would leak through a surface this test never
+	touched. So it reads the response body of every family.
+	"""
+	import re as _re
+	code = _re.compile(r'\b(?:CHAN|INF|TRI|FND|MED|EMG|REC|MON|SENS|LOC|COM|ALT|AI|ACC|SEC)-\d{3}\b')
+	services = build_services()
+	auth: AuthService = services['auth']  # type: ignore[assignment]
+	app = create_app(services)
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		h = {'authorization': f'Bearer {await _staff(c, auth, "auditor")}'}
+		body = (await c.get('/metrics/kpis', headers=h)).text
+		assert not code.findall(body), f'spec code on the served target register: {code.findall(body)}'
+		# And the resolution did not simply drop the cell: the three rows must still say where their
+		# number comes from, by name.
+		rows = {r['kpi_id']: r for r in (await c.get('/metrics/kpis', headers=h)).json()['kpis']}
+		for kpi_id, (fid, _) in MEASURED_BY_FEATURE.items():
+			assert rows[kpi_id]['measurement'], f'{kpi_id} lost its measurement in the resolution'
+			assert fid not in rows[kpi_id]['measurement']
 
 
 def test_lives_saved_is_modelled_not_given_an_invented_target() -> None:

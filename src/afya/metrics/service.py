@@ -81,11 +81,77 @@ EQUITY_CUTS: tuple[EquityAxis, ...] = (EquityAxis.gender, EquityAxis.geography, 
 # nobody checks.
 SHARED_WITH_CAPACITY: dict[str, str] = {'api_latency_p95_ms': 'api_latency_p95_ms', 'uptime_pct': 'uptime_pct'}
 
+# §22.2, §22.3 and §22.4 print a **Measurement** column beside each target; §22.1, §22.5, §22.6 and
+# §22.7 print only KPI and Target. The cell answers "where does this number come from", which is a
+# different question from `unit` ("percent" is what the number is, "Comms log" is who produced it),
+# so it is its own field rather than a suffix on the unit. Kept as a map rather than a tenth tuple
+# field so the 43 rows stay readable, and asserted both ways against the register below: a row added
+# without a source fails at import, and a source for a row that does not exist fails too.
+#
+# Three of §22.4's cells name a **feature id** — "MON-009 data", "MON-001", "MON-004". Those ids are
+# traceability handles, and the standing constraint is that they do not reach a surface a person
+# reads, so the register stores the *name* the registry holds for that feature and keeps the id in
+# `MEASURED_BY_FEATURE` below. The served string is then the section's own wording with the handle
+# resolved, and the mapping is asserted to be total in both directions and to name features the
+# registry actually has — a rename that drops one fails at import rather than serving a bare id.
+MEASUREMENTS: dict[str, str] = {
+	# §22.2 reach
+	'app_downloads': 'App stores',
+	'whatsapp_users': 'Meta Business API',
+	'sms_optins': 'Gateway',
+	'ussd_sessions_monthly': 'Telco',
+	'radio_reach_weekly': 'Station surveys',
+	'social_reach': 'Platform analytics',
+	'chws_onboarded': 'Registry',
+	# §22.3 engagement
+	'dau': 'App analytics',
+	'mau': 'App analytics',
+	'triages_monthly': 'Backend',
+	'assessment_completion': 'Funnel',
+	'session_duration': 'App analytics',
+	'push_optin': 'App analytics',
+	# §22.4 health outcome
+	'contacts_monitored': '21-Day Contact Monitoring Diary data',
+	'symptom_to_care': 'Triage data + follow-up',
+	'exposure_notified_24h': 'Backend',
+	'corrections_24h': 'Comms log',
+	'malaria_tests': 'Triage referrals',
+	'immunisation_onschedule': 'Child Immunisation Tracker',
+	'medication_adherence': 'Medication Reminders',
+	# §22.1 prints "Retention | DAU/MAU ratio | 35%" with no Measurement column, and §22.3 prints the
+	# same row as "DAU/MAU | 35% | Derived". The measurement is a property of the KPI, so it is read
+	# off the printing that carries the column — which is why this entry has a source in a section its
+	# row is not filed under.
+	'retention_dau_mau': 'Derived',
+}
+
+# The §22.4 cells that are a feature id, as `kpi_id -> (feature id, the cell §22.4 prints)`. The
+# served string is `MEASUREMENTS`; this map holds the cell the resolution came from, so the register
+# can be checked against the substitution rather than against a name someone retyped, and the test
+# can read the section independently and compare.
+MEASURED_BY_FEATURE: dict[str, tuple[str, str]] = {
+	'contacts_monitored': ('MON-009', 'MON-009 data'),
+	'immunisation_onschedule': ('MON-001', 'MON-001'),
+	'medication_adherence': ('MON-004', 'MON-004'),
+}
+
+# The three of §22's seven tables that print a Measurement column. Named here because the coverage
+# assertions below are about *this* set and hard-coding it twice is how one of them goes stale.
+MEASURE_COLUMN_SECTIONS: tuple[str, ...] = ('§22.2', '§22.3', '§22.4')
+
+# The rows §22 prints in two places. §22.1's north-star table carries "Retention | DAU/MAU ratio |
+# 35%" and §22.3's engagement table carries "DAU/MAU | 35% | Derived" — one KPI, two rows, in two
+# tables that both call themselves the target list. The register holds it once (under §22.1, which
+# prints it first) and records the second printing here, so §22.3 reads as six rows against the seven
+# it prints and this map is what says why rather than leaving a reader to count.
+ALSO_PRINTED_AT: dict[str, list[str]] = {'retention_dau_mau': ['§22.3']}
+
 
 def _kpi(row: tuple[str, str, str, float, str, MetricFamily, bool, str, bool]) -> Kpi:
 	kpi_id, name, definition, target, unit, family, higher, source, modelled = row
 	return Kpi(kpi_id=kpi_id, name=name, definition=definition, target=target, unit=unit,
-		family=family, higher_is_better=higher, source=source, modelled=modelled)
+		family=family, higher_is_better=higher, source=source, modelled=modelled,
+		measurement=MEASUREMENTS.get(kpi_id), also_printed_at=ALSO_PRINTED_AT.get(kpi_id, []))
 
 
 class MetricsService(LogMixin):
@@ -93,6 +159,31 @@ class MetricsService(LogMixin):
 		self._measured: dict[str, Measurement] = {}
 		self._cuts: dict[str, set[str]] = {}
 		assert len({r[0] for r in KPIS}) == len(KPIS), 'KPI ids must be unique'
+		# The Measurement column, both ways. A KPI with a source that is not a KPI id is a map entry
+		# naming a row that was renamed or dropped; a §22.2–§22.4 KPI with no source is a target whose
+		# number has no route to it, which is the state this map was added to end.
+		_measured_here = {r[0] for r in KPIS if r[7] in MEASURE_COLUMN_SECTIONS} | set(ALSO_PRINTED_AT)
+		assert set(MEASUREMENTS) == _measured_here, (
+			f'Measurement column coverage: missing {sorted(_measured_here - set(MEASUREMENTS))}, '
+			f'unknown {sorted(set(MEASUREMENTS) - _measured_here)}')
+		assert set(ALSO_PRINTED_AT) <= {r[0] for r in KPIS}, \
+			'a second printing names a KPI that does not exist'
+		# The feature-id resolutions, both ways, against the registry itself. A resolution naming a
+		# feature the registry does not carry would serve a name nobody can look up, and a §22.4 cell
+		# that is a feature id with no resolution would put the handle on the wire.
+		from afya.registry.service import FeatureRegistry
+		_registry = {f.id: f.name for f in FeatureRegistry().available() + FeatureRegistry().dormant()}
+		assert set(MEASURED_BY_FEATURE) <= set(MEASUREMENTS), \
+			'a feature resolution names a KPI with no measurement'
+		_resolved_ids = {fid for fid, _ in MEASURED_BY_FEATURE.values()}
+		assert _resolved_ids <= set(_registry), (
+			f'resolutions name features the registry does not carry: '
+			f'{sorted(_resolved_ids - set(_registry))}')
+		for _kpi_id, (_fid, _cell) in MEASURED_BY_FEATURE.items():
+			assert _fid in _cell, f'{_kpi_id}: {_fid} is not in the cell it was read from ({_cell!r})'
+			assert MEASUREMENTS[_kpi_id] == _cell.replace(_fid, _registry[_fid]), (
+				f'{_kpi_id} serves {MEASUREMENTS[_kpi_id]!r}; the cell {_cell!r} with {_fid} resolved '
+				f'to its registry name is {_cell.replace(_fid, _registry[_fid])!r}')
 
 	def kpis(self, family: MetricFamily | None = None) -> list[Kpi]:
 		return [_kpi(r) for r in KPIS if family is None or r[5] is family]
