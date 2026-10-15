@@ -693,8 +693,8 @@ def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world()
 	actions — a maps app, a dialler, a barcode reader, a camera, a call-log and location permission,
 	the SOS button and its auto-dial, the accelerometer stream and its "Are you OK?" prompt, a QR or
 	NFC scan, the always-on microphone loop, the handset's own encrypted store and its OS keystore,
-	and §MED-001's photo of the packaging — which the coverage gate's `ON_DEVICE` set already lists
-	as client-side by design. The other five are conditions on the world rather than on this tree:
+	and §MED-001's photo of the packaging — none of which has a server call to make. The other five
+	are conditions on the world rather than on this tree:
 	TRI-003's vaccination input, written "if a vaccine is available and deployed", ALT-002's
 	check-in prompt, written "during a declared emergency in the user's area", and §CHAN-3's three
 	that arrived with this unit — the drama vignette, whose master tape a station records and a
@@ -703,6 +703,13 @@ def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world()
 	reporting them as gaps would put a fact about vaccine deployment, about whether an outbreak has
 	been declared, about who has a radio studio or about what a person already knows how to do in a
 	defect list.
+
+	**This docstring used to say the fifteen were ones "the coverage gate's `ON_DEVICE` set already
+	lists", and that was false.** The set holds twelve ids and only *one* of them — EMG-002 — is a
+	row in this list; the other device rows are deferred on their own reasoning and are not in the
+	set at all. A blanket citation of a gate is the same defect as a note citing a member the gate
+	does not hold: it reads as though a check enforces the claim when nothing does. The check that
+	does is `test_a_note_that_cites_the_on_device_gate_names_a_member_of_it` below.
 
 	The packaging photo is the one of the fifteen that was a `missing` row until §MED-001 was worked,
 	and the reason it moved is worth stating: §MED-001's own Privacy clause says a scan is not
@@ -752,3 +759,63 @@ async def test_the_content_audit_view_is_auditor_scoped() -> None:
 		assert body['missing'] == report.missing
 		assert body['audited_features'] == report.audited_features
 		assert body['unaudited_features'] == report.unaudited_features
+
+
+def test_a_note_that_cites_the_on_device_gate_names_a_member_of_it() -> None:
+	"""A note may claim a gate enforces it only if the gate actually holds what it cites.
+
+	§LOC-004's deferred note cited `` `SENS-010` `` as a member of `ON_DEVICE` and §SENS-010 was
+	**not** in it — it had come off when the section's four applications got their own routes, and
+	the gate's own comment records the removal. The note rotted against a set nothing compared it to,
+	which is the same failure as §CHAN-005's "a printed artefact is not code": a reason that reads as
+	evidence and is not. §FND-001's note was the same defect a step weaker — it named the gate as
+	corroborating its deferral while citing no member at all, so there was nothing to compare and the
+	claim could not be checked even in principle. Both now state the deferral's own reason.
+
+	The rule is deliberately narrow. A note that names the gate and a feature id asserts a
+	membership, and that is checkable; a note that merely describes a capability as device-side is a
+	judgement, and no set can be compared to it. §EMG-002's note is the true instance of the narrow
+	rule — it names EMG-002 and EMG-002 is in the set — and this gate keeps it true.
+	"""
+	import ast
+	import re
+	from pathlib import Path
+
+	from afya.content_audit.service import FEATURE_CONTENT
+	# Read the set off the file that defines it rather than importing the module: `tests` is not a
+	# package here, and a second copy of the twelve ids in this file would be the two-sources-of-truth
+	# drift this gate exists to catch. The literal is parsed, so a member added to `ON_DEVICE` is a
+	# member this gate sees without anyone remembering to add it twice.
+	source = Path(__file__).with_name('test_feature_coverage.py').read_text()
+	tree = ast.parse(source)
+	on_device: set[str] = set()
+	for node in ast.walk(tree):
+		if not isinstance(node, ast.AnnAssign):
+			continue
+		if getattr(node.target, 'id', None) != 'ON_DEVICE':
+			continue
+		on_device = {k.value for k in node.value.keys}  # type: ignore[union-attr]
+	assert on_device, 'the ON_DEVICE set could not be read off test_feature_coverage.py'
+	# A note citing its own feature id is a membership claim like any other — §EMG-002's is the one
+	# true instance — so the id it is attached to is not excluded. An earlier draft dropped `i != fid`
+	# and would have failed the single note that was correct.
+	cited = re.compile(r'`?([A-Z]{2,4}-\d{3})`?')
+	checked = 0
+	for fid, _label, bullet, kind, _ref, note in FEATURE_CONTENT:
+		if not note or 'ON_DEVICE' not in note:
+			continue
+		checked += 1
+		named = cited.findall(note)
+		assert named, (
+			f'§{fid} / {bullet!r} names the ON_DEVICE gate without naming a feature id in it, so the '
+			'claim cannot be checked — name the member or drop the reference'
+		)
+		missing = [i for i in named if i not in on_device]
+		assert missing == [], (
+			f'§{fid} / {bullet!r} cites {missing} as on-device and the gate does not hold it. '
+			f'The set is {sorted(on_device)}'
+		)
+	assert checked >= 1, (
+		'this gate found no note citing ON_DEVICE at all, which means it is no longer pointed at '
+		'anything — the one it was written for is §EMG-002'
+	)

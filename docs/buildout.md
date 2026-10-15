@@ -6264,3 +6264,62 @@ prompts are walked: the consent sentence is composed before the callback sentenc
 applied to only one path would leave the other claiming the same thing.
 
 **No new source.** The governing text is this repo's own `docs/spec.md`.
+
+## The audit notes that cited a gate that does not hold what they cite (2026-10-15)
+
+### The finding
+
+`FEATURE_CONTENT`'s deferred notes explain *why* a bullet is not built, and three of them reach for
+the coverage gate as corroboration. Nothing compared a note against the set it named, so a note could
+claim a membership the set does not have and read as evidence for years.
+
+1. **§LOC-004** cited `` `SENS-010` `` as a member of `ON_DEVICE`. It is not one, and has not been
+   since §SENS-010's four applications got their own routes — the gate's own comment at
+   `tests/ci/test_feature_coverage.py:49` records the removal. The note rotted against a set nothing
+   compared it to.
+2. **§FND-001** named the gate as corroborating its deferral while citing no member at all, so the
+   claim could not be checked even in principle. The weaker form of the same defect: a reason that
+   reads as evidence and is not.
+3. The docstring of `test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world` made
+   the claim at scale — "the fifteen ... the coverage gate's `ON_DEVICE` set already lists" — when
+   exactly one of the fifteen (EMG-002) is.
+
+The class is the same one §CHAN-005's "a printed artefact is not code" belongs to: prose that names a
+check as enforcing something, written by someone who did not run the check against it.
+
+### The fixes
+
+1. §LOC-004's note states the deferral's own reason — a platform API with no server call — and
+   mentions §SENS-010 only for what *is* built (a typed `Tag` target and four routes).
+2. §FND-001's note drops the gate reference entirely and names the class it actually belongs to.
+3. The docstring says what is true: the set holds twelve ids and one of them is a row in this list.
+4. A new gate, `test_a_note_that_cites_the_on_device_gate_names_a_member_of_it`, reads `ON_DEVICE`
+   off the source with `ast` rather than importing it (`tests` is not a package here, and a second
+   copy of the twelve ids would be the drift the gate exists to catch) and asserts that any note
+   naming the gate names at least one member *and* that every id it names is in the set.
+
+### The gate's own bug
+
+The first draft filtered the note's own feature id out (`i != fid`) before checking, which would have
+failed §EMG-002 — the single note whose citation is true. A membership claim about the note's own
+feature is a membership claim like any other. The `checked >= 2` floor came down to `>= 1` with it,
+because after the two bad citations were removed there is exactly one true one left to guard.
+
+### The canaries
+
+`tests/ci/canary_audit_notes.py` adds four. The fourth is different in kind: it mutates the *gate's
+set* rather than a note, so a gate that parsed the set but never compared against it would pass the
+first three and fail only there.
+
+| # | Mutation | Caught by |
+|---|---|---|
+| 1 | the LOC-004 note cites a feature the set does not hold | the new gate |
+| 2 | the FND-001 note names the gate and no member of it | the new gate |
+| 3 | the EMG-002 note cites a feature the set does not hold | the new gate |
+| 4 | the set drops the member a note truly cites | the new gate |
+
+Canary 3's replacement had to be a feature id *outside* the set: the first draft substituted MON-006,
+which is inside it, so the note would have stayed true and the canary would have been a mutation that
+did not mutate.
+
+**No new source.** The governing text is this repo's own `tests/ci/test_feature_coverage.py`.
