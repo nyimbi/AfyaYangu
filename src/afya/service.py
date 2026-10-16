@@ -45,9 +45,12 @@ from afya.mental.instruments import (
 from afya.mental.service import MentalHealthService, MoodEntry, Screening, WHO5
 from afya.mental.support import ReferralRequest
 from afya.women.service import WomenService
-from afya.women.views import ContraceptionRequest, CycleLog
+from afya.women.views import ContraceptionRequest, CycleLog, ReproductiveReferralRequest
 from afya.alerts.service import AlertsService
-from afya.alerts.views import AirQuality, CommunityAlert, FloodReport, ServiceStatus, WaterQuality
+from afya.alerts.views import (
+	AirAdvisoryRequest, AirQuality, CommunityAlert, FloodReport, ServiceStatus,
+	WaterAdvisoryRequest, WaterQuality,
+)
 from afya.blood.service import BloodRequest, BloodService, Donor
 from afya.chronic.service import ChronicService
 from afya.chronic.views import (
@@ -77,7 +80,7 @@ from afya.info.service import InfoService
 from afya.info.views import CaseCounts, SubCountyStatus
 from afya.info.views import WORKFLOW, ContentItem, CountyRisk
 from afya.privacy.service import PrivacyService
-from afya.privacy.views import _SCOPE, ConsentCategory, ConsentRecord, DPIAInput, RBACRole
+from afya.privacy.views import _SCOPE, ConsentCategory, ConsentRecord, DPIAInput, RBACRole, Tier4ActivationRequest
 from afya.privacy.service import BLOCKING_TOPICS, DPIA_TOPICS
 from afya.privacy import rbac
 from afya.records.service import RecordsService
@@ -129,7 +132,7 @@ from afya.community.views import (
 from afya.location.service import LocationService
 from afya.location.views import (
 	BorderPost, CheckIn, CheckInPoint, EncounterToken, ExposureDeclaration, LocationPoint,
-	PostArrivalReport, TravelerDeclaration,
+	LocationPointWithSubject, PostArrivalReport, TravelerDeclaration,
 )
 from afya.monitoring.service import MonitoringService
 from afya.monitoring.views import (
@@ -1233,7 +1236,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return tags.resolve(tag_id).model_dump(mode='json')
 
 	@app.post('/sensors/tags/{tag_id}/tap')
-	async def tag_tap(tag_id: str, at_iso: str, worker_ref: str | None = None,
+	async def tag_tap(tag_id: str, at_iso: str = Body(...), worker_ref: str | None = Body(None),
 	                  _subject: str = Depends(require_self())) -> dict[str, object]:
 		"""Record a tap. A PPE station log names the worker because §COM-101 states it as
 		occupational; every other target is about the object, and `tap` asserts the distinction
@@ -1255,7 +1258,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return tags.coverage()
 
 	@app.post('/sensors/equipment')
-	async def equipment_add(asset_ref: str, label: str, status: str = 'in_service',
+	async def equipment_add(asset_ref: str = Body(...), label: str = Body(...), status: str = Body('in_service'),
 	                        _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, bool]:
 		try:
 			tags.equipment.add(asset_ref, label, status)
@@ -1264,7 +1267,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.post('/sensors/equipment/{asset_ref}/move')
-	async def equipment_move(asset_ref: str, station: str,
+	async def equipment_move(asset_ref: str, station: str = Body(..., embed=True),
 	                         _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, bool]:
 		try:
 			tags.equipment.move(asset_ref, station)
@@ -1344,7 +1347,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return [r.model_dump(mode='json') for r in facilities.recent_reports(facility_id, limit)]
 
 	@app.post('/facilities/{facility_id}/wait')
-	async def facility_wait(facility_id: str, minutes: int) -> dict[str, int]:
+	async def facility_wait(facility_id: str, minutes: int = Body(..., embed=True)) -> dict[str, int]:
 		try:
 			return {'median_wait': await facilities.report_wait(facility_id, minutes)}
 		except (AssertionError, KeyError) as exc:
@@ -1680,8 +1683,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return row.model_dump(mode='json')
 
 	@app.post('/info/dashboard/{county}')
-	async def info_set_dashboard(county: str, risk_level: str, active_signals: int, bulletin: str,
-			source: str = '', at_ms: int | None = None,
+	async def info_set_dashboard(county: str, risk_level: str = Body(...), active_signals: int = Body(...),
+			bulletin: str = Body(...), source: str = Body(''), at_ms: int | None = Body(None),
 			_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
 		"""Record a county's risk level (§INF-001).
 
@@ -1846,7 +1849,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.post('/info/content/{item_id}/advance')
-	async def info_content_advance(item_id: str, to: str, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+	async def info_content_advance(item_id: str, to: str = Body(..., embed=True),
+			_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
 		"""Move an item one step along §6.5's workflow, or retire it to `archived`.
 
 		One step, so a draft cannot be marked published without the clinical review, translation,
@@ -2327,7 +2331,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/records/{member_ref}/backup')
-	async def records_backup(member_ref: str, at_iso: str = '', passphrase: str = '',
+	async def records_backup(member_ref: str, at_iso: str = Body(''), passphrase: str = Body(''),
 	                         _subject: str = Depends(require_self_or_guardian(lambda r: r.path_params['member_ref']))) -> dict[str, object]:
 		"""§REC-001/§10.1's encrypted cloud backup, refused without the `cloud_backup` consent.
 
@@ -2427,7 +2431,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		}
 
 	@app.post('/channels/sms')
-	async def channels_sms(to_msisdn: str, body: str) -> dict[str, object]:
+	async def channels_sms(to_msisdn: str = Body(...), body: str = Body(...)) -> dict[str, object]:
 		try:
 			return (await channels.send_sms(to_msisdn, body)).model_dump(mode='json')
 		except AssertionError as exc:
@@ -2820,14 +2824,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return women.menopause(ref, today_iso).model_dump(mode='json')
 
 	@app.post('/women/referral')
-	async def women_referral(body: dict[str, str], _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+	async def women_referral(body: ReproductiveReferralRequest, _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
 		"""§REC-004's referral to services.
 
 		`names_subject=False` because this route never reads a subject from the caller: it refers the
 		token's own holder, so there is nothing to compare the token against and no way to name someone
 		else. The guard still requires a citizen role and still writes the access log.
 		"""
-		reason = body.get('reason', '')
+		reason = body.reason
 		try:
 			return women.refer(_subject, reason).model_dump(mode='json')
 		except AssertionError as exc:
@@ -2849,7 +2853,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/maternal/birth')
-	async def maternal_birth(subject_ref: str, birth_iso: str, _subject: str = Depends(require_self())) -> dict[str, str]:
+	async def maternal_birth(subject_ref: str = Body(...), birth_iso: str = Body(...),
+			_subject: str = Depends(require_self())) -> dict[str, str]:
 		"""The birth date the postnatal contacts count from. Without it there are no postnatal visits."""
 		try:
 			return {'subject_ref': subject_ref, 'birth_iso': await maternal.record_birth(subject_ref, birth_iso)}
@@ -2934,7 +2939,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		}
 
 	@app.post('/maternal/pmtct-referral')
-	async def maternal_pmtct(subject_ref: str, hiv_positive: bool, _subject: str = Depends(require_self())) -> dict[str, object]:
+	async def maternal_pmtct(subject_ref: str = Body(...), hiv_positive: bool = Body(...),
+			_subject: str = Depends(require_self())) -> dict[str, object]:
 		"""§MON-002's "Referral to PMTCT where relevant". The HIV result is a boolean the caller
 		derived at the point of care and is not stored — this module has no PIN on it."""
 		return maternal.pmtct_referral(subject_ref, hiv_positive).model_dump(mode='json')
@@ -2952,7 +2958,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.post('/maternal/danger')
-	async def maternal_danger(signs: list[str]) -> dict[str, object]:
+	async def maternal_danger(signs: list[str] = Body(..., embed=True)) -> dict[str, object]:
 		try:
 			return maternal.assess_danger(signs).model_dump(mode='json')
 		except AssertionError as exc:
@@ -3201,29 +3207,31 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return [a.model_dump(mode='json') for a in alerts.by_county(county)]
 
 	@app.post('/environment/water')
-	async def environment_water(w: WaterQuality, treated_at_iso: str | None = None) -> dict[str, object]:
+	async def environment_water(w: WaterAdvisoryRequest) -> dict[str, object]:
 		"""§MON-005's water safety, whole: the advisory and the three things to do about it.
 
 		Public, and on the same reasoning as the advisory it already served: asking whether the water
 		is safe is a question a person asks before they have decided to tell anyone who they are, and
 		a reading that required a token would be unavailable during the flood it is about.
 
-		`treated_at_iso` is a query parameter rather than a field of `WaterQuality` because it is not
-		part of the reading — it is when *this household* last treated water, and putting it in the
-		reading's model would make the county's post and the household's schedule one object. When
-		it is absent there is no reminder, which is the honest answer: the server does not know when
-		this person treats water.
+		`treated_at_iso` is when *this household* last treated water and not part of the county's
+		reading, which is why `WaterAdvisoryRequest` carries it as its own field rather than folding
+		it into `WaterQuality`. It was a query parameter, and both clients put every non-path field
+		of a write into the JSON body and send no query string — so the field was one the form
+		offered and no client could deliver, and the advisory came back with no reminder and no
+		error. When it is absent there is no reminder, which is the honest answer: the server does
+		not know when this person treats water.
 
 		A time the server cannot read is answered 422 rather than left to the service's assertion: it
 		is the caller's input that is wrong, and a 500 would tell them the server broke.
 		"""
 		try:
-			return alerts.water_safety(w, treated_at_iso).model_dump(mode='json')
+			return alerts.water_safety(w, w.treated_at_iso).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/environment/air')
-	async def environment_air(a: AirQuality, location: str, hourly: str | None = None) -> dict[str, object]:
+	async def environment_air(a: AirAdvisoryRequest) -> dict[str, object]:
 		"""§MON-006's air quality, whole: the index, the advisory, the mask, the window and the source.
 
 		`location` is required and is a place name, not a coordinate. The section asks for the AQI
@@ -3231,17 +3239,20 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		position on their own device and §SEC-001's ledger governs what leaves it, so the caller
 		names the place rather than the server resolving one.
 
-		`hourly` is `hour=pm25` pairs, comma-separated — the same shape the catalogue's `list` field
-		renders. Omitted, the window is empty and says so: an hour named from a single daily reading
+		`hourly` is `hour=pm25` pairs — the same shape the catalogue's `list` field renders, and the
+		reason it is a list of strings on `AirAdvisoryRequest` rather than a list of pairs: a generic
+		form draws one text box per field, so a nested object would be a control no client renders.
+		It was a comma-separated query parameter, which is the one place neither client puts a write
+		field. Omitted, the window is empty and says so: an hour named from a single daily reading
 		would be an hour nobody measured.
 		"""
 		series: list[tuple[int, float]] = []
-		for pair in (hourly or '').split(','):
+		for pair in a.hourly:
 			if not pair.strip():
 				continue
 			hour, _, value = pair.partition('=')
 			series.append((int(hour), float(value)))
-		return alerts.air_quality_guidance(a, location, series or None).model_dump(mode='json')
+		return alerts.air_quality_guidance(a, a.location, series or None).model_dump(mode='json')
 
 	@app.post('/environment/flood')
 	async def environment_flood(f: FloodReport) -> dict[str, str]:
@@ -3319,7 +3330,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'delta': delta, 'changed_fields': len(delta), 'full_fields': len(current)}
 
 	@app.post('/sync/flush')
-	async def sync_flush(connection: str = 'wifi') -> dict[str, object]:
+	async def sync_flush(connection: str = Body('wifi', embed=True)) -> dict[str, object]:
 		"""§16.2's flow, run once: send what is due, schedule what failed, defer what cannot go.
 
 		`connection` is the diagram's first diamond. A client that says `offline` has its ops deferred
@@ -3533,7 +3544,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	# puts infrastructure in the sysadmin's hands, and the caller's role is checked against the same
 	# `_SCOPE` map every other route uses rather than a second list that could drift.
 	@app.post('/tier4/activate')
-	async def tier4_activate(auth: Tier4Activation, _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+	async def tier4_activate(auth: Tier4ActivationRequest,
+			_subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
 		"""§11.1: all three keys or nothing. The response names what is missing and what the
 		activation unlocks, so a refusal is diagnosable instead of a bare false.
 
@@ -3542,12 +3554,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		only by a recorded §17.3 review that still covers that processing. Before this, a request
 		carrying `dpia_reviewed: true` and nothing else held the key — the DPIA was assessed only if
 		`dpia_input` happened to be present, so the one input the gate exists for was optional.
+
+		One flat body, because the operator's form offers one control per §17.3 topic and both
+		clients put every non-path field of a write at the top level. The route used to take a nested
+		`dpia_input` object beside a separate `auth` model, which no form could build: the operator
+		set the ten switches and read a 422 naming a field they had set.
 		"""
-		report = surveillance.assess_tier4(auth.dpia_input) if auth.dpia_input is not None else None
-		review = surveillance.dpia_review_for(auth.dpia_input)
+		processing = auth.processing()
+		report = surveillance.assess_tier4(processing) if processing is not None else None
+		review = surveillance.dpia_review_for(processing)
 		active = await surveillance.activate_tier4(
 			auth.authorized_by_pheoc, auth.flag_enabled, auth.bulletin_text,
-			dpia=report, review=review, dpia_input=auth.dpia_input,
+			dpia=report, review=review, dpia_input=processing,
 		)
 		return {
 			'activated': active,
@@ -3673,7 +3691,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return location.zone_watch(subject_ref).model_dump(mode='json')
 
 	@app.post('/location/zone-alerts/{subject_ref}')
-	async def location_set_zone_alerts(subject_ref: str, enabled: bool,
+	async def location_set_zone_alerts(subject_ref: str, enabled: bool = Body(..., embed=True),
 	                                   _subject: str = Depends(require_self())) -> dict[str, object]:
 		"""§LOC-001's "Fully disableable" — the switch itself, stored against the subject.
 
@@ -3843,7 +3861,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- monitoring & reminders (§9.1 MON-001..004, §10.2 MON-005..008, §11.3 MON-009) ---
 	@app.post('/monitoring/child')
-	async def monitoring_child(member_ref: str, dob_iso: str, _subject: str = Depends(require_self_or_guardian(lambda r: r.query_params.get('member_ref')))) -> dict[str, bool]:
+	async def monitoring_child(member_ref: str = Body(...), dob_iso: str = Body(...),
+			_subject: str = Depends(require_self_or_guardian(_body_member))) -> dict[str, bool]:
 		# A child is registered into the caller's own wallet; a member_ref the caller does not own is
 		# refused, so one person cannot enrol another's child into a monitoring schedule they control.
 		try:
@@ -3967,11 +3986,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return monitoring.shareable_report(subject_ref)
 
 	@app.post('/monitoring/vector-risk')
-	async def monitoring_vector_risk(county: str, rainfall_mm_72h: float, livestock_adjacent: bool = False) -> dict[str, object]:
+	async def monitoring_vector_risk(county: str = Body(...), rainfall_mm_72h: float = Body(...),
+			livestock_adjacent: bool = Body(False)) -> dict[str, object]:
 		return monitoring.vector_risk(county, rainfall_mm_72h, livestock_adjacent).model_dump(mode='json')
 
 	@app.post('/monitoring/breeding-site')
-	async def monitoring_breeding_site(county: str, lat: float, lon: float, description: str) -> dict[str, object]:
+	async def monitoring_breeding_site(county: str = Body(...), lat: float = Body(...),
+			lon: float = Body(...), description: str = Body(...)) -> dict[str, object]:
 		return await monitoring.report_breeding_site(county, lat, lon, description)
 
 	# §MON-007's larviciding campaign notice. A county issues it, on the same reasoning as the
@@ -4029,7 +4050,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/monitoring/contact/enrol')
-	async def monitoring_enrol(subject_ref: str, officer: str | None = None, officer_number: str | None = None, county: str | None = None, _subject: str = Depends(require_self())) -> dict[str, object]:
+	async def monitoring_enrol(subject_ref: str = Body(...), officer: str | None = Body(None),
+			officer_number: str | None = Body(None), county: str | None = Body(None),
+			_subject: str = Depends(require_self())) -> dict[str, object]:
 		"""§11.1 rows 3 and 5: a contact gets the diary, or a person asks for it.
 
 		This used to be `if not registry.tier4_active()`, one global gate, so the diary was
@@ -4135,7 +4158,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/community/cases/{report_id}/advance')
-	async def community_advance(report_id: str, status: CaseStatus, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, str]:
+	async def community_advance(report_id: str, status: CaseStatus = Body(..., embed=True),
+			_subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, str]:
 		try:
 			return {'status': (await community.advance_case(report_id, status)).value}
 		except AssertionError as exc:
@@ -4194,7 +4218,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return community.add_contact(subject_ref, entry).model_dump(mode='json')
 
 	@app.post('/community/contacts/{subject_ref}/share')
-	async def community_contact_share(subject_ref: str, with_who: str | None = None,
+	async def community_contact_share(subject_ref: str, with_who: str | None = Body(None, embed=True),
 	                                  _subject: str = Depends(require_self())) -> dict[str, object]:
 		"""§COM-103's "share with health authorities through a secure, encrypted channel".
 
@@ -4272,7 +4296,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return [n.model_dump(mode='json') for n in community.notices_for(subject_ref)]
 
 	@app.post('/info/myths/ask')
-	async def info_myths_ask(claim: str, lang: str = 'en') -> dict[str, object]:
+	async def info_myths_ask(claim: str = Body(...), lang: str = Body('en')) -> dict[str, object]:
 		"""§INF-004's "Ask about a rumour" — a claim submitted for verification, answered to the asker.
 
 		Deliberately not `/community/misinformation`. That route is a *flag*: a person reports a rumour
@@ -4381,7 +4405,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return stored.model_dump(mode='json')
 
 	@app.post('/alerting/preferences')
-	async def alerting_preference(subject_ref: str, category: str, enabled: bool, _subject: str = Depends(require_self())) -> dict[str, object]:
+	async def alerting_preference(subject_ref: str = Body(...), category: str = Body(...),
+			enabled: bool = Body(...), _subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return alerting.set_preference(subject_ref, category, enabled).model_dump(mode='json')
 		except AssertionError as exc:
@@ -4392,7 +4417,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return alerting.preferences(subject_ref).model_dump(mode='json')
 
 	@app.post('/alerting/family/link')
-	async def alerting_family_link(family_ref: str, members: list[str], _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+	async def alerting_family_link(family_ref: str = Body(...), members: list[str] = Body(..., embed=True),
+			_subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
 		# A group is built around the person creating it: without this a caller could link a
 		# stranger's subject into a group and then read the board that names them.
 		if _subject not in members:
@@ -4400,8 +4426,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return alerting.link_family(family_ref, members).model_dump(mode='json')
 
 	@app.post('/alerting/family/check-in')
-	async def alerting_check_in(subject_ref: str, family_ref: str, at_iso: str | None = None,
-			channel: str = 'native', note: str | None = None,
+	async def alerting_check_in(subject_ref: str = Body(...), family_ref: str = Body(...),
+			at_iso: str | None = Body(None), channel: str = Body('native'), note: str | None = Body(None),
 			_subject: str = Depends(require_self())) -> dict[str, object]:
 		# `at_iso` is optional and defaults to the server clock, because the field exists so a queued
 		# check-in can carry the instant it was actually made — not so every person has to have one.
@@ -4467,7 +4493,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return realtime.stats().model_dump(mode='json')
 
 	@app.post('/alerting/exposure')
-	async def alerting_exposure(subject_ref: str, case_ref: str | None = None, county: str | None = None, _subject: str = Depends(require_scope('assigned', purpose='contact_tracing'))) -> dict[str, object]:
+	async def alerting_exposure(subject_ref: str = Body(...), case_ref: str | None = Body(None),
+			county: str | None = Body(None),
+			_subject: str = Depends(require_scope('assigned', purpose='contact_tracing'))) -> dict[str, object]:
 		"""§11.1 rows 1, 2 and 4: ALT-004 is activated by a declared event, by a case in the county, or
 		by the person entering a risk zone — three rows, so any one of them is enough."""
 		state = activation.state(county=county, subject_ref=subject_ref)
@@ -4484,7 +4512,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- location & proximity (§11.5 LOC-002..005) ---
 	@app.post('/location/proximity/ebid')
-	async def location_ebid(seed: str, now_ms: int) -> dict[str, object]:
+	async def location_ebid(seed: str = Body(...), now_ms: int = Body(...)) -> dict[str, object]:
 		return location.rotate_ebid(seed, now_ms).model_dump(mode='json')
 
 	@app.post('/location/proximity/encounter')
@@ -4509,7 +4537,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.post('/tier4/activation/request')
-	async def tier4_activation_request(county: str | None = None, _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+	async def tier4_activation_request(county: str | None = Body(None, embed=True),
+			_subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
 		"""§11.1 row 5, "User requests activation" — the one trigger a person fires about themselves.
 
 		It needs its own route because the operator route is `infrastructure`-scoped and a citizen does
@@ -4543,20 +4572,22 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'ok': True}
 
 	@app.post('/location/proximity/check')
-	async def location_check(own_pets: list[str], window_days: int = 21, now_ms: int | None = None) -> dict[str, object]:
+	async def location_check(own_pets: list[str] = Body(..., embed=True), window_days: int = Body(21),
+			now_ms: int | None = Body(None)) -> dict[str, object]:
 		return location.check_exposure(own_pets, window_days, now_ms).model_dump(mode='json')
 
 	@app.post('/location/history/enable')
-	async def location_enable(subject_ref: str, window_days: int = 21, _subject: str = Depends(require_self())) -> dict[str, object]:
+	async def location_enable(subject_ref: str = Body(...), window_days: int = Body(21),
+			_subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return location.enable_history(subject_ref, window_days).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/location/history/point')
-	async def location_point(subject_ref: str, point: LocationPoint, _subject: str = Depends(require_self())) -> dict[str, int]:
+	async def location_point(point: LocationPointWithSubject, _subject: str = Depends(require_self())) -> dict[str, int]:
 		try:
-			return {'points': location.log_location(subject_ref, point)}
+			return {'points': location.log_location(point.subject_ref, point)}
 		except AssertionError as exc:
 			raise HTTPException(status_code=403, detail=str(exc)) from exc
 
@@ -4569,7 +4600,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.post('/location/history/{subject_ref}/share')
-	async def location_report_share(subject_ref: str, with_who: str = '',
+	async def location_report_share(subject_ref: str, with_who: str = Body('', embed=True),
 	                                _subject: str = Depends(require_self())) -> dict[str, object]:
 		"""§LOC-003's "report shared with health authorities through a secure channel".
 
@@ -4794,7 +4825,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- AI & analytics (§19, §11.7) ---
 	@app.post('/ai/hotspots')
-	async def ai_hotspots(cells: list[AggregateCell], _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
+	async def ai_hotspots(cells: list[AggregateCell] = Body(..., embed=True),
+			_subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
 		try:
 			return ai.hotspots(cells).model_dump(mode='json')
 		except AssertionError as exc:
@@ -4839,7 +4871,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return ai.personal_risk(inp).model_dump(mode='json')
 
 	@app.post('/ai/early-warning')
-	async def ai_warning(county: str, disease: str, signals: list[WarningSignal], _subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
+	async def ai_warning(county: str = Body(...), disease: str = Body(...),
+			signals: list[WarningSignal] = Body(..., embed=True),
+			_subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
 		try:
 			return ai.assess_warning(county, disease, signals).model_dump(mode='json')
 		except AssertionError as exc:
@@ -4935,7 +4969,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/access/voice/audio')
 	async def access_voice_audio(
-		file: UploadFile = File(...), subject_ref: str = '', lang: str = 'en', purpose: str = 'symptoms',
+		file: UploadFile = File(...), subject_ref: str = Form(''), lang: str = Form('en'),
+		purpose: str = Form('symptoms'),
 		_subject: str = Depends(require_self()),
 	) -> dict[str, object]:
 		"""§ACC-002's actual entry point: a 16 kHz mono WAV recording, transcribed and answered.
@@ -4943,6 +4978,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		The recording is written to a temporary file, read by the engine and removed — §17.2's rule
 		is that the waveform does not survive the request, and holding it in memory for the life of
 		the process would be a recording kept. What leaves is the transcript and the answer to it.
+
+		`subject_ref`, `lang` and `purpose` are `Form`, not plain parameters, because the body is
+		multipart: a field a client writes into a multipart body leaves a plain parameter at its
+		default, so the catalogue's language and purpose controls were silently ignored and every
+		recording was transcribed as English symptoms. Both clients send the non-file fields as
+		multipart parts (`Endpoints.multipart`, `BackendClient.uploadEvidence`), so the parts are
+		where the values are.
 		"""
 		try:
 			req = VoiceAudioRequest(subject_ref=subject_ref, lang=lang, purpose=purpose)
@@ -5004,14 +5046,17 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return [p.model_dump(mode='json') for p in retention.retention_table()]
 
 	@app.post('/retention/holding')
-	async def retention_holding(subject_ref: str, data_type: str, count: int, _subject: str = Depends(require_self())) -> dict[str, int]:
+	async def retention_holding(subject_ref: str = Body(...), data_type: str = Body(...),
+			count: int = Body(...), _subject: str = Depends(require_self())) -> dict[str, int]:
 		try:
 			return {'count': retention.record_holding(subject_ref, data_type, count)}
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/retention/share')
-	async def retention_share(subject_ref: str, with_who: str, what: str, when_iso: str, _subject: str = Depends(require_self())) -> dict[str, bool]:
+	async def retention_share(subject_ref: str = Body(...), with_who: str = Body(...),
+			what: str = Body(...), when_iso: str = Body(...),
+			_subject: str = Depends(require_self())) -> dict[str, bool]:
 		retention.record_share(subject_ref, with_who, what, when_iso)
 		return {'ok': True}
 
@@ -5032,7 +5077,8 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return (await retention.delete(req)).model_dump(mode='json')
 
 	@app.post('/retention/purge-expired')
-	async def retention_purge(subject_ref: str, age_days: dict[str, int], _subject: str = Depends(require_self())) -> dict[str, object]:
+	async def retention_purge(subject_ref: str = Body(...), age_days: dict[str, int] = Body(default_factory=dict),
+			_subject: str = Depends(require_self())) -> dict[str, object]:
 		try:
 			return {'expired': retention.purge_expired(subject_ref, age_days)}
 		except AssertionError as exc:

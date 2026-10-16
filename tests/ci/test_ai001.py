@@ -340,7 +340,7 @@ async def test_the_map_route_serves_the_clusters_and_the_recommendations() -> No
 		body = [cell.model_dump(mode='json') for cell in _pair()]
 		assert (await c.post('/ai/hotspots', json=body)).status_code in (401, 403)
 		token = await _county_officer(c)
-		r = await c.post('/ai/hotspots', json=body, headers={'authorization': f'Bearer {token}'})
+		r = await c.post('/ai/hotspots', json={'cells': body}, headers={'authorization': f'Bearer {token}'})
 		assert r.status_code == 200, r.text
 		out = r.json()
 		assert len(out['hotspots']) == 2

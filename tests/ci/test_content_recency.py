@@ -282,8 +282,8 @@ async def test_the_dashboard_and_directory_routes_carry_the_stamp() -> None:
 	app, h = _app_and_headers()
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		posted = await c.post(
-			f'/info/dashboard/Nairobi?risk_level=high&active_signals=3&bulletin=Stay+alert&at_ms={T0}',
-			headers=h)
+			'/info/dashboard/Nairobi', headers=h, json={
+				'risk_level': 'high', 'active_signals': 3, 'bulletin': 'Stay alert', 'at_ms': T0})
 		assert posted.status_code == 200, posted.text
 		assert posted.json()['updated_line'] == 'Updated just now', posted.json()
 		dash = (await c.get(f'/info/dashboard/Nairobi?now_ms={T0 + 2 * HOUR_MS}')).json()

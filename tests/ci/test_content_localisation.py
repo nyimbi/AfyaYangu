@@ -115,7 +115,7 @@ def test_a_source_item_cannot_be_translated_or_rendered_back() -> None:
 
 	async def walk() -> None:
 		async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
-			bad = await c.post('/info/content/INF-003-en/advance?to=translation', headers=h)
+			bad = await c.post('/info/content/INF-003-en/advance', json={'to': 'translation'}, headers=h)
 			assert bad.status_code == 422, bad.text
 			assert 'published' in bad.text, 'the refusal names the stage this row does advance to'
 
@@ -262,18 +262,18 @@ def test_a_stage_cannot_be_entered_without_its_evidence() -> None:
 			}).model_dump(mode='json')
 			assert (await c.post('/info/content', json=body, headers=h)).status_code == 200
 			# No back-translation on file: the stage is refused, and the refusal names the step.
-			blocked = await c.post('/info/content/gate-sw/advance?to=back_translation', headers=h)
+			blocked = await c.post('/info/content/gate-sw/advance', json={'to': 'back_translation'}, headers=h)
 			assert blocked.status_code == 422, blocked.text
 			assert BACK_TRANSLATION_STEP in blocked.text
 			# The record is written, and now the stage is reachable.
 			assert (await c.post('/info/content/back-translation', json=_back(item_id='gate-sw'), headers=h)).status_code == 200
-			assert (await c.post('/info/content/gate-sw/advance?to=back_translation', headers=h)).status_code == 200
+			assert (await c.post('/info/content/gate-sw/advance', json={'to': 'back_translation'}, headers=h)).status_code == 200
 			# The community stage is still refused: the second step's evidence is not on file.
-			blocked = await c.post('/info/content/gate-sw/advance?to=community_validation', headers=h)
+			blocked = await c.post('/info/content/gate-sw/advance', json={'to': 'community_validation'}, headers=h)
 			assert blocked.status_code == 422, blocked.text
 			assert COMMUNITY_VALIDATION_STEP in blocked.text
 			assert (await c.post('/info/content/community-validation', json=_community(item_id='gate-sw'), headers=h)).status_code == 200
-			assert (await c.post('/info/content/gate-sw/advance?to=community_validation', headers=h)).status_code == 200
+			assert (await c.post('/info/content/gate-sw/advance', json={'to': 'community_validation'}, headers=h)).status_code == 200
 			# The review names both steps done and neither missing.
 			rows = (await c.get('/info/content/localisation', headers=auditor)).json()
 			row = next(r for r in rows if r['item_id'] == 'gate-sw')
@@ -410,13 +410,13 @@ def test_the_gate_and_the_report_agree_on_whether_a_step_is_done() -> None:
 			info.record_back_translation(BackTranslation(**_back(item_id='agree-sw')))  # type: ignore[arg-type]
 			state = info.localisation_of(info._content['agree-sw'])  # type: ignore[attr-defined]
 			assert state.missing == [] and not state.blocked
-			assert (await c.post('/info/content/agree-sw/advance?to=back_translation', headers=ops)).status_code == 200
+			assert (await c.post('/info/content/agree-sw/advance', json={'to': 'back_translation'}, headers=ops)).status_code == 200
 			# Remove the record and both flip: the stage is no longer legal from here, and the review
 			# reports the gap. The item is left where it is, so this is the same fact read twice.
 			del info._back_translations['agree-sw']  # type: ignore[attr-defined]
 			state = info.localisation_of(info._content['agree-sw'])  # type: ignore[attr-defined]
 			assert state.missing == [BACK_TRANSLATION_STEP]
-			assert (await c.post('/info/content/agree-sw/advance?to=community_validation', headers=ops)).status_code == 422
+			assert (await c.post('/info/content/agree-sw/advance', json={'to': 'community_validation'}, headers=ops)).status_code == 422
 
 	asyncio.run(run())
 

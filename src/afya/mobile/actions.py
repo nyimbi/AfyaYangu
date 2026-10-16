@@ -1000,7 +1000,7 @@ def catalogue() -> list[MobileAction]:
 		# `under_5` age band and the `low` risk level elsewhere in this file. They are not spec feature
 		# codes: `fever_triage` is a value the caller sends, and the label beside it is what a person
 		# reads.
-		_a('signal_report', 'Report a signal', 'Outbreak', 'POST', '/ai/signals', [_f('county', 'County'), _f('at_iso', 'When'), _f('signal', 'What happened', 'select', ['fever_triage', 'cough_events', 'facility_search', 'medicine_search', 'unwell_checkin', 'encounter_density']), _f('ref', 'Reference')]),
+		_a('signal_report', 'Report a signal', 'Outbreak', 'POST', '/ai/signals', [_f('county', 'County'), _f('at_iso', 'When'), _f('signal', 'What happened', 'select', ['fever_triage', 'cough_events', 'facility_search', 'medicine_search', 'unwell_checkin', 'encounter_density']), _f('event_ref', 'Reference')]),
 		# §17.3: the privacy-review key is not a field the caller sends any more — it is held by a
 		# recorded review, so the form offers the processing to assess and nothing to assert.
 		_a('activate_outbreak_mode', 'Activate outbreak mode', 'Outbreak', 'POST', '/tier4/activate', [_f('authorized_by_pheoc', 'PHEOC authorised?', 'bool'), _f('flag_enabled', 'Switch on?', 'bool'), _f('raw_sensor_data_retained', 'Keeping raw sensor data?', 'bool'), _f('location_tracking', 'Tracking location?', 'bool'), _f('proximity_logging', 'Proximity logging?', 'bool'), _f('contact_tracing', 'Contact tracing?', 'bool'), _f('automated_decisions', 'Automatic decisions?', 'bool'), _f('data_sharing_with_authorities', 'Sharing with health authorities?', 'bool'), _f('children_data', "Children's data?", 'bool'), _f('cross_border_transfer', 'Data leaving the country?', 'bool')]),

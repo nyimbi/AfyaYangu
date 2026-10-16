@@ -422,17 +422,17 @@ async def test_a_person_can_activate_outbreak_monitoring_for_themselves(tmp_path
 	c, services = await _client(tmp_path)
 	async with c:
 		citizen, _ = await _tokens(c, services)
-		before = await c.post('/monitoring/contact/enrol', params={'subject_ref': 'U1'}, headers=citizen)
+		before = await c.post('/monitoring/contact/enrol', json={'subject_ref': 'U1'}, headers=citizen)
 		assert before.status_code == 403
 		assert 'you are identified as a contact' in before.json()['detail']
 		assert not FEATURE_CODE.search(before.json()['detail'])
 
-		asked = await c.post('/tier4/activation/request', params={'county': 'Busia'}, headers=citizen)
+		asked = await c.post('/tier4/activation/request', json={'county': 'Busia'}, headers=citizen)
 		assert asked.status_code == 200, asked.text
 		assert set(asked.json()['activated']) == {'MON-009', 'LOC-002'}, 'row 5 names exactly these'
 		assert 'U1' not in asked.json()['message']
 
-		after = await c.post('/monitoring/contact/enrol', params={'subject_ref': 'U1'}, headers=citizen)
+		after = await c.post('/monitoring/contact/enrol', json={'subject_ref': 'U1'}, headers=citizen)
 		assert after.status_code == 200, after.text
 
 		assert (await c.get('/tier4/activation', headers=citizen)).status_code == 403, \
@@ -588,7 +588,7 @@ async def test_a_contact_is_shown_the_diary_the_server_would_serve_them(tmp_path
 		before = {a['id'] for a in (await c.get('/mobile/actions', headers=citizen)).json()}
 		assert not (before & diary), 'no diary before anything activates it'
 
-		assert (await c.post('/tier4/activation/request', params={'county': 'Busia'},
+		assert (await c.post('/tier4/activation/request', json={'county': 'Busia'},
 		                     headers=citizen)).status_code == 200
 		after = {a['id'] for a in (await c.get('/mobile/actions', headers=citizen)).json()}
 		assert diary <= after, f'row 5 activates the diary; the client still hides {sorted(diary - after)}'

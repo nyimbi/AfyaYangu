@@ -243,9 +243,9 @@ async def test_case_reporting_requires_a_worker_token(client: httpx.AsyncClient)
 async def test_aggregate_analytics_are_not_readable_by_a_chw(client: httpx.AsyncClient) -> None:
 	cells = [{'cell_id': 'c1', 'county': 'Busia', 'population': 1000, 'fever_reports': 50, 'cough_events': 0, 'encounter_density': 0.1, 'facility_reports': 3}]
 	chw = await _worker(client, 'chw')
-	assert (await client.post('/ai/hotspots', json=cells, headers={'Authorization': f'Bearer {chw}'})).status_code == 403
+	assert (await client.post('/ai/hotspots', json={'cells': cells}, headers={'Authorization': f'Bearer {chw}'})).status_code == 403
 	officer = await _worker(client, 'county_officer')
-	assert (await client.post('/ai/hotspots', json=cells, headers={'Authorization': f'Bearer {officer}'})).status_code == 200
+	assert (await client.post('/ai/hotspots', json={'cells': cells}, headers={'Authorization': f'Bearer {officer}'})).status_code == 200
 
 
 async def test_idempotency_key_replays_over_http(client: httpx.AsyncClient) -> None:

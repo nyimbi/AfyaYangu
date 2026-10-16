@@ -318,10 +318,10 @@ async def test_sync_policy_and_delta_over_http() -> None:
 		# §16.2's first diamond over HTTP: an offline flush defers rather than reporting success,
 		# and the op goes out on the next flush once the connection is back.
 		await c.post('/sync/ops', json={'op_id': 'OP-ROUTE00001', 'dataset': 'symptom_logs', 'client_ts': 1, 'payload': {'a': 'b'}})
-		off = (await c.post('/sync/flush', params={'connection': 'offline'})).json()
+		off = (await c.post('/sync/flush', json={'connection': 'offline'})).json()
 		assert off['synced'] == 0 and off['deferred'] == 1 and off['pending'] == 1, off
-		assert (await c.post('/sync/flush', params={'connection': 'satellite'})).status_code == 422
-		back = (await c.post('/sync/flush', params={'connection': 'wifi'})).json()
+		assert (await c.post('/sync/flush', json={'connection': 'satellite'})).status_code == 422
+		back = (await c.post('/sync/flush', json={'connection': 'wifi'})).json()
 		assert back['synced'] == 1 and back['deferred'] == 0, back
 
 		empty = (await c.post('/sync/batch', params={'connection': 'wifi'})).json()

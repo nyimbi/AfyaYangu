@@ -6862,3 +6862,50 @@ shown, §TRI-002's diary escalation was computed and never shown.
   fired. The second canary missed on its first run: its anchor was already a register key, so the added
   line was a duplicate dict key that collapsed silently and the mutation was a no-op — a canary whose
   patch changes no bytes is a canary that did not run.
+
+## The forms that could not be submitted (2026-10-16)
+
+`test_api_only.py` crossed the route surface against its callers and found eleven routes no action
+reached. This is the same crossing one level down, and it found **39 catalogue actions whose form the
+server cannot accept**: the catalogue describes a field, the client renders a control and puts the
+value where the catalogue implies, and the route does not look there. The person fills the form,
+presses the button, and reads a 422 naming a field they *did* set. §11.1 calls this "a control the
+server refuses".
+
+- **The load-bearing fact is the transport, and it was read off both clients rather than inferred.**
+  `BackendClient.perform` (Kotlin) and `Endpoints.buildRequest` (Swift) agree: a GET puts every
+  non-path field into the **query string**; a write puts every non-path field into the **JSON body**
+  and sends no query string at all. So a write route that reads a field from the query string is a
+  route only a hand-built request can call. Thirty-two were exactly that.
+- **A lone `Body(...)` scalar is a third shape, and it is a defect rather than a gate blind spot.**
+  `async def f(connection: str = Body('wifi'))` takes a **bare JSON scalar** — `"wifi"` — not
+  `{"connection": "wifi"}`. Verified in the repo's own venv before the fix was applied: the flat body
+  is a 422 `Input should be a valid string`. Nine routes had been converted to that shape, which would
+  have moved them from one unreachable form to another. `Body(..., embed=True)` is the fix, and the
+  OpenAPI document then carries a named property. The same trap caught the composed-model shape: a
+  Pydantic parameter beside scalar `Body(...)` params is **embedded** under its parameter name
+  (`{"m": {...}}`), which is why `WaterAdvisoryRequest` / `AirAdvisoryRequest` /
+  `LocationPointWithSubject` subclass their base rather than sit beside it.
+- **Three genuine disagreements, each fixed at its own source.** `activate_outbreak_mode` offered ten
+  flat switches while the route took a nested `auth` + `dpia_input` object no client could build;
+  `POST /tier4/activate` now takes one flat `Tier4ActivationRequest` that subclasses `DPIAInput`, so
+  the topics are **declared** and appear in the document. `voice_audio` sent `lang`, `purpose` and
+  `subject_ref` as query parameters on a multipart route, so the parts left FastAPI's plain
+  parameters at their defaults and every recording was transcribed as English symptoms; they are
+  `Form` now, which is where `Endpoints.multipart` writes them. `signal_report` offered `ref` while
+  `SignalEvent` carries `event_ref` — the catalogue was wrong, not the route.
+- **An open map is not a loophole in the gate; it is why three routes were unfixable.** A
+  `dict[str, str]` body accepts any key, so the document cannot say which keys a form should send and
+  no comparison exists. Typing them (`ReproductiveReferralRequest`, `dict[str, int]`) is what made
+  them checkable, and `test_a_write_route_takes_no_open_map_body` keeps them typed with an empty
+  allow-list and a stale-direction check.
+- **The tests encoded the same defect, which is why the fix surfaced 26 failures.** Each call site
+  put a write's fields in `params=` — the same place the clients never put them. They were rewritten
+  to JSON bodies, and that is the strongest evidence the gate is pointed at something real: a test
+  suite that agreed with the routes could not have agreed with the clients.
+- **Canaried five ways, each watched failing and reverted from a `cp` backup.** A write field moved
+  back to a plain parameter (query string); a bare list body losing `embed=True`; a composed body
+  dropping its extra field; an open map returning to a reached route (aimed at the separate check,
+  which is blind to it by construction); and the catalogue offering a field the route genuinely does
+  not read. 5/5 fired. Each mutation is **disjoint** from what its predicate looks for — a *renamed*
+  query field would pass a name-only comparison, so the mutations move fields rather than rename them.

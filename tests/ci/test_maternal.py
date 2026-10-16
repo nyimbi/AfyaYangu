@@ -253,9 +253,9 @@ async def test_every_maternal_route_is_served_and_bound_to_the_token() -> None:
 		plan = await c.post('/maternal/birth-plan', json={'subject_ref': 'U1', 'transport': 'Matatu'}, headers=h)
 		assert plan.status_code == 200 and len(plan.json()['gaps']) == 4
 		assert len((await c.get('/maternal/U1/birth-plan', headers=h)).json()['gaps']) == 4
-		assert (await c.post('/maternal/birth', params={'subject_ref': 'U1', 'birth_iso': '2026-12-01'}, headers=h)).status_code == 200
+		assert (await c.post('/maternal/birth', json={'subject_ref': 'U1', 'birth_iso': '2026-12-01'}, headers=h)).status_code == 200
 		assert len((await c.get('/maternal/U1/postnatal', headers=h)).json()) == len(POSTNATAL_CONTACTS)
-		assert (await c.post('/maternal/pmtct-referral', params={'subject_ref': 'U1', 'hiv_positive': 'true'}, headers=h)).json()['relevant'] is True
+		assert (await c.post('/maternal/pmtct-referral', json={'subject_ref': 'U1', 'hiv_positive': True}, headers=h)).json()['relevant'] is True
 		# And the guard: a token for U2 naming U1 is refused on every subject-bearing route.
 		h2 = {'authorization': f'Bearer {other}'}
 		cross = [
@@ -263,8 +263,8 @@ async def test_every_maternal_route_is_served_and_bound_to_the_token() -> None:
 			await c.get('/maternal/U1/postnatal', headers=h2),
 			await c.get('/maternal/U1/birth-plan', headers=h2),
 			await c.post('/maternal/birth-plan', json={'subject_ref': 'U1'}, headers=h2),
-			await c.post('/maternal/birth', params={'subject_ref': 'U1', 'birth_iso': '2026-12-01'}, headers=h2),
-			await c.post('/maternal/pmtct-referral', params={'subject_ref': 'U1', 'hiv_positive': 'true'}, headers=h2),
+			await c.post('/maternal/birth', json={'subject_ref': 'U1', 'birth_iso': '2026-12-01'}, headers=h2),
+			await c.post('/maternal/pmtct-referral', json={'subject_ref': 'U1', 'hiv_positive': True}, headers=h2),
 		]
 		assert all(r.status_code == 403 for r in cross), [(r.request.url.path, r.status_code) for r in cross]
 		# A maternity finder is a read with no subject, so it stays open, and it answers the filter.

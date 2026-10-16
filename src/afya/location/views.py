@@ -101,6 +101,24 @@ class LocationPoint(BaseModel):
 	place_label: str | None = Field(default=None, max_length=80)
 
 
+class LocationPointWithSubject(LocationPoint):
+	"""A point and whose it is, as one flat body.
+
+	`LocationPoint` is the geohash, the time and the label — a point, which is what §LOC-003 stores.
+	The subject it belongs to is not a property of the point, so the route took it as a query
+	parameter and the model stayed a point. Both shipped clients put every non-path field of a
+	write in the JSON body and send no query string, so a phone logging a fix sent the point and
+	the subject was never read: `require_self`'s extractor looks in the path, then the query, then
+	the body, found nothing, and refused the write with "this request must name the subject it acts
+	for" — a 422 naming a field the client had sent, under a key the body's model forbade.
+
+	A subclass so the point stays one shape in one place; `extra='forbid'` would otherwise make the
+	two facts exclusive, and the subject is genuinely not part of the point.
+	"""
+
+	subject_ref: str
+
+
 class LocationHistory(BaseModel):
 	model_config = MODEL_CONFIG
 	subject_ref: str

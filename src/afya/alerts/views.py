@@ -71,6 +71,23 @@ class WaterQuality(BaseModel):
 		return self.ecoli_detected or self.turbidity_ntu > 5.0
 
 
+class WaterAdvisoryRequest(WaterQuality):
+	"""The reading plus §MON-005's household field, as one flat body.
+
+	`treated_at_iso` is when *this household* last treated water, which is not part of the county's
+	reading — so it is not a field of `WaterQuality` and the route took it as a query parameter.
+	Both shipped clients put every non-path field of a write into the JSON body and send no query
+	string at all (`BackendClient.perform`, `Endpoints.buildRequest`), so the catalogue's form offered
+	a control whose value no client could deliver: the request arrived with the reading and without
+	the time, and the advisory came back with no reminder and no error.
+
+	A subclass rather than a second model, because the reading and the household's schedule are two
+	facts about one request and `extra='forbid'` on two models would make the body one or the other.
+	"""
+
+	treated_at_iso: str | None = None
+
+
 # --- §MON-005: treatment and safe storage ------------------------------------------------
 
 class TreatmentMethod(str, Enum):
@@ -259,6 +276,25 @@ class AirQuality(BaseModel):
 		arithmetic would change which advisory a reading gets.
 		"""
 		return pm25_aqi(self.pm25)
+
+
+class AirAdvisoryRequest(AirQuality):
+	"""The reading, the place it is for, and the day's window — one flat body.
+
+	`location` and `hourly` were query parameters for a reason that only holds for a caller writing
+	the request by hand: a place name is not part of a reading and an hourly series is not either.
+	Both shipped clients put every non-path field of a write in the JSON body, so the catalogue's
+	place box and its hourly series reached the server as nothing — the route then failed on a
+	required `location` that the person had typed, which is a form the server refuses by naming a
+	field the form did fill.
+
+	`hourly` is a list of `hour=pm25` strings, which is what the catalogue's `list` control produces
+	and what the route already parsed. It stays that shape rather than becoming a list of pairs: a
+	generic form renders one text box per field, and a nested object is a control no client draws.
+	"""
+
+	location: str
+	hourly: list[str] = Field(default_factory=list)
 
 
 # --- §MON-006: the air quality index ---------------------------------------------------------

@@ -388,7 +388,7 @@ def test_asking_about_a_rumour_is_served_without_an_account() -> None:
 		async with _client(app) as c:
 			refused = await c.post('/info/myths/ask')  # no claim
 			assert refused.status_code == 422
-			answer = await c.post('/info/myths/ask', params={'claim': 'warm salt water cures ebola'})
+			answer = await c.post('/info/myths/ask', json={'claim': 'warm salt water cures ebola'})
 			assert answer.status_code == 200, answer.text
 			body = answer.json()
 			assert body['recognised'] is True and body['source'] == 'MoH/PHEOC'

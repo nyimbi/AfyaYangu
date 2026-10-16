@@ -78,7 +78,7 @@ async def test_whatsapp_and_ussd_endpoints(client: httpx.AsyncClient) -> None:
 	assert 'nearest facility' in wa['reply']
 	ussd = (await client.post('/channels/ussd', json={'session_id': 's1', 'msisdn': '+254711222333', 'text': ''})).json()
 	assert ussd['menu'].startswith('CON Afya Yangu')
-	sms = (await client.post('/channels/sms?to_msisdn=%2B254711222333&body=Call%20719')).json()
+	sms = (await client.post('/channels/sms', json={'to_msisdn': '+254711222333', 'body': 'Call 719'})).json()
 	assert sms['segments'] == 1
 
 

@@ -255,8 +255,8 @@ async def test_advancing_into_published_refuses_it_too() -> None:
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		assert (await c.post('/info/content', json=_governed(stage='draft'), headers=h)).status_code == 200
 		for stage in ('clinical_review',):
-			assert (await c.post(f'/info/content/x/advance?to={stage}', headers=h)).status_code == 200
-		refused = await c.post('/info/content/x/advance?to=published', headers=h)
+			assert (await c.post(f'/info/content/x/advance', json={'to': stage}, headers=h)).status_code == 200
+		refused = await c.post('/info/content/x/advance', json={'to': 'published'}, headers=h)
 		assert refused.status_code == 422, refused.text
 		assert 'content_language' in refused.text, 'the advance route must refuse on §6.2.4, not on the workflow'
 

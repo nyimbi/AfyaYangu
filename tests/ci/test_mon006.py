@@ -270,8 +270,8 @@ def test_the_guidance_carries_the_location_the_section_asks_about() -> None:
 def test_the_air_route_serves_the_whole_answer() -> None:
 	from afya.service import build_services, create_app
 	c = TestClient(create_app(build_services()))
-	r = c.post('/environment/air', json={'county': 'Nairobi', 'pm25': 120.0},
-		params={'location': 'Kibera', 'hourly': '6=40.0,12=130.0'})
+	r = c.post('/environment/air', json={'county': 'Nairobi', 'pm25': 120.0,
+		'location': 'Kibera', 'hourly': ['6=40.0', '12=130.0']})
 	assert r.status_code == 200, r.text
 	out = r.json()
 	assert out['reading']['aqi'] == 184 and out['reading']['category'] == 'unhealthy'
@@ -282,8 +282,7 @@ def test_the_air_route_serves_the_whole_answer() -> None:
 def test_the_air_route_serves_an_empty_window_without_hourly_readings() -> None:
 	from afya.service import build_services, create_app
 	c = TestClient(create_app(build_services()))
-	r = c.post('/environment/air', json={'county': 'Nairobi', 'pm25': 20.0},
-		params={'location': 'Karen'})
+	r = c.post('/environment/air', json={'county': 'Nairobi', 'pm25': 20.0, 'location': 'Karen'})
 	assert r.status_code == 200, r.text
 	assert r.json()['outdoor']['hours'] == []
 

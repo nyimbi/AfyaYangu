@@ -272,9 +272,9 @@ async def test_a_token_cannot_act_for_another_subject() -> None:
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		u1 = {'authorization': f'Bearer {await _token(c, "U1")}'}
 		# Give U1 something to read, so a successful cross-subject read would return real data.
-		await c.post('/location/history/enable', params={'subject_ref': 'U1'}, headers=u1)
-		await c.post('/location/history/point', params={'subject_ref': 'U1'},
-		             json={'geohash': 'k9y1z', 'at_iso': '2026-10-10T10:00:00Z'}, headers=u1)
+		await c.post('/location/history/enable', json={'subject_ref': 'U1'}, headers=u1)
+		await c.post('/location/history/point', headers=u1,
+		             json={'subject_ref': 'U1', 'geohash': 'k9y1z', 'at_iso': '2026-10-10T10:00:00Z'})
 
 		cross = [
 			await c.get('/location/history/U2/report', headers=u1),
@@ -284,12 +284,12 @@ async def test_a_token_cannot_act_for_another_subject() -> None:
 			await c.get('/monitoring/contact/U2/diary', headers=u1),
 			await c.get('/monitoring/chronic/U2/report', headers=u1),
 			await c.get('/alerting/preferences/U2', headers=u1),
-			await c.post('/alerting/preferences', params={'subject_ref': 'U2', 'category': 'county_alerts', 'enabled': False}, headers=u1),
+			await c.post('/alerting/preferences', json={'subject_ref': 'U2', 'category': 'county_alerts', 'enabled': False}, headers=u1),
 			await c.post('/retention/delete', json={'subject_ref': 'U2'}, headers=u1),
-			await c.post('/retention/holding', params={'subject_ref': 'U2', 'data_type': 'symptom_logs', 'count': 3}, headers=u1),
+			await c.post('/retention/holding', json={'subject_ref': 'U2', 'data_type': 'symptom_logs', 'count': 3}, headers=u1),
 			await c.post('/community/contacts/U2/entry', json={'description': 'met at market', 'setting': 'market'}, headers=u1),
-			await c.post('/location/history/point', params={'subject_ref': 'U2'},
-			             json={'geohash': 'k9y1z', 'at_iso': '2026-10-10T10:00:00Z'}, headers=u1),
+			await c.post('/location/history/point', headers=u1,
+			             json={'subject_ref': 'U2', 'geohash': 'k9y1z', 'at_iso': '2026-10-10T10:00:00Z'}),
 		]
 		assert all(r.status_code == 403 for r in cross), [(r.request.url.path, r.status_code) for r in cross]
 
@@ -311,7 +311,7 @@ async def test_a_token_cannot_read_another_familys_records() -> None:
 		await c.post('/records/member', json={'member_ref': 'KID-2', 'dob_iso': '2024-01-01', 'guardian_ref': 'U2'}, headers=u2)
 		await c.post('/records/labs', json={'member_ref': 'KID-2', 'test': 'mRDT', 'value': 'neg',
 		                                    'flag': 'normal', 'performed_iso': '2026-10-01'}, headers=u2)
-		await c.post('/monitoring/child', params={'member_ref': 'KID-2', 'dob_iso': '2024-01-01'}, headers=u2)
+		await c.post('/monitoring/child', json={'member_ref': 'KID-2', 'dob_iso': '2024-01-01'}, headers=u2)
 
 		cross = [
 			await c.get('/records/KID-2/immunisation-gaps', headers=u1),
@@ -395,8 +395,8 @@ async def test_a_family_board_is_readable_only_by_its_members() -> None:
 		u1 = {'authorization': f'Bearer {await _token(c, "U1")}'}
 		u2 = {'authorization': f'Bearer {await _token(c, "U2")}'}
 		# U1 builds a group that includes U1 and U3 — not U2. `members` is a body parameter.
-		await c.post('/alerting/family/link', params={'family_ref': 'FAM-1'}, json=['U1', 'U3'], headers=u1)
+		await c.post('/alerting/family/link', json={'family_ref': 'FAM-1', 'members': ['U1', 'U3']}, headers=u1)
 		assert (await c.get('/alerting/family/FAM-1', headers=u1)).status_code == 200
 		assert (await c.get('/alerting/family/FAM-1', headers=u2)).status_code == 403, 'a stranger read the board'
 		# A group that does not include its own creator is refused, so no one can link a stranger in.
-		assert (await c.post('/alerting/family/link', params={'family_ref': 'FAM-2'}, json=['U9'], headers=u2)).status_code == 403
+		assert (await c.post('/alerting/family/link', json={'family_ref': 'FAM-2', 'members': ['U9']}, headers=u2)).status_code == 403

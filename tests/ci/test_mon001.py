@@ -300,7 +300,7 @@ async def test_the_routes_serve_the_dose_the_alerts_and_the_campaign() -> None:
 	transport = httpx.ASGITransport(app=app)
 	async with httpx.AsyncClient(transport=transport, base_url='http://t') as c:
 		head = await _token(c, 'g1')
-		child = await c.post('/monitoring/child?member_ref=g1&dob_iso=2026-01-01', headers=head)
+		child = await c.post('/monitoring/child', json={'member_ref': 'g1', 'dob_iso': '2026-01-01'}, headers=head)
 		assert child.status_code == 200, child.text
 		dose = await c.post('/monitoring/child/dose', headers=head, json={
 			'member_ref': 'g1', 'vaccine': 'BCG', 'dose_no': 1, 'given_iso': '2026-01-02'})
@@ -349,8 +349,8 @@ async def test_another_persons_child_is_refused() -> None:
 	transport = httpx.ASGITransport(app=app)
 	async with httpx.AsyncClient(transport=transport, base_url='http://t') as c:
 		guardian = await _token(c, 'g1')
-		registered = await c.post('/monitoring/child?member_ref=g1&dob_iso=2026-01-01',
-		                          headers=guardian)
+		registered = await c.post('/monitoring/child', headers=guardian,
+		                          json={'member_ref': 'g1', 'dob_iso': '2026-01-01'})
 		assert registered.status_code == 200, registered.text
 		own = await c.get('/monitoring/child/g1/schedule', headers=guardian)
 		assert own.status_code == 200, 'the guardian reads their own child'

@@ -462,17 +462,17 @@ async def test_the_check_in_route_defaults_the_instant_rather_than_requiring_it(
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		headers, subject = await _citizen(c)
 		linked = await c.post('/alerting/family/link', headers=headers,
-		                      params={'family_ref': GROUP}, json=[subject])
+		                      json={'family_ref': GROUP, 'members': [subject]})
 		assert linked.status_code == 200, linked.text
 		out = await c.post('/alerting/family/check-in', headers=headers,
-		                   params={'subject_ref': subject, 'family_ref': GROUP})
+		                   json={'subject_ref': subject, 'family_ref': GROUP})
 		assert out.status_code == 200, out.text
 		assert out.json()['members_safe'] == [subject]
 		# And the instant it stamped is a real one, so a client can show it rather than guess it.
 		recorded = out.json()['last_checkin_iso']
 		assert recorded and recorded.startswith('20'), recorded
 		# §MON-004's offline queue still sends its own instant and is still honoured.
-		queued = await c.post('/alerting/family/check-in', headers=headers, params={
+		queued = await c.post('/alerting/family/check-in', headers=headers, json={
 			'subject_ref': subject, 'family_ref': GROUP, 'at_iso': AT})
 		assert queued.status_code == 200, queued.text
 		assert queued.json()['last_checkin_iso'] == AT

@@ -323,11 +323,11 @@ async def test_the_whole_diary_round_trip_over_http(tmp_path) -> None:
 	app = create_app(build_services(db_path=str(tmp_path / 'afya.db')))
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		headers, subject = await _citizen(c)
-		await c.post('/tier4/activation/request', params={'county': 'Busia'}, headers=headers)
+		await c.post('/tier4/activation/request', json={'county': 'Busia'}, headers=headers)
 
 		enrolled = await c.post('/monitoring/contact/enrol', headers=headers,
-		                        params={'subject_ref': subject, 'officer': 'chw-1',
-		                                'officer_number': '0722000111'})
+		                        json={'subject_ref': subject, 'officer': 'chw-1',
+		                              'officer_number': '0722000111'})
 		assert enrolled.status_code == 200, enrolled.text
 
 		consent = await c.post(f'/monitoring/contact/{subject}/location-consent', headers=headers,
@@ -375,8 +375,8 @@ async def test_a_location_without_consent_is_refused_over_http(tmp_path) -> None
 	app = create_app(build_services(db_path=str(tmp_path / 'afya.db')))
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		headers, subject = await _citizen(c)
-		await c.post('/tier4/activation/request', params={'county': 'Busia'}, headers=headers)
-		await c.post('/monitoring/contact/enrol', headers=headers, params={'subject_ref': subject})
+		await c.post('/tier4/activation/request', json={'county': 'Busia'}, headers=headers)
+		await c.post('/monitoring/contact/enrol', headers=headers, json={'subject_ref': subject})
 		resp = await c.post('/monitoring/contact/day', headers=headers, json={
 			'entry_id': 'MON-ABCD1234', 'subject_ref': subject, 'day': 1, 'temperature_c': 36.7,
 			'location_logged': True})
@@ -407,8 +407,8 @@ async def test_a_token_cannot_reach_another_persons_household(tmp_path) -> None:
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		u1, _ = await _citizen(c, 'U1')
 		u2, _ = await _citizen(c, 'U2')
-		await c.post('/tier4/activation/request', params={'county': 'Busia'}, headers=u1)
-		await c.post('/monitoring/contact/enrol', headers=u1, params={'subject_ref': 'U1'})
+		await c.post('/tier4/activation/request', json={'county': 'Busia'}, headers=u1)
+		await c.post('/monitoring/contact/enrol', headers=u1, json={'subject_ref': 'U1'})
 		await c.post('/monitoring/contact/U1/members', json={'member_ref': 'M1'}, headers=u1)
 		cross = [
 			await c.get('/monitoring/contact/U1/reminders/1', headers=u2),
@@ -428,7 +428,7 @@ async def test_no_feature_code_reaches_anything_a_person_reads(tmp_path) -> None
 	app = create_app(build_services(db_path=str(tmp_path / 'afya.db')))
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		headers, subject = await _citizen(c)
-		await c.post('/tier4/activation/request', params={'county': 'Busia'}, headers=headers)
+		await c.post('/tier4/activation/request', json={'county': 'Busia'}, headers=headers)
 		await c.post('/monitoring/contact/enrol', headers=headers,
 		             params={'subject_ref': subject, 'officer': 'chw-1',
 		                     'officer_number': '0722000111'})

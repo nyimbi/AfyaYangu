@@ -285,6 +285,62 @@ class DPIAInput(BaseModel):
 	data_sharing_with_authorities: bool = False
 
 
+class Tier4ActivationRequest(DPIAInput):
+	"""§11.1's three keys, §17.3's eight topics, and §24.7's bulletin — one flat body.
+
+	The operator's form offers one control per topic and one per key, because on this form the
+	flags *are* the content: §SEC-005's assessment is a statement about what the deployment does,
+	and a simplified version would record an assessment nobody made
+	(`test_the_privacy_assessment_forms_are_not_simplified`). Both shipped clients put every
+	non-path field of a write into the JSON body, so those controls arrive as top-level keys —
+	while the route read a nested `dpia_input` object beside `auth`, which no client could build.
+	The operator set ten switches and read a 422 naming a field they had set.
+
+	A subclass of `DPIAInput` rather than a second model holding one: the topics are the assessment
+	and the assessment is what is being authorised, so the two cannot be described separately
+	without one of them going stale. Declared rather than lifted in a `model_validator`, because
+	the OpenAPI document is what a client is generated from and a topic that appears only in a
+	validator is a topic the document does not list — the same defect one level up.
+	"""
+	model_config = MODEL_CONFIG
+	authorized_by_pheoc: bool = False
+	flag_enabled: bool = False
+	bulletin_text: str | None = None
+	# §17.3's review is a record, so the key names the record it was held by — and nothing else
+	# holds it. `dpia_reviewed` used to be a stored boolean, which made it a field a caller could
+	# set: a request carrying `dpia_reviewed: true` and no DPIA at all turned the outbreak
+	# capabilities on. It is derived now, so there is no path to the key except recording a review.
+	dpia_review_id: str | None = None
+	# The nested spelling, still accepted: the operator tooling and the tests post the processing
+	# as an object, and both spellings describe the same topics. Declared rather than popped, so a
+	# body that carried the nested object is still one the document describes.
+	dpia_input: DPIAInput | None = None
+
+	@model_validator(mode='before')
+	@classmethod
+	def _merge_nested_dpia(cls, data: Any) -> Any:
+		"""Fold a nested `dpia_input` into the flat topics, so both spellings name one processing."""
+		if not isinstance(data, dict) or not isinstance(data.get('dpia_input'), dict):
+			return data
+		return {**data['dpia_input'], **data}
+
+	def processing(self) -> DPIAInput | None:
+		"""The processing this request describes, or None when it describes none.
+
+		None rather than an all-false assessment, because §17.3's key is held by a *recorded review
+		of a described processing*: a request that named no processing has nothing for a review to
+		cover, and assessing an empty one would report risks about a deployment nobody described.
+		"""
+		topics = {name: getattr(self, name) for name in DPIAInput.model_fields if name != 'processing_id'}
+		if self.dpia_input is None and not any(topics.values()):
+			return None
+		return DPIAInput(**topics)
+
+	def dpia_reviewed(self) -> bool:
+		"""§17.3's key: held only by a recorded review that still covers this processing."""
+		return self.dpia_review_id is not None
+
+
 class DPIAReport(BaseModel):
 	model_config = MODEL_CONFIG
 	risks: list[str]

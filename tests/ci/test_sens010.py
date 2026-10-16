@@ -205,7 +205,7 @@ def test_the_tag_routes_are_served_and_guarded() -> None:
 	# Registering hardware without a token is refused.
 	assert client.post('/sensors/tags', json={'tag_id': 'AAAA11112222', 'target': 'patient',
 		'target_ref': 'PT-7', 'label': 'Bed 4', 'bound_at_iso': '2026-10-14T06:00:00Z'}).status_code in (401, 403)
-	assert client.post('/sensors/equipment', params={'asset_ref': 'V-1', 'label': 'Vent'}).status_code in (401, 403)
+	assert client.post('/sensors/equipment', json={'asset_ref': 'V-1', 'label': 'Vent'}).status_code in (401, 403)
 	# A tap on a tag nobody registered answers rather than 500s, and says which absence it is.
 	body = client.get('/sensors/tags/FFFFFFFFFFFF').json()
 	assert body['resolved'] is False and 'not registered' in body['note']

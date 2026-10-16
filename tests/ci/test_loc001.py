@@ -422,7 +422,7 @@ async def test_the_zone_route_serves_entry_and_exit_through_the_deployment(tmp_p
 		assert 'Avoid Kasese market.' in events[0]['alert']
 		assert events[0]['logged'] is False, 'an open route recorded a crossing'
 
-		on = await c.post(f'/location/zone-alerts/{subject}', headers=headers, params={'enabled': True})
+		on = await c.post(f'/location/zone-alerts/{subject}', headers=headers, json={'enabled': True})
 		assert on.status_code == 200, on.text
 		assert on.json()['alerts_enabled'] is True
 

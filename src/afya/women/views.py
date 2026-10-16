@@ -14,6 +14,23 @@ class CycleLog(BaseModel):
 	pain_level: int = Field(default=0, ge=0, le=10)
 
 
+class ReproductiveReferralRequest(BaseModel):
+	"""§REC-004's referral: what the person needs help with.
+
+	`reason` is optional because the referral is to a *service* and a person who does not want to
+	write down why is still entitled to be told where to go — the section's Feature is "Referral to
+	services", and an empty reason refers them to the same list.
+
+	The route took `dict[str, str]` and read `reason` out of it with `.get`, which made the body an
+	open map: the published schema said "any object", so no client could be told which keys to send
+	and no check could compare a form to it. Typed, the catalogue's one field is the model's one
+	field and the two can be crossed.
+	"""
+
+	model_config = MODEL_CONFIG
+	reason: str = ''
+
+
 class CyclePrediction(BaseModel):
 	model_config = MODEL_CONFIG
 	next_period_iso: str | None

@@ -240,7 +240,7 @@ def test_the_water_route_serves_the_whole_answer() -> None:
 	from afya.service import build_services, create_app
 	c = TestClient(create_app(build_services()))
 	body = {'county': 'Homa Bay', 'ecoli_detected': True, 'turbidity_ntu': 1.0}
-	r = c.post('/environment/water', json=body, params={'treated_at_iso': '2026-10-20T07:00+03:00'})
+	r = c.post('/environment/water', json={**body, 'treated_at_iso': '2026-10-20T07:00+03:00'})
 	assert r.status_code == 200, r.text
 	out = r.json()
 	assert out['unsafe'] is True
@@ -266,7 +266,7 @@ def test_the_route_refuses_a_time_it_cannot_read() -> None:
 	from afya.service import build_services, create_app
 	c = TestClient(create_app(build_services()))
 	r = c.post('/environment/water', json={'county': 'Kisumu', 'ecoli_detected': False,
-		'turbidity_ntu': 0.5}, params={'treated_at_iso': 'yesterday'})
+		'turbidity_ntu': 0.5, 'treated_at_iso': 'yesterday'})
 	assert r.status_code == 422, r.text
 	assert 'not an instant' in r.json()['detail']
 
