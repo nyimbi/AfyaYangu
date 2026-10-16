@@ -236,9 +236,36 @@ class PhaseReadiness(BaseModel):
 
 
 class LaunchStep(BaseModel):
+	"""One §20.5 bullet. `sequence` is the window's slug — `Phase 0`, `Launch week`, `Weeks 2–4` —
+	and `window_cell` is the window's heading **verbatim**, which is not the same string.
+
+	The split is the one `channels_cell`, `tiers_cell` and `action_cell` already make, and it is
+	here for the same reason §21.1's Timeline column needed it: §20.5 writes `Weeks 2–4` with an
+	en-dash and the slug was written with an ASCII hyphen, so nothing compared the two. The heading
+	also carries the parenthetical the slug drops — `Phase 0 — Pre-launch (2 weeks before)` — and
+	that parenthetical is the only place the section says the pre-launch window is two weeks.
+	"""
+
 	model_config = MODEL_CONFIG
 	sequence: str
 	step: str = Field(min_length=1)
+	window_cell: str = Field(min_length=1)
+
+
+class LaunchPlan(BaseModel):
+	"""§20.5's 18 bullets as one served answer, grouped by the window the section schedules them in.
+
+	`counts` is per window rather than one total, because the section's own shape is a split — six
+	pre-launch steps, seven in launch week, five after — and a single 18 would hide a step that moved
+	from one window to another without changing the sum. The two windows §20.5 names but that §21.1's
+	phase table does not share a vocabulary with are *not* crossed here; see `launch_plan()` in the
+	service for why the absence is deliberate rather than an omission.
+	"""
+
+	model_config = MODEL_CONFIG
+	steps: list[LaunchStep]
+	counts: dict[str, int]
+	note: str
 
 
 class RolloutStatus(BaseModel):

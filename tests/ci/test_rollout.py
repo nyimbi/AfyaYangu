@@ -333,13 +333,55 @@ def test_the_antipatterns_are_named_and_the_checkable_ones_say_what_checks_them(
 	assert patterns['Fear'].checkable is False, 'fear is not a property of the artefact'
 
 
-def test_the_launch_sequence_is_in_order_and_covers_the_three_windows() -> None:
-	svc = _svc()
-	steps = svc.launch_sequence()
-	assert len(steps) == 18, '§20.5 lists 6 pre-launch, 7 launch-week and 5 weeks-2-4 steps'
-	assert [s.sequence for s in steps[:6]] == ['Phase 0'] * 6
-	assert {s.sequence for s in steps} == {'Phase 0', 'Launch week', 'Weeks 2-4'}
-	assert any('719' in s.step for s in steps), 'the hotline integration is a pre-launch step'
+def _spec_launch_windows() -> list[tuple[str, list[str]]]:
+	"""§20.5's three window headings and the bullets under each, read out of the section.
+
+	The heading test is `startswith('**')` and not `endswith(':')`: every heading in the section ends
+	`:**`, so the narrower form finds no window at all and returns an empty plan — a clean-looking
+	result from a predicate that matches nothing, which is the failure this repo keeps recording.
+	"""
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split('### 20.5 Launch Sequence', 1)[1].split('\n---', 1)[0]
+	windows: list[tuple[str, list[str]]] = []
+	for line in section.splitlines():
+		line = line.strip()
+		if line.startswith('**') and line.endswith(':**'):
+			windows.append((line.strip('*').rstrip(':'), []))
+		elif line.startswith('- ') and windows:
+			windows[-1][1].append(line[2:])
+	return windows
+
+
+def test_the_launch_sequence_is_the_sections_three_windows_cell_for_cell() -> None:
+	"""§20.5, bullet for bullet against the section's own text.
+
+	The version this replaces asserted `{s.sequence for s in steps} == {'Phase 0', 'Launch week',
+	'Weeks 2-4'}` — a set literal the test also wrote, so it compared the code to itself and was
+	blind to the drift it existed to catch. §20.5 writes `Weeks 2–4` with an **en-dash**; the code
+	carried an ASCII hyphen in all five of those rows *and* in the test, so both sides agreed and
+	nothing compared either to the section. That is the same drift §21.1's Timeline column had, one
+	subsection over, and the `window_cell`/`sequence` split is the same remedy.
+	"""
+	windows = _spec_launch_windows()
+	assert [w for w, _ in windows] == [
+		'Phase 0 — Pre-launch (2 weeks before)', 'Launch week', 'Weeks 2–4'], windows
+	spec_steps = [(window, step) for window, steps in windows for step in steps]
+	svc_steps = _svc().launch_sequence()
+	assert len(spec_steps) == 18, f'§20.5 lists 18 bullets, found {len(spec_steps)}'
+	assert len(svc_steps) == 18, f'§20.5 lists 18 bullets, code carries {len(svc_steps)}'
+	assert [s.step for s in svc_steps] == [step for _, step in spec_steps], \
+		'a launch step drifted from §20.5, or moved between windows'
+	assert [s.window_cell for s in svc_steps] == [w for w, steps in windows for _ in steps], \
+		'the window heading is not §20.5\'s verbatim'
+	# The slug is the cell with its parenthetical dropped. Asserted per row, not as a set: a step
+	# that moves window leaves the bullet order and the heading both unchanged, so a set comparison
+	# (or the `counts` on the route) is the only thing that sees it.
+	slug = {'Phase 0 — Pre-launch (2 weeks before)': 'Phase 0', 'Launch week': 'Launch week',
+		'Weeks 2–4': 'Weeks 2–4'}
+	assert [s.sequence for s in svc_steps] == [
+		slug[w] for w, steps in windows for _ in steps], 'a step moved between §20.5 windows'
+	assert slug['Weeks 2–4'] == 'Weeks 2–4', 'the slug carries the en-dash, not a hyphen'
+	assert any('719' in s.step for s in svc_steps), 'the hotline integration is a pre-launch step'
 
 
 # --- routes ----------------------------------------------------------------------------------
@@ -372,6 +414,30 @@ async def test_the_routes_are_scoped_and_the_plan_is_public() -> None:
 		report = (await c.get('/rollout/readiness', headers=h)).json()
 		assert report['unregistered_retention_features'] == []
 		assert report['apk_within_budget'] is None, 'the build has not been weighed in this deployment'
+
+
+async def test_the_launch_route_serves_the_sequence_and_no_handle() -> None:
+	"""§20.5 on the wire. The sequence was carried in code and reachable by no route, so a partner
+	reading the plan could not see it — the same shape as §20.2's levers one subsection over.
+
+	Asserted at the front door because the failure being replaced is a *served* payload: a check on
+	the model would pass against a route that dropped half the steps."""
+	app, _ = _auditor_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://testserver') as c:
+		# Open, like `/rollout/phases`: no headers, and it names no person.
+		launch = (await c.get('/rollout/launch')).json()
+		assert len(launch['steps']) == 18, launch.get('counts')
+		assert launch['counts'] == {
+			'Phase 0': 6, 'Launch week': 7, 'Weeks 2–4': 5}, launch['counts']
+		# The window is §20.5's heading, en-dash and parenthetical included, so a reader sees the
+		# section's own words rather than a slug the section never prints.
+		windows = [s['window_cell'] for s in launch['steps']]
+		assert windows[:1] == ['Phase 0 — Pre-launch (2 weeks before)'] and windows[-1] == 'Weeks 2–4', windows
+		# No traceability handle reaches an anonymous surface. `findall` alone is clean over an empty
+		# list, so the step count above is what makes this non-vacuous.
+		code = _re.compile(r'\b(?:CHAN|INF|TRI|FND|MED|EMG|REC|MON|SENS|LOC|COM|ALT|AI|ACC|SEC)-\d{1,3}\b')
+		body = json.dumps(launch)
+		assert not code.findall(body), f'spec handle on the launch route: {code.findall(body)}'
 
 
 async def test_the_status_route_reports_the_live_tier_against_the_phase() -> None:

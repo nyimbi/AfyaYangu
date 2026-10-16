@@ -6028,6 +6028,19 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		Open like `/rollout/phases`: it is a plan a partner or a telco reads, and it names no person."""
 		return rollout.app_size().model_dump(mode='json')
 
+	@app.get('/rollout/launch')
+	async def rollout_launch() -> dict[str, object]:
+		"""§20.5's 18-step launch sequence, grouped by the three windows the section schedules them in.
+
+		Open like `/rollout/phases`: it is the timeline a telco, an NGO or a county team reads to know
+		what happens when, and it names no person and no number about one."""
+		plan = rollout.launch_plan()
+		return {
+			'steps': [s.model_dump(mode='json') for s in plan.steps],
+			'counts': plan.counts,
+			'note': plan.note,
+		}
+
 	@app.get('/rollout/readiness')
 	async def rollout_readiness(_subject: str = Depends(require_scope('audit_logs'))) -> dict[str, object]:
 		"""§20.2's two claims about this repo — an open-source client and a sub-15 MB app — answered

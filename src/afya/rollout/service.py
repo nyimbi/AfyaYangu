@@ -17,7 +17,7 @@ from afya.metrics.service import KPIS
 from afya.registry.service import CHANNELS, FeatureRegistry
 from afya.rollout.views import (
 	AcquisitionChannel, AcquisitionPlan, AntiPattern, AppSizePlan, Deliverable, GrowthLever,
-	LaunchStep, LeverPlan, ModuleDelivery, PartnerType, Phase, PhasePlan, PhaseReadiness, PhaseSpec,
+	LaunchStep, LaunchPlan, LeverPlan, ModuleDelivery, PartnerType, Phase, PhasePlan, PhaseReadiness, PhaseSpec,
 	ReadinessReport, RetentionMechanism, RolloutStatus, SuccessCriterion,
 )
 
@@ -146,25 +146,57 @@ RETENTION: tuple[RetentionMechanism, ...] = (
 )
 
 # §20.5's launch sequence, flattened to steps in order.
+# §20.5's launch sequence, verbatim. `sequence` is the window slug and `window_cell` the section's
+# own heading, which is not the same string — see `LaunchStep`. The three windows are 6, 7 and 5
+# bullets and the counts are asserted in the tests rather than here.
+#
+# `Weeks 2–4` carries the section's en-dash. The slug was ASCII for a revision, and nothing compared
+# it: the test asserted `{s.sequence for s in steps}` against a set literal it also wrote, which is a
+# tautology over the code's own value rather than a reading of §20.5's text. The same drift §21.1's
+# Timeline column had, in the same module.
+LAUNCH_WINDOW_CELLS: dict[str, str] = {
+	'Phase 0': 'Phase 0 — Pre-launch (2 weeks before)',
+	'Launch week': 'Launch week',
+	'Weeks 2–4': 'Weeks 2–4',
+}
+
 LAUNCH_SEQUENCE: tuple[LaunchStep, ...] = (
-	LaunchStep(sequence='Phase 0', step='Finalise telco zero-rating agreements'),
-	LaunchStep(sequence='Phase 0', step='Brief county health teams and CHWs'),
-	LaunchStep(sequence='Phase 0', step='Pre-load content in all languages'),
-	LaunchStep(sequence='Phase 0', step='Set up 719 integration and referral pathways'),
-	LaunchStep(sequence='Phase 0', step='Test with 500 pilot users in two counties'),
-	LaunchStep(sequence='Phase 0', step='Train 200 CHWs as launch champions'),
-	LaunchStep(sequence='Launch week', step='Radio blitz across partner stations'),
-	LaunchStep(sequence='Launch week', step='WhatsApp bot goes live'),
-	LaunchStep(sequence='Launch week', step='SMS opt-in campaign'),
-	LaunchStep(sequence='Launch week', step='Social media campaign'),
-	LaunchStep(sequence='Launch week', step='CHW door-to-door in high-risk areas'),
-	LaunchStep(sequence='Launch week', step='App store launch'),
-	LaunchStep(sequence='Launch week', step='Press conference with MoH and partners'),
-	LaunchStep(sequence='Weeks 2-4', step='Scale CHW training to 2,000'),
-	LaunchStep(sequence='Weeks 2-4', step='Expand radio to all counties'),
-	LaunchStep(sequence='Weeks 2-4', step='First misinformation response cycle'),
-	LaunchStep(sequence='Weeks 2-4', step='Weekly user feedback sessions'),
-	LaunchStep(sequence='Weeks 2-4', step='Iterate on onboarding based on drop-off data'),
+	LaunchStep(sequence='Phase 0', step='Finalise telco zero-rating agreements',
+		window_cell=LAUNCH_WINDOW_CELLS['Phase 0']),
+	LaunchStep(sequence='Phase 0', step='Brief county health teams and CHWs',
+		window_cell=LAUNCH_WINDOW_CELLS['Phase 0']),
+	LaunchStep(sequence='Phase 0', step='Pre-load content in all languages',
+		window_cell=LAUNCH_WINDOW_CELLS['Phase 0']),
+	LaunchStep(sequence='Phase 0', step='Set up 719 integration and referral pathways',
+		window_cell=LAUNCH_WINDOW_CELLS['Phase 0']),
+	LaunchStep(sequence='Phase 0', step='Test with 500 pilot users in two counties',
+		window_cell=LAUNCH_WINDOW_CELLS['Phase 0']),
+	LaunchStep(sequence='Phase 0', step='Train 200 CHWs as launch champions',
+		window_cell=LAUNCH_WINDOW_CELLS['Phase 0']),
+	LaunchStep(sequence='Launch week', step='Radio blitz across partner stations',
+		window_cell=LAUNCH_WINDOW_CELLS['Launch week']),
+	LaunchStep(sequence='Launch week', step='WhatsApp bot goes live',
+		window_cell=LAUNCH_WINDOW_CELLS['Launch week']),
+	LaunchStep(sequence='Launch week', step='SMS opt-in campaign',
+		window_cell=LAUNCH_WINDOW_CELLS['Launch week']),
+	LaunchStep(sequence='Launch week', step='Social media campaign',
+		window_cell=LAUNCH_WINDOW_CELLS['Launch week']),
+	LaunchStep(sequence='Launch week', step='CHW door-to-door in high-risk areas',
+		window_cell=LAUNCH_WINDOW_CELLS['Launch week']),
+	LaunchStep(sequence='Launch week', step='App store launch',
+		window_cell=LAUNCH_WINDOW_CELLS['Launch week']),
+	LaunchStep(sequence='Launch week', step='Press conference with MoH and partners',
+		window_cell=LAUNCH_WINDOW_CELLS['Launch week']),
+	LaunchStep(sequence='Weeks 2–4', step='Scale CHW training to 2,000',
+		window_cell=LAUNCH_WINDOW_CELLS['Weeks 2–4']),
+	LaunchStep(sequence='Weeks 2–4', step='Expand radio to all counties',
+		window_cell=LAUNCH_WINDOW_CELLS['Weeks 2–4']),
+	LaunchStep(sequence='Weeks 2–4', step='First misinformation response cycle',
+		window_cell=LAUNCH_WINDOW_CELLS['Weeks 2–4']),
+	LaunchStep(sequence='Weeks 2–4', step='Weekly user feedback sessions',
+		window_cell=LAUNCH_WINDOW_CELLS['Weeks 2–4']),
+	LaunchStep(sequence='Weeks 2–4', step='Iterate on onboarding based on drop-off data',
+		window_cell=LAUNCH_WINDOW_CELLS['Weeks 2–4']),
 )
 
 # §16.5's delivery table, verbatim and in the section's order. `delivery` is the section's own
@@ -473,6 +505,33 @@ class RolloutService(LogMixin):
 	@staticmethod
 	def launch_sequence() -> list[LaunchStep]:
 		return list(LAUNCH_SEQUENCE)
+
+	def launch_plan(self) -> LaunchPlan:
+		"""§20.5's three windows as a served answer.
+
+		The sequence reached no route: it was carried in code, read by its own test, and served
+		nowhere — the same shape as §20.2's levers one subsection over, and the reason a drifted
+		window label survived a revision. The test asserted `{s.sequence for s in steps}` against a
+		set literal it also wrote, which is a tautology over the code's own value rather than a
+		reading of §20.5's text.
+
+		There is deliberately **no** crossing against §21.1 here, and the absence is the point.
+		§20.5's windows are `Phase 0`, `Launch week` and `Weeks 2–4`; §21.1 names phases
+		(`phase_0_foundation` … `phase_6_scale`). The two vocabularies overlap on one word and mean
+		different things by it — §20.5's "Phase 0" is a two-week pre-launch window and §21.1's is an
+		eight-week phase — so a join would either invent a mapping or report a contradiction the two
+		sections do not actually state. `criterion_drift` in `phase_readiness` reports §21/§22
+		disagreements because those two sections state the *same measure*; these do not.
+		"""
+		counts = {window: sum(1 for s in LAUNCH_SEQUENCE if s.sequence == window)
+			for window in LAUNCH_WINDOW_CELLS}
+		assert sum(counts.values()) == len(LAUNCH_SEQUENCE), \
+			'a launch step names a window LAUNCH_WINDOW_CELLS does not carry'
+		self._log_info('launch plan read', steps=len(LAUNCH_SEQUENCE), windows=len(counts))
+		return LaunchPlan(
+			steps=list(LAUNCH_SEQUENCE), counts=counts,
+			note=f'{len(LAUNCH_SEQUENCE)} steps across {len(counts)} §20.5 windows',
+		)
 
 	def is_registered(self, feature_id: str) -> bool:
 		"""Whether the registry knows a feature. Public so the negative direction is assertable: a
