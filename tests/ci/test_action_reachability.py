@@ -559,16 +559,27 @@ def _asserted_vocabularies() -> dict[tuple[str, str], tuple[tuple[str, ...], str
 			          for a in fn.args.args + fn.args.kwonlyargs + fn.args.posonlyargs
 			          if a.annotation is not None]
 			for node in ast.walk(fn):
-				if not isinstance(node, ast.Assert) or not isinstance(node.test, ast.Compare):
+				# Two spellings of the refusal itself, and a reader that knew only the first reports
+				# clean on every vocabulary written the second way: `assert x in (...)`, and
+				# `if x not in (...): raise HTTPException(422, ...)` — which is how
+				# `info_set_dashboard`'s `risk_level` and the review `regime` are enforced. The
+				# `not in` branch is taken only when it raises, so a plain filter is not a vocabulary.
+				if isinstance(node, ast.Assert) and isinstance(node.test, ast.Compare):
+					test = node.test
+				elif isinstance(node, ast.If) and isinstance(node.test, ast.Compare) \
+						and any(isinstance(op, ast.NotIn) for op in node.test.ops) \
+						and any(isinstance(n, ast.Raise) for b in node.body for n in ast.walk(b)):
+					test = node.test
+				else:
 					continue
-				if not any(isinstance(op, (ast.In, ast.NotIn)) for op in node.test.ops):
+				if not any(isinstance(op, (ast.In, ast.NotIn)) for op in test.ops):
 					continue
-				subject = node.test.left
+				subject = test.left
 				field = subject.attr if isinstance(subject, ast.Attribute) else (
 					subject.id if isinstance(subject, ast.Name) else None)
 				if field is None:
 					continue
-				coll = node.test.comparators[0]
+				coll = test.comparators[0]
 				values: tuple[str, ...] | None = None
 				label = ''
 				if isinstance(coll, (ast.Tuple, ast.List, ast.Set)) and coll.elts:
@@ -587,6 +598,93 @@ def _asserted_vocabularies() -> dict[tuple[str, str], tuple[tuple[str, ...], str
 					if field in models.get(model, {}):
 						out[(model, field)] = (values, f'{path}:{node.lineno} ({label})')
 	return out
+
+
+@lru_cache(maxsize=1)
+def _route_vocabularies() -> dict[tuple[str, str], tuple[tuple[str, ...], str]]:
+	"""`{(route path, field): (values, where)}` for vocabularies on a route's **bare** parameters.
+
+	A route that takes `risk_level: str = Body(...)` has no model, so the reader above cannot attach
+	the vocabulary to a field and the crossing is skipped. `info_set_dashboard` is exactly that, and
+	it is where the fourth spelling lives: `if risk_level not in ('low','moderate','high'): raise
+	HTTPException(422, ...)`. The decorator is what ties the vocabulary to the route here, so a form
+	on that path can still be compared.
+	"""
+	consts = _string_collections()
+	out: dict[tuple[str, str], tuple[tuple[str, ...], str]] = {}
+	for path in sorted(SRC.rglob('*.py')):
+		tree = ast.parse(path.read_text())
+		for fn in ast.walk(tree):
+			if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+				continue
+			route = None
+			for dec in fn.decorator_list:
+				if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute) \
+						and dec.func.attr in ('get', 'post', 'put', 'delete', 'patch'):
+					if dec.args and isinstance(dec.args[0], ast.Constant) \
+							and isinstance(dec.args[0].value, str):
+						route = dec.args[0].value
+			if route is None:
+				continue
+			for node in ast.walk(fn):
+				if isinstance(node, ast.Assert) and isinstance(node.test, ast.Compare):
+					test = node.test
+				elif isinstance(node, ast.If) and isinstance(node.test, ast.Compare) \
+						and any(isinstance(op, ast.NotIn) for op in node.test.ops) \
+						and any(isinstance(n, ast.Raise) for b in node.body for n in ast.walk(b)):
+					test = node.test
+				else:
+					continue
+				if not any(isinstance(op, (ast.In, ast.NotIn)) for op in test.ops):
+					continue
+				subject = test.left
+				field = subject.attr if isinstance(subject, ast.Attribute) else (
+					subject.id if isinstance(subject, ast.Name) else None)
+				if field is None:
+					continue
+				coll = test.comparators[0]
+				values: tuple[str, ...] | None = None
+				label = ''
+				if isinstance(coll, (ast.Tuple, ast.List, ast.Set)) and coll.elts:
+					literals = [e.value for e in coll.elts
+					            if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+					if len(literals) == len(coll.elts):
+						values, label = tuple(literals), 'literal'
+				elif isinstance(coll, ast.Name):
+					for (owner_file, name), vals in consts.items():
+						if name == coll.id:
+							values, label = vals, f'{pathlib.Path(owner_file).name}:{name}'
+							break
+				if values is None:
+					continue
+				out[(route, field)] = (values, f'{path}:{node.lineno} ({label})')
+	return out
+
+
+def test_a_form_offers_no_value_a_routes_own_guard_refuses() -> None:
+	"""The same crossing for a vocabulary on a bare parameter, where there is no model to attach it to.
+
+	`POST /info/dashboard/{county}` takes `risk_level: str` and refuses anything outside its own
+	three with a `raise`, so the document serves a bare `str` and neither the model-based reader nor
+	the OpenAPI-based gates can compare it. It agrees today; the check is here because a vocabulary
+	enforced by a raise is one no schema reader can see, which is the whole reason this unit exists.
+	"""
+	guarded = _route_vocabularies()
+	assert len(guarded) >= 1, f'the reader found no route-scoped vocabularies: {sorted(guarded)}'
+	refused: list[str] = []
+	for action in catalogue():
+		for field in action.fields:
+			if field.type != 'select':
+				continue
+			hit = guarded.get((action.path, field.name))
+			if hit is None:
+				continue
+			values, where = hit
+			extra = sorted(set(field.options or []) - set(values))
+			if extra:
+				refused.append(f'{action.id}.{field.name}: the form offers {extra}, the guard at {where} '
+				               f'admits only {sorted(values)}')
+	assert refused == [], f'controls the route refuses: {refused}'
 
 
 @lru_cache(maxsize=1)

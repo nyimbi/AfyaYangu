@@ -7171,10 +7171,21 @@ Building it exposed the defect class inside the sweep itself, twice:
   are exactly that. Both were found only by widening the reader and re-running it against the same
   tree, which is the "one of two spellings" defect this file has now recorded four times.
 
-**Canaried four ways, 15/15 fired.** The KMD defect restored exactly (the document widened, the assert
+A **fourth** spelling turned up while building the reader, and it is the one a route with no model
+uses: `if risk_level not in ('low','moderate','high'): raise HTTPException(422, ...)`.
+`POST /info/dashboard/{county}` takes `risk_level: str` as a bare parameter, so there is no model to
+attach the vocabulary to and the crossing above skips it — the document serves a `str` and the refusal
+is a `raise`. `_route_vocabularies()` ties the set to the route through its decorator instead, and
+`test_a_form_offers_no_value_a_routes_own_guard_refuses` makes the same comparison for the three fields
+that live that way (`risk_level`, the review `regime`, and the decision tree's yes/no `token`). All
+three agree with their forms today; the check is here because a vocabulary enforced by a raise is
+invisible to every schema reader, which is the reason this unit exists at all.
+
+**Canaried five ways, 16/16 fired.** The KMD defect restored exactly (the document widened, the assert
 unchanged) is caught; so is the assert widened instead; so is the reader ceasing to resolve the model,
 caught by the `len(asserted)` coverage floor because the rows are simply gone; and so is the form
-carrying an option the handler refuses while the document stays honest.
+carrying an option the handler refuses while the document stays honest; and so is a route-local guard
+narrowing behind a bare parameter, where the document does not change at all.
 
 One canary mishap worth recording: a `cp` backup written to a fixed `/tmp` path was overwritten by a
 second `cp` taken *after* the patch was applied, so the "revert" restored the mutated file and `KMD`

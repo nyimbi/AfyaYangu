@@ -159,6 +159,16 @@ CANARIES = [
 	 "_f('provisioned_by', 'Registered by', 'select', list(PROVISIONERS))]),",
 	 "_f('provisioned_by', 'Registered by', 'select', [*PROVISIONERS, 'Self'])]),",
 	 'test_a_form_offers_no_value_the_assert_that_guards_it_refuses'),
+
+	# 16. The fourth spelling of a refusal, and the gate that reads it: a route with no model at all,
+	#     whose vocabulary is a `raise`. The guard narrows to two levels while the spinner keeps its
+	#     three, so `high` becomes a control the route refuses -- and nothing in the OpenAPI document
+	#     changed, because the parameter is a bare `str` either way. Disjoint from every canary above,
+	#     which all move a *model* field or a form; this one moves a route-local tuple.
+	('a route guard narrows behind a bare parameter', SVC,
+	 "		if risk_level not in ('low', 'moderate', 'high'):",
+	 "		if risk_level not in ('low', 'moderate'):",
+	 'test_a_form_offers_no_value_a_routes_own_guard_refuses'),
 ]
 
 failures = []
