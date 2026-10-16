@@ -12,7 +12,7 @@ from afya.analytics.views import MIN_CELL_SIZE, MetricRow
 from afya.licensing import licence_offer
 from afya.logmixin import LogMixin
 from afya.retention.views import (
-	ENCRYPTION_STANDARD, QUARTERLY_CADENCE_DAYS, RETENTION_TABLE, CorrectionReceipt,
+	ENCRYPTION_STANDARD, QUARTERLY_CADENCE_DAYS, RETENTION_TABLE, USER_RETAINABLE, CorrectionReceipt,
 	CorrectionRequest, DataInventory, DeletionReceipt, DeletionRequest, EncryptionPosture,
 	PersonalDataExport, PublicationSchedule, PublicationStatus, RetentionPolicy,
 	TransparencyPublication, TransparencyReport, TransparencySection,
@@ -68,10 +68,33 @@ class RetentionService(LogMixin):
 		assert data_type in RETENTION_TABLE, f'no retention window defined for {data_type}'
 		row = RETENTION_TABLE[data_type]
 		days = int(row['days'])  # type: ignore[arg-type]
+		stated = str(row['stated'])
+		trigger = str(row['trigger'])
 		return RetentionPolicy(
-			data_type=data_type, retention_days=days, deletion_trigger=str(row['trigger']),
+			data_type=data_type, retention_days=days, deletion_trigger=trigger,
 			user_can_delete=data_type in USER_DELETABLE,
+			stated=stated, stated_trigger=str(row['stated_trigger']),
+			user_may_retain=data_type in USER_RETAINABLE,
+			# The section's Retention cell is a number of days for seven of its nine rows and an
+			# *event* for two — Photos is "Until clinical review complete" and Contact lists is
+			# "Until tracing window closes". Where it is an event this build holds a derived window
+			# and no clock for the event, and the two are not the same claim, so the row reports the
+			# disagreement rather than a 30 that reads as the section's own figure.
+			within_statement=stated.startswith(f'{days} day'),
 		)
+
+	@staticmethod
+	def is_automatic(data_type: str) -> bool:
+		"""Whether §SEC-005's clock runs on age for this type, carve-out included.
+
+		`automatic_unless_retained` is a clock with a condition, and the condition is the person's own
+		choice — so it is *not* automatic here. Every caller that asked
+		`deletion_trigger == 'automatic'` was asking "does this disappear on its own", and for a photo
+		the person chose to keep the answer is no. The plain string comparison answered yes, which is
+		how a kept photo got purged.
+		"""
+		assert data_type in RETENTION_TABLE, f'no retention window defined for {data_type}'
+		return RETENTION_TABLE[data_type]['trigger'] == 'automatic'
 
 	def retention_table(self) -> list[RetentionPolicy]:
 		return [self.policy_for(t) for t in sorted(RETENTION_TABLE)]
@@ -92,8 +115,7 @@ class RetentionService(LogMixin):
 		held = dict(self._holdings.get(subject_ref, {}))
 		# The soonest-expiring automatic window is the next thing that disappears on its own.
 		automatic = [
-			self.policy_for(t).retention_days for t in held
-			if self.policy_for(t).deletion_trigger == 'automatic'
+			self.policy_for(t).retention_days for t in held if self.is_automatic(t)
 		]
 		earliest = min(automatic) if automatic else None
 		return DataInventory(
@@ -166,8 +188,7 @@ class RetentionService(LogMixin):
 		held = self._holdings.get(subject_ref, {})
 		expired = [
 			t for t, age in age_days.items()
-			if t in held and self.policy_for(t).deletion_trigger == 'automatic'
-			and age > self.policy_for(t).retention_days
+			if t in held and self.is_automatic(t) and age > self.policy_for(t).retention_days
 		]
 		for t in expired:
 			held.pop(t, None)

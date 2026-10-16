@@ -3,7 +3,9 @@ import pytest
 from pydantic import ValidationError
 
 from afya.retention.service import POLICY_RETAINED, USER_DELETABLE, RetentionService
-from afya.retention.views import ENCRYPTION_STANDARD, RETENTION_TABLE, CorrectionRequest, DeletionRequest
+from afya.retention.views import (
+	ENCRYPTION_STANDARD, RETENTION_TABLE, USER_RETAINABLE, CorrectionRequest, DeletionRequest,
+)
 
 
 def test_every_data_type_has_finite_window_and_trigger() -> None:
@@ -14,8 +16,103 @@ def test_every_data_type_has_finite_window_and_trigger() -> None:
 	assert {p.data_type for p in policies} == set(RETENTION_TABLE)
 	for p in policies:
 		assert p.retention_days >= 1, f'{p.data_type} has no finite window'
-		assert p.deletion_trigger in ('automatic', 'user', 'policy'), f'{p.data_type} has no trigger'
+		assert p.deletion_trigger in (
+			'automatic', 'automatic_unless_retained', 'user', 'policy'), f'{p.data_type} has no trigger'
 		assert p.user_can_delete == (p.data_type in USER_DELETABLE)
+		# Every row carries §SEC-005's own two cells, so a client can render the section's promise
+		# rather than this build's derived number.
+		# A §SEC-005 row carries the section's own two cells; a row this build adds beyond the
+		# section carries none, so an addition cannot be mistaken for a stated requirement.
+		assert bool(p.stated) == bool(p.stated_trigger), f'{p.data_type} carries half a stated row'
+		assert p.user_may_retain == (p.data_type in USER_RETAINABLE)
+
+
+def test_every_retention_cell_is_the_sections_own() -> None:
+	"""§SEC-005's nine rows, read off `docs/spec.md` rather than from the table they check.
+
+	The table carried day counts with nothing comparing them to the section, which is how `photos`
+	came to say `{'days': 30, 'trigger': 'automatic'}` against a row reading "Until clinical review
+	complete" / "Automatic **unless user retains**". Both halves of the drift were load-bearing: the
+	30 is a window the section does not state, and the plain `automatic` made `purge_expired` delete
+	a photo the person had chosen to keep — the one thing the trigger cell carves out.
+
+	The reader takes the section's own cells, so a row reworded in the spec fails here rather than
+	passing against a constant that was edited to match.
+	"""
+	import pathlib
+	import re
+	spec = pathlib.Path(__file__).resolve().parents[2] / 'docs' / 'spec.md'
+	block = spec.read_text().split('#### SEC-005')[1].split('#### SEC-006')[0]
+	rows = {}
+	for line in block.splitlines():
+		if line.startswith('|') and '---' not in line and not line.startswith('| Data type'):
+			cells = [c.strip() for c in line.strip('|').split('|')]
+			if len(cells) == 3:
+				rows[cells[0]] = (cells[1], cells[2])
+	assert len(rows) == 9, rows
+
+	def slug(label: str) -> str:
+		# The section's human label, turned into the table's key by a rule rather than a name list —
+		# a mapping kept by hand is the artefact that drifts. "Proximity tokens (PET)" drops the
+		# parenthetical because the section is naming the same PET token row.
+		return re.sub(r'[^a-z0-9]+', '_', re.sub(r'\s*\([^)]*\)', '', label).lower()).strip('_')
+
+	svc = RetentionService()
+	by_slug = {p.data_type: p for p in svc.retention_table()}
+	missing = sorted(slug(label) for label in rows if slug(label) not in by_slug)
+	assert not missing, f'§SEC-005 rows with no policy: {missing}'
+	for label, (retention, trigger) in rows.items():
+		policy = by_slug[slug(label)]
+		assert policy.stated == retention, f'{label}: Retention cell drifted'
+		assert policy.stated_trigger == trigger, f'{label}: trigger cell drifted'
+		# §SEC-005 states a number for seven rows; the other two are events, and the row says so.
+		stated_days = re.fullmatch(r'(\d+) days?(?: rolling)?', retention)
+		if stated_days:
+			assert policy.retention_days == int(stated_days.group(1)), f'{label}: window drifted'
+			assert policy.within_statement, f'{label}: derived window is the stated one'
+		else:
+			assert not policy.within_statement, f'{label}: the section states an event, not a window'
+	# A row beyond the section's nine says so by carrying no stated cells.
+	for p in svc.retention_table():
+		if p.data_type not in {slug(label) for label in rows}:
+			assert p.stated == '' and p.stated_trigger == '', \
+				f'{p.data_type} is not a §SEC-005 row but carries stated cells'
+
+	# Where the section states an event rather than a number, this build has had to choose a window —
+	# and §SEC-005 names no figure for these four, so the choice is this build's reading rather than
+	# the section's claim. Pinned here as a literal because it is *served*: `/retention/policy` hands
+	# a client "30 days" for a photo, and a number that can drift silently is a promise nobody made.
+	# A changed reading is a deliberate edit to this dict, which is what the pin is for.
+	DERIVED_WHERE_THE_SECTION_STATES_AN_EVENT = {
+		'contact_lists': 21, 'case_reports': 3650, 'immunisation_records': 36500, 'photos': 30,
+	}
+	for data_type, days in DERIVED_WHERE_THE_SECTION_STATES_AN_EVENT.items():
+		policy = by_slug[data_type]
+		assert not policy.within_statement, f'{data_type} should state an event, not a window'
+		assert policy.retention_days == days, (
+			f'{data_type}: the derived window drifted from {days} to {policy.retention_days}')
+
+	# The carve-out is the finding, so it is asserted by name rather than through the loop.
+	photos = next(p for p in svc.retention_table() if p.data_type == 'photos')
+	assert photos.user_may_retain, 'the "unless user retains" carve-out is not carried'
+	assert not svc.is_automatic('photos'), 'a photo the person kept is still on an automatic clock'
+
+
+def test_a_retained_photo_is_not_purged_by_the_automatic_clock() -> None:
+	"""§SEC-005: Photos is "Automatic unless user retains".
+
+	`purge_expired` compared the trigger to the string `'automatic'`, so the carve-out had no effect
+	and a photo the person had chosen to keep was destroyed at the derived window — a deletion the
+	section explicitly does not authorise, performed by the code that exists to enforce it.
+	"""
+	svc = RetentionService()
+	svc.record_holding('U7', 'photos', 1)
+	svc.record_holding('U7', 'symptom_logs', 1)
+	expired = svc.purge_expired('U7', {'photos': 4000, 'symptom_logs': 4000})
+	assert expired == ['symptom_logs'], 'the automatic clock fired on a retainable photo'
+	assert svc.inventory('U7').held == {'photos': 1}, 'a kept photo was deleted'
+	# And the inventory's "next automatic deletion" must not name a window that cannot fire.
+	assert svc.inventory('U7').earliest_auto_delete_in_days is None
 
 
 def test_unknown_data_type_is_refused() -> None:
@@ -128,9 +225,11 @@ def test_purge_expired_fires_only_automatic_clocks() -> None:
 
 def test_purge_expired_ignores_types_not_held() -> None:
 	svc = RetentionService()
-	svc.record_holding('U6', 'photos', 1)  # automatic, 30 days
-	assert svc.purge_expired('U6', {'photos': 31, 'triage_results': 400}) == ['photos']
-	assert svc.inventory('U6').held == {}
+	# `photos` is used here for its *absence* from the held set: it is retainable, so the clock
+	# does not fire on it and the type that is not held is the one the call must ignore.
+	svc.record_holding('U6', 'symptom_logs', 1)
+	assert svc.purge_expired('U6', {'photos': 4000, 'triage_results': 400}) == []
+	assert svc.inventory('U6').held == {'symptom_logs': 1}
 
 
 def test_encryption_posture_reports_what_is_deployed_not_what_is_intended() -> None:
@@ -272,3 +371,45 @@ async def test_a_correction_must_say_who_made_it_and_why() -> None:
 		await svc.correct(_correction(corrected_value=''), at_iso='2026-10-12T08:00:00Z')
 	assert svc.corrections('U9') == []
 
+
+
+def test_the_policy_route_serves_the_sections_own_cells() -> None:
+	"""§SEC-005 through the front door: a client renders the section's promise, not this build's number.
+
+	`/retention/policy` is the surface `retention_policy` in the mobile catalogue calls, so it is where
+	a person's "how long is my data kept" answer is read. Before this, the route served a `photos` row
+	reading `30 days` / `automatic` — neither of which is what §SEC-005 says, and the second of which
+	is the deletion of a photo the person chose to keep.
+	"""
+	from fastapi.testclient import TestClient
+	from afya.service import build_services, create_app
+	client = TestClient(create_app(build_services()))
+	res = client.get('/retention/policy')
+	assert res.status_code == 200, res.text
+	rows = {r['data_type']: r for r in res.json()}
+	assert len(rows) == len(RETENTION_TABLE)
+
+	photos = rows['photos']
+	assert photos['stated'] == 'Until clinical review complete', photos
+	assert photos['stated_trigger'] == 'Automatic unless user retains', photos
+	assert photos['user_may_retain'] is True, photos
+	assert photos['within_statement'] is False, 'the section states an event, not a 30-day window'
+
+	symptom = rows['symptom_logs']
+	assert symptom['stated'] == '90 days' and symptom['within_statement'] is True, symptom
+	# Among the rows §SEC-005 states, the two whose Retention cell is an event are the only ones that
+	# report a disagreement. `consent_records` is not a §SEC-005 row at all — it carries no stated
+	# cells — so it is out of this comparison rather than counted as a fourth disagreement.
+	# The rule, not a list: a row agrees with the section exactly when the section's Retention cell
+	# is the number of days this build enforces. Four rows state an event or a policy instead, and
+	# they report the disagreement — which is the point of the field.
+	import re as _re
+	stated_rows = [r for r in rows.values() if r['stated']]
+	for r in stated_rows:
+		stated_days = _re.fullmatch(r'(\d+) days?(?: rolling)?', r['stated'])
+		assert r['within_statement'] == bool(stated_days), (
+			f"{r['data_type']}: stated {r['stated']!r} against {r['retention_days']} days")
+	# And the four that do not agree are the ones the section states as an event, a policy or a
+	# lifetime — the set is asserted so a fifth row cannot start disagreeing unnoticed.
+	assert sorted(r['data_type'] for r in stated_rows if not r['within_statement']) == [
+		'case_reports', 'contact_lists', 'immunisation_records', 'photos']

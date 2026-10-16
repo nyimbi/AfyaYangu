@@ -12,29 +12,83 @@ MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_ali
 # §24's `Obligation` model refuses for the same reason.
 QUARTERLY_CADENCE_DAYS = 91
 
-# §SEC-005 retention table. `deletion_trigger` is either `automatic` (clock) or `user` (on request).
+# §SEC-005 retention table. `deletion_trigger` is the *mechanism* the clock runs on:
+#   `automatic`                  — fires on age alone
+#   `automatic_unless_retained`  — fires on age unless the person chose to keep it
+#   `user`                       — fires only on request
+#   `policy`                     — fires under an obligation this build does not hold the clock for
+#
+# `stated` and `stated_trigger` are §SEC-005's own two cells, verbatim. They are carried beside the
+# derived `days` because the section's Retention column is not always a number — Photos is "Until
+# clinical review complete", an *event*, and Contact lists is "Until tracing window closes" — so a
+# reader of `retention_days` alone cannot tell the section's figure from this build's reading of it.
+# That is the distinction §16.5's `stated_total_mb` and §13.1's `SPEC_AVAILABILITY` both carry, and
+# the reason a bare `'photos': 30` was able to drop "unless user retains" without anything noticing.
 RETENTION_TABLE: dict[str, dict[str, object]] = {
-	'symptom_logs': {'days': 90, 'trigger': 'automatic'},
-	'triage_results': {'days': 90, 'trigger': 'automatic'},
-	'location_history': {'days': 21, 'trigger': 'automatic'},
-	'proximity_tokens': {'days': 21, 'trigger': 'automatic'},
-	'contact_lists': {'days': 21, 'trigger': 'automatic'},
-	'case_reports': {'days': 3650, 'trigger': 'policy'},
-	'immunisation_records': {'days': 36500, 'trigger': 'user'},
-	'chatbot_conversations': {'days': 90, 'trigger': 'automatic'},
-	'photos': {'days': 30, 'trigger': 'automatic'},
-	'consent_records': {'days': 3650, 'trigger': 'policy'},
+	'symptom_logs': {'days': 90, 'trigger': 'automatic', 'stated': '90 days',
+		'stated_trigger': 'User deletion or automatic'},
+	'triage_results': {'days': 90, 'trigger': 'automatic', 'stated': '90 days',
+		'stated_trigger': 'User deletion or automatic'},
+	'location_history': {'days': 21, 'trigger': 'automatic', 'stated': '21 days rolling',
+		'stated_trigger': 'Automatic'},
+	'proximity_tokens': {'days': 21, 'trigger': 'automatic', 'stated': '21 days',
+		'stated_trigger': 'Automatic'},
+	'contact_lists': {'days': 21, 'trigger': 'automatic', 'stated': 'Until tracing window closes',
+		'stated_trigger': 'Automatic'},
+	'case_reports': {'days': 3650, 'trigger': 'policy', 'stated': 'Per MoH record retention policy',
+		'stated_trigger': 'Policy-driven'},
+	'immunisation_records': {'days': 36500, 'trigger': 'user', 'stated': 'Lifetime (user-controlled)',
+		'stated_trigger': 'User deletion'},
+	'chatbot_conversations': {'days': 90, 'trigger': 'automatic', 'stated': '90 days',
+		'stated_trigger': 'Automatic'},
+	'photos': {'days': 30, 'trigger': 'automatic_unless_retained',
+		'stated': 'Until clinical review complete', 'stated_trigger': 'Automatic unless user retains'},
+	# Not a §SEC-005 row. The consent ledger is kept under the same legal obligation as a
+	# notification record, and its absence from the section's table is stated rather than filled:
+	# the spec-comparison test names it as a build addition instead of reading it as a spec row.
+	'consent_records': {'days': 3650, 'trigger': 'policy', 'stated': '',
+		'stated_trigger': ''},
 }
+
+# §SEC-005 rows whose trigger cell carries the "unless user retains" carve-out. Derived from the
+# stated cell rather than hand-listed, so a row whose section text gains the phrase gains the
+# mechanism in the same edit — and a module-level assert below fails if the two ever disagree.
+USER_RETAINABLE: frozenset[str] = frozenset(
+	t for t, row in RETENTION_TABLE.items()
+	if 'unless user retains' in str(row['stated_trigger']).lower()
+)
+assert all(
+	(RETENTION_TABLE[t]['trigger'] == 'automatic_unless_retained') == (t in USER_RETAINABLE)
+	for t in RETENTION_TABLE
+), 'a row whose §SEC-005 trigger cell says "unless user retains" must carry the mechanism, and no other'
+
 
 ENCRYPTION_STANDARD = 'AES-256-GCM at rest, TLS 1.3 in transit'
 
 
 class RetentionPolicy(BaseModel):
+	"""One §SEC-005 row: the window this build enforces, beside the section's own two cells.
+
+	`stated` and `stated_trigger` are not decoration. The section's Retention column is an event for
+	two rows ("Until clinical review complete", "Until tracing window closes"), so a client showing
+	`retention_days` alone would render "30 days" where the section says the photo is kept until a
+	clinician has looked at it — a different promise, and the shorter one. `within_statement` is the
+	comparison the row exists for: whether the derived window and the stated cell are the same claim.
+	"""
 	model_config = MODEL_CONFIG
 	data_type: str
 	retention_days: int = Field(ge=1)
 	deletion_trigger: str
 	user_can_delete: bool
+	# §SEC-005's own Retention and Deletion-trigger cells, verbatim.
+	stated: str
+	stated_trigger: str
+	# §SEC-005's trigger cell says "unless user retains", so the clock is not the whole rule.
+	user_may_retain: bool
+	# True when the derived window is the section's claim; False where the section states an event
+	# and this build has had to choose a number. Reported rather than resolved, because inventing
+	# agreement is the thing the field prevents.
+	within_statement: bool
 
 
 class DataInventory(BaseModel):
