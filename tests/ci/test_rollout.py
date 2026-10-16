@@ -9,13 +9,16 @@ Tier 4 while its plan says Phase 2 has skipped its own gate. `status` crosses th
 """
 from pathlib import Path
 
+import json
+import re as _re
+
 import httpx
 import pytest
 from pydantic import ValidationError
 from typing import Any
 
 from afya.privacy.views import RBACRole
-from afya.registry.service import FeatureRegistry
+from afya.registry.service import CHANNELS, FeatureRegistry
 from afya.rollout.service import ALL_CHANNELS, APK_BUDGET_MB, PHASES, RETENTION, RolloutService
 from afya.rollout.views import GrowthLever, Phase, PhaseSpec, RetentionMechanism
 from afya.service import build_services, create_app
@@ -347,17 +350,23 @@ async def test_the_routes_are_scoped_and_the_plan_is_public() -> None:
 		# §21.1 names no person and no number about one, so the plan is readable by anyone.
 		plan = (await c.get('/rollout/phases')).json()
 		assert len(plan['phases']) == 7 and plan['current']['phase'] == 'phase_1_information'
-		# The front door, on the anonymous route: §21.1's Channels column is served as ids, and the
-		# quantifier `All` is not one of them. Asserted on the wire rather than on the model because
-		# the defect this replaced was a *served* string — a unit test on `channels` would have
-		# passed against the cell-carrying version if it only asked whether the list was non-empty.
+		# The front door, on the anonymous route: the channels are §5.2's names, and no traceability
+		# handle reaches a partner. Asserted on the wire rather than on the model because the defect
+		# this replaced was a *served* string — a unit test on `channels` would have passed against
+		# the id-carrying version if it only asked whether the list was non-empty.
+		code = _re.compile(r'\b(?:CHAN|INF|TRI|FND|MED|EMG|REC|MON|SENS|LOC|COM|ALT|AI|ACC|SEC)-\d{1,3}\b')
+		assert not code.findall(json.dumps(plan)), f'spec handle on the anonymous plan: {code.findall(json.dumps(plan))}'
 		served = [p['channels'] for p in plan['phases']]
-		assert all(isinstance(c, str) and c.startswith('CHAN-') for row in served for c in row), served
-		assert not any(c == 'all' for row in served for c in row), 'the quantifier is served as a channel'
-		# And the section's own words travel beside the ids, so a reader of the plan still sees them.
-		assert [p['channels_cell'] for p in plan['phases']][3] == 'All'
-		assert plan['current']['channels_open'] == [
+		assert all(isinstance(c, str) and not c.startswith('CHAN-') for row in served for c in row), served
+		assert served[1] == ['radio', 'sms', 'ussd', 'whatsapp', 'social', 'chw'], served[1]
+		assert served[3] == list(CHANNELS), 'phase 3 opens all seven §5.2 channels'
+		assert 'channels_cell' not in plan['phases'][1], \
+			'the cell is written in handles for phases 1 and 2 and must not travel'
+		# The ids and the cell stay on the scoped route, where the id is the finding.
+		scoped = (await c.get('/rollout/status', params={'phase': 'phase_1_information'}, headers=h)).json()
+		assert scoped['channels_open'] == [
 			'CHAN-000', 'CHAN-001', 'CHAN-002', 'CHAN-003', 'CHAN-004', 'CHAN-005']
+		assert scoped['channels_cell'] == 'CHAN-0,1,2,3,4,5', 'the evidence half keeps the section\'s cell'
 		# The readiness report is evidence and takes the auditor's scope.
 		assert (await c.get('/rollout/readiness')).status_code in (401, 403)
 		report = (await c.get('/rollout/readiness', headers=h)).json()

@@ -73,6 +73,27 @@ CANARIES = [
 	('the timeline cell drifts back to an ASCII hyphen', S,
 	 [("timeline='Weeks 0–4'", "timeline='Weeks 0-4'")],
 	 'test_the_channels_column_is_expanded_and_accumulated', False),
+
+	# 6. The public route serves the handles again. `public_phases` resolved the §5.2 names and the
+	#    previous revision served `CHAN-000`–`CHAN-006` plus the cell; reverting the resolution puts
+	#    them back on an anonymous surface. Aimed at the *front door*, since the failure is a served
+	#    string and a check on the model would prove less.
+	('the anonymous phase route serves the channel handles again', S,
+	 [("				'channels': [label[c] for c in spec.channels],",
+	   "				'channels': list(spec.channels),")],
+	 'test_the_routes_are_scoped_and_the_plan_is_public', False),
+
+	# 7. The cell put back on the anonymous route, which is the defect as it shipped: it is written
+	#    in handles for phases 1 and 2, so it carries `CHAN-0,1,2,3,4,5` and `+ CHAN-6`. Aimed at
+	#    the front-door test, and it is a *different* mutation from #6 — dropping the field is not
+	#    the same as serving a wrong value in it.
+	('the channels cell is served on the anonymous route again', S,
+	 [("""				'max_tier': spec.max_tier,
+				'tiers_cell': spec.tiers_cell,""",
+	   """				'channels_cell': spec.channels_cell,
+				'max_tier': spec.max_tier,
+				'tiers_cell': spec.tiers_cell,""")],
+	 'test_the_routes_are_scoped_and_the_plan_is_public', False),
 ]
 
 # A canary whose test does not exist would "pass" for the wrong reason, so collection is asserted

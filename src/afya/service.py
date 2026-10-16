@@ -6002,11 +6002,22 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def rollout_phases() -> dict[str, object]:
 		"""§21.1's seven phases with their tier ceilings and channel sets. Open by design: a rollout
 		plan nobody outside the programme can read is not a plan a partner can align to, and it
-		names no person and no number about one."""
+		names no person and no number about one.
+
+		The channel handles are resolved to §5.2's names before they travel. This route served
+		`CHAN-000`–`CHAN-006` and §21.1's Channels cell verbatim on an anonymous surface, which is
+		the one rollout read that broke the public/evidence split `public_plans` and
+		`/rollout/acquisition` already keep. The ids stay on `/rollout/status`, which is scoped and
+		where the id is the finding."""
 		from afya.rollout.views import Phase
+		current = rollout.status(Phase.phase_1_information, 1 if not registry.tier4_active() else 4)
 		return {
-			'phases': [p.model_dump(mode='json') for p in rollout.phases()],
-			'current': rollout.status(Phase.phase_1_information, 1 if not registry.tier4_active() else 4).model_dump(mode='json'),
+			'phases': rollout.public_phases(),
+			'current': {
+				'phase': current.phase.value, 'objective': current.objective,
+				'max_tier': current.max_tier, 'active_tier': current.active_tier,
+				'phase_mismatch': current.phase_mismatch, 'note': current.note,
+			},
 		}
 
 	@app.get('/rollout/app-size')

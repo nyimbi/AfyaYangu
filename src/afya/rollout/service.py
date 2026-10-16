@@ -684,6 +684,43 @@ class RolloutService(LogMixin):
 		return out
 
 	@staticmethod
+	def public_phases() -> list[dict[str, object]]:
+		"""§21.1 rendered for a reader who is not the auditor: the section's own columns, with the
+		channel handles resolved to the §5.2 names a partner recognises.
+
+		`/rollout/phases` is open by design and served `CHAN-000`–`CHAN-006` plus the Channels cell
+		verbatim (`CHAN-0,1,2,3,4,5`, `+ CHAN-6`), so an anonymous partner-facing route carried the
+		same traceability handles the standing constraint keeps off every other surface. The prior
+		commit fixed the *expansion* — the cell was being read as a channel list — and left the ids
+		and the cell on the wire, which is why the defect survived a unit about that exact column.
+
+		The scoped `/rollout/status` keeps `channels_open` and `channels_cell` as ids, because there
+		the id *is* the finding: an auditor reads it against §21.1's row. This is the same
+		public/evidence split `public_plans`, `/rollout/acquisition` and `/sensors/capabilities`
+		already make, and it is why `tiers_cell` travels unchanged — `Info only` and `Tier 1` name no
+		id, and the ceiling is the gate, not the words.
+
+		`channels_cell` is dropped rather than translated. Two of §21.1's three spellings are written
+		in handles (`CHAN-0,1,2,3,4,5` and `+ CHAN-6`) and the third is `All`; rewriting the first two
+		as `All` would be this code inventing a cell the section does not print — they open six and
+		seven channels respectively, which is not the same claim. The labels in `channels` answer the
+		reader's actual question, so the cell adds nothing a partner can use and one thing they must
+		not see.
+		"""
+		label = {f.id: f.channels[0] for f in FeatureRegistry().FEATURES if f.id.startswith('CHAN-')}
+		return [
+			{
+				'phase': spec.phase.value,
+				'timeline': spec.timeline,
+				'objective': spec.objective,
+				'channels': [label[c] for c in spec.channels],
+				'max_tier': spec.max_tier,
+				'tiers_cell': spec.tiers_cell,
+			}
+			for spec in PHASES
+		]
+
+	@staticmethod
 	def public_plans() -> list[dict[str, object]]:
 		"""§21.2–21.7 rendered for a reader who is not the auditor: the section's own words, with the
 		registry handles dropped.
