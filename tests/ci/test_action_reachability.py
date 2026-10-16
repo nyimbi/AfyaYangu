@@ -363,12 +363,19 @@ def _select_vocabularies() -> dict[tuple[str, str], tuple[list[str], list[str]]]
 		for method, op in ops.items():
 			if method.upper() not in ('GET', 'POST', 'PUT', 'DELETE', 'PATCH'):
 				continue
-			body = (op.get('requestBody') or {}).get('content', {}).get('application/json', {})
-			schema = body.get('schema') or {}
-			if '$ref' in schema:
-				schema = components.get(schema['$ref'].rsplit('/', 1)[-1], {})
-			if schema.get('properties'):
-				bodies[(method.upper(), path)] = schema['properties']
+			# **Both** content types. A route taking `kind: EvidenceKind = Form(...)` carries its
+			# vocabulary under `multipart/form-data`, not `application/json`, so a reader that knew
+			# only the JSON spelling reported four POST selects as unguarded when the document had
+			# them all along — `submit_evidence.kind`, `voice_audio.lang`, `voice_audio.purpose` and
+			# `whatsapp_voice.voice_note_lang`. The same "one of two spellings" defect, one layer
+			# down: this time the spelling is the media type.
+			content = (op.get('requestBody') or {}).get('content', {})
+			for media in ('application/json', 'multipart/form-data'):
+				schema = (content.get(media) or {}).get('schema') or {}
+				if '$ref' in schema:
+					schema = components.get(schema['$ref'].rsplit('/', 1)[-1], {})
+				if schema.get('properties'):
+					bodies[(method.upper(), path)] = schema['properties']
 	out: dict[tuple[str, str], tuple[list[str], list[str]]] = {}
 	for action in catalogue():
 		props = bodies.get((action.method.upper(), action.path))
@@ -730,7 +737,185 @@ def _route_vocabularies() -> dict[tuple[str, str], tuple[tuple[str, ...], str]]:
 							break
 				if values is None:
 					continue
-				out[(route, field)] = (values, f'{path}:{node.lineno} ({label})')
+				_merge_route_guard(out, route, field, values, f'{path}:{node.lineno} ({label})')
+	for route, field, values, where in _enum_constructor_vocabularies():
+		_merge_route_guard(out, route, field, values, where)
+	for route, field, values, where in _hand_built_model_vocabularies():
+		_merge_route_guard(out, route, field, values, where)
+	return out
+
+
+def _merge_route_guard(out: dict[tuple[str, str], tuple[tuple[str, ...], str]],
+		route: str, field: str, values: tuple[str, ...], where: str) -> None:
+	"""Record a route's guard on a field, **intersecting** with any already recorded.
+
+	A field can be guarded twice, and a value has to pass both. `/info/dashboard/{county}` refuses
+	`risk_level` outside `('low','moderate','high')` in the handler *and* builds
+	`CountyRisk(risk_level=...)`, whose own pattern admits the same three — but canary 16 narrows the
+	handler tuple to two and the model guard, recorded second, used to overwrite it and admit `high`
+	again. The gate then passed on a route that refuses the form's value. Intersecting is the only
+	semantics that is right under both: the vocabulary a value must satisfy is what every guard
+	admits, so the narrowest wins and neither reader can hide the other's narrowing.
+	"""
+	previous = out.get((route, field))
+	if previous is None:
+		out[(route, field)] = (values, where)
+		return
+	shared = tuple(v for v in previous[0] if v in values)
+	out[(route, field)] = (shared, f'{previous[1]} & {where}')
+
+
+def _enum_members() -> dict[str, tuple[str, ...]]:
+	"""Every `Enum` class in the tree, by name, as its members' **values**.
+
+	The values, not the member names: a route that does `ConnectionClass(connection)` accepts the
+	strings a client sends, and for these enums the two can differ (`high_ebola_suspicion = 'high'`),
+	so reading member names would compare a form against a vocabulary no client ever sends.
+	"""
+	out: dict[str, tuple[str, ...]] = {}
+	for path in SRC.rglob('*.py'):
+		for node in ast.parse(path.read_text()).body:
+			if not isinstance(node, ast.ClassDef):
+				continue
+			if not any('Enum' in ast.unparse(base) for base in node.bases):
+				continue
+			values = [st.value.value for st in node.body
+			          if isinstance(st, ast.Assign) and isinstance(st.targets[0], ast.Name)
+			          and isinstance(st.value, ast.Constant) and isinstance(st.value.value, str)]
+			if values:
+				out[node.name] = tuple(values)
+	return out
+
+
+def _enum_constructor_vocabularies() -> list[tuple[str, str, tuple[str, ...], str]]:
+	"""The seventh spelling: `Enum(value)` inside a `try`, refused by the `except ValueError`.
+
+	`/sync/flush` takes `connection: str = Body('wifi', embed=True)` and then
+
+	    try:
+	        conn = ConnectionClass(connection)
+	    except ValueError as exc:
+	        raise HTTPException(status_code=422, detail=f'unknown connection class {connection}')
+
+	The vocabulary is the enum's member values and it is enforced — probed at the front door,
+	`connection='zzz'` is a 422 while the three members are 200. But it is invisible to every reader
+	that looks for a comparison: there is none, so the set has no literal to find, and the document
+	serves a bare `str` besides. `flush_sync.connection` was unchecked until this reader existed; the
+	form and the enum agree, which is luck rather than a gate.
+
+	Scoped to a **bare `str` parameter of the route's own signature**, which is what keeps this from
+	matching the ~30 internal `Enum(...)` coercions (`RBACRole(role)` in `require_token`,
+	`ConsentCategory(...)` in a label helper) that no form can reach.
+	"""
+	enums = _enum_members()
+	out: list[tuple[str, str, tuple[str, ...], str]] = []
+	for path in sorted(SRC.rglob('*.py')):
+		tree = ast.parse(path.read_text())
+		for fn in ast.walk(tree):
+			if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+				continue
+			route = None
+			for dec in fn.decorator_list:
+				if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute) \
+						and dec.func.attr in ('get', 'post', 'put', 'delete', 'patch'):
+					if dec.args and isinstance(dec.args[0], ast.Constant) \
+							and isinstance(dec.args[0].value, str):
+						route = dec.args[0].value
+			if route is None:
+				continue
+			bare = {a.arg for a in fn.args.args + fn.args.kwonlyargs
+			        if a.annotation is not None and ast.unparse(a.annotation).strip() == 'str'}
+			for node in ast.walk(fn):
+				if not isinstance(node, ast.Try):
+					continue
+				if not any(h.type is not None and 'ValueError' in ast.unparse(h.type)
+				           for h in node.handlers):
+					continue
+				for call in [n for b in node.body for n in ast.walk(b)]:
+					if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+							and call.func.id in enums and call.args):
+						continue
+					arg = call.args[0]
+					field = arg.id if isinstance(arg, ast.Name) else (
+						arg.attr if isinstance(arg, ast.Attribute) else None)
+					if field is not None and field in bare:
+						out.append((route, field, enums[call.func.id],
+							f'{path}:{node.lineno} ({call.func.id} member values)'))
+	return out
+
+
+def _model_pattern_vocabularies() -> dict[str, dict[str, tuple[str, ...]]]:
+	"""`{model: {field: values}}` for every `Field(pattern=r'^(a|b|c)$')` in the source.
+
+	Read from the **source**, not the OpenAPI document, because the routes that need this reader are
+	precisely the ones whose model never reaches the document: a multipart route declares
+	`purpose: str = Form('symptoms')` and builds its model inside the handler, so the schema serves a
+	bare `str` and the alternation exists only in the class.
+	"""
+	import re
+	out: dict[str, dict[str, tuple[str, ...]]] = {}
+	for path in SRC.rglob('*.py'):
+		for node in ast.parse(path.read_text()).body:
+			if not isinstance(node, ast.ClassDef):
+				continue
+			fields: dict[str, tuple[str, ...]] = {}
+			for st in node.body:
+				if not isinstance(st, ast.AnnAssign) or not isinstance(st.target, ast.Name):
+					continue
+				rendered = ast.unparse(st.value) if st.value is not None else ''
+				hit = re.search(r"pattern=r?'\^\(([^)]+)\)\$'", rendered)
+				if hit and '|' in hit.group(1):
+					fields[st.target.id] = tuple(hit.group(1).split('|'))
+			if fields:
+				out[node.name] = fields
+	return out
+
+
+def _hand_built_model_vocabularies() -> list[tuple[str, str, tuple[str, ...], str]]:
+	"""The eighth spelling: the route builds a model from its own bare parameters.
+
+	`POST /access/voice/audio` takes `purpose: str = Form('symptoms')` — a bare `str` in the signature
+	and in the document — and then
+
+	    req = VoiceAudioRequest(subject_ref=subject_ref, lang=lang, purpose=purpose)
+
+	where `VoiceAudioRequest.purpose` is `Field(pattern=r'^(symptoms|note)$')`. The vocabulary is real
+	and it is enforced (the model raises inside a `try` and the handler turns that into a 422), but it
+	is in a class the route's signature does not mention, so every reader above misses it. The same
+	route is multipart, which is why the document is no help either: the two blind spots coincide.
+
+	Scoped to a construction that names at least one of the **route's own parameters**, which is what
+	separates a handler assembling its input from the ~hundreds of models built from other models'
+	fields.
+	"""
+	patterns = _model_pattern_vocabularies()
+	out: list[tuple[str, str, tuple[str, ...], str]] = []
+	for path in sorted(SRC.rglob('*.py')):
+		tree = ast.parse(path.read_text())
+		for fn in ast.walk(tree):
+			if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+				continue
+			route = None
+			for dec in fn.decorator_list:
+				if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute) \
+						and dec.func.attr in ('get', 'post', 'put', 'delete', 'patch'):
+					if dec.args and isinstance(dec.args[0], ast.Constant) \
+							and isinstance(dec.args[0].value, str):
+						route = dec.args[0].value
+			if route is None:
+				continue
+			params = {a.arg for a in fn.args.args + fn.args.kwonlyargs}
+			for call in ast.walk(fn):
+				if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+						and call.func.id in patterns):
+					continue
+				named = {k.arg for k in call.keywords if k.arg} & params
+				if not named:
+					continue
+				for field, values in patterns[call.func.id].items():
+					if field in named:
+						out.append((route, field, values,
+							f'{path}:{call.lineno} ({call.func.id}.{field})'))
 	return out
 
 
@@ -743,7 +928,23 @@ def test_a_form_offers_no_value_a_routes_own_guard_refuses() -> None:
 	enforced by a raise is one no schema reader can see, which is the whole reason this unit exists.
 	"""
 	guarded = _route_vocabularies()
-	assert len(guarded) >= 1, f'the reader found no route-scoped vocabularies: {sorted(guarded)}'
+	# An exact set, for the same reason as the assert reader's: a floor set at the count it guards
+	# can never fail, and this one read `>= 1` while the reader was finding three. Losing the enum
+	# spelling would drop eight of these eleven and pass a floor.
+	assert set(guarded) == {
+		('/access/voice/audio', 'purpose'),
+		('/analytics/dashboards/{dashboard}', 'dashboard'),
+		('/governance/residency/check', 'data_class'),
+		('/info/content/governance', 'regime'),
+		('/info/content/{item_id}/advance', 'to'),
+		('/info/dashboard/{county}', 'risk_level'),
+		('/info/decision-tree', 'token'),
+		('/rollout/status', 'phase'),
+		('/sync/batch', 'connection'),
+		('/sync/flush', 'connection'),
+		('/sync/policy', 'connection'),
+		('/sync/state', 'connection'),
+	}, f'route-scoped vocabularies moved: {sorted(guarded)}'
 	refused: list[str] = []
 	for action in catalogue():
 		for field in action.fields:

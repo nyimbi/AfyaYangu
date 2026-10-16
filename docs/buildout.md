@@ -7257,3 +7257,90 @@ mislead.
 Not fixed here: it needs a dependency the form model does not have, which is a design change to the
 catalogue both clients parse, not a value correction. Recorded as the next unit rather than folded into
 this one.
+
+## The seventh spelling: the vocabulary is an enum's constructor
+
+`/sync/flush` takes `connection: str = Body('wifi', embed=True)` and then
+
+	try:
+		conn = ConnectionClass(connection)
+	except ValueError as exc:
+		raise HTTPException(status_code=422, detail=f'unknown connection class {connection}')
+
+The set is the enum's member values and it is enforced — probed at the front door, `connection='zzz'`
+is a **422** while `wifi`/`metered`/`offline` are all 200. But **there is no comparison to read**: the
+refusal is the enum's own `ValueError`, caught and re-raised. Every reader built so far looks for
+`x in (...)` or `x not in (...): raise`, so `flush_sync.connection` was checked by nothing, and the
+document serves a bare `str` besides. The form's three options agree with the enum, which was luck
+rather than a gate.
+
+`_enum_constructor_vocabularies()` reads `Enum(value)` inside a `try` whose handlers catch
+`ValueError`, where `value` is a **bare `str` parameter of the route's own signature**. The member
+**values** are read, not the member names — `high_ebola_suspicion = 'high'` is the shape that makes
+the distinction matter, and a reader keyed on names would compare a form against strings no client
+sends. Scoped to the route's own argument, which keeps it from matching the ~30 internal coercions
+(`RBACRole(role)` inside `require_token`, `ConsentCategory(...)` in a label helper) that no form can
+reach.
+
+Route-scoped vocabularies went **3 → 11**. The eight new ones are `dashboard`, `data_class`, `phase`,
+`to`, and four `connection` routes. Two of the eleven are drawn by a form: `flush_sync.connection`
+and `advance_content.to`, and both agree. `advance_content.to` deserves a note — the route accepts all
+seven stages as *values*, and the "one step" constraint in its docstring is a **transition** rule
+enforced after the parse, not a vocabulary. A form offering all seven is correct.
+
+**The coverage floors were both the bug.** `assert len(guarded) >= 1` and `assert len(asserted) >= 4`
+were written at the counts they found, so neither could fail; canary 13 landing on 4 is what exposed
+the second. Both are exact key sets now, so losing a site is visible and gaining one is an
+acknowledgement. A floor at the count it guards is a gate asserting nothing.
+
+**Canaried: 18/18 fired.** The new one moves `ConnectionClass.wifi`'s **value** (`'wifi'` →
+`'wifi_only'`), which shrinks what the route accepts while the form still offers the old string —
+disjoint from the reader, which takes the members from `sync/views.py` and the options from the form.
+Blinding `_enum_constructor_vocabularies()` and re-applying the mutation together makes the catch
+vanish, so the reader is load-bearing. Before it, the same mutation was invisible.
+
+### Where the audit stands
+
+115 selects in the catalogue, and **72** now have a reader behind them: **66** vouched for by the
+OpenAPI document (enum or pattern), and **11** route-scoped — the intersection of every guard on the
+field, which is the correct semantics because a value has to pass all of them. The remaining 43 are
+open by design or by an unguarded default, and the count moved 4 → 5 → 12 as the readers widened:
+each spelling added took *unread* sets off the list rather than putting *wrong* values on it.
+
+Two of those widenings were blind spots in the gate rather than defects in the code, which is the
+more useful thing this unit found:
+
+- **`multipart/form-data`.** `_select_vocabularies()` read only `application/json`, so a route
+  declaring `kind: EvidenceKind = Form(...)` was invisible even though the document carries the enum
+  under the multipart schema. `submit_evidence.kind` was unchecked for that reason alone.
+- **A guard recorded twice.** `/info/dashboard/{county}` refuses `risk_level` outside three in the
+  handler *and* builds `CountyRisk(risk_level=...)` with the same three. The readers wrote into one
+  dict, so the second silently overwrote the first — and canary 16, which narrows the handler tuple,
+  stopped being caught once the model guard landed on top. Guards on one field are now intersected.
+
+Both are the "one of two spellings" defect one layer down: a media type, and an ordering.
+
+## The eighth spelling: the route builds its own model
+
+`POST /access/voice/audio` is multipart and declares `purpose: str = Form('symptoms')` — a bare `str`
+in the signature and in the document — then does
+
+	req = VoiceAudioRequest(subject_ref=subject_ref, lang=lang, purpose=purpose)
+
+where `VoiceAudioRequest.purpose` is `Field(pattern=r'^(symptoms|note)$')`. The vocabulary is real and
+enforced (the model raises, the handler turns it into a 422), but it lives in a class the route's
+signature never mentions, so no reader keyed on the signature can see it — and the route is multipart
+besides, so the document is no help either. **The two blind spots coincide**, which is why this one
+survived the multipart fix that caught `submit_evidence.kind`.
+
+`_hand_built_model_vocabularies()` reads a construction that names at least one of the **route's own
+parameters** and takes the patterns off the model it builds. Scoped that way because the tree builds
+hundreds of models from other models' fields; the ones that matter are the handlers assembling their
+own input. Two routes qualify — `/info/dashboard/{county}` (already guarded in the handler, so this
+adds a second, agreeing guard) and `/access/voice/audio` (guarded by nothing else). Both agree with
+their forms today.
+
+**Canaried: 19/19 fired.** The new one narrows `VoiceAudioRequest.purpose` to `^(symptoms|dictation)$`,
+which the form's `note` option no longer satisfies. The match had to be widened to two lines — `lang:
+str` then the field — because `VoiceRequest` carries an identical line four lines above and a one-line
+target matched twice. A canary whose target is not unique is a canary that did not run.

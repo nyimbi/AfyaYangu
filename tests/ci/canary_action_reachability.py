@@ -21,6 +21,8 @@ ACT = ROOT / 'src/afya/mobile/actions.py'
 CH = ROOT / 'src/afya/channels/views.py'
 ALERTS_V = ROOT / 'src/afya/alerts/views.py'
 ALERTS_S = ROOT / 'src/afya/alerts/service.py'
+SYNC_V = ROOT / 'src/afya/sync/views.py'
+ACCESS_V = ROOT / 'src/afya/access/views.py'
 TEST = ROOT / 'tests/ci/test_action_reachability.py'
 
 GATE = 'tests/ci/test_action_reachability.py'
@@ -183,6 +185,29 @@ CANARIES = [
 	 "SYNC_DATASETS = ['symptom_logs', 'temperature', 'case_reports', 'immunisation', 'medication', "
 	 "'facility', 'content', 'proximity_token']",
 	 'test_a_form_offers_no_value_the_assert_that_guards_it_refuses'),
+
+	# 18. The seventh spelling: the vocabulary is an enum's member values, enforced by
+	#     `ConnectionClass(connection)` inside a `try` with an `except ValueError`. There is no
+	#     comparison to read, so the reader has to know the constructor spelling. Mutating the enum's
+	#     *value* (not its member name) shrinks what the route accepts while the form still offers the
+	#     old string — disjoint from the reader, which reads `sync/views.py` for the members and the
+	#     form for the options, and the two no longer meet. Before `_enum_constructor_vocabularies()`
+	#     this mutation was invisible: `/sync/flush` had no vocabulary at all.
+	('an enum value moves under the form that offers it', SYNC_V,
+	 "	wifi = 'wifi'",
+	 "	wifi = 'wifi_only'",
+	 'test_a_form_offers_no_value_a_routes_own_guard_refuses'),
+
+	# 19. The eighth spelling: the route takes a bare `Form` parameter and builds a model from it, so
+	#     the vocabulary is in a class the signature does not mention and the document serves a bare
+	#     `str`. `/access/voice/audio` is multipart as well, which is why both blind spots coincide.
+	#     Mutating the *model's* pattern shrinks what the route accepts while the form keeps offering
+	#     the old value — disjoint from the reader, which takes the set from `access/views.py` and the
+	#     options from the catalogue.
+	('a hand-built model narrows under its form', ACCESS_V,
+	 "	lang: str\n	purpose: str = Field(default='symptoms', pattern=r'^(symptoms|note)$')",
+	 "	lang: str\n	purpose: str = Field(default='symptoms', pattern=r'^(symptoms|dictation)$')",
+	 'test_a_form_offers_no_value_a_routes_own_guard_refuses'),
 ]
 
 failures = []
