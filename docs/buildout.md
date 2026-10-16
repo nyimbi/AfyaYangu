@@ -7193,3 +7193,67 @@ stayed in `ALERT_ISSUERS` through three subsequent green runs. The gate caught i
 floor and the row comparison both read the tuple — but only because the canary was re-run. Reverting
 from a backup means taking it **before** the write, and a revert that is not followed by re-reading the
 value it was supposed to restore is not a revert.
+
+## The fifth spelling: a set computed by comprehension
+
+`SyncOp.dataset` is guarded — `sync/service.py:103` asserts `op.dataset in STRATEGY_MATRIX` — and that
+guard is the only thing that makes the vocabulary closed. `SyncOp.dataset` is `str`, so the OpenAPI
+document serves it as a bare string, and `STRATEGY_MATRIX` is not a literal:
+
+	STRATEGY_MATRIX: dict[str, ConflictStrategy] = {r.dataset: r.strategy for r in CONFLICT_RULES}
+
+`_string_collections()` read only module-level names bound to literal tuples and lists, so it saw
+nothing here. **The set was invisible from both sides at once** — no document vocabulary, no source
+literal — and the mobile form carried a hand-copied list of the same eight strings that agreed with
+`CONFLICT_RULES` by coincidence of nobody having edited either. That is the `ALERT_ISSUERS` shape
+again, one spelling further out: not a value the route refuses, but a vocabulary no reader can see, so
+the day §16.3's table gains a dataset the spinner cannot offer it and nothing fails.
+
+Two changes, and they are different changes:
+
+1. **`SYNC_DATASETS = [r.dataset for r in CONFLICT_RULES]`** — the form derives from the matrix, the
+   way `ALERT_KINDS`, `PROVISIONER_PATTERN` and `PEER_VERIFIER_PATTERN` already do. This removes the
+   drift but not the blindness: it makes the *coupling* the fix rather than the discipline.
+2. **`_derived_collections()`** — the reader now resolves a `DictComp` whose single generator iterates
+   a module-level literal tuple of calls, keyed by `element.attr` over that tuple's keyword. The
+   asserted-vocabulary set went **4 → 5**: `SyncOp.dataset` is checked now, and was not before. Scoped
+   deliberately to the shape with no other carrier; the enum spelling (`[k.value for k in AlertKind]`)
+   is left out, because an enum already reaches the document as an `enum` and a second reader there
+   would be a duplicate rather than a coverage gain.
+
+**A coverage floor set at the count it guards is not a gate.** `assert len(asserted) >= 4` was written
+when the reader found exactly four, so it could never fail — and when canary 13 stopped naming
+`ALERT_ISSUERS` the count fell to four and the gate passed. It is now an exact key set, so losing a site
+is visible and *gaining* one is a deliberate acknowledgement. The same shape as the earlier lesson: a
+number that tracks the quantity it is supposed to bound asserts nothing.
+
+**Canaried: 17/17 fired.** The new one restores the hand-copy with one string the matrix lacks —
+disjoint from what the reader reads, which is `sync/views.py`. Mutating `CONFLICT_RULES` instead would
+have been the wrong canary: the form is derived from it now, so both sides would move together and
+prove nothing. Verified load-bearing by blinding the reader extension and re-applying the mutation
+together: the catch disappears.
+
+### The class this did *not* find, and why it is not the same thing
+
+Crossing every `@model_validator` that reads a field against the forms that offer that field as a
+select leaves **one** real site, and it is not a value mismatch:
+
+`MisinfoSubmission.medium` is `Field(pattern=r'^(text|voice|screenshot|whatsapp_forward)$')` and the
+form offers exactly those four, in both directions. What the validator adds is a *conditional
+requirement* — `medium in ('voice','screenshot','whatsapp_forward')` and no `evidence_ref` and no
+`transcript` raises. Probed at the front door: `medium='voice'` alone is **422**, `medium='voice'` with
+a transcript is **200**, `medium='text'` alone is **200**. Every value is reachable; the refusal is
+about a combination.
+
+That is a different defect class, and it is worth naming precisely rather than filing under this unit:
+`MobileField` has `required: bool` and nothing else — no `required_when`, no dependency of any kind —
+and `required` is set from `type_ == 'path'` alone, so **no body field is ever marked required by the
+catalogue**. Both clients read the flag and draw an asterisk; neither can express a condition. So the
+form cannot warn, and the route refuses a submission the form presents as complete. The same shape
+sits on `ConflictRule._an_appeal_only_makes_sense_against_a_server_decision` (`appealable` is refused
+unless `strategy` is `server_auth`), though no form draws `appealable`, so that one has no screen to
+mislead.
+
+Not fixed here: it needs a dependency the form model does not have, which is a design change to the
+catalogue both clients parse, not a value correction. Recorded as the next unit rather than folded into
+this one.

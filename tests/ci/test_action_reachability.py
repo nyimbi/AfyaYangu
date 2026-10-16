@@ -503,8 +503,80 @@ def test_the_select_crossing_finds_a_value_the_form_cannot_offer() -> None:
 SRC = pathlib.Path(__file__).resolve().parents[2] / 'src' / 'afya'
 
 
+def _derived_collections() -> dict[tuple[str, str], tuple[str, ...]]:
+	"""Module-level names bound to a **comprehension over a literal tuple of calls**.
+
+	The third spelling of a closed set, and the one that made this reader necessary: `sync/views.py`
+	writes §16.3's matrix as a tuple of `ConflictRule(...)` and then
+
+	    STRATEGY_MATRIX: dict[str, ConflictStrategy] = {r.dataset: r.strategy for r in CONFLICT_RULES}
+
+	so the vocabulary the route's own guard reads (`op.dataset in STRATEGY_MATRIX`) is a *computed*
+	name. `_string_collections()` reads only literal collections, so it saw nothing here, and
+	`SyncOp.dataset` is a bare `str` in the document as well — the set was invisible from both sides at
+	once, which is why the form's hand-copied `SYNC_DATASETS` list could drift with no symptom.
+
+	Scoped to the shape that has no other carrier: a comprehension whose single generator iterates a
+	module-level literal tuple/list of calls, keyed by `element.attr`. The enum spelling
+	(`[k.value for k in AlertKind]`) is deliberately out — an enum already reaches the document as an
+	`enum`, so the schema gate sees it and a second reader would be a duplicate, not a coverage gain.
+	"""
+	out: dict[tuple[str, str], tuple[str, ...]] = {}
+	for path in SRC.rglob('*.py'):
+		tree = ast.parse(path.read_text())
+		# the literal tuple-of-calls collections this file defines, by name
+		literals: dict[str, list[ast.Call]] = {}
+		for node in tree.body:
+			target: ast.expr | None = None
+			value: ast.expr | None = None
+			if isinstance(node, ast.AnnAssign):
+				target, value = node.target, node.value
+			elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+				target, value = node.targets[0], node.value
+			if not isinstance(target, ast.Name) or not isinstance(value, (ast.Tuple, ast.List)):
+				continue
+			if value.elts and all(isinstance(e, ast.Call) for e in value.elts):
+				literals[target.id] = [e for e in value.elts if isinstance(e, ast.Call)]
+		if not literals:
+			continue
+		for node in tree.body:
+			target = None
+			value = None
+			if isinstance(node, ast.AnnAssign):
+				target, value = node.target, node.value
+			elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+				target, value = node.targets[0], node.value
+			if not isinstance(target, ast.Name) or not isinstance(value, ast.DictComp):
+				continue
+			if len(value.generators) != 1 or not isinstance(value.generators[0].iter, ast.Name):
+				continue
+			source = literals.get(value.generators[0].iter.id)
+			# the key must be `element.attr` on the comprehension's own target
+			var = value.generators[0].target
+			key = value.key
+			if source is None or not isinstance(var, ast.Name):
+				continue
+			if not (isinstance(key, ast.Attribute) and isinstance(key.value, ast.Name) and key.value.id == var.id):
+				continue
+			values: list[str] = []
+			for call in source:
+				kw = next((k for k in call.keywords if k.arg == key.attr), None)
+				if kw is None or not isinstance(kw.value, ast.Constant) or not isinstance(kw.value.value, str):
+					values = []
+					break
+				values.append(kw.value.value)
+			if values:
+				out[(str(path), target.id)] = tuple(values)
+	return out
+
+
 def _string_collections() -> dict[tuple[str, str], tuple[str, ...]]:
-	"""Every module-level name bound to a literal collection of strings, keyed `(file, name)`."""
+	"""Every module-level name bound to a literal collection of strings, keyed `(file, name)`.
+
+	Both spellings of a collection: written out, and computed by a comprehension over one that is
+	written out (see `_derived_collections`). A reader that knew only the first reports clean on the
+	second, which is how `SyncOp.dataset` stayed invisible.
+	"""
 	out: dict[tuple[str, str], tuple[str, ...]] = {}
 	for path in SRC.rglob('*.py'):
 		for node in ast.parse(path.read_text()).body:
@@ -521,6 +593,7 @@ def _string_collections() -> dict[tuple[str, str], tuple[str, ...]]:
 				            if isinstance(e, ast.Constant) and isinstance(e.value, str)]
 				if len(literals) == len(value.elts):
 					out[(str(path), name)] = tuple(literals)
+	out.update(_derived_collections())
 	return out
 
 
@@ -716,7 +789,18 @@ def test_a_models_vocabulary_is_no_wider_than_the_assert_that_guards_it() -> Non
 	warn anyone.
 	"""
 	asserted = _asserted_vocabularies()
-	assert len(asserted) >= 4, f'the reader found only {len(asserted)} assert-guarded vocabularies: {sorted(asserted)}'
+	# The key set is pinned, not floored. A `>= 4` floor was written when the reader found exactly
+	# four, so it could never fail: canary 13 stopped naming `ALERT_ISSUERS` and the count fell to
+	# four, which passed. A floor set at the count it guards is a gate that asserts nothing, and the
+	# whole point of this register is that losing a site is visible. An exact set makes a *new*
+	# vocabulary a deliberate acknowledgement too, which is what a coverage register is for.
+	assert set(asserted) == {
+		('BloodRequest', 'urgency'),
+		('ChwProfile', 'provisioned_by'),
+		('CommunityAlert', 'issued_by'),
+		('PeerAlert', 'verified_by'),
+		('SyncOp', 'dataset'),
+	}, f'assert-guarded vocabularies moved: {sorted(asserted)}'
 	declared = _model_fields_in_document()
 	wider: list[str] = []
 	for (model, field), (values, where) in sorted(asserted.items()):

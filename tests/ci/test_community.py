@@ -1,5 +1,6 @@
 """Behavioural tests for afya.community (§10.4 COM-005, §11.4 COM-101..104)."""
 import pytest
+from pydantic import ValidationError
 
 from afya.community.service import CommunityService
 from afya.community.views import (
@@ -102,8 +103,17 @@ def _alert(alert_id: str = 'PA-1', **kw: object) -> PeerAlert:
 
 async def test_peer_alert_requires_county_verification() -> None:
 	svc = CommunityService()
-	with pytest.raises(AssertionError):
-		await svc.send_peer_alert(_alert(verified_by='NGO'))
+	# The vocabulary is the model's now, so an unverified sender never reaches the service — which is
+	# what lets the mobile form be a view of the set. Asserted at both ends: the service keeps its own
+	# assert for an in-process caller that builds an alert another way, and a second door should not be
+	# a weaker one.
+	with pytest.raises(ValidationError, match='verified_by'):
+		_alert(verified_by='NGO')
+	with pytest.raises(AssertionError, match='county verification'):
+		await svc.send_peer_alert(PeerAlert.model_construct(
+			alert_id='PA-1', headline='Cholera cases rising in Busia', verified_by='NGO',
+			county='Busia', lat=0.5, lon=34.1, radius_m=1000, location='Busia market',
+		))
 	receipt = await svc.send_peer_alert(_alert(verified_by='PHEOC'))
 	assert receipt.verification == 'verified by PHEOC'
 	assert receipt.recipients == 12566  # pi * (1km)^2 * 4000, rounded down

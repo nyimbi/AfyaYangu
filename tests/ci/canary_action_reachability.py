@@ -169,6 +169,20 @@ CANARIES = [
 	 "		if risk_level not in ('low', 'moderate', 'high'):",
 	 "		if risk_level not in ('low', 'moderate'):",
 	 'test_a_form_offers_no_value_a_routes_own_guard_refuses'),
+
+	# 17. The comprehension-derived vocabulary the reader was blind to. `STRATEGY_MATRIX` is built by
+	#     comprehension over `CONFLICT_RULES`, so before `_derived_collections()` the set had no
+	#     literal to read and `SyncOp.dataset` was unchecked from both sides at once — the document
+	#     serves it as a bare `str` too. The mutation restores the *hand-copy* the form carried until
+	#     this fix, with one string the matrix does not have; that is disjoint from what the reader
+	#     reads (the source of `sync/views.py`), and it is the defect exactly as it was live. Mutating
+	#     `CONFLICT_RULES` instead would move the form with the matrix, since the form is derived from
+	#     it now — a mutation both sides share proves nothing.
+	('the form hand-copies a dataset the matrix lacks', ACT,
+	 "SYNC_DATASETS = [r.dataset for r in CONFLICT_RULES]",
+	 "SYNC_DATASETS = ['symptom_logs', 'temperature', 'case_reports', 'immunisation', 'medication', "
+	 "'facility', 'content', 'proximity_token']",
+	 'test_a_form_offers_no_value_the_assert_that_guards_it_refuses'),
 ]
 
 failures = []

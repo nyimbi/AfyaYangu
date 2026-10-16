@@ -55,6 +55,7 @@ from afya.privacy.views import LegalBasis
 from afya.info.submissions import StoryKind
 from afya.sensors.tags import EQUIPMENT_STATUSES, TAG_TARGETS
 from afya.strings import SUPPORTED_LANGS
+from afya.sync.views import CONFLICT_RULES
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -107,7 +108,13 @@ SENS_KINDS = [k.value for k in SenseKind]
 # unknown". Nothing failed: the form submitted, the route answered 200, and the two diseases the
 # section is most explicit about could not be alerted on from the app at all.
 ALERT_KINDS = [k.value for k in AlertKind]
-SYNC_DATASETS = ['symptom_logs', 'temperature', 'case_reports', 'immunisation', 'medication', 'facility', 'content', 'proximity_tokens']
+# Same rule as ALERT_KINDS, and this one had been a hand-copy of §16.3's matrix rather than a view of
+# it: the eight strings agreed with `CONFLICT_RULES` by coincidence of nobody having edited either, and
+# the route's own guard (`op.dataset in STRATEGY_MATRIX`) reads a dict *comprehension* over that tuple,
+# so no schema reader can see the vocabulary from the model side. Deriving it here makes the coupling
+# the fix rather than the discipline — adding a dataset to §16.3's table widens the spinner, and a
+# dataset the table does not carry is not offerable.
+SYNC_DATASETS = [r.dataset for r in CONFLICT_RULES]
 PROCEDURES = ['c_section', 'normal_delivery', 'outpatient', 'inpatient_day', 'dialysis', 'x_ray', 'theatre']
 # Same rule as ALERT_KINDS: the enum is the vocabulary, and the spinner is a view of it. This one
 # offered five of six and omitted `therapeutic_feeding` — §MON-008's "therapeutic feeding programme
