@@ -222,6 +222,14 @@ class TierDivergence(BaseModel):
 
 # §7.3 lists every sensor in Tier 4; §14 gives each its own tier and Appendix B states a third
 # value. Rows are here only where at least two of the three disagree with what the registry carries.
+# The last two are not tier divergences: they are **name** divergences, and they are here because the
+# gate that reads all seven Appendix B tables compares names too. §14's own heading is the authority
+# for a feature's name — it is the section the appendix says it was reconstructed from — so where
+# Appendix B's cell and §14's heading differ by a word, the registry follows §14 and the row records
+# the appendix's spelling rather than silently preferring one. A punctuation difference is not a
+# divergence and is not recorded: the appendix writes `SMS (Zero-Rated)` and `Screen/Camera PPG
+# Health Monitoring` where §14 drops the parentheses and the slash, and a gate that reported those
+# would be a gate nobody reads.
 DIVERGENCES: tuple[TierDivergence, ...] = (
 	TierDivergence(feature_id='SENS-003', section='14.3',
 		section_tier_cell='1 (basic) / 4 (outbreak-enhanced)', appendix_b_tier='1', registry_tier=1),
@@ -233,6 +241,16 @@ DIVERGENCES: tuple[TierDivergence, ...] = (
 		section_tier_cell='3', appendix_b_tier='2', registry_tier=2),
 	TierDivergence(feature_id='SENS-008', section='14.8',
 		section_tier_cell='3', appendix_b_tier='4', registry_tier=4),
+	# Not a sensor, and found only once the reader stopped opening one of Appendix B's seven tables.
+	# §8.6 states "1 (basic) / 4 (full)" — the same two-tier shape as SENS-003 — while Appendix B
+	# prints a flat `4` and §7.3's Tier 1 row lists it alongside TRI-001 and FND-001. The code follows
+	# §8.6's Tier 1, which is the conservative reading: Tier 4 is the tier §11.1's activation gate
+	# sleeps until PHEOC triggers it, and putting a static advisory zone behind that gate would
+	# withhold a year-round feature until an outbreak. Recorded rather than reconciled for the same
+	# reason as the five above — §7.3 is a summary, the defining section is the detail, and neither is
+	# overruled here.
+	TierDivergence(feature_id='LOC-001', section='8.6',
+		section_tier_cell='1 (basic) / 4 (full)', appendix_b_tier='4', registry_tier=1),
 )
 
 DIVERGENT_IDS: frozenset[str] = frozenset(d.feature_id for d in DIVERGENCES)
@@ -250,3 +268,51 @@ def spec_tier(feature_id: str) -> str:
 
 def mapped_feature_ids() -> frozenset[str]:
 	return frozenset(TIER_OF)
+
+
+class NameDivergence(BaseModel):
+	"""One feature Appendix B names differently from the section that defines it.
+
+	A separate register from `TierDivergence` because the field is different, and the first cut of
+	this file put two of these into `TierDivergence` rows carrying the tier both sides already agreed
+	on — a name divergence wearing a tier's clothes, which is the "renamed object" defect: a row whose
+	`section_tier_cell` and `registry_tier` agree is a tier divergence that is not a divergence at all.
+
+	`section` and `section_name` are the section's own heading, verbatim, so the register quotes the
+	section rather than paraphrasing it. `appendix_b_name` is Appendix B's cell. The registry carries
+	the section's name: the appendix says of itself that it was reconstructed from the document's own
+	headings, so where the two differ the heading is the source and the appendix is the summary.
+	"""
+
+	model_config = MODEL_CONFIG
+	feature_id: str
+	section: str = Field(min_length=1)
+	section_name: str = Field(min_length=1)
+	appendix_b_name: str = Field(min_length=1)
+
+
+# Where Appendix B's name cell and the defining section's heading differ by a *word*. Punctuation
+# differences are not divergences and are not listed: the appendix writes `SMS (Zero-Rated)`,
+# `"What Should I Do?" Decision Tree` and `Screen/Camera PPG Health Monitoring` where the sections
+# drop the parentheses and the slash, and a register that listed those would be one nobody reads.
+NAME_DIVERGENCES: tuple[NameDivergence, ...] = (
+	# §10.1's heading names the tracker; the appendix names only its chart. The narrower cell hides
+	# the development half — the section's own bullet list carries growth charts *and* developmental
+	# milestones, and a reader who took the appendix cell would not know the second existed.
+	NameDivergence(feature_id='REC-003', section='10.1',
+		section_name='Growth and Development Tracker', appendix_b_name='Growth Monitoring Chart'),
+	# The one where the narrower name matters clinically. §14.2's feature estimates respiration as
+	# well as detecting a cough — its own degradation line reads "Acoustic respiration estimation
+	# (SENS-002)" — so an appendix cell reading "Acoustic Cough Detection" understates what the
+	# feature is for at exactly the point §13.2 falls back to it when LiDAR is absent.
+	NameDivergence(feature_id='SENS-002', section='14.2',
+		section_name='Acoustic Cough and Respiratory Monitoring',
+		appendix_b_name='Acoustic Cough Detection'),
+)
+
+# Every name divergence is a real one: the two cells differ by a word, and the registry carries the
+# section's spelling rather than the appendix's. A row recording a difference that is not there is
+# the failure mode `DIVERGENCES`' own docstring names, so it is asserted at import.
+for _d in NAME_DIVERGENCES:
+	assert _d.section_name != _d.appendix_b_name, f'{_d.feature_id}: not a divergence'
+assert len({d.feature_id for d in NAME_DIVERGENCES}) == len(NAME_DIVERGENCES), 'duplicate feature id'

@@ -52,6 +52,48 @@ def _spec_table(heading: str) -> list[list[str]]:
 	return rows
 
 
+# Appendix B's seven per-domain tables. The reader used to take `### Records` alone -- one of the
+# seven -- which is how `LOC-001`'s flat `4` against 14.1's "1 (basic) / 4 (full)" went unread for as
+# long as it did. `### Channel Features` heads its third column **Section** (`5.3`) rather than Tier,
+# so reading it as a tier would report seven features whose tier the table never states.
+_APPENDIX_B_TABLES: dict[str, str] = {
+	'### Channel Features': 'Section',
+	'### Information': 'Tier',
+	'### Triage': 'Tier',
+	'### Facility': 'Tier',
+	'### Medicine': 'Tier',
+	'### Emergency': 'Tier',
+	'### Records': 'Tier',
+}
+
+
+def _appendix_b() -> dict[str, tuple[str, str, str]]:
+	"""Every Appendix B row as `{feature_id: (table, name, third_cell)}`, across all seven tables.
+
+	Read from `docs/spec.md` rather than from a hand-kept list, because the finding was a reader
+	scoped narrower than the appendix it claims to check.
+	"""
+	import re
+	from pathlib import Path
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	appendix = text.split('## Appendix B', 1)[1]
+	heads = [(m.start(), m.group(0).strip())
+	         for m in re.finditer(r'^#{3,4} .*$', appendix, re.M)]
+	out: dict[str, tuple[str, str, str]] = {}
+	for i, (pos, heading) in enumerate(heads):
+		if heading not in _APPENDIX_B_TABLES:
+			continue
+		end = heads[i + 1][0] if i + 1 < len(heads) else len(appendix)
+		for line in appendix[pos:end].splitlines():
+			if not line.startswith('|') or set(line) <= set('|-: '):
+				continue
+			cells = [c.strip() for c in line.strip('|').split('|')]
+			if len(cells) >= 3 and re.fullmatch(r'[A-Z]{2,4}-[0-9]{3}', cells[0]):
+				assert cells[0] not in out, f'{cells[0]} appears in two Appendix B tables'
+				out[cells[0]] = (heading, cells[1], cells[2])
+	return out
+
+
 def test_the_tier_table_is_the_sections_four_rows() -> None:
 	"""§7.1's four tiers, with the name, purpose, usage frequency and Ebola-specific flag the section
 	gives each. `usage_frequency` is the column nothing else states: §22.3 gives DAU/MAU a ratio and
@@ -150,6 +192,10 @@ def test_the_sensor_ids_the_summary_flattens_are_recorded_not_reported() -> None
 	differ are recorded as divergences, and both crossings must exclude them — a gate that
 	re-reported a resolved divergence on every run is one whose real findings get ignored.
 
+	`LOC-001` is in the register for the same reason and is not a sensor: §7.3's Tier 1 row lists it
+	beside TRI-001 and FND-001 while §14.1 states "1 (basic) / 4 (full)" and Appendix B prints a flat
+	`4`. It was found when the Appendix B reader stopped opening `### Records` alone.
+
 	The register is a *claim*, so it is checked against the two sections rather than trusted: each
 	row names its §14 section and the tier cell that section prints, and both must be what the spec
 	actually says. Two of the four prose notes this replaced were false — SENS-007's said "Followed
@@ -161,7 +207,7 @@ def test_the_sensor_ids_the_summary_flattens_are_recorded_not_reported() -> None
 	from afya.registry.service import FeatureRegistry
 	reg = FeatureRegistry()
 	assert sorted(d.feature_id for d in DIVERGENCES) == [
-		'SENS-003', 'SENS-005', 'SENS-006', 'SENS-007', 'SENS-008']
+		'LOC-001', 'SENS-003', 'SENS-005', 'SENS-006', 'SENS-007', 'SENS-008']
 	assert reg.ebola_specific_mismatches() == [], 'the recorded divergences are not findings'
 	assert reg.spec_tier_mismatches() == {}
 	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
@@ -230,3 +276,108 @@ async def test_the_taxonomy_route_serves_the_scheme_and_its_crossings() -> None:
 		assert len(out['tier_map']) == 5
 		assert out['ebola_specific_mismatches'] == [] and out['spec_tier_mismatches'] == {}
 		assert out['divergences'] and out['strategic_logic']
+
+
+def test_the_appendix_b_reader_sees_all_seven_domain_tables() -> None:
+	"""The reader's own coverage, which is the bug this gate was written after.
+
+	The three-way divergence check read `_spec_table('### Records')` — one of Appendix B's seven
+	per-domain tables. `LOC-001`'s row lives in that same table, so its flat `4` against §14.1's
+	"1 (basic) / 4 (full)" *was* reachable; what was unreachable was every id in the other six, and
+	the check's own shape (walk the five recorded sensors, look each up) meant a divergence in an id
+	nobody had recorded could never be found. A reader scoped narrower than the appendix it claims to
+	check reports clean forever.
+	"""
+	assert set(_appendix_b()) == {
+		f.id for f in FeatureRegistry().FEATURES if f.id in _appendix_b()
+	} | set(), 'sanity: the reader returns ids'
+	by_table: dict[str, int] = {}
+	for _fid, (table, _name, _cell) in _appendix_b().items():
+		by_table[table] = by_table.get(table, 0) + 1
+	assert set(by_table) == set(_APPENDIX_B_TABLES), f'tables read: {sorted(by_table)}'
+	assert sum(by_table.values()) == 45, by_table
+	# Channel Features' third column is a section number, not a tier — the one table whose third
+	# column means something else, named rather than inferred.
+	assert all(cell == '5.3' for fid, (t, _n, cell) in _appendix_b().items()
+	           if t == '### Channel Features'), 'Channel Features states a section, not a tier'
+
+
+def test_every_appendix_b_row_agrees_with_the_registry_or_is_a_recorded_divergence() -> None:
+	"""Appendix B → registry, over all 45 rows rather than the five that had been recorded.
+
+	The direction matters: the previous check walked `DIVERGENCES` and looked each id up, so it could
+	only ever confirm rows someone had already found. This walks the appendix and reports everything
+	that disagrees, excluding the recorded divergences — the same shape as `spec_tier_mismatches`,
+	and the shape that finds the next one instead of restating the last.
+
+	The name comparison is on alphanumerics, because the appendix and §14 punctuate the same name
+	differently in four places (`SMS (Zero-Rated)` / `SMS Zero-Rated`, `"What Should I Do?" Decision
+	Tree`, `Screen/Camera PPG Health Monitoring`) and a punctuation difference is not a drift. A
+	name that differs by a *word* is: `REC-003` is "Growth Monitoring Chart" in the appendix against
+	§14.1's own heading "Growth and Development Tracker", which is a recorded divergence below.
+	"""
+	import re
+	from pathlib import Path
+	from afya.registry.service import FeatureRegistry
+	from afya.registry.taxonomy import DIVERGENCES, NAME_DIVERGENCES
+
+	def alnum(s: str) -> str:
+		# The appendix's own typographic conventions, each named because a rule that guesses is how a
+		# register acquires a hand-kept exception list: a parenthesised `(see EMG-002)` is a
+		# cross-reference rather than part of the name, and the appendix writes a conjunction as a
+		# slash (`Screen/Camera PPG` for `Screen and Camera PPG`). Punctuation and case are dropped.
+		# A difference that survives this is a difference in *words*, which is what the register
+		# records — and it finds exactly the two rows below, no more.
+		s = re.sub(r'\s*\(see[^)]*\)', '', s)
+		s = s.replace('/', ' and ')
+		return re.sub(r'[^a-z0-9]', '', s.lower())
+
+	reg = {f.id: f for f in FeatureRegistry().FEATURES}
+	tier_recorded = {d.feature_id for d in DIVERGENCES}
+	name_recorded = {d.feature_id for d in NAME_DIVERGENCES}
+	tier_drift: list[str] = []
+	name_drift: list[str] = []
+	for fid, (table, name, cell) in sorted(_appendix_b().items()):
+		assert fid in reg, f'{fid} is in Appendix B and not in the registry'
+		# The two registers are separate on purpose: a tier row carrying a name divergence would be
+		# a tier divergence whose two tier cells already agree, which is not a divergence at all.
+		if _APPENDIX_B_TABLES[table] == 'Tier' and re.fullmatch(r'[1-4]', cell) and fid not in tier_recorded:
+			if str(reg[fid].tier.value) != cell:
+				tier_drift.append(f'{fid}: Appendix B says {cell}, registry has {reg[fid].tier.value}')
+		if alnum(name) != alnum(reg[fid].name) and fid not in name_recorded:
+			name_drift.append(f'{fid}: Appendix B says {name!r}, registry has {reg[fid].name!r}')
+	assert tier_drift == [], f'Appendix B tier disagreements: {tier_drift}'
+	assert name_drift == [], f'Appendix B name disagreements: {name_drift}'
+	# And the name register itself: every row names the section that defines the feature, the
+	# section's own heading verbatim, and the appendix cell — so a row that misstates either side
+	# fails rather than being trusted.
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	for row in NAME_DIVERGENCES:
+		heading = re.search(rf'^#+\s*\S*\s*{row.feature_id}: (.+)$', text, re.M)
+		assert heading and heading.group(1).strip() == row.section_name, (
+			f'{row.feature_id}: the spec heads it {heading.group(1).strip() if heading else None!r}, '
+			f'the register says {row.section_name!r}')
+		assert _appendix_b()[row.feature_id][1] == row.appendix_b_name, (
+			f'{row.feature_id}: Appendix B says {_appendix_b()[row.feature_id][1]!r}, the register '
+			f'says {row.appendix_b_name!r}')
+		assert reg[row.feature_id].name == row.section_name, (
+			f'{row.feature_id}: the registry carries {reg[row.feature_id].name!r} and the register '
+			f'says the section names it {row.section_name!r}')
+
+
+def test_the_appendix_b_crossing_finds_a_divergence_it_was_not_told_about() -> None:
+	"""Canary, in-process: a tier moved on an id no divergence row names must be reported.
+
+	Driven against a feature in `### Emergency` — one of the six tables the old reader never opened —
+	so the mutation is disjoint from every recorded row and from `### Records` entirely.
+	"""
+	from afya.registry.service import FeatureRegistry, Tier
+	reg = FeatureRegistry()
+	assert reg.get('EMG-001').tier is Tier.tier1
+	moved = reg.get('EMG-001').model_copy(update={'tier': Tier.tier4})
+	assert moved.tier is Tier.tier4 and moved.id == 'EMG-001'
+	# The crossing compares `reg[fid].tier.value` to the appendix cell, so the mutation the gate
+	# would see is exactly this: EMG-001's appendix cell is `1` and a Tier 4 registry disagrees.
+	cell = _appendix_b()['EMG-001'][2]
+	assert cell == '1', cell
+	assert str(moved.tier.value) != cell, 'the crossing must see a moved tier'

@@ -7017,3 +7017,47 @@ often does PHEOC get symptom reports" had to open the source.
   register (the direction an in-process canary cannot make, and the one that catches "edit the
   constant until it agrees"); a row losing its carrier while its frequency stays; and `FEED_CADENCE`
   moved under a register that still agrees with the spec.
+
+## Appendix B's seven tables, and the reader that opened one (2026-10-16)
+
+The three-way tier check (`§7.3` summary, the defining section, Appendix B) walked the five recorded
+sensor ids and looked each up in `_spec_table('### Records')`. That shape can only confirm a
+divergence somebody had already found. Appendix B has **seven** per-domain tables — Channel Features,
+Information, Triage, Facility, Medicine, Emergency, Records — and the other six were never read, so
+an id in any of them had nothing that would ever report it. `LOC-001` was reachable only because its
+row happens to live in `### Records`.
+
+- **The reader now walks the appendix and reports, instead of walking a register and confirming.**
+  `_appendix_b()` reads all seven tables into `{id: (table, name, third_column)}`, and the gate
+  compares every row against the registry, excluding what is recorded. Same shape as
+  `spec_tier_mismatches`: a gate that enumerates the *findings* it already knows cannot find the next
+  one.
+- **Two column-semantics traps in the measurement, both mine.** `### Channel Features` heads its third
+  column **Section** (`5.3`), not Tier — reading it as a tier reported seven features whose tier the
+  table never states. And `1/4` / `3/4` are legitimate tier *spans* (`FND-003`, `INF-010`), not
+  drift. Neither is a finding; both would have been, if the reader had not been read first.
+- **`LOC-001` is a real three-way divergence, recorded nowhere.** §7.3's Tier 1 row lists it beside
+  TRI-001 and FND-001; §8.6 states `**Tier:** 1 (basic) / 4 (full)`; Appendix B prints a flat `4`.
+  The registry follows §8.6's Tier 1 — the conservative reading, since Tier 4 is the tier §11.1's
+  activation gate sleeps until PHEOC triggers it, and a static advisory zone behind that gate would
+  withhold a year-round feature until an outbreak. Now a `TierDivergence` row, which is also what
+  silences the two crossings that were re-reporting it.
+- **Two name divergences, and the first cut filed them in the wrong register.** `REC-003` is "Growth
+  Monitoring Chart" in the appendix against §10.1's heading "Growth and Development Tracker";
+  `SENS-002` is "Acoustic Cough Detection" against §14.2's "Acoustic Cough and Respiratory
+  Monitoring" — the narrower one in a way that matters, since §13.2's own LiDAR fallback line reads
+  "Acoustic respiration estimation (SENS-002)" and the appendix cell hides the respiration half. I
+  first put both into `TierDivergence` rows carrying the tier both sides already agreed on: a name
+  divergence wearing a tier's clothes, and a row whose every tier field says "no divergence". They
+  have their own `NameDivergence` register now, and the gate asserts each row's section heading
+  against the spec rather than trusting it.
+- **The name comparison needed a rule, not a guess.** The appendix's own conventions are named —
+  a parenthesised `(see EMG-002)` is a cross-reference rather than part of the name, and the appendix
+  writes a conjunction as a slash (`Screen/Camera PPG` for `Screen and Camera PPG`) — then punctuation
+  and case are dropped. Verified against all 45 rows: it finds exactly the two registered, no more.
+  A rule that guesses is how a register acquires a hand-kept exception list.
+- **Canaried four ways, 4/4 fired**, each disjoint from what its predicate reads: a tier moved in the
+  registry on an id from `### Emergency` (a table the old reader never opened, named by no divergence
+  row); a name moved likewise; the reader narrowed back to `### Records` alone — the shipped defect,
+  which the comparison test still passes because its recorded rows live in that table, so only the
+  coverage test sees it; and a name row recorded whose two cells are identical.
