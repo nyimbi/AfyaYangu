@@ -277,6 +277,22 @@ async def test_the_immunisation_record_is_shareable_through_the_wallets_own_gran
 
 # --- end to end through the real app -------------------------------------------------------------
 
+async def _county_officer(c: httpx.AsyncClient) -> str:
+	"""A county health team token through the app's own PKCE flow — §17.4's `county_aggregate`.
+
+	The same helper `test_ai001.py` uses, and for the same reason: a campaign notice speaks for the
+	authority, and the authority's scope is the one that says who may speak for it.
+	"""
+	from afya.auth.views import s256
+	verifier = 'v' * 64
+	authz = (await c.post('/auth/pkce/authorize', json={
+		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier),
+		'state': 'state-1234'})).json()
+	return (await c.post('/auth/pkce/token', params={'role': 'county_officer'}, json={
+		'authorization_code': authz['authorization_code'], 'client_id': 'app',
+		'redirect_uri': 'afya://cb', 'code_verifier': verifier})).json()['access_token']
+
+
 async def test_the_routes_serve_the_dose_the_alerts_and_the_campaign() -> None:
 	"""The Features are wired in `create_app`; a test that built its own service would not notice a
 	route going missing, and three of these four are routes."""
@@ -294,7 +310,21 @@ async def test_the_routes_serve_the_dose_the_alerts_and_the_campaign() -> None:
 		assert alerts.status_code == 200, alerts.text
 		assert not [a for a in alerts.json() if a['vaccine'] == 'BCG'], 'the dose was given'
 		assert [a for a in alerts.json() if a['kind'] == 'overdue'], 'other doses are behind'
+		# The campaign is the *authority's* act, so it is posted by the county health team and
+		# refused to the citizen whose wallet the rest of this test is. Until this was written the
+		# route carried `require_self`, which admits only citizen roles: the anonymous token this
+		# test holds published a notice attributed to MoH and got a 200, while the officer the
+		# notice is from was refused. Asserting only the 200 is what let that stand, so both
+		# directions are asserted here.
 		camp = await c.post('/monitoring/campaign', headers=head, json={
+			'disease': 'measles', 'counties': ['Garissa'], 'target_age_months': [9, 59],
+			'starts_iso': '2026-11-01', 'ends_iso': '2026-11-30',
+			'headline': 'Measles campaign', 'body': 'Free vaccine for children under five.',
+			'issued_by': 'MoH'})
+		assert camp.status_code == 403, (
+			f'a citizen published a notice attributed to MoH: {camp.status_code} {camp.text}')
+		officer = {'Authorization': f'Bearer {await _county_officer(c)}'}
+		camp = await c.post('/monitoring/campaign', headers=officer, json={
 			'disease': 'measles', 'counties': ['Garissa'], 'target_age_months': [9, 59],
 			'starts_iso': '2026-11-01', 'ends_iso': '2026-11-30',
 			'headline': 'Measles campaign', 'body': 'Free vaccine for children under five.',

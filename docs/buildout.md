@@ -28,6 +28,7 @@
 | §18 ADaM/JALI/PHEOC/PPB/MoHF | `src/afya/integrations/` (httpx adapters) | `test_integrations.py` |
 | §15.5 API (REST, WebSocket, versioning, OpenAPI 3.1) | `src/afya/service.py`, `src/afya/realtime/`, `src/afya/auth/` | `test_app.py`, `test_realtime.py`, `test_auth.py` |
 | §15.5 gRPC internal | `proto/afya_internal.proto`, `src/afya/grpc_api/` | `test_grpc.py` |
+| The route surface against its callers, both ways | `src/afya/mobile/actions.py` (`API_ONLY` — 133 served routes no action reaches, each with the jurisdiction that does; `OPERATOR_SCOPES`, `DORMANT_SLUGS`) | `test_api_only.py` (canaried by `canary_api_only.py`) |
 | Native clients | `ios/` (SwiftUI), `android/` (Kotlin) | xcodebuild + gradle assembleDebug |
 
 Everyday-health domain modules (2026-10-08, commit 4e06739): women/ (cycle tracking), maternal/ (ANC + danger signs), chronic/ (BP/glucose/refill), mental/ (WHO-5 + lines), blood/ (donor matching), alerts/ (water/air/flood/school/multi-disease), insurance/ (SHA + price transparency) — new tests/ci/test_expansion.py; registry now 58 features incl. REC-004..009/INF-011..016/SENS-009.
@@ -6782,3 +6783,82 @@ The audit register's citations, checked rather than trusted (2026-10-15). Every 
 - **A row this build adds says so.** `consent_records` is not one of §SEC-005's nine — the consent ledger is kept under the same legal obligation as a notification record — so it carries empty stated cells, and both tests assert the emptiness rather than letting an addition pass as a requirement. The spec-comparison test maps the section's labels to the table's slugs by a rule (drop the parenthetical, slugify) rather than a hand-kept name list, because the name list is the artefact that drifts.
 - **The front door serves the section's promise.** `/retention/policy` is what `retention_policy` in the mobile catalogue calls, so it is where a person's "how long is my data kept" answer is read; it serialises the whole model, so the stated cells and the carve-out travel without a second edit. A client can now render "kept until a clinician has reviewed it" instead of a "30 days" the section never promised.
 - **Canaried five ways, and the first pass found the canaries were wrong, not the gate.** 1/5 fired: two mutations tripped the module-level assert in `views.py` at import, so the aimed test never ran and the canary proved nothing about it — a canary that trips an import guard is a canary that did not test the test. The remaining two aimed at a node that did not cover the mutated claim. Re-aimed and made disjoint from the import guard, and the drift mutation exposed a real gap — the derived window for the four event-stated rows was never pinned, and it is *served*, so a silent drift would have handed a client a number nobody chose. Pinned as a literal dict. 5/5 fired.
+
+## The routes no screen could reach, and the register that answers it in a file (2026-10-16)
+
+The catalogue's own test asserted that every *action* maps to a route. Nothing asked the reverse, and
+the reverse is where the defect was: **133 of the 439 routes the app serves are reached by no action**,
+and twelve of them are the citizen's own data, guarded `require_self`, offered by nothing. A capability
+existed and no handset could reach it — §REC-001's wallet could be read by a guardian and enrolled into
+by nobody, §17.2's correction right had no way to exercise it, §16.3's conflicts were computed and never
+shown, §TRI-002's diary escalation was computed and never shown.
+
+- **The measurement took twelve rewrites, and every one of them was the same bug.** A line-window
+  matcher over `service.py` gave 62; a text scanner gave 13 `require_self` routes where the structured
+  count is 4; an AST walk gave 134 unguarded routes, all of them guarded. Each instrument read *a
+  spelling* of the surface rather than the surface. What settled it is structured comparison off the
+  running object: walk the mounts, take `(method, path)` and `inspect.signature` plus the closure cells
+  of each `Depends`. The rule the repo already carries — *"an inventory read from source is not an
+  inventory the app serves"* — was being violated by the instrument written to enforce it.
+- **`app.routes` holds four entries, and walking it without descending mounts is why the first
+  answer was wrong.** `create_app()` returns a facade whose only routes are the root, the OpenAPI
+  document and two `Mount`s; all 439 real routes are declared on the sub-app the `/v1` mount wraps.
+  A walk that stops at a `Mount` reports a four-route app and a clean audit. The gate descends
+  `hasattr(r, 'routes')` and reads what a *request* reaches.
+- **Every guard read as `create_app`.** `getattr(dep, '__qualname__').split('.<locals>')[0]` splits on
+  the **first** `.<locals>`, and a guard closure's qualname is
+  `create_app.<locals>.register.<locals>.guard` — so the split returned `create_app` for all of them
+  and every route looked identically guarded. `q.rsplit('.<locals>.', 1)[0].rsplit('.', 1)[-1]` is the
+  correct form, and the fix is one character of which *end* to split from. This is the "one of two
+  spellings" defect, in the instrument, for the fifth time this session.
+- **The register is a file, not a reader's head, and that is the user's own standing rule.** The repo's
+  CLAUDE.md says to answer *"which of these are API-only?"* in a file. `API_ONLY` in
+  `afya.mobile.actions` is that file: 133 entries, each naming the jurisdiction that reaches the route
+  — `client_direct` (5), `device_only` (4), `citizen_self` (2), `inbound_wire` (5), `device_write` (4),
+  `public_read` (35), and the operator scopes `audit_logs` (33), `infrastructure` (23), `assigned` (12),
+  `county_aggregate` (5+2), `national_aggregate` (2), `audit_logs+infrastructure` (1). It is a register,
+  not a defect list: the entries that were defects were fixed and the register holds what remains.
+- **`client_direct` is the one jurisdiction that is read rather than declared, so it is.** A path a
+  native client names literally is a fact about two source trees, not a judgement, and
+  `test_the_client_direct_entries_are_the_paths_the_clients_actually_name` extracts the path literals
+  from the Swift and Kotlin sources and asserts the set equals the register's. That is the §16.4
+  finding — *"the route exists" and "a handset calls it" are different facts* — turned into a standing
+  check. Both sides normalise a parameter to `*`, because the client writes `\(sessionId)` and the route
+  writes `{session_id}`; a raw comparison called `/channels/chw/tasks/*/done` client-direct when
+  `complete_chw_task` already reaches it, which is the same bug the gate exists to catch.
+- **Twelve actions close the reachable half.** `add_family_member` (REC-001), `schedule_review`
+  (MON-003), `remove_household_member` and `request_activation` (MON-009), `diary_escalation` (TRI-002),
+  `correct_my_data` and `my_corrections` (SEC-005), `link_my_profile` (SEC-004), `sync_conflicts` and
+  `appeal_conflict` (ACC-003), `issue_campaign` (MON-001), `estimate_breathing` (SENS-001). Each declares
+  its feature in `FEATURE_OF`, which the catalogue's build assert checks, so an action with no spec
+  feature fails the whole suite rather than shipping unattributed. `estimate_breathing` is additionally
+  in `DORMANT_SLUGS`: SENS-001 is Tier 4, so the action is dark until PHEOC declares the event.
+- **The misguard the register found, and the test that pinned it.** `/monitoring/campaign` carried
+  `require_self(names_subject=False)` with a docstring claiming *"the caller is the issuing officer, and
+  whether this role may issue one is enforced by the role check `require_self` already applies."*
+  `require_self` admits `CITIZEN_ROLES` and refuses every staff role outright — it did the *opposite* of
+  what the comment said. Probed through the front door: an anonymous token posted a `CampaignNotice` with
+  `issued_by: 'MoH'` and got a **200**, publishing a fabricated Ministry notice into the immunisation
+  feed every parent in a county receives, while the county officer the notice is from was refused. The
+  guard is now `require_scope('county_aggregate', purpose='community_health_delivery')` and the action is
+  in `OPERATOR_SCOPES`, so the officer can reach it. `test_mon001.py` asserted only the citizen's 200 and
+  therefore **pinned the defect**; it now asserts 403 for the citizen and 200 for a county officer token
+  obtained through the app's own PKCE flow.
+- **A route with a `Depends` that admits the wrong population is invisible to the gate that exists to
+  find it.** `test_ui_vocabulary.UNGATED_WRITES` counts any `Depends` as a guard, so this route — a write
+  guarded by the citizen's own-data guard, reachable by an anonymous token — was counted as guarded and
+  reported clean. That is the fourth instance of the class the register names, and the first where the
+  guard's *presence* was the camouflage rather than its absence.
+- **The gate is two-directional, because each direction alone is half an answer.** An action whose path
+  is not served is a screen that 404s; a served route with no action is a capability nobody can reach.
+  `test_api_only.py` crosses the two sets and fails on either difference, plus a drift check that a
+  register entry naming a route that is now reached, absent or misspelled comes off — the same rule
+  `ON_DEVICE` and `UNGATED_WRITES` carry, and for the same reason.
+- **Canaried six ways, each watched failing and reverted from a `cp` backup.** A register entry removed
+  (the silent case the gate exists for); a reached route parked in the register (the stale direction); a
+  register path misspelled (neither reached nor served); a catalogue action pointing at a path nobody
+  serves; a register entry given an invented jurisdiction; and the iOS client renamed off the
+  resumable-upload path, aimed at the client-source test because no server-side test can see it. 6/6
+  fired. The second canary missed on its first run: its anchor was already a register key, so the added
+  line was a duplicate dict key that collapsed silently and the mutation was a no-op — a canary whose
+  patch changes no bytes is a canary that did not run.

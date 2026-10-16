@@ -3893,13 +3893,24 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 	@app.post('/monitoring/campaign')
-	async def monitoring_campaign(notice: CampaignNotice, _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
+	async def monitoring_campaign(notice: CampaignNotice,
+			_subject: str = Depends(require_scope('county_aggregate', purpose='community_health_delivery'))) -> dict[str, object]:
 		"""§MON-001's campaign notification — issued by an authority, published into the feed.
 
-		`require_self(names_subject=False)` because the notice names counties and an age band and no
-		subject: the caller is the issuing officer, and what is being written is a public notice
-		rather than anything about them. Whether this role may issue one is §17.4's question and is
-		enforced by the role check `require_self` already applies.
+		`county_aggregate`, which is the county health team's scope and the one every other public
+		broadcast on this surface carries (`POST /alerting/feed` publishes the same class of notice
+		under `assigned`). The route writes a notice that says `issued_by: MoH` into the immunisation
+		feed every parent in a county receives, so the guard has to be about *who may speak for the
+		authority* — and the scope is the only thing that answers that.
+
+		It carried `require_self(names_subject=False)` until this was read against what the route
+		does. `require_self` is the citizen's own-data guard: it admits `CITIZEN_ROLES` and refuses
+		every staff role outright, so the guard did the *opposite* of what its comment claimed. An
+		anonymous token posted a notice attributed to MoH and got a 200 — probed, not inferred — while
+		the county officer the notice is from was refused. A route with a guard that admits the wrong
+		population is the unguarded-write defect wearing a guard's clothes: the walker in
+		`test_ui_vocabulary.py` counts any `Depends` as a guard, so this route was invisible to the
+		check that exists to find exactly this.
 		"""
 		try:
 			out = await monitoring.publish_campaign(notice, alerting)

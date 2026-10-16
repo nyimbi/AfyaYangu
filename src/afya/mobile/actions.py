@@ -34,6 +34,7 @@ from afya.location.views import (
 	CHECKIN_METHODS as CHECKIN_METHODS_SPEC,
 )
 from afya.medicine import contraindications
+from afya.identity.views import LinkBasis
 from afya.monitoring.views import LARVICIDE_CLASSES
 from afya.records.views import WALLET_DOC_KINDS
 from afya.registry.diseases import DISEASES
@@ -124,6 +125,7 @@ CHW_TASK_KINDS = ['followup', 'referral', 'sensitisation']
 FEATURE_OF: dict[str, str] = {
 	'febrile_triage': 'TRI-001', 'evd_triage': 'TRI-003', 'differential': 'TRI-001',
 	'diary_trend': 'TRI-002', 'diary_export': 'TRI-002', 'diary_prompt': 'TRI-002',
+	'diary_escalation': 'TRI-002',
 	'symptom_diary': 'TRI-002',
 	'what_should_i_do': 'INF-002', 'entry_answers': 'INF-002', 'health_library': 'INF-003', 'publish_content': 'INF-003',
 	'search_library': 'INF-004', 'library_categories': 'INF-004', 'myth_library': 'INF-004',
@@ -148,6 +150,7 @@ FEATURE_OF: dict[str, str] = {
 	'sos_state': 'EMG-001',
 	'emergency_card': 'EMG-003',
 	'immunisation_gaps': 'REC-001', 'family_wallet': 'REC-001', 'growth_flag': 'REC-003',
+	'add_family_member': 'REC-001',
 	# §9.2 REC-001's features, and §10.1 REC-002's seven additions over it. Both sections describe
 	# operations over one set of wallet documents, so the actions below serve both: `wallet_search`
 	# and `file_document` are REC-001's, and the timeline, chart, certificate, export, share and
@@ -181,7 +184,7 @@ FEATURE_OF: dict[str, str] = {
 	'birth_plan': 'MON-002', 'save_birth_plan': 'MON-002', 'pmtct_referral': 'MON-002',
 	'maternity_facilities': 'MON-002',
 	'child_schedule': 'MON-001', 'catch_up_doses': 'MON-001', 'record_dose': 'MON-001', 'register_child': 'MON-001',
-	'missed_doses': 'MON-001', 'vaccination_campaigns': 'MON-001',
+	'missed_doses': 'MON-001', 'vaccination_campaigns': 'MON-001', 'issue_campaign': 'MON-001',
 	'add_medication': 'MON-004', 'log_adherence': 'MON-004',
 	'peak_flow': 'MON-003', 'log_weight': 'MON-003', 'condition_profile': 'MON-003', 'clinical_report': 'MON-003',
 	# §MON-003's three conditions with no reading behind them, and its three missing features. The
@@ -189,6 +192,7 @@ FEATURE_OF: dict[str, str] = {
 	# "My kidney results", not "MON-003".
 	'kidney_result': 'MON-003', 'seizure_log': 'MON-003', 'sickle_crisis': 'MON-003',
 	'trend_chart': 'MON-003', 'appointments': 'MON-003', 'lifestyle_guidance': 'MON-003',
+	'schedule_review': 'MON-003',
 	'vector_risk': 'MON-007', 'breeding_site': 'MON-007', 'larviciding': 'MON-007',
 	'issue_larviciding': 'MON-007', 'protection_reminder': 'MON-007',
 	'food_alert': 'MON-008', 'food_alerts': 'MON-008', 'nutrition': 'MON-008',
@@ -196,6 +200,7 @@ FEATURE_OF: dict[str, str] = {
 	'enrol_monitoring': 'MON-009', 'monitoring_day': 'MON-009', 'monitoring_diary': 'MON-009',
 	'monitoring_reminders': 'MON-009', 'monitoring_consent': 'MON-009', 'monitoring_members': 'MON-009',
 	'monitoring_member_diary': 'MON-009', 'monitoring_officer': 'MON-009',
+	'remove_household_member': 'MON-009', 'request_activation': 'MON-009',
 	'issue_alert': 'INF-014', 'alerts_by_county': 'INF-014',
 	'water_advisory': 'INF-011', 'air_advisory': 'INF-012', 'flood_risk': 'INF-013',
 	'file_price': 'INF-016', 'price_quote': 'INF-016', 'sha_cover_check': 'INF-016',
@@ -206,12 +211,15 @@ FEATURE_OF: dict[str, str] = {
 	# that overran the ceiling, which is editorial state. The same scope the other content reads take.
 	'plain_language': 'CHAN-001',
 	'queue_sync_op': 'CHAN-006', 'flush_sync': 'CHAN-006', 'offline_state': 'ACC-003',
+	'sync_conflicts': 'ACC-003', 'appeal_conflict': 'ACC-003',
 	'record_consent': 'SEC-001', 'consent_choices': 'SEC-001', 'dpia_check': 'SEC-001',
 	'consent_history': 'SEC-001', 'withdraw_consent': 'SEC-001',
 	# §SEC-004's optional pseudonymous profile. The two are one feature because they are one setting:
 	# the handle a person is shown and the handle they may choose are the same value.
 	'my_pseudonym': 'SEC-004', 'choose_pseudonym': 'SEC-004',
+	'link_my_profile': 'SEC-004',
 	'sensor_ingest': 'SENS-005', 'analyse_cough': 'SENS-002', 'submit_evidence': 'SENS-004',
+	'estimate_breathing': 'SENS-001',
 	'tag_resolve': 'SENS-010', 'tag_tap': 'SENS-010', 'tag_bind': 'SENS-010',
 	'tag_coverage': 'SENS-010', 'equipment_list': 'SENS-010', 'equipment_add': 'SENS-010',
 	'equipment_move': 'SENS-010',
@@ -242,6 +250,7 @@ FEATURE_OF: dict[str, str] = {
 	'battery_profile': 'ACC-004', 'compatibility': 'ACC-005', 'sensor_capabilities': 'ACC-005',
 	'screen_layouts': 'ACC-005',
 	'retention_policy': 'SEC-005', 'record_holding': 'SEC-006', 'record_share': 'SEC-006',
+	'correct_my_data': 'SEC-005', 'my_corrections': 'SEC-005',
 	'data_inventory': 'SEC-006', 'export_my_data': 'SEC-005', 'delete_my_data': 'SEC-005', 'purge_expired': 'SEC-005',
 	'encryption_posture': 'SEC-003', 'transparency_report': 'SEC-006',
 	'public_transparency_report': 'SEC-006', 'publication_schedule': 'SEC-006', 'licence_terms': 'SEC-006',
@@ -327,6 +336,10 @@ OPERATOR_SCOPES: dict[str, str] = {
 	# food-safety warning above and the §FND-006 slot below. The read (`larviciding`) is public; a
 	# citizen's catalogue must not carry the form that announces a county operation.
 	'issue_larviciding': 'county_aggregate',
+	# §MON-001's campaign notice, on the same reasoning as the larviciding round and the food-safety
+	# warning: it is a public statement addressed to a county's parents, and the route that writes it
+	# carries `county_aggregate`. The read (`vaccination_campaigns`) is the parent's and stays.
+	'issue_campaign': 'county_aggregate',
 	# §SENS-010's register: binding a tag is an act of the same kind as registering the check-in
 	# point above it — it is what makes a tap mean something, and a tag anyone can bind is a tag
 	# anyone can bind to a medicine package. The taps themselves (`tag_resolve`, `tag_tap`) are
@@ -351,6 +364,215 @@ OPERATOR_SCOPES: dict[str, str] = {
 	'publish_slot': 'county_aggregate',
 }
 
+# Every route this app serves that no catalogue action reaches — the answer to "which of these are
+# API-only?" as a file rather than a reader's head. The other direction is asserted too: every
+# catalogue action has a route, so the two sets are crossed in both directions by
+# `test_api_only.py`, and a route added without either an action or an entry here fails.
+#
+# It is a *register*, not a defect list. A route here is reachable by someone the catalogue does not
+# serve — an operator console, an auditor, a carrier's webhook, a device's own upload — and the
+# value that goes with each key is the jurisdiction that reaches it. What the register makes
+# impossible is the silent case: a citizen route that no handset can reach, which is what the
+# eleven actions added for §REC-001's wallet, §17.2's corrections, §16.3's conflicts and the rest
+# were. Those were found by crossing this surface against the catalogue, and this is that cross
+# written down so the next one is found by a test rather than by an audit.
+#
+# The jurisdictions, and why each is not a missing action:
+#
+#   client_direct   A native client names the path literally and does not draw it from the
+#                   catalogue. `GET /mobile/actions` is the catalogue itself, so it cannot be an
+#                   entry in it; `POST /auth/anonymous` issues the token every other call needs;
+#                   `POST /evidence/upload` is the resumable-upload opener the iOS and Android
+#                   evidence screens call by name. Read from the client sources by the test, not
+#                   asserted here.
+#   device_only     The device's own upload session. The subject lives on the session rather than
+#                   in the token, so `require_self` cannot guard it and the owner check is
+#                   `_upload_owner` instead. `/facilities/{id}/reports` is the same shape: the
+#                   reporter comes from an *optional* token, so the catalogue would have to draw a
+#                   form for a route that works without one.
+#   citizen_self    A citizen route whose form the client fills from its own session subject
+#                   (`_s()` in this module), so the catalogue carries a sibling action that reaches
+#                   the same feature. Listed so the register is complete rather than to claim a gap.
+#   inbound_wire    An external party posts to it: a carrier's USSD callback, the telco's inbound
+#                   SMS, the hotline's follow-up and outcome, a consent granted on a channel.
+#                   Authenticated by `require_webhook`'s signature, which no handset can present.
+#   device_write    An unguarded write that is the device's own queue (`/sync/batch`, `/sync/delta`)
+#                   or a pure computation with nothing stored (`/facilities/find`,
+#                   `/emergency/fall`). The same set `test_ui_vocabulary.UNGATED_WRITES` argues
+#                   for, restricted to the routes no action reaches.
+#   public_read     A public document — no personal data and no token: the brand, the feature
+#                   taxonomy, the personas, the rollout plan, the governance posture. §7.3's
+#                   tier model, §4's segments, §21's phases. These are the spec's own tables served
+#                   as JSON, and a citizen reading them is the point.
+#   <scope>         Guarded on an operator dataset: `audit_logs` (the auditor's own reports),
+#                   `infrastructure` (provisioning, registries, governance), `assigned` (the CHW's
+#                   caseload and the §18 integration wires), `county_aggregate` and
+#                   `national_aggregate` (the county's and PHEOC's own surfaces). These are
+#                   reachable by a role the catalogue deliberately does not serve to citizens —
+#                   `OPERATOR_SCOPES` above is the mirror of this for the actions that *do* have
+#                   one.
+API_ONLY: dict[tuple[str, str], str] = {
+	# 5 routes: a native client names the path literally, outside the catalogue.
+	('GET', '/mobile/actions'): 'client_direct',
+	('GET', '/mobile/features'): 'client_direct',
+	('GET', '/places/nearest'): 'client_direct',
+	('POST', '/auth/anonymous'): 'client_direct',
+	('POST', '/evidence/upload'): 'client_direct',
+
+	# 4 routes: the device's own upload session; the subject is on the session.
+	('GET', '/evidence/upload/{session_id}'): 'device_only',
+	('POST', '/evidence/upload/{session_id}/chunk'): 'device_only',
+	('POST', '/evidence/upload/{session_id}/finish'): 'device_only',
+	('POST', '/facilities/{facility_id}/reports'): 'device_only',
+
+	# 2 routes: a citizen route whose form the client fills from its own subject.
+	('GET', '/triage/{ref}/diary'): 'citizen_self',
+	('POST', '/integrations/jali/link'): 'citizen_self',
+
+	# 5 routes: an external party posts to it, authenticated by signature.
+	('POST', '/channels/ussd/callback'): 'inbound_wire',
+	('POST', '/integrations/hotline/follow-up'): 'inbound_wire',
+	('POST', '/integrations/hotline/outcome'): 'inbound_wire',
+	('POST', '/integrations/telco/sms/inbound'): 'inbound_wire',
+	('POST', '/privacy/consent/by-phone'): 'inbound_wire',
+
+	# 4 routes: an unguarded write that is the device's own queue or a pure computation.
+	('POST', '/emergency/fall'): 'device_write',
+	('POST', '/facilities/find'): 'device_write',
+	('POST', '/sync/batch'): 'device_write',
+	('POST', '/sync/delta'): 'device_write',
+
+	# 35 routes: a public document: no personal data and no token.
+	('GET', '/ai/footprint'): 'public_read',
+	('GET', '/alerts/socket/stats'): 'public_read',
+	('GET', '/auth/whoami'): 'public_read',
+	('GET', '/brand'): 'public_read',
+	('GET', '/channels/attention'): 'public_read',
+	('GET', '/chw/job-aid/{topic}/print'): 'public_read',
+	('GET', '/community/misinformation/protocol'): 'public_read',
+	('GET', '/facilities/offline-bundle'): 'public_read',
+	('GET', '/facilities/{facility_id}/reports'): 'public_read',
+	('GET', '/features'): 'public_read',
+	('GET', '/features/taxonomy'): 'public_read',
+	('GET', '/health'): 'public_read',
+	('GET', '/info/questions'): 'public_read',
+	('GET', '/integrations/jali/corrections'): 'public_read',
+	('GET', '/integrations/pheoc/feeds'): 'public_read',
+	('GET', '/integrations/status'): 'public_read',
+	('GET', '/integrations/telco/zero-rating'): 'public_read',
+	('GET', '/intermediaries/kinds'): 'public_read',
+	('GET', '/intermediaries/programme'): 'public_read',
+	('GET', '/mental/instruments'): 'public_read',
+	('GET', '/personas'): 'public_read',
+	('GET', '/personas/segments'): 'public_read',
+	('GET', '/places/pharmacies'): 'public_read',
+	('GET', '/rollout/acquisition'): 'public_read',
+	('GET', '/rollout/acquisition/levers'): 'public_read',
+	('GET', '/rollout/app-size'): 'public_read',
+	('GET', '/rollout/launch'): 'public_read',
+	('GET', '/rollout/phases'): 'public_read',
+	('GET', '/rollout/plan'): 'public_read',
+	('GET', '/security/disclosure'): 'public_read',
+	('GET', '/sensors/accuracy'): 'public_read',
+	('GET', '/sync/policy'): 'public_read',
+	('POST', '/auth/pkce/authorize'): 'public_read',
+	('POST', '/auth/pkce/token'): 'public_read',
+	('POST', '/auth/revoke'): 'public_read',
+
+	# 12 routes: guarded on the assigned dataset.
+	('GET', '/integrations/adam/case-definitions'): 'assigned',
+	('GET', '/integrations/adam/cases/{report_id}'): 'assigned',
+	('GET', '/integrations/adam/contacts'): 'assigned',
+	('GET', '/integrations/hotline/outcomes'): 'assigned',
+	('GET', '/integrations/jali/assessments/{assessment_id}/review'): 'assigned',
+	('GET', '/intermediaries/{code}/attribution'): 'assigned',
+	('GET', '/triage/rrt/{county}'): 'assigned',
+	('POST', '/alerting/service-status'): 'assigned',
+	('POST', '/integrations/adam/cases'): 'assigned',
+	('POST', '/integrations/adam/monitoring'): 'assigned',
+	('POST', '/integrations/jali/assessments'): 'assigned',
+	('POST', '/intermediaries/referrals'): 'assigned',
+
+	# 33 routes: guarded on the audit_logs dataset.
+	('GET', '/features/claims'): 'audit_logs',
+	('GET', '/features/content'): 'audit_logs',
+	('GET', '/governance/agreements'): 'audit_logs',
+	('GET', '/identity/links'): 'audit_logs',
+	('GET', '/identity/model'): 'audit_logs',
+	('GET', '/info/health-education'): 'audit_logs',
+	('GET', '/metrics/equity'): 'audit_logs',
+	('GET', '/metrics/evaluation'): 'audit_logs',
+	('GET', '/metrics/kpis'): 'audit_logs',
+	('GET', '/metrics/report'): 'audit_logs',
+	('GET', '/operations/duties'): 'audit_logs',
+	('GET', '/operations/governance'): 'audit_logs',
+	('GET', '/operations/incidents'): 'audit_logs',
+	('GET', '/operations/risks'): 'audit_logs',
+	('GET', '/operations/support-plan'): 'audit_logs',
+	('GET', '/operations/sustainability'): 'audit_logs',
+	('GET', '/personas/coverage'): 'audit_logs',
+	('GET', '/privacy/access-log'): 'audit_logs',
+	('GET', '/privacy/dpia/topics'): 'audit_logs',
+	('GET', '/privacy/rbac'): 'audit_logs',
+	('GET', '/privacy/regulatory'): 'audit_logs',
+	('GET', '/problem'): 'audit_logs',
+	('GET', '/records/wallet/contents'): 'audit_logs',
+	('GET', '/rollout/acquisition/coverage'): 'audit_logs',
+	('GET', '/rollout/plan/readiness'): 'audit_logs',
+	('GET', '/rollout/readiness'): 'audit_logs',
+	('GET', '/rollout/status'): 'audit_logs',
+	('GET', '/security/controls'): 'audit_logs',
+	('GET', '/security/posture'): 'audit_logs',
+	('GET', '/sensors/coverage'): 'audit_logs',
+	('GET', '/sensors/tags/{tag_id}/readings'): 'audit_logs',
+	('POST', '/privacy/dpia/review'): 'audit_logs',
+	('POST', '/transparency/publish'): 'audit_logs',
+
+	# 1 routes: guarded on the audit_logs+infrastructure dataset.
+	('GET', '/tier4/activation'): 'audit_logs+infrastructure',
+
+	# 5 routes: guarded on the county_aggregate dataset.
+	('DELETE', '/sensors/tags/{tag_id}'): 'county_aggregate',
+	('POST', '/ai/hotspots/deploy'): 'county_aggregate',
+	('POST', '/facilities'): 'county_aggregate',
+	('POST', '/surveillance/geofence'): 'county_aggregate',
+	('POST', '/surveillance/signal'): 'county_aggregate',
+
+	# 2 routes: guarded on the county_aggregate+national_aggregate dataset.
+	('GET', '/analytics/dashboards'): 'county_aggregate+national_aggregate',
+	('GET', '/analytics/dashboards/{dashboard}'): 'county_aggregate+national_aggregate',
+
+	# 23 routes: guarded on the infrastructure dataset.
+	('GET', '/facilities/verification'): 'infrastructure',
+	('GET', '/governance/capacity'): 'infrastructure',
+	('GET', '/governance/egress'): 'infrastructure',
+	('GET', '/governance/open-questions'): 'infrastructure',
+	('GET', '/governance/residency'): 'infrastructure',
+	('GET', '/governance/residency/check'): 'infrastructure',
+	('GET', '/governance/stack'): 'infrastructure',
+	('POST', '/auth/staff/provision'): 'infrastructure',
+	('POST', '/facilities/import-mohf'): 'infrastructure',
+	('POST', '/facilities/{facility_id}/correction'): 'infrastructure',
+	('POST', '/governance/agreements'): 'infrastructure',
+	('POST', '/governance/capacity'): 'infrastructure',
+	('POST', '/info/county-office'): 'infrastructure',
+	('POST', '/integrations/telco/airtime'): 'infrastructure',
+	('POST', '/intermediaries/enrol'): 'infrastructure',
+	('POST', '/intermediaries/incentives'): 'infrastructure',
+	('POST', '/metrics/measurement'): 'infrastructure',
+	('POST', '/operations/duties/{obligation_id}/performed'): 'infrastructure',
+	('POST', '/operations/incidents'): 'infrastructure',
+	('POST', '/places/import-osm'): 'infrastructure',
+	('POST', '/security/scans'): 'infrastructure',
+	('POST', '/tier4/activation/fire'): 'infrastructure',
+	('POST', '/tier4/deactivate'): 'infrastructure',
+
+	# 2 routes: guarded on the national_aggregate dataset.
+	('POST', '/integrations/pheoc/feeds/{feed}'): 'national_aggregate',
+	('POST', '/integrations/pheoc/feeds/{feed}/preview'): 'national_aggregate',
+
+}
+
 # Slugs withheld until PHEOC activates the outbreak event (§11.1). Grouped by the feature that
 # governs them; every Tier-4 feature that has an action appears here in full. The registry is the
 # backstop — `available()` also derives dormancy from the tier model, so a Tier-4 feature added
@@ -361,6 +583,7 @@ DORMANT_SLUGS: frozenset[str] = frozenset({
 	# 21-day contact monitoring (MON-009)
 	'enrol_monitoring', 'monitoring_day', 'monitoring_diary', 'monitoring_reminders',
 	'monitoring_consent', 'monitoring_members', 'monitoring_member_diary', 'monitoring_officer',
+	'remove_household_member', 'request_activation',
 	# Community health worker reporting module (COM-101)
 	'submit_case', 'advance_case', 'ppe_reminder', 'job_aid', 'chw_cases', 'assign_chw_case',
 	'log_chw_activity', 'chw_activity', 'chw_case_load', 'chw_ppe_reminder',
@@ -381,6 +604,11 @@ DORMANT_SLUGS: frozenset[str] = frozenset({
 	'hotspots', 'risk_score', 'early_warning', 'signal_scan', 'signal_report',
 	# Outbreak-mode sensors: acoustic cough (SENS-002), camera symptom capture (SENS-004)
 	'analyse_cough', 'submit_evidence',
+	# Respiration-rate estimation (SENS-001). The route derives a rate from a motion series rather
+	# than storing one the device already computed, and it is gated on the same tier as the ingest —
+	# so the action is dark until PHEOC declares the event, which is what the section's own tier
+	# says about the whole sensor.
+	'estimate_breathing',
 })
 
 
@@ -443,6 +671,11 @@ def catalogue() -> list[MobileAction]:
 		_a('diary_trend', 'Am I getting better or worse?', 'Triage', 'GET', '/triage/{ref}/diary/trend', [_f('ref', 'Your reference', 'path')]),
 		_a('diary_export', 'Share my diary with a clinician', 'Triage', 'GET', '/triage/{ref}/diary/export', [_f('ref', 'Your reference', 'path')]),
 		_a('diary_prompt', 'Today\'s check-in', 'Triage', 'GET', '/triage/{ref}/diary/prompt', [_f('ref', 'Your reference', 'path'), _f('day', 'Day (1-21)', 'int'), _f('opted_in', 'Send me a daily reminder', 'bool')]),
+		# §TRI-002's "automatic escalation if new red flags are logged". The trend route above shows
+		# the shape of the diary; this is the one that acts on it, and nothing reached it — so the
+		# escalation the section promises when a red flag appears was computed and never shown. A
+		# `null` answer is the normal case and is not an error: it means nothing new is red-flagged.
+		_a('diary_escalation', 'Has anything changed since yesterday?', 'Triage', 'GET', '/triage/{ref}/diary/escalation', [_f('ref', 'Your reference', 'path')]),
 		_a('what_should_i_do', 'What should I do?', 'Triage', 'GET', '/info/decision-tree', [
 			_f('answers', 'Answers so far', ph='yes,no,leave blank to start'),
 			_f('entry', 'Where you started', 'select', ['root', 'household'])]),
@@ -560,6 +793,11 @@ def catalogue() -> list[MobileAction]:
 		# Records & wallet
 		_a('immunisation_gaps', 'Which vaccines are missing?', 'Records', 'GET', '/records/{member_ref}/immunisation-gaps', [_f('member_ref', 'Family member', 'path')]),
 		_a('family_wallet', 'Family health wallet', 'Records', 'GET', '/records/{guardian_ref}/wallet', [_f('guardian_ref', 'Guardian', 'path')]),
+		# §REC-001's wallet had readers and no writer: a guardian could see the family wallet and
+		# every document in it, and no action enrolled a member into it, so the wallet a person
+		# could read was one nothing could fill. The route is guarded `require_self_or_guardian`
+		# with `may_create`, so the guardian is the token's own and no form draws one.
+		_a('add_family_member', 'Add someone to my wallet', 'Records', 'POST', '/records/member', [_auto('member_ref', 'Reference'), _f('name', 'Their name', ph='optional'), _f('dob_iso', 'Date of birth'), _f('is_minor', 'Under 18?', 'bool')]),
 		_a('growth_flag', 'Is my child growing well?', 'Records', 'POST', '/records/growth', [_f('member_ref', 'Family member'), _f('age_months', 'Age in months', 'int'), _f('weight_kg', 'Weight in kg', 'decimal'), _f('height_cm', 'Height in cm', 'decimal'), _f('sex', 'Boy or girl?', 'select', ['boy', 'girl']), _f('head_circumference_cm', 'Head size in cm', 'decimal', ph='optional'), _f('muac_mm', 'Mid-upper arm in mm', 'decimal', ph='optional')]),
 		# §REC-003's milestone checklist, in Annex 9's two halves: read the list, then report it.
 		_a('milestone_checklist', 'What should my child be doing?', 'Records', 'GET', '/records/{member_ref}/milestones', [_f('member_ref', 'Family member', 'path'), _f('age_months', 'Age in months', 'int')]),
@@ -620,6 +858,10 @@ def catalogue() -> list[MobileAction]:
 		_a('sickle_crisis', 'I am in a sickle cell crisis', 'Daily care', 'POST', '/chronic/sickle-crisis', [_s(), _f('pain_score', 'Pain, 0 to 10', 'int'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('signs', 'Any of these?', 'list', ph='chest_pain, spleen_pain'), _f('at_iso', 'When did it start?')]),
 		_a('trend_chart', 'Show me my readings over time', 'Daily care', 'GET', '/chronic/{ref}/chart', [_f('ref', 'Who is this for?', 'path'), _f('metric', 'Which reading?', 'select', ['bp_systolic', 'bp_diastolic', 'glucose', 'peak_flow', 'weight'])]),
 		_a('appointments', 'My upcoming reviews', 'Daily care', 'GET', '/chronic/{ref}/appointments', [_f('ref', 'Who is this for?', 'path'), _f('today_iso', 'Today')]),
+		# The list above had no way to put anything in it: §MON-003's "Appointment tracking" was
+		# read-only from every client, so the reviews a person could see were the ones a clinician
+		# had already recorded and never the ones they scheduled for themselves.
+		_a('schedule_review', 'Book a review', 'Daily care', 'POST', '/chronic/appointments', [_auto('appointment_id', 'Reference'), _f('condition', 'Which condition?', 'select', ['hypertension', 'diabetes', 'asthma', 'epilepsy', 'sickle_cell', 'hiv', 'chronic_kidney']), _f('due_iso', 'When is it due?'), _f('interval_days', 'Repeat every how many days?', 'int'), _f('kind', 'What kind of review?', 'select', ['clinic', 'home', 'telehealth']), _f('facility_id', 'Where?', ph='optional'), _s()]),
 		_a('lifestyle_guidance', 'What should I eat and avoid?', 'Daily care', 'GET', '/chronic/lifestyle', [_f('condition', 'Which condition?', 'select', ['hypertension', 'diabetes', 'asthma', 'epilepsy', 'sickle_cell', 'hiv', 'chronic_kidney'])]),
 		# Women & maternal
 		_a('log_cycle', 'Log my period', 'Women', 'POST', '/women/cycle', [_s(), _f('start_iso', 'First day of period'), _f('cycle_days', 'Cycle length in days', 'int'), _f('pain_level', 'Pain level (0-10)', 'int')]),
@@ -662,6 +904,13 @@ def catalogue() -> list[MobileAction]:
 		_a('nutrition', 'What should my child eat?', 'Environment', 'GET', '/monitoring/nutrition/{age_months}', [_f('age_months', 'Age in months', 'path'), _f('month', 'Which month is it?', 'int', ph='optional')]),
 		_a('therapeutic_feeding', 'Where can a malnourished child get help?', 'Environment', 'GET', '/monitoring/therapeutic-feeding', [_f('county', 'County'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal')]),
 		_a('vaccination_campaigns', 'Any vaccination campaign near me?', 'Children', 'GET', '/monitoring/campaigns', [_f('county', 'County'), _f('on_iso', 'Which day', ph='optional')]),
+		# §MON-001's campaign notification, from the side that issues it. The read above is the
+		# parent's question; this is the county health team's, and the route is guarded on
+		# `county_aggregate` — so it is marked operator-only or a citizen's catalogue would offer a
+		# form that 403s. It was *not* marked before, because the route carried `require_self` and a
+		# citizen could post it: a notice attributed to MoH, published into the immunisation feed
+		# every parent in the county receives. The marking and the guard moved together.
+		_a('issue_campaign', 'Announce a vaccination campaign', 'Children', 'POST', '/monitoring/campaign', [_auto('campaign_id', 'Reference'), _f('disease', 'Which disease?', ph='a registry disease slug'), _f('counties', 'Which counties?', 'list'), _f('target_age_months', 'Age band in months', 'list', ph='9, 59'), _f('starts_iso', 'Starts'), _f('ends_iso', 'Ends'), _f('headline', 'Headline'), _f('body', 'What should parents know?', 'textarea'), _f('issued_by', 'Issued by', 'select', ['MoH', 'PHEOC', 'County'])]),
 		_a('water_advisory', 'Is the water safe?', 'Environment', 'POST', '/environment/water', [_f('county', 'County'), _f('ecoli_detected', 'E. coli detected?', 'bool'), _f('turbidity_ntu', 'Turbidity NTU', 'decimal'), _f('treated_at_iso', 'When you last treated water', ph='YYYY-MM-DDTHH:MM+03:00')]),
 		_a('air_advisory', 'How is the air?', 'Environment', 'POST', '/environment/air', [_f('county', 'County'), _f('location', 'Where you are'), _f('pm25', 'PM2.5 µg/m³', 'decimal'), _f('hourly', 'Today\'s hourly readings', 'list', ph='6=18, 12=34, 18=52')]),
 		_a('flood_risk', 'Flood and cholera risk', 'Environment', 'POST', '/environment/flood', [_f('county', 'County'), _f('rainfall_mm_72h', 'Rainfall mm in 3 days', 'decimal'), _f('population_at_risk', 'People at risk', 'int')]),
@@ -702,6 +951,10 @@ def catalogue() -> list[MobileAction]:
 		_a('monitoring_consent', 'Share my location while I am monitored', 'Outbreak', 'POST', '/monitoring/contact/{subject_ref}/location-consent', [_s('path'), _f('granted', 'Yes, share it', 'bool'), _f('at_iso', 'When')]),
 		_a('monitoring_members', 'Add someone I live with', 'Outbreak', 'POST', '/monitoring/contact/{subject_ref}/members', [_s('path'), _f('member_ref', 'Who they are to you', ph='e.g. my son')]),
 		_a('monitoring_member_diary', 'Their readings', 'Outbreak', 'GET', '/monitoring/contact/{subject_ref}/members/{member_ref}/diary', [_s('path'), _f('member_ref', 'Family member', 'path')]),
+		# The counterpart to the add above: a household member enrolled during monitoring could not
+		# be taken back off it, so a person who added someone by mistake kept them on the list for
+		# the whole 21 days. §MON-009's household list is the person's own, hence `require_self`.
+		_a('remove_household_member', 'Take someone off my list', 'Outbreak', 'DELETE', '/monitoring/contact/{subject_ref}/members/{member_ref}', [_s('path'), _f('member_ref', 'Family member', 'path')]),
 		_a('monitoring_officer', 'Call my monitoring officer', 'Outbreak', 'GET', '/monitoring/contact/{subject_ref}/officer', [_s('path')]),
 		_a('send_exposure_notice', 'Send an exposure notice', 'Outbreak', 'POST', '/alerting/exposure', [_f('subject_ref', 'Person to notify'), _f('case_ref', 'Case reference', ph='optional')]),
 		_a('ack_exposure', 'I have read the notice', 'Outbreak', 'POST', '/alerting/exposure/ack', [_f('notification_id', 'Notice number'), _s(), _f('acknowledged_iso', 'When'), _f('request_callback', 'Ask a health worker to call me', 'bool')]),
@@ -751,6 +1004,11 @@ def catalogue() -> list[MobileAction]:
 		# §17.3: the privacy-review key is not a field the caller sends any more — it is held by a
 		# recorded review, so the form offers the processing to assess and nothing to assert.
 		_a('activate_outbreak_mode', 'Activate outbreak mode', 'Outbreak', 'POST', '/tier4/activate', [_f('authorized_by_pheoc', 'PHEOC authorised?', 'bool'), _f('flag_enabled', 'Switch on?', 'bool'), _f('raw_sensor_data_retained', 'Keeping raw sensor data?', 'bool'), _f('location_tracking', 'Tracking location?', 'bool'), _f('proximity_logging', 'Proximity logging?', 'bool'), _f('contact_tracing', 'Contact tracing?', 'bool'), _f('automated_decisions', 'Automatic decisions?', 'bool'), _f('data_sharing_with_authorities', 'Sharing with health authorities?', 'bool'), _f('children_data', "Children's data?", 'bool'), _f('cross_border_transfer', 'Data leaving the country?', 'bool')]),
+		# §11.1 row 5, "User requests activation" — the one trigger in the section's table a person
+		# fires about themselves, and the only row with no operator behind it. It is a *request*, not
+		# the switch: PHEOC still declares the event, and the route records the ask. Dormant like the
+		# operator control above, because it belongs to the outbreak product, not the year-round one.
+		_a('request_activation', 'Ask us to switch this on for me', 'Outbreak', 'POST', '/tier4/activation/request', [_f('county', 'Where you are', ph='optional')]),
 		# Privacy & transparency
 		# §SEC-001's eight categories, as the person reads them before deciding. The route served
 		# this and no action reached it: `record_consent` writes a grant and `withdraw_consent` ends
@@ -773,6 +1031,11 @@ def catalogue() -> list[MobileAction]:
 		# and this is the one screen where naming a stranger would hand over their handle.
 		_a('my_pseudonym', 'What name do others see?', 'Privacy', 'GET', '/identity/pseudonym', [_f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
 		_a('choose_pseudonym', 'Choose the name others see', 'Privacy', 'POST', '/identity/pseudonym', [_f('handle', 'Your name on shared screens', ph='e.g. Tembo-a1b2')]),
+		# §5.4's "optional linkage to an app profile" — the section's *act*, distinct from the handle
+		# a person chooses above: this is joining a phone number's channel activity to the profile.
+		# `subject_ref` is the caller's own and forced to the token, so the form draws no subject and
+		# the two fields it does draw are the number and the consent that permits the join.
+		_a('link_my_profile', 'Link my number to this profile', 'Privacy', 'POST', '/identity/link', [_auto('link_id', 'Reference'), _f('msisdn', 'Phone number', ph='07xx xxx xxx'), _f('consent_id', 'Consent reference'), _f('basis', 'Why may we link it?', 'select', [b.value for b in LinkBasis]), _s()]),
 		_a('dpia_check', 'Check a new data use', 'Privacy', 'POST', '/privacy/dpia', [_f('raw_sensor_data_retained', 'Keeping raw sensor data?', 'bool'), _f('location_tracking', 'Tracking location?', 'bool'), _f('proximity_logging', 'Proximity logging?', 'bool'), _f('contact_tracing', 'Contact tracing?', 'bool'), _f('automated_decisions', 'Automatic decisions?', 'bool'), _f('data_sharing_with_authorities', 'Sharing with health authorities?', 'bool'), _f('children_data', "Children's data?", 'bool'), _f('cross_border_transfer', 'Data leaving the country?', 'bool')]),
 		_a('retention_policy', 'How long is data kept?', 'Privacy', 'GET', '/retention/policy', []),
 		_a('data_inventory', 'What do you know about me?', 'Privacy', 'GET', '/retention/inventory/{subject_ref}', [_s('path')]),
@@ -793,6 +1056,13 @@ def catalogue() -> list[MobileAction]:
 		_a('licence_terms', 'Is this app open source?', 'Privacy', 'GET', '/security/licence', []),
 		_a('record_holding', 'Record what is stored', 'Privacy', 'POST', '/retention/holding', [_s(), _f('data_type', 'Data type'), _f('count', 'How many records', 'int')]),
 		_a('record_share', 'Record a data share', 'Privacy', 'POST', '/retention/share', [_s(), _f('with_who', 'Shared with'), _f('what', 'What was shared'), _f('when_iso', 'When')]),
+		# §17.2's accuracy principle — "user data editable; correction workflows". The section's own
+		# comment on this route calls a record a person cannot correct "a statutory gap, not a missing
+		# feature", and no client could reach either half of it: the right to correct, and the history
+		# that makes it a workflow rather than an overwrite. The subject is the token's own, so no
+		# form draws one and `corrected_by` is the person themselves.
+		_a('correct_my_data', 'Something about me is wrong', 'Privacy', 'POST', '/retention/correct', [_f('data_type', 'Which record?'), _f('field', 'Which detail?'), _f('corrected_value', 'What it should say'), _f('reason', 'Why is it wrong?', 'textarea'), _s(), _f('corrected_by', 'Who is correcting it?', ph='you'), _f('channel', 'How?', 'select', ['native', 'sms', 'ussd', 'whatsapp'])]),
+		_a('my_corrections', 'Corrections I have asked for', 'Privacy', 'GET', '/retention/corrections', []),
 		# Access & fairness
 		_a('access_profile', 'Make the app easier to use', 'Access', 'POST', '/access/profile', [_s(), _f('simple_mode', 'Simple mode', 'bool'), _f('large_text', 'Large text', 'bool'), _f('high_contrast', 'High contrast', 'bool'), _f('read_aloud', 'Read screens aloud', 'bool'), _f('voice_input', 'Speak instead of typing', 'bool'), _f('lang', 'Language')]),
 		_a('ui_screens', 'Screen list', 'Access', 'GET', '/access/screens', [_f('simple_mode', 'Simple mode', 'bool')]),
@@ -862,7 +1132,18 @@ def catalogue() -> list[MobileAction]:
 		_a('queue_sync_op', 'Save for later (offline)', 'Sync', 'POST', '/sync/ops', [_f('op_id', 'Change number'), _f('dataset', 'What kind of change?', 'select', SYNC_DATASETS), _f('client_ts', 'When it happened', 'int')]),
 		_a('flush_sync', 'Send everything now', 'Sync', 'POST', '/sync/flush', [_f('connection', 'Connection', 'select', ['wifi', 'metered', 'offline'], ph='wifi')]),
 		_a('offline_state', 'Is my work saved?', 'Sync', 'GET', '/sync/state', []),
+		# §16.3's conflict matrix, from the side that has to live with it. A write the server
+		# overruled is invisible to a client that never asks, so the person whose edit lost had no
+		# way to learn it — and the appeal the section makes available for some strategies was
+		# reachable by nobody. The queue is the device's, so no form names a subject.
+		_a('sync_conflicts', 'Changes that did not save', 'Sync', 'GET', '/sync/conflicts', []),
+		_a('appeal_conflict', 'Ask us to look again', 'Sync', 'POST', '/sync/conflicts/{op_id}/appeal', [_f('op_id', 'Change number', 'path'), _f('note', 'Why should it be kept?', 'textarea')]),
 		_a('sensor_ingest', 'Save a reading', 'Sensors', 'POST', '/sensors/ingest', [_f('kind', 'Reading type', 'select', SENS_KINDS), _s(), _f('value', 'Value', 'decimal'), _f('county', 'County')]),
+		# §SENS-001's server-side half: the device measures the motion series and this turns it into
+		# a rate. Distinct from `sensor_ingest` above, which stores a number the device already
+		# derived — this route does the derivation, and `_INGEST_FEATURE` binds the respiration kind
+		# it writes to SENS-001. Tier-4 gated like the ingest, so it stays dark until PHEOC activates.
+		_a('estimate_breathing', 'Work out my breathing rate', 'Sensors', 'POST', '/sensors/breath/estimate', [_s(), _f('series', 'Motion readings', 'list', ph='a comma-separated series from the sensor'), _f('fps', 'Readings per second', 'decimal')]),
 		_a('analyse_cough', 'Check a cough recording', 'Sensors', 'POST', '/ml/cough/analyze', [_f('file', 'Recording', 'file')]),
 		_a('submit_evidence', 'Send a photo for review', 'Sensors', 'POST', '/evidence', [_f('file', 'Photo', 'file'), _f('kind', 'What is it?', 'select', EVIDENCE_KINDS), _f('note', 'What did you notice?', 'textarea'), _f('consent', 'I agree to share this photo', 'bool')]),
 		# Tag taps. The titles are what a person does at a bedside, not what the mechanism is: a

@@ -8,7 +8,13 @@ MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_ali
 
 class WalletMember(BaseModel):
 	model_config = MODEL_CONFIG
-	member_ref: str
+	# Server-minted, like every other reference in this tree (`DiaryEntry.entry_id`,
+	# `CampaignNotice.campaign_id`): the catalogue carries it as `_auto` so an offline client can
+	# mint its own and have the replay keep the same ref, and marks it so no form draws it. Required
+	# with no default, it was a field the form hid and the model demanded — a 422 naming a control
+	# the person had no way to set, which is §11.1's defect one level below where it was checked.
+	# `ref8` is what the other references use; the prefix keeps a member ref readable in a log.
+	member_ref: str = Field(default_factory=lambda: 'MEM-' + ref8())
 	name: str | None = None
 	dob_iso: str
 	is_minor: bool = False

@@ -1,4 +1,5 @@
 """Chronic disease: BP/glucose logging, refill tracking (hypertension & diabetes, Kenya NCD burden)."""
+from afya.ids import ref8
 from afya.sensors.views import MeasurementSource
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -148,7 +149,11 @@ class ChronicAppointment(BaseModel):
 	"""§MON-003's "Appointment tracking": a scheduled review, and what it is for."""
 
 	model_config = MODEL_CONFIG
-	appointment_id: str
+	# Server-minted for the same reason `WalletMember.member_ref` now is: the catalogue carries it
+	# as `_auto` and no form draws it, so a required field with no default was a submission the
+	# person could not complete. `AppointmentStatus` below keeps it required — that is a read, and a
+	# read of an appointment that names none is meaningless.
+	appointment_id: str = Field(default_factory=lambda: 'APPT-' + ref8())
 	subject_ref: str
 	condition: str
 	due_iso: str
