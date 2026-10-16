@@ -24,22 +24,19 @@ def _every_spec_label() -> set[str]:
 
 
 def _spec_section(feature_id: str) -> str:
-	"""The body of one `#### FID: name` section, up to the next heading or horizontal rule.
+	"""The body of one feature section, up to the horizontal rule, by any heading spelling.
 
-	Found by the section's own `**Feature ID:**` line, not by its heading spelling, because the spec
-	writes a heading two ways and the second way is invisible to a regex over headings. §5's seven
-	channel sections are `#### CHAN-0: Community Radio` … `#### CHAN-6:` — a one-digit suffix the
-	`FID` pattern cannot match — and §14.9's two are titled in prose with no id at all
-	(`#### External Device Integration (USB/OTG and BLE)`, whose body says `**Feature ID:** SENS-009`).
-	Nine sections, 54 content items, in neither the audited list nor the unaudited one: the report
-	said "69 of 69" and the partition test derived its ground truth from the *same* regex, so it
-	could not disagree with the reader it was checking.
+	Found by the section's own id, on the heading or on its `**Feature ID:**` line, rather than by a
+	hash count — see `_spec_sections`, which holds the three spellings the spec uses. Reading only
+	`#### FID:` is how nine sections went unread while the report said "69 of 69", and reading only
+	`####` is how §14.1–§14.8's eight went unread while it said 78 of 78. The partition test derives
+	its ground truth from the same reader, so neither miss could be reported by it.
 	"""
-	for body in re.split(r'^#### ', SPEC, flags=re.M)[1:]:
+	for body in _spec_sections():
 		head = body.split('\n', 1)[0]
-		if head.startswith(f'{feature_id}:') or re.search(
+		if re.match(rf'(?:\d+\.\d+ )?{re.escape(feature_id)}:', head) or re.search(
 				rf'^\*\*Feature ID:\*\* {re.escape(feature_id)}\s*$', body, re.M):
-			return body.split('\n---', 1)[0]
+			return body
 	raise AssertionError(f'{feature_id} is not a section in the spec')
 
 
@@ -175,18 +172,40 @@ def _spec_claims(feature_id: str, label: str) -> list[str]:
 		re.split(r'(?<=[.!?])\s+(?=[A-Z"“])', _spec_passage(feature_id, label)) if part.strip()]
 
 
+def _spec_sections() -> list[str]:
+	"""The body of every feature section in the spec, by any of the three heading spellings it uses.
+
+	The spec writes a feature heading three ways, and each was found by a *separate* revision losing
+	coverage rather than by the reader being written once:
+
+	* `#### TRI-001: Broad Febrile-Illness Triage` — the common form;
+	* `#### CHAN-0: Community Radio` — a one-digit suffix the `FID` pattern cannot match, and
+	  §14.9's two sections titled in prose with the id on a `**Feature ID:**` line instead;
+	* `### 14.1 SENS-001: LiDAR-Based Contactless Respiration Monitoring` — §14.1–§14.8 put the
+	  section number in front of the id **and use three hashes**, so a split on `^#### ` never saw
+	  them. Eight sections, 87 content bullets, and the partition test derived its ground truth from
+	  this same reader, so it could not disagree: a reader that cannot see a section and a gate that
+	  asks the reader what exists are one instrument, and one instrument cannot refute itself.
+
+	So the split is on the heading *shape* — a heading line that either carries an id or whose body
+	declares one — rather than on a hash count, and the id is read from the heading or the
+	`**Feature ID:**` line. The `###` form is anchored on `14.N` so the two `###` prose headings in
+	§14.9 stay out (they are `####`, and their ids come from the body).
+	"""
+	headings = re.split(r'^#{3,4} (?=(?:\d+\.\d+ )?[A-Za-z])', SPEC, flags=re.M)[1:]
+	return [body.split('\n---', 1)[0] for body in headings]
+
+
 def _spec_feature_ids() -> list[str]:
 	"""Every feature section in the spec, in document order, by the id the section declares.
 
-	Two spellings: a heading that carries the id (`#### TRI-001: Broad Febrile-Illness Triage`) and a
-	heading that does not, where the id is on the section's own `**Feature ID:**` line (`#### CHAN-0:`
-	and §14.9's two prose-titled sections). Reading only the first spelling is how nine sections went
-	unread while the report claimed 69 of 69.
+	Read from `_spec_sections`, so a fourth heading spelling is one edit in one place rather than a
+	second place to forget.
 	"""
 	ids: list[str] = []
-	for body in re.split(r'^#### ', SPEC, flags=re.M)[1:]:
+	for body in _spec_sections():
 		head = body.split('\n', 1)[0]
-		m = re.match(r'([A-Z]{2,4}-\d{3}):', head)
+		m = re.match(r'(?:\d+\.\d+ )?([A-Z]{2,4}-\d{3}):', head)
 		if m:
 			ids.append(m.group(1))
 			continue
@@ -202,6 +221,50 @@ def _carries_a_label(feature_id: str) -> bool:
 	from afya.content_audit.service import _LABELS
 	body = _spec_section(feature_id)
 	return any(f'**{label}:**' in body for label in _LABELS)
+
+
+def _body_under(feature_id: str, label: str) -> str:
+	"""The spec's own body under one label — one definition, so the shape rule and both coverage
+	gates cannot disagree about where a passage stops.
+
+	The same boundary `_spec_passage` and `_spec_bullets` use: the next bold label, the next heading,
+	or the horizontal rule.
+	"""
+	body = _spec_section(feature_id)
+	marker = f'**{label}:**'
+	assert marker in body, f'{feature_id} has no {label}'
+	return re.split(r'\n\*\*|\n####|\n###', body.split(marker, 1)[1])[0]
+
+
+def _is_list_shaped(feature_id: str, label: str) -> bool:
+	"""Whether the body under this label is a bullet or numbered list rather than prose."""
+	segment = _body_under(feature_id, label)
+	return any(line.startswith('- ') or re.match(r'^\s*\d+\.\s', line)
+		for line in segment.splitlines())
+
+
+def _side_of(feature_id: str, label: str) -> str:
+	"""Which vocabulary one (section, label) pair belongs to — `content` or `claim`.
+
+	The unit is the *pair*, not the label, and this is the correction the §14 gap forced. Two labels
+	are written both ways by the spec: `Privacy` is a six-bullet list in §SENS-001 and §SENS-004 and
+	a two-sentence statement in the fourteen other sections that print it, and `Limitations` is a list
+	in §SENS-001 and prose in §SENS-002 and §LOC-002. A label-level partition cannot express that, and
+	the old one did not: it filed both labels as claims and the shape rule then reported §SENS-001's
+	own `Limitations` list as "declared out of scope".
+
+	So a pair is content when its label is a content label **or** its body is list-shaped, and a
+	claim when its label is a claim label and its body is not. The two conditions are disjoint by
+	construction: a label in `_LABELS` is never in `_CLAIM_LABELS`, and a pair whose label is in
+	neither is decided by its shape alone.
+	"""
+	from afya.content_audit.service import _CLAIM_LABELS, _LABELS
+	listy = _is_list_shaped(feature_id, label)
+	if label in _LABELS:
+		return 'content'
+	if label in _CLAIM_LABELS:
+		return 'content' if listy else 'claim'
+	return 'content' if listy else 'claim'
 
 
 # --- the instrument's own vocabulary ------------------------------------------------------------
@@ -220,14 +283,19 @@ def test_every_spec_label_is_either_audited_or_declared_out_of_scope() -> None:
 	failure the unaudited list exists to prevent — one level up, about the instrument rather than
 	the spec.
 	"""
-	from afya.content_audit.service import _CLAIM_LABELS, _LABELS
-	declared = set(_LABELS) | set(_CLAIM_LABELS)
-	assert len(_LABELS) + len(_CLAIM_LABELS) == len(declared), 'a label is in both sets'
+	from afya.content_audit.service import _CLAIM_LABELS, _DUAL_LABELS, _LABELS
+	declared = set(_LABELS) | set(_CLAIM_LABELS) | set(_DUAL_LABELS)
+	assert len(_LABELS) + len(_CLAIM_LABELS) + len(_DUAL_LABELS) == len(declared), \
+		'the three vocabularies are a partition'
 	unknown = _every_spec_label() - declared
 	assert unknown == set(), f'the spec prints labels the audit does not know: {sorted(unknown)}'
 	stale = declared - _every_spec_label()
 	assert stale == set(), f'declared labels the spec no longer prints: {sorted(stale)}'
-	assert len(declared) == 95, 'the spec prints ninety-five labels'
+	assert len(declared) == 113, 'the spec prints a hundred and thirteen labels'
+	# The two labels the spec writes both ways, named so a third is a decision rather than a drift.
+	# A dual label is in neither vocabulary and its *pair's* shape decides which table reads it.
+	assert set(_DUAL_LABELS) == {'Limitations', 'Privacy'}, \
+		'the labels the spec writes as both a list and a statement'
 
 
 def test_a_label_declared_out_of_scope_has_no_list_under_it() -> None:
@@ -242,17 +310,34 @@ def test_a_label_declared_out_of_scope_has_no_list_under_it() -> None:
 	but "the instrument filed the label where it would not look".
 
 	A label whose body is a bullet or numbered list is a content list, wherever it is declared.
+
+	**The unit is the pair, not the label**, and that correction came from §14. `Privacy` and
+	`Limitations` are written both ways by the spec — a six-bullet list in §SENS-001 and §SENS-004, a
+	two-sentence statement in the fourteen other sections that print `Privacy`. The label-level
+	partition filed both as claims and this rule then failed on §SENS-001's own `Limitations` list:
+	the rule was right about the shape and wrong about the unit. A dual label is declared in
+	`_DUAL_LABELS`, and `_side_of` resolves each pair by its body.
 	"""
 	from afya.content_audit.service import _CLAIM_LABELS, _LABELS
 	for label in _CLAIM_LABELS:
 		for fid in _spec_feature_ids():
-			body = _spec_section(fid)
-			if f'**{label}:**' not in body:
+			if f'**{label}:**' not in _spec_section(fid):
 				continue
-			segment = re.split(r'\n\*\*|\n####|\n###', body.split(f'**{label}:**', 1)[1])[0]
-			listy = [line for line in segment.splitlines()
-				if line.startswith('- ') or re.match(r'^\s*\d+\.\s', line)]
-			assert not listy, f'§{fid} prints a list under {label!r}, which is declared out of scope'
+			assert not _is_list_shaped(fid, label), \
+				f'§{fid} prints a list under {label!r}, which is declared out of scope'
+	# Every pair the spec prints lands on exactly one side, and the dual labels are the only ones
+	# that can land on either. A label that resolves to content in one section and claim in another
+	# is a dual label by definition, so this asserts the set rather than trusting the declaration.
+	from afya.content_audit.service import _DUAL_LABELS
+	all_labels = set(_LABELS) | set(_CLAIM_LABELS) | set(_DUAL_LABELS)
+	sides: dict[str, set[str]] = {}
+	for fid in _spec_feature_ids():
+		for label in all_labels:
+			if f'**{label}:**' in _spec_section(fid):
+				sides.setdefault(label, set()).add(_side_of(fid, label))
+	both_ways = {label for label, s in sides.items() if len(s) > 1}
+	assert both_ways == set(_DUAL_LABELS), \
+		f'labels the spec writes both ways, declared or not: {sorted(both_ways)}'
 	assert 'Application' not in _CLAIM_LABELS and 'Application' in _LABELS
 
 
@@ -266,10 +351,11 @@ def test_every_content_label_a_section_prints_has_rows_under_it() -> None:
 	asserts every pair the spec prints has at least one row. Without it, adding a list to a section
 	already being audited is silent, which is the exact shape of the miss that started this.
 	"""
-	from afya.content_audit.service import FEATURE_CONTENT, _LABELS
+	from afya.content_audit.service import FEATURE_CONTENT, _CLAIM_LABELS, _DUAL_LABELS, _LABELS
 	covered = {(f, label) for f, label, _, _, _, _ in FEATURE_CONTENT}
-	printed = {(fid, label) for fid in _spec_feature_ids() for label in _LABELS
-		if f'**{label}:**' in _spec_section(fid)}
+	all_labels = set(_LABELS) | set(_CLAIM_LABELS) | set(_DUAL_LABELS)
+	printed = {(fid, label) for fid in _spec_feature_ids() for label in all_labels
+		if f'**{label}:**' in _spec_section(fid) and _side_of(fid, label) == 'content'}
 	assert printed - covered == set(), \
 		f'content lists the spec prints with no rows under them: {sorted(printed - covered)}'
 	assert covered - printed == set(), \
@@ -295,19 +381,21 @@ def test_every_claim_label_a_section_prints_has_a_verdict_under_it() -> None:
 	The unit is the (section, label) pair, exactly as on the content side: a section is not the unit
 	of coverage, and neither is a label.
 	"""
-	from afya.content_audit.service import CLAIM_CONTENT, _CLAIM_LABELS
+	from afya.content_audit.service import CLAIM_CONTENT, _CLAIM_LABELS, _DUAL_LABELS, _LABELS
 	# A `Description` restates the section heading and a `Tier` is a position in §7's ladder. The
 	# spec's own index is not a claim about a feature, so it is out of the audit's jurisdiction —
 	# named here rather than silently skipped, so a fourth metadata label is a decision.
 	metadata = {'Description', 'Feature ID', 'Tier'}
 	covered = {(f, label) for f, label, _, _, _, _ in CLAIM_CONTENT}
-	printed = {(fid, label) for fid in _spec_feature_ids() for label in _CLAIM_LABELS
-		if label not in metadata and f'**{label}:**' in _spec_section(fid)}
+	all_labels = set(_LABELS) | set(_CLAIM_LABELS) | set(_DUAL_LABELS)
+	printed = {(fid, label) for fid in _spec_feature_ids() for label in all_labels
+		if label not in metadata and f'**{label}:**' in _spec_section(fid)
+		and _side_of(fid, label) == 'claim'}
 	assert printed - covered == set(), \
 		f'claim passages the spec prints with no verdict under them: {sorted(printed - covered)}'
 	assert covered - printed == set(), \
 		f'verdicts under a claim the section does not print: {sorted(covered - printed)}'
-	assert len(printed) == 92, f'the spec prints 92 claim passages, not {len(printed)}'
+	assert len(printed) == 127, f'the spec prints 127 claim passages, not {len(printed)}'
 
 
 def test_every_claim_is_the_sections_claim_in_its_own_words() -> None:
@@ -363,7 +451,7 @@ def test_a_claim_verdict_is_one_of_three_and_only_carried_names_code() -> None:
 
 
 def test_the_narrative_claims_are_the_ones_no_code_can_carry() -> None:
-	"""The thirty-eight `narrative` claims, pinned by section and count.
+	"""The forty-two `narrative` claims, pinned by section and count.
 
 	`narrative` is where an unbuilt capability could hide, so the set is asserted rather than left to
 	the note's wording. Every entry is a sentence about the world: the adoption argument, the
@@ -405,6 +493,8 @@ def test_the_narrative_claims_are_the_ones_no_code_can_carry() -> None:
 		'§LOC-002': 3,    # the method's own caveats and the DESIRE citation
 		'§ALT-004': 1,    # tested with community representatives
 		'§FND-006': 1,    # pilot then expand
+		'§SENS-001': 2,   # the validation study, and the outbreak-exposure argument for contactless measurement
+		'§SENS-002': 2,   # the corpus's language-independence, and the population it was validated across
 	}, per_feature
 
 
@@ -414,8 +504,8 @@ def test_a_carried_claim_names_code_that_imports() -> None:
 	from afya.content_audit.service import claim_report
 	report = claim_report()
 	assert report.unresolved == [], report.unresolved
-	assert report.pairs_read == 92 and report.claims_read == 165
-	assert (report.carried, report.deferred, report.narrative) == (107, 20, 38)
+	assert report.pairs_read == 127 and report.claims_read == 219
+	assert (report.carried, report.deferred, report.narrative) == (148, 29, 42)
 
 
 def test_the_two_claims_this_gate_was_built_for_are_carried() -> None:
@@ -472,32 +562,50 @@ def test_the_only_semicolon_list_in_the_spec_is_the_one_that_was_read() -> None:
 	"""The semicolon split is scoped to its jurisdiction, asserted rather than assumed.
 
 	A separator added to a parser is a change to every section the parser reads, so the claim the
-	split rests on — that §REC-003 is the only prose list in the spec written with a semicolon —
-	is a test and not a comment. If a later section writes one, this fails and the new section's
-	bullets get read deliberately instead of silently.
+	split rests on — which sections write a prose list with a semicolon — is a test and not a
+	comment. If a later section writes one, this fails and the new section's bullets get read
+	deliberately instead of silently.
 
-	The second half checks the split *fired*, on the section it exists for: eight clauses, none of
-	them still carrying a separator. A semicolon inside a bullet is a different thing and is left
-	alone — §LOC-002's "Opt-in only; can be disabled at any time" is one privacy property and its
-	rationale, and splitting it would invent a bullet the section does not print. That is why the
-	split lives in the prose branch and not in the parser as a whole.
+	There are **two**, and the second was invisible until the reader was widened: §14.8's Use cases
+	is "Heat stress alerts for outdoor workers; air quality advisories; weather-linked disease risk
+	(malaria, Rift Valley fever); sleep environment guidance." — four clauses in a section that wrote
+	`### 14.8 SENS-008:`, so the split had never been asked to read it. The list was already correct
+	when it was; the assertion that there was only one list was the stale half.
+
+	The second half checks the split *fired*, on both sections: eight clauses for §REC-003 and four
+	for §SENS-008, none of them still carrying a separator. A semicolon inside a bullet is a
+	different thing and is left alone — §LOC-002's "Opt-in only; can be disabled at any time" is one
+	privacy property and its rationale, and splitting it would invent a bullet the section does not
+	print. That is why the split lives in the prose branch and not in the parser as a whole.
 	"""
-	from afya.content_audit.service import _LABELS
+	from afya.content_audit.service import _CLAIM_LABELS, _DUAL_LABELS, _LABELS
+	all_labels = set(_LABELS) | set(_CLAIM_LABELS) | set(_DUAL_LABELS)
 	found = []
 	for fid in _spec_feature_ids():
 		body = _spec_section(fid)
-		for label in _LABELS:
+		for label in all_labels:
 			if f'**{label}:**' not in body:
+				continue
+			# Scoped to the pairs the split can reach: it lives in the prose branch of
+			# `_spec_bullets`, which runs for a content-side pair only. A claim-side section that
+			# writes a semicolon is not a section this parser reads as a list at all, so counting it
+			# here would report a finding against a jurisdiction the split does not have — the
+			# predicate-broader-than-its-jurisdiction failure, in the test that exists to prevent it.
+			if _side_of(fid, label) != 'content':
 				continue
 			segment = re.split(r'\n\*\*|\n####|\n###', body.split(f'**{label}:**', 1)[1])[0]
 			if segment.strip().startswith('- ') or re.match(r'^\s*\d+\.\s', segment.strip()):
 				continue
 			if ';' in segment:
 				found.append((fid, label))
-	assert found == [('REC-003', 'Features')], f'the semicolon lists are {found}'
+	assert found == [('REC-003', 'Features'), ('SENS-008', 'Use cases')], \
+		f'the semicolon lists are {found}'
 	items = _spec_bullets('REC-003', 'Features')
 	assert len(items) == 8, f'§REC-003 Features reads as {len(items)} items: {items}'
 	assert not [item for item in items if ';' in item], 'a clause still reads as one bullet'
+	sense = _spec_bullets('SENS-008', 'Use cases')
+	assert len(sense) == 4, f'§SENS-008 Use cases reads as {len(sense)} items: {sense}'
+	assert not [item for item in sense if ';' in item], 'a clause still reads as one bullet'
 
 
 def test_the_audited_sections_are_the_ones_the_survey_found_uncited() -> None:
@@ -549,7 +657,7 @@ def test_the_audited_sections_are_the_ones_the_survey_found_uncited() -> None:
 	assert {'INF-001', 'INF-002', 'INF-003', 'LOC-001', 'ALT-003', 'REC-002', 'COM-005',
 		'INF-008', 'INF-009', 'INF-010', 'AI-002', 'ALT-004', 'ACC-005', 'SEC-005'} <= audited, \
 		'the sections whose content hangs off an artefact label'
-	assert len(audited) == 78, 'every section in the spec is audited exactly once'
+	assert len(audited) == 86, 'every section in the spec is audited exactly once'
 
 
 # --- the three verdicts, kept apart -------------------------------------------------------------
@@ -587,7 +695,7 @@ def test_the_report_states_how_much_of_the_spec_it_read() -> None:
 	assert audited | set(report.unaudited_features) == labelled, \
 		'every labelled section is either audited or named as unaudited'
 	assert not audited & set(report.unaudited_features)
-	assert report.audited_features == len(audited) == 78
+	assert report.audited_features == len(audited) == 86
 	assert report.unaudited_features == list(UNAUDITED_FEATURES) == []
 	# 78 of 78: every `#### FID:` section in the spec prints at least one content list under a
 	# label. There is no unlabelled section left to explain away, which is the version of this
@@ -602,8 +710,8 @@ def test_the_report_states_how_much_of_the_spec_it_read() -> None:
 	# channels and §14.9's two sensors — were invisible to the reader, and this test derived its
 	# ground truth from the *same* reader, so it could not disagree with it. A partition test whose
 	# both sides come from one instrument measures the instrument, not the spec.
-	assert len(labelled) == 78, 'every section in the spec prints a labelled content list'
-	assert len(_spec_feature_ids()) == 78, 'the spec prints 78 feature sections' 
+	assert len(labelled) == 86, 'every section in the spec prints a labelled content list'
+	assert len(_spec_feature_ids()) == 86, 'the spec prints 86 feature sections' 
 
 
 # --- the findings -------------------------------------------------------------------------------
@@ -689,7 +797,7 @@ def test_tri_003_names_four_exposures_and_the_input_carries_them() -> None:
 
 
 def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world() -> None:
-	"""Twenty bullets are deferred and they are two kinds, neither a gap. Fifteen are device
+	"""Sixty-four bullets are deferred and they are three kinds, none a gap. Fifteen are device
 	actions — a maps app, a dialler, a barcode reader, a camera, a call-log and location permission,
 	the SOS button and its auto-dial, the accelerometer stream and its "Are you OK?" prompt, a QR or
 	NFC scan, the always-on microphone loop, the handset's own encrypted store and its OS keystore,
@@ -717,16 +825,54 @@ def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world()
 	received the image could only hand back a reading the client already had. The one case where a
 	photo does travel is a report, and that path carries its hash.
 
-	The count is asserted rather than the two kinds being described, so a bullet that moves into
-	`deferred` to make a gap disappear fails here. The world-conditioned ones are named individually
-	because a deferral on a *world state* is the kind most easily abused: it is the one that can be
-	claimed for a bullet that is simply unbuilt. §CHAN-3's two are the closest call in this set and
-	the reason they are here rather than `missing` is that the section prints them as *reasons the
-	channel was chosen* — arguments about the audience — not as capabilities a deployment supplies.
+	The count is asserted per section rather than in aggregate, so a bullet that moves into
+	`deferred` to make a gap disappear fails here rather than showing up as a smaller total nobody
+	reads. The world-conditioned ones are named individually because a deferral on a *world state* is
+	the kind most easily abused: it is the one that can be claimed for a bullet that is simply
+	unbuilt. §CHAN-3's two are the closest call in this set and the reason they are here rather than
+	`missing` is that the section prints them as *reasons the channel was chosen* — arguments about
+	the audience — not as capabilities a deployment supplies.
+
+	**The per-row word check was the wrong shape for the set it grew into, and this is the second
+	correction.** It asserted every note contains `fact about the world`, `device` or `client` — a
+	substring test over prose, which is a proxy for a reason rather than a reason. §14.1–§14.8 added
+	a third kind the vocabulary did not have: a *derived metric* the server cannot compute because it
+	does not receive the series behind it (§SENS-007's sleep efficiency needs the two intervals and
+	the server gets one derived duration). Thirteen rows carried none of the three words while being
+	correctly deferred, so the check would have been satisfied by rewording a note — the defect a
+	note-shaped gate always has. The per-section count is what actually pins the set, and the world
+	rows are still named one by one because that is the verdict most easily abused.
 	"""
 	from afya.content_audit.service import FEATURE_CONTENT
 	deferred = [(f, b, n) for f, _, b, k, _, n in FEATURE_CONTENT if k == 'deferred']
-	assert len(deferred) == 20, deferred
+	per_feature: dict[str, int] = {}
+	for f, _, _ in deferred:
+		per_feature[f] = per_feature.get(f, 0) + 1
+	assert per_feature == {
+		'TRI-003': 1,    # the vaccine-deployment condition
+		'ALT-002': 1,    # the declared-emergency condition
+		'CHAN-000': 1,   # a station records the master tape and a person voices the vignette
+		'CHAN-003': 2,   # the audience already knows WhatsApp; there is no app store to update from
+		'ACC-004': 1,
+		'COM-101': 1,
+		'COM-103': 1,
+		'EMG-001': 2,    # the SOS button and its auto-dial — the handset places the call
+		'EMG-002': 2,    # the accelerometer stream and the "Are you OK?" prompt
+		'FND-001': 2,
+		'FND-004': 1,
+		'LOC-003': 1,
+		'LOC-004': 1,
+		'MED-001': 2,    # the camera and the packaging photo, which no OCR could read
+		'SEC-003': 1,
+		'SENS-001': 8,   # the LiDAR mechanism, its permission, and its active-monitoring indicator
+		'SENS-002': 10,  # the audio loop, privacy mode, and the two metrics needing the audio series
+		'SENS-003': 5,   # the accelerometer stream and four audience statements
+		'SENS-004': 7,   # capture, calibration, geotagging and the EXIF strip — all camera-side
+		'SENS-005': 5,   # both PPG methods, and HRV with the two metrics derived from it
+		'SENS-006': 1,
+		'SENS-007': 7,   # the sleep and activity metrics needing intervals the server never receives
+		'SENS-008': 1,   # the ambient noise level, which needs the microphone series
+	}, per_feature
 	world = {(f, b) for f, b, n in deferred if n is not None and 'fact about the world' in n}
 	assert world == {
 		('TRI-003', 'Vaccination status (if a vaccine is available and deployed)'),
@@ -737,7 +883,6 @@ def test_the_deferred_bullets_are_the_ones_the_section_conditions_on_the_world()
 	}, world
 	for _, _, note in deferred:
 		assert note is not None
-		assert 'fact about the world' in note or 'device' in note or 'client' in note, note
 
 
 async def test_the_content_audit_view_is_auditor_scoped() -> None:
@@ -800,9 +945,16 @@ def test_a_note_that_cites_the_on_device_gate_names_a_member_of_it() -> None:
 	# true instance — so the id it is attached to is not excluded. An earlier draft dropped `i != fid`
 	# and would have failed the single note that was correct.
 	cited = re.compile(r'`?([A-Z]{2,4}-\d{3})`?')
+	# The gate's jurisdiction is the `ON_DEVICE` set, so the predicate is a word boundary and not a
+	# substring: `afya.ai.service:ON_DEVICE_MODELS` is a *carrier reference* to the model inventory,
+	# and a note citing it is not claiming membership in the coverage gate's set. The substring form
+	# matched it, so §SENS-004's "no facial recognition" — which cites the model inventory to say no
+	# card takes a face — was reported as an uncheckable membership claim. A predicate broader than
+	# the thing it guards fails toward "defect", which is the same class as the `^on[A-Z]` RSC gate.
+	names_the_gate = re.compile(r'\bON_DEVICE\b')
 	checked = 0
 	for fid, _label, bullet, kind, _ref, note in FEATURE_CONTENT:
-		if not note or 'ON_DEVICE' not in note:
+		if not note or not names_the_gate.search(note):
 			continue
 		checked += 1
 		named = cited.findall(note)
