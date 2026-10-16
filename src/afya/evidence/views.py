@@ -72,3 +72,74 @@ class EvidenceView(BaseModel):
 	note: str
 	size_bytes: int
 	image_sha256: str
+
+
+class UploadOpen(BaseModel):
+	"""The claims a client makes about a photo it is about to send in chunks (§16.4).
+
+	Separate from `EvidenceSubmission` because it is a different request shape: this carries no
+	bytes, only the assertions about them, and the server mints the submission id. The photo's own
+	hash is here rather than derived from the chunks as they arrive — the client knows the file it
+	holds, and a server-side hash of a reassembled prefix would be checking its own reassembly rather
+	than the picture the person chose.
+	"""
+
+	model_config = MODEL_CONFIG
+	kind: EvidenceKind
+	subject_ref: str
+	county: str
+	note: str = ''
+	consent: bool = False
+	declared_bytes: int = Field(ge=1000, le=8_388_608)
+	image_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+	mime: str = Field(pattern=r'^image/(jpeg|webp|png)$')
+	chunk_bytes: int = Field(default=524_288, ge=1024)
+
+
+class UploadChunk(BaseModel):
+	"""One slice of a large photo, addressed by where it sits in the whole (§16.4 resumable upload).
+
+	The offset is the client's claim about the *bytes*, not about the chunk's index, because that is
+	the only address a client can recover after a dropped connection: a client that has 3 MB on the
+	server and does not know whether chunk 3 landed asks "what do you have" and resumes from the
+	answer. An index would require the client to remember how it sliced the file, and a client that
+	re-slices differently on resume — which is what a phone restarting the camera app does — would
+	then write its bytes into the wrong place and still produce a hash mismatch nobody could explain.
+
+	`chunk_sha256` is checked against the bytes received rather than trusted: a chunk corrupted in
+	transit that was appended anyway would surface as a whole-file hash mismatch at the end, after
+	the person had spent the bandwidth for every chunk.
+	"""
+
+	model_config = MODEL_CONFIG
+	offset: int = Field(ge=0)
+	chunk_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+	data: str  # base64url, unpadded — the chunk as it travels inside the JSON body
+
+
+class UploadSession(BaseModel):
+	"""What the server holds for an upload in progress, and what a resuming client is told.
+
+	`received_bytes` is the prefix length actually written, and `next_offset` is where the next chunk
+	must start. They are the same number today and are both reported because they answer different
+	questions: a client asking "did my last chunk land" reads `received_bytes`, and one asking "what
+	do I send now" reads `next_offset`. A session whose two disagreed would be a server that had
+	written bytes out of order, which is a defect rather than a state.
+	"""
+
+	model_config = MODEL_CONFIG
+	session_id: str = Field(pattern=r'^UP-[A-Z0-9]{10,}$')
+	submission_id: str = Field(pattern=r'^EV-[A-Z0-9]{10,}$')
+	# The subject the upload is for. Carried on the session because the three chunk routes are
+	# separate requests with no `subject_ref` in their bodies, so this is the only place a route
+	# guard can read who the upload belongs to — and without it any token could append bytes to any
+	# session by guessing an id derived from a submission id.
+	subject_ref: str
+	kind: EvidenceKind
+	declared_bytes: int = Field(ge=1000, le=8_388_608)
+	chunk_bytes: int = Field(ge=1024)
+	received_bytes: int = Field(ge=0)
+	next_offset: int = Field(ge=0)
+	complete: bool
+	expires_at_ms: int
+	note: str

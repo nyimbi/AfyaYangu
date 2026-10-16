@@ -207,7 +207,7 @@ class SyncBatch(BaseModel):
 	model_config = MODEL_CONFIG
 	connection: ConnectionClass
 	ops: list[SyncOp]
-	encoding: str = Field(pattern=r'^(identity|gzip)$')
+	encoding: str = Field(pattern=r'^(identity|gzip|br)$')
 	wire_bytes: int = Field(ge=0)
 	raw_bytes: int = Field(ge=0)
 	deferred: int = Field(ge=0)  # ops left for the next batch, not dropped

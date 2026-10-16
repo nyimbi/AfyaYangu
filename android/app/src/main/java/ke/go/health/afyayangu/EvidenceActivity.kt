@@ -51,7 +51,16 @@ class EvidenceActivity : Activity() {
 				// says what is missing here rather than letting the request come back rejected.
 				if (!sharePhoto) { out.text = "Tick the box to agree to share this photo"; return@setOnClickListener }
 				Thread {
-					val res = runCatching { client.value.uploadEvidence(kinds[0].let { kindBtn.text.toString().removePrefix("Type: ") }, note.text.toString(), data, sharePhoto) }
+					// A photo past the chunk size goes up resumably; a small one takes the single-shot
+					// route, where a retry costs one request rather than a whole session.
+					val res = runCatching {
+						val k = kinds[0].let { kindBtn.text.toString().removePrefix("Type: ") }
+						if (data.size > 512 * 1024) {
+							client.value.uploadEvidenceResumable(k, note.text.toString(), data, sharePhoto)
+						} else {
+							client.value.uploadEvidence(k, note.text.toString(), data, sharePhoto)
+						}
+					}
 					post { out.text = res.fold({ "Stored ✓ $it" }, { "Rejected: ${it.message}" }) }
 				}.start()
 			}

@@ -241,6 +241,116 @@ def test_the_route_is_still_guarded_and_still_binds_its_subject() -> None:
 	assert stolen.status_code in (403, 422), stolen.text
 
 
+# --- §16.4's resumable upload is a second door, and the controls hold at both ----------------------
+
+def _chunk_json(blob: bytes, offset: int) -> dict[str, object]:
+	import base64
+	return {'offset': offset, 'chunk_sha256': hashlib.sha256(blob).hexdigest(),
+	        'data': base64.urlsafe_b64encode(blob).decode().rstrip('=')}
+
+
+def test_a_photo_uploaded_in_chunks_lands_through_the_same_controls() -> None:
+	"""§16.4's "resumable upload" is a transport, and the risk in adding one is that it becomes a
+	second implementation of §SEC-002 — a path that reassembles its own bytes and stores them
+	without the consent or the seal. Probed through the front door, in three requests, because that
+	is the shape the shipped client uses and the shape in which the controls could go missing.
+	"""
+	client, _ = _client()
+	headers = _token(client)
+	blob = _blob()
+	opened = client.post('/evidence/upload', json={
+		'kind': 'scene_photo', 'subject_ref': _SUBJECT, 'county': 'Nairobi', 'note': 'flooded road',
+		'consent': True, 'declared_bytes': len(blob),
+		'image_sha256': hashlib.sha256(blob).hexdigest(), 'mime': 'image/jpeg',
+	}, headers=headers)
+	assert opened.status_code == 200, opened.text
+	session_id = opened.json()['session_id']
+	assert opened.json()['next_offset'] == 0 and opened.json()['complete'] is False
+	half = len(blob) // 2
+	first = client.post(f'/evidence/upload/{session_id}/chunk', json=_chunk_json(blob[:half], 0), headers=headers)
+	assert first.status_code == 200 and first.json()['next_offset'] == half, first.text
+	# A dropped connection: the client asks what the server holds before continuing. This is the
+	# whole mechanism, and it is the request a streaming endpoint could not serve.
+	status = client.get(f'/evidence/upload/{session_id}', headers=headers)
+	assert status.status_code == 200 and status.json()['received_bytes'] == half
+	second = client.post(f'/evidence/upload/{session_id}/chunk', json=_chunk_json(blob[half:], half), headers=headers)
+	assert second.status_code == 200 and second.json()['complete'] is True, second.text
+	done = client.post(f'/evidence/upload/{session_id}/finish', headers=headers)
+	assert done.status_code == 200, done.text
+	assert done.json()['cipher'] == 'aes-256-gcm'
+
+
+def test_an_upload_without_consent_is_refused_when_it_opens() -> None:
+	"""The gate is at the start, not the finish: a client must not spend a metered link on bytes the
+	server was always going to refuse, and the refusal names what is missing without a spec code."""
+	client, _ = _client()
+	headers = _token(client)
+	blob = _blob()
+	res = client.post('/evidence/upload', json={
+		'kind': 'scene_photo', 'subject_ref': _SUBJECT, 'county': 'Nairobi', 'consent': False,
+		'declared_bytes': len(blob), 'image_sha256': hashlib.sha256(blob).hexdigest(),
+		'mime': 'image/jpeg',
+	}, headers=headers)
+	assert res.status_code == 422, res.text
+	assert 'consent' in res.text
+
+
+def test_another_persons_upload_session_is_not_reachable() -> None:
+	"""The subject lives on the session, not in the chunk body, so `require_self` cannot guard these
+	routes — it reads a `subject_ref` that is not there. A session id derived from a submission id
+	is all that would stand between any token and another person's in-flight photo, and appending
+	bytes is enough to make their finished picture hash wrong for them.
+	"""
+	client, _ = _client()
+	owner = _token(client, _SUBJECT)
+	blob = _blob()
+	opened = client.post('/evidence/upload', json={
+		'kind': 'scene_photo', 'subject_ref': _SUBJECT, 'county': 'Nairobi', 'consent': True,
+		'declared_bytes': len(blob), 'image_sha256': hashlib.sha256(blob).hexdigest(),
+		'mime': 'image/jpeg',
+	}, headers=owner)
+	session_id = opened.json()['session_id']
+	stranger = _token(client, 'sec002-stranger-9c02')
+	for res in (
+		client.get(f'/evidence/upload/{session_id}', headers=stranger),
+		client.post(f'/evidence/upload/{session_id}/chunk', json=_chunk_json(blob, 0), headers=stranger),
+		client.post(f'/evidence/upload/{session_id}/finish', headers=stranger),
+	):
+		assert res.status_code == 403, res.text
+	# And the session is untouched, so the owner can still finish it.
+	assert client.get(f'/evidence/upload/{session_id}', headers=owner).json()['received_bytes'] == 0
+
+
+def test_the_chunk_routes_are_closed_to_a_worker_role() -> None:
+	"""A CHW acts for the people assigned to them through its own scoped routes; a photo upload
+	belongs to the person who took it, so a worker token is refused rather than allowed to name
+	anyone. Same rule the single-shot route enforces through `require_self`.
+
+	The CHW token comes through the PKCE flow §17.4 requires, because `provision_staff` issues only
+	the operational roles and a test that minted one by hand would be testing a token no deployment
+	can produce.
+	"""
+	import base64
+	client, _ = _client()
+	verifier = 'v' * 43
+	challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
+	authz = client.post('/auth/pkce/authorize', json={
+		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': challenge, 'state': 'state-1234',
+	}).json()
+	out = client.post('/auth/pkce/token', params={'role': 'chw'}, json={
+		'authorization_code': authz['authorization_code'], 'client_id': 'app',
+		'redirect_uri': 'afya://cb', 'code_verifier': verifier,
+	}).json()
+	headers = {'authorization': f"Bearer {out['access_token']}"}
+	blob = _blob()
+	res = client.post('/evidence/upload', json={
+		'kind': 'scene_photo', 'subject_ref': _SUBJECT, 'county': 'Nairobi', 'consent': True,
+		'declared_bytes': len(blob), 'image_sha256': hashlib.sha256(blob).hexdigest(),
+		'mime': 'image/jpeg',
+	}, headers=headers)
+	assert res.status_code == 403, res.text
+
+
 # --- the catalogue and the clients -----------------------------------------------------------------
 
 def test_the_catalogue_offers_the_consent_field_the_route_requires() -> None:
@@ -289,6 +399,27 @@ def test_the_native_uploaders_send_the_consent_field() -> None:
 		'iOS never lets the person agree'
 	activity = root / 'android/app/src/main/java/ke/go/health/afyayangu/EvidenceActivity.kt'
 	assert 'CheckBox' in activity.read_text(), 'Android never asks'
+
+
+def test_both_native_clients_reach_the_resumable_route() -> None:
+	"""§16.4's resumable upload is only carried if a client actually calls it.
+
+	A route with no call is a capability nobody can reach, and this repo has shipped that before —
+	`/ops/*` was 24 endpoints with zero frontend references. The route is on the server; the two
+	handsets are where a 6 MB photo is actually produced, so both must name the session path.
+
+	The assertion is on the *route spelling*, not on the function name: a client could rename its
+	method and still be correct, and a client could keep the name and never call the path.
+	"""
+	import pathlib
+	root = pathlib.Path(__file__).resolve().parents[2]
+	for name, path in {
+		'ios': root / 'ios/AfyaYangu/Evidence.swift',
+		'android': root / 'android/app/src/main/java/ke/go/health/afyayangu/BackendClient.kt',
+	}.items():
+		src = path.read_text()
+		assert 'evidence/upload/' in src, f'{name} never opens a resumable session'
+		assert '/chunk' in src and '/finish' in src, f'{name} opens a session and never fills it'
 
 
 # --- the audit, and the vocabulary ----------------------------------------------------------------

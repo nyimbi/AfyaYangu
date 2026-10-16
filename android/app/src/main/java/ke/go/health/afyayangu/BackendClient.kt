@@ -232,6 +232,70 @@ class BackendClient(private val context: Context) {
 		if (code !in 200..299) throw IllegalStateException("upload failed: $code $text")
 		return text.orEmpty()
 	}
+
+	/**
+	 * §16.4's resumable upload: send a photo in chunks so a dropped connection costs one chunk
+	 * rather than the whole picture.
+	 *
+	 * Chunks are addressed by byte offset and not by index, so the resume is a question rather than
+	 * a guess: the client asks the server what it holds and continues from the answer. That is why
+	 * this can be called again after a failure with no state carried in — the position comes back
+	 * from the server each time, which is the only thing that survives a process restart.
+	 *
+	 * Returns the server's receipt as the single-shot path does, so a caller cannot tell which
+	 * transport was used, and neither can the controls: the assembled bytes go through the same
+	 * consent, seal and store on the server.
+	 */
+	fun uploadEvidenceResumable(
+		kind: String,
+		note: String,
+		blob: ByteArray,
+		consent: Boolean,
+		chunkBytes: Int = 512 * 1024,
+	): String {
+		val digest = java.security.MessageDigest.getInstance("SHA-256")
+		val sha = digest.digest(blob).joinToString("") { "%02x".format(it) }
+		val opened = JSONObject(
+			request(
+				"evidence/upload",
+				JSONObject()
+					.put("kind", kind)
+					.put("subject_ref", subjectRef())
+					.put("county", "Nairobi")
+					.put("note", note)
+					.put("consent", consent)
+					.put("declared_bytes", blob.size)
+					.put("image_sha256", sha)
+					.put("mime", "image/jpeg")
+					.put("chunk_bytes", chunkBytes)
+					.toString(),
+			),
+		)
+		val sessionId = opened.getString("session_id")
+		var offset = opened.getInt("next_offset")
+		val encoder = android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+		while (offset < blob.size) {
+			val end = minOf(offset + chunkBytes, blob.size)
+			val chunk = blob.copyOfRange(offset, end)
+			val chunkSha = java.security.MessageDigest.getInstance("SHA-256")
+				.digest(chunk).joinToString("") { "%02x".format(it) }
+			val out = JSONObject(
+				request(
+					"evidence/upload/$sessionId/chunk",
+					JSONObject()
+						.put("offset", offset)
+						.put("chunk_sha256", chunkSha)
+						.put("data", android.util.Base64.encodeToString(chunk, encoder))
+						.toString(),
+				),
+			)
+			// The server's answer is the position, not the client's arithmetic. A retry after an
+			// unacknowledged chunk comes back with the offset it already holds, and reading it here
+			// is what makes the loop safe to re-enter rather than something that must be tracked.
+			offset = out.getInt("next_offset")
+		}
+		return request("evidence/upload/$sessionId/finish", "{}")
+	}
 	data class PlaceRow(val name: String, val kind: String, val lat: Double, val lon: Double, val km: Double, val walkMin: Int, val guidance: String, val hours: String?)
 
 	fun nearestPlaces(lat: Double, lon: Double, kind: String, limit: Int = 5): List<PlaceRow> {

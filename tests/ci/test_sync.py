@@ -217,12 +217,45 @@ async def test_batch_compresses_only_when_it_pays() -> None:
 	assert small.encoding == 'identity' and small.saved_ratio == 0.0
 
 	big = SyncService()
-	# A repeated payload, so gzip has something to find.
+	# A repeated payload, so the codecs have something to find.
 	await big.enqueue(SyncOp(op_id='OP-BIG0000001', dataset='symptom_logs', client_ts=1,
 	                         payload={f'k{i}': 'cough fever headache' for i in range(80)}))
 	batch = big.encode([o for o in big._queue.values()], ConnectionClass.wifi)  # noqa: SLF001
-	assert batch.encoding == 'gzip', 'a large repetitive body should compress'
+	assert batch.encoding in ('gzip', 'br'), 'the encoding is one of the two §16.4 names'
 	assert batch.wire_bytes < batch.raw_bytes and batch.saved_ratio > 0.5
+
+
+async def test_both_codecs_the_section_names_are_tried_and_the_smaller_wins() -> None:
+	"""§16.4's "gzip / Brotli" is a set, not a choice.
+
+	This test replaces one that asserted `batch.encoding == 'gzip'` — a check on *which codec the
+	implementation happened to use* rather than on what the section asks for. It passed for as long
+	as gzip was the only one tried, and it would have gone on passing if gzip were the only one
+	*ever* tried: a client shipping one of the two codecs the section names is leaving bandwidth on
+	a metered link for no reason, and no test could see it.
+
+	So the assertion is now the property: both codecs are computed for the same body, and the one
+	that goes on the wire is the smaller of the two. Brotli's static dictionary usually wins on
+	JSON, which is why this asserts the *rule* rather than the winner — pinning `br` here would be
+	the same mistake in the other direction, and it would fail on the small bodies where gzip's
+	header is cheaper than Brotli's.
+	"""
+	import brotli
+	import gzip as _gzip
+	import json
+	svc = SyncService()
+	await svc.enqueue(SyncOp(op_id='OP-BIG0000002', dataset='symptom_logs', client_ts=1,
+	                         payload={f'k{i}': 'cough fever headache' for i in range(80)}))
+	batch = svc.encode([o for o in svc._queue.values()], ConnectionClass.wifi)  # noqa: SLF001
+	raw = json.dumps([o.model_dump(mode='json') for o in batch.ops], separators=(',', ':')).encode()
+	candidates = {'gzip': _gzip.compress(raw, compresslevel=6), 'br': brotli.compress(raw, quality=5)}
+	smallest = min(candidates, key=lambda k: len(candidates[k]))
+	assert batch.encoding == smallest, 'the smaller of the two codecs goes on the wire'
+	assert batch.wire_bytes == len(candidates[smallest])
+	# And the rule is not vacuous: the two codecs genuinely differ on this body, so `smallest` is a
+	# decision rather than a tie that any implementation would satisfy.
+	assert len(candidates['gzip']) != len(candidates['br']), 'a tie would make this test vacuous'
+	assert batch.saved_ratio > 0.5
 
 
 async def test_delta_makes_a_repeat_write_cheaper_than_the_first() -> None:

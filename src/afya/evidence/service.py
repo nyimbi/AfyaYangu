@@ -1,15 +1,42 @@
 """Evidence service — photo+note pipeline: consent, encrypt, hash-verify, dedupe, object-storage port, tier-4 gating."""
+import base64
 import hashlib
 import time
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from afya.crypto.service import CryptoService
-from afya.evidence.views import EvidenceKind, EvidenceReceipt, EvidenceSubmission, EvidenceView
+from afya.evidence.views import (
+	EvidenceKind, EvidenceReceipt, EvidenceSubmission, EvidenceView, UploadChunk, UploadSession,
+)
 from afya.logmixin import LogMixin
 from afya.registry.service import FeatureRegistry, Tier
 
 MIN_BLOB = 1000
 MAX_BLOB = 8_388_608
+
+# §16.4 resumable upload. The chunk size is the *default* the server offers, not a contract on what
+# a client may send: a client that slices differently still resumes correctly because chunks are
+# addressed by byte offset rather than by index. It is 512 KiB because that is the size at which a
+# dropped connection on a Kenyan mobile link costs one chunk rather than the whole photo, while the
+# per-chunk hash and JSON framing stay a rounding error against the bytes themselves.
+DEFAULT_CHUNK_BYTES = 524_288
+# A session that is never finished must not hold memory forever — a phone that dies mid-upload
+# leaves a prefix nobody will claim, and on a deployment serving many handsets those add up.
+UPLOAD_TTL_MS = 24 * 60 * 60 * 1000
+
+
+@dataclass
+class _Upload:
+	"""One upload in progress. Not a model: it holds bytes, and a model that round-trips a
+	multi-megabyte prefix through validation is work spent on the one thing that is not the claim."""
+
+	session_id: str
+	submission: EvidenceSubmission
+	declared_bytes: int
+	chunk_bytes: int
+	started_at_ms: int
+	received: bytearray = field(default_factory=bytearray)
 
 
 class EvidenceStorePort(Protocol):
@@ -79,7 +106,11 @@ class EvidenceService(LogMixin):
 		self._crypto = crypto
 		self._dedupe: dict[str, str] = {}
 		self._ledger: dict[str, tuple[EvidenceView, EvidenceReceipt]] = {}
-		assert self._dedupe == {}
+		# §16.4 resumable upload: bytes written so far, per session, in the order they arrived. Held
+		# as a bytearray rather than a list of chunks because `next_offset` is a byte position and a
+		# chunk list would make "where does this go" a sum the caller could get wrong.
+		self._uploads: dict[str, _Upload] = {}
+		assert self._dedupe == {} and self._uploads == {}
 
 	@property
 	def encrypted(self) -> bool:
@@ -141,3 +172,128 @@ class EvidenceService(LogMixin):
 
 	def view(self, submission_id: str) -> EvidenceView:
 		return self._ledger[submission_id][0]
+
+	# --- §16.4 resumable upload ----------------------------------------------------------------
+
+	def open_upload(self, submission: EvidenceSubmission, *, declared_bytes: int,
+	                chunk_bytes: int = DEFAULT_CHUNK_BYTES) -> UploadSession:
+		"""Start an upload for a photo the caller will send in pieces (§16.4 resumable upload).
+
+		The gate runs here, at the *start*, not at the finish. A symptom photo sent while the
+		response is dormant is refused before the first byte rather than after the last one: a
+		client that spent 6 MB of a metered link uploading a picture the server was always going to
+		refuse has been made to pay for the refusal, and on a link where the upload takes minutes
+		that is the difference between a person retrying and a person giving up.
+
+		`declared_bytes` is checked against the same cap the single-shot path uses, so the two doors
+		admit the same photos. It is a *declaration*, and the session refuses a prefix longer than it
+		— a client that under-declares to slip past the cap would otherwise have the cap checked
+		against a number it chose.
+		"""
+		assert MIN_BLOB <= declared_bytes <= MAX_BLOB, 'declared size is the same cap the single-shot path uses'
+		assert chunk_bytes >= 1024, 'a chunk smaller than a kilobyte is framing, not payload'
+		self.gate(submission.kind)
+		assert submission.consent, 'the photo is shared only with the consent recorded for this submission'
+		session = _Upload(
+			session_id='UP-' + submission.submission_id.removeprefix('EV-')[:12],
+			submission=submission, declared_bytes=declared_bytes, chunk_bytes=chunk_bytes,
+			started_at_ms=int(time.time() * 1000),
+		)
+		self._uploads[session.session_id] = session
+		self._log_info('upload opened', session=session.session_id, declared=declared_bytes,
+		               chunk_bytes=chunk_bytes)
+		return self._session_view(session)
+
+	def append_chunk(self, session_id: str, chunk: UploadChunk) -> UploadSession:
+		"""Append one chunk at the offset the client claims, or refuse it.
+
+		Every refusal here is a *resumable* one: the session survives and the caller is told the
+		offset to send next. That is the whole point of the mechanism, and it is why a wrong offset
+		is a 409 rather than a 422 — the client's next move is to re-read `next_offset` and continue,
+		not to abandon an upload that is 90% on the server.
+
+		The order the checks run in is the order of what they cost the client. An offset the server
+		already holds is the common case after a dropped connection, so it is answered first and
+		without decoding anything; then the chunk's own hash, so a corrupted chunk is refused before
+		its bytes are appended to a prefix that would then hash wrong for reasons the client could
+		not see; then the declared cap, so a session cannot grow past what it said it would.
+		"""
+		now_ms = int(time.time() * 1000)
+		self._expire(now_ms)
+		session = self._uploads.get(session_id)
+		if session is None:
+			raise KeyError('no upload in progress under that session')
+		have = len(session.received)
+		if chunk.offset < have:
+			# Bytes the server already holds. Not an error the client caused — a retry after an
+			# unacknowledged chunk is exactly this — so the answer is the true position, not a
+			# refusal. Returning `next_offset` is what makes the retry safe to issue blindly.
+			self._log_info('upload chunk already held', session=session_id, offset=chunk.offset, have=have)
+			return self._session_view(session)
+		if chunk.offset > have:
+			raise ValueError(
+				f'the server holds {have} bytes and this chunk starts at {chunk.offset}, so a gap '
+				f'would be written; resume from byte {have}')
+		raw = base64.urlsafe_b64decode(chunk.data + '=' * (-len(chunk.data) % 4))
+		if hashlib.sha256(raw).hexdigest() != chunk.chunk_sha256:
+			raise ValueError('this chunk arrived corrupted; send it again from the same offset')
+		if have + len(raw) > session.declared_bytes:
+			raise ValueError(
+				f'this upload declared {session.declared_bytes} bytes and the chunk would take it past '
+				f'that; open a new upload with the correct size')
+		session.received.extend(raw)
+		return self._session_view(session)
+
+	async def finish_upload(self, session_id: str) -> EvidenceReceipt:
+		"""Complete an upload whose every byte has arrived, through the same door as a single-shot one.
+
+		The reassembled bytes go through `submit`, which is deliberate and is the reason this method
+		is four lines: the hash check, the consent assertion, the encryption and the store are the
+		*same* controls, so an upload cannot arrive at a stored photo by a path that skips one. A
+		resumable path that sealed its own bytes would be a second implementation of §SEC-002, and
+		the second implementation is where the control goes missing.
+		"""
+		session = self._uploads.get(session_id)
+		if session is None:
+			raise KeyError('no upload in progress under that session')
+		blob = bytes(session.received)
+		if len(blob) != session.declared_bytes:
+			raise ValueError(
+				f'{len(blob)} of {session.declared_bytes} bytes have arrived; the upload is not complete')
+		submission = session.submission.model_copy(update={'size_bytes': len(blob)})
+		receipt = await self.submit(submission, blob)
+		del self._uploads[session_id]
+		self._log_info('upload finished', session=session_id, bytes=len(blob))
+		return receipt
+
+	def upload_session(self, session_id: str) -> UploadSession:
+		"""What the server holds for this upload — the answer a resuming client asks for."""
+		self._expire(int(time.time() * 1000))
+		session = self._uploads.get(session_id)
+		if session is None:
+			raise KeyError('no upload in progress under that session')
+		return self._session_view(session)
+
+	def _expire(self, now_ms: int) -> None:
+		"""Drop sessions nobody finished. Expiry is reported at the session's own TTL rather than
+		leaving a client to guess why a resume answered 404."""
+		dead = [sid for sid, up in self._uploads.items() if now_ms - up.started_at_ms > UPLOAD_TTL_MS]
+		for sid in dead:
+			del self._uploads[sid]
+		if dead:
+			self._log_info('uploads expired', count=len(dead))
+
+	def _session_view(self, session: _Upload) -> UploadSession:
+		have = len(session.received)
+		complete = have == session.declared_bytes
+		return UploadSession(
+			session_id=session.session_id, submission_id=session.submission.submission_id,
+			subject_ref=session.submission.subject_ref, kind=session.submission.kind, declared_bytes=session.declared_bytes,
+			chunk_bytes=session.chunk_bytes, received_bytes=have, next_offset=have, complete=complete,
+			expires_at_ms=session.started_at_ms + UPLOAD_TTL_MS,
+			note=(
+				f'{have} of {session.declared_bytes} bytes received; send the next chunk at byte {have}'
+				if not complete else
+				f'all {session.declared_bytes} bytes received; call the finish step to store the photo'
+			),
+		)

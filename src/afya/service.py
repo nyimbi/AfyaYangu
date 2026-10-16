@@ -35,7 +35,7 @@ from afya.integrations.gateways import AtSmsRestSend, AtUssdCallback
 from afya.integrations.overpass import OverpassClient
 from afya.places.service import Place, PlaceKind, PlacesService
 from afya.places.views import TestType
-from afya.evidence.views import EvidenceSubmission, EvidenceKind
+from afya.evidence.views import EvidenceSubmission, EvidenceKind, UploadChunk, UploadOpen
 from afya.insurance.service import InlineSHAPort, InsuranceService, SHACheckRequest, PriceItem
 from afya.maternal.service import MaternalService
 from afya.maternal.views import ANCRecord, BirthPlan, Pregnancy
@@ -2641,6 +2641,109 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			# the person holding the phone.
 			raise HTTPException(status_code=503, detail=str(exc)) from exc
 		except (AssertionError, ValidationError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return receipt.model_dump(mode='json')
+
+	# --- §16.4 resumable upload, for the photos that are too big to send in one request ---
+	# The three steps are separate routes rather than one streaming endpoint because the failure they
+	# exist for is a dropped connection: a client that has to re-establish a stream to ask "what do
+	# you have" cannot recover from the drop it is recovering from.
+	def _upload_owner():  # type: ignore[no-untyped-def]
+		"""Route guard for the chunk routes: the session's subject must be the token's own.
+
+		`require_self` cannot do this job. It reads `subject_ref` from the path, the query or the
+		body, and the chunk routes carry none of the three — their body is an offset and some bytes.
+		The subject lives on the *session*, so the guard has to resolve the session first and compare
+		the two. Without that, a session id derived from a submission id is the only thing between
+		any token and any other person's in-flight photo, and appending bytes to a session is enough
+		to make the finished picture hash wrong for its owner.
+
+		It runs before the handler, so a caller who does not own the session never reaches the
+		append — the same ordering `require_self` gives every other personal-data route.
+		"""
+		async def guard(session_id: str, authorization: str | None = Header(default=None)) -> str:
+			subject, role = require_token(authorization)
+			from afya.privacy.views import CITIZEN_ROLES
+			if role not in CITIZEN_ROLES:
+				raise HTTPException(status_code=403, detail='this route acts only for the token holder')
+			try:
+				owner = evidence.upload_session(session_id).subject_ref
+			except KeyError as exc:
+				raise HTTPException(status_code=404, detail=str(exc)) from exc
+			if owner != subject:
+				raise HTTPException(status_code=403, detail='this upload belongs to another person')
+			return subject
+		return guard
+
+	@app.post('/evidence/upload')
+	async def evidence_upload_open(
+		body: UploadOpen, _subject: str = Depends(require_self()),
+	) -> dict[str, object]:
+		"""Open a resumable upload. Returns where the next chunk goes and when the session expires.
+
+		JSON rather than a multipart form, unlike the single-shot route, and the difference is not
+		cosmetic: the single-shot route carries the photo itself, so its fields travel in a multipart
+		body beside the bytes. This request carries no bytes — only the claims about them — so there
+		is nothing to put a boundary around, and a client that sent these as form fields to a route
+		declaring them as a model would have every field left at its default.
+
+		`chunk_bytes` is an offer, not a contract — chunks are addressed by byte offset, so a client
+		that slices differently still resumes correctly.
+		"""
+		from uuid6 import uuid7
+		try:
+			# Built inside the try: the model's consent refusal and its mime/size contracts are part
+			# of request validation, so a violation is the caller's 422 rather than an unhandled 500
+			# — the same ordering the single-shot route uses for the same reason.
+			submission = EvidenceSubmission(
+				submission_id='EV-' + str(uuid7()).replace('-', '').upper()[:12],
+				kind=body.kind, subject_ref=body.subject_ref, county=body.county,
+				image_sha256=body.image_sha256, mime=body.mime, size_bytes=body.declared_bytes,
+				note=body.note, consent=body.consent,
+			)
+			session = evidence.open_upload(submission, declared_bytes=body.declared_bytes,
+			                               chunk_bytes=body.chunk_bytes)
+		except PermissionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
+		except (AssertionError, ValidationError) as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		return session.model_dump(mode='json')
+	@app.get('/evidence/upload/{session_id}')
+	async def evidence_upload_status(session_id: str, _subject: str = Depends(_upload_owner())) -> dict[str, object]:
+		"""What the server holds for this upload. The question a resuming client asks after a drop."""
+		try:
+			return evidence.upload_session(session_id).model_dump(mode='json')
+		except KeyError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	@app.post('/evidence/upload/{session_id}/chunk')
+	async def evidence_upload_chunk(
+		session_id: str, chunk: UploadChunk, _subject: str = Depends(_upload_owner()),
+	) -> dict[str, object]:
+		"""Append one chunk. A 409 means the offset was wrong and the body says which one to send.
+
+		A wrong offset is a conflict rather than a validation error because the client's next move is
+		to read `next_offset` and continue — not to abandon an upload that is mostly on the server.
+		"""
+		try:
+			return evidence.append_chunk(session_id, chunk).model_dump(mode='json')
+		except KeyError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+		except ValueError as exc:
+			raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+	@app.post('/evidence/upload/{session_id}/finish')
+	async def evidence_upload_finish(session_id: str, _subject: str = Depends(_upload_owner())) -> dict[str, object]:
+		"""Store the assembled photo. Runs the same controls the single-shot route does."""
+		try:
+			receipt = await evidence.finish_upload(session_id)
+		except KeyError as exc:
+			raise HTTPException(status_code=404, detail=str(exc)) from exc
+		except PermissionError as exc:
+			raise HTTPException(status_code=403, detail=str(exc)) from exc
+		except RuntimeError as exc:
+			raise HTTPException(status_code=503, detail=str(exc)) from exc
+		except (AssertionError, ValueError, ValidationError) as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return receipt.model_dump(mode='json')
 

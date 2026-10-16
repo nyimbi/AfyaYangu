@@ -3,6 +3,8 @@ import gzip
 import json
 from collections.abc import Awaitable, Callable
 
+import brotli
+
 from afya.logmixin import LogMixin
 from afya.sync.views import (
 	POLICY_BY_CONNECTION, RULE_BY_DATASET, AppealState, ConflictRecord, ConflictStrategy,
@@ -174,7 +176,14 @@ class SyncService(LogMixin):
 		return POLICY_BY_CONNECTION[connection]
 
 	def encode(self, ops: list[SyncOp], connection: ConnectionClass) -> SyncBatch:
-		"""Assemble one request's batch: delta payloads, then gzip when it pays for itself.
+		"""Assemble one request's batch: delta payloads, then the smaller of gzip and Brotli.
+
+		§16.4 names two codecs — "Payload compression: gzip / Brotli" — and the slash is a set, not a
+		choice: a client that ships both and sends gzip because it was written first is leaving
+		bandwidth on a metered link for no reason. Both are tried and the smaller wins, which is the
+		only rule that minimises what the person pays for; Brotli's static dictionary makes it
+		usually the winner on JSON, and gzip wins on some small bodies where Brotli's header costs
+		more than its dictionary saves. Neither is preferred by construction.
 
 		Compression is applied only above the policy's threshold *and* only when the compressed form
 		is actually smaller — gzip on a 200-byte body adds framing overhead and makes the request
@@ -201,9 +210,15 @@ class SyncService(LogMixin):
 		encoding = 'identity'
 		wire = raw
 		if policy.compress and len(raw) >= policy.compress_threshold_bytes:
-			packed = gzip.compress(raw, compresslevel=6)
-			if len(packed) < len(raw):
-				wire, encoding = packed, 'gzip'
+			# Both codecs §16.4 names, and the smaller one goes on the wire. `brotli.compress` with
+			# quality 5 is the level whose ratio is worth its CPU on a handset; the default 11 is
+			# seconds of work per batch for a few percent, which on a phone is the battery cost
+			# §16.4's whole argument is about.
+			candidates = {'gzip': gzip.compress(raw, compresslevel=6),
+			              'br': brotli.compress(raw, quality=5)}
+			best = min(candidates, key=lambda k: len(candidates[k]))
+			if len(candidates[best]) < len(raw):
+				wire, encoding = candidates[best], best
 		out = SyncBatch(
 			connection=connection, ops=wire_ops, encoding=encoding,
 			wire_bytes=len(wire), raw_bytes=len(raw), deferred=len(ops) - len(batch),
