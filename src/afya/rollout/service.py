@@ -28,6 +28,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # finding.
 APK_BUDGET_MB: float = next(row[3] for row in KPIS if row[0] == 'apk_base_size')
 
+# §16.5's closing line — "Total with all modules: ~60 MB". Carried so the section's own total can be
+# compared to its nine rows rather than left as prose a reader has to add up; they sum to 78, and the
+# gap is reported by `AppSizePlan.within_statement` rather than resolved in code. The section writes
+# `~`, so the figure is a stated bound and the comparison is `<=` — the same direction §19.1's
+# `STATED_FOOTPRINT_MB` uses for its own "~30 MB".
+STATED_TOTAL_MB: float = 60.0
+
 # The licence files a repository can carry. §20.2 says "open-source client" and §23.5 repeats it as
 # the answer to "perceived as government surveillance" — but the spec names no licence, so this
 # checks that *a* licence was chosen rather than asserting which one. Picking one is the product
@@ -570,32 +577,48 @@ class RolloutService(LogMixin):
 		return None
 
 	def app_size(self) -> AppSizePlan:
-		"""§16.5's delivery table, summed by where each row lands.
+		"""§16.5's delivery table, summed by where each row lands, against the section's stated total.
 
-		The split is the section's own argument. §16.5 lists a 20 MB speech model, a 25 MB medicine
-		registry and a 15 MB content library and still closes "Base install under 15 MB", which is only
-		true because the Delivery column makes them on-demand. Summing the table into one number would
-		report ~60 MB and read as a budget breach the section does not have; summing only the initial
-		rows would report 15 MB and hide everything the person may later carry.
+		The split is the section's own argument. §16.5 lists a 25 MB medicine registry and a 15 MB
+		content library and still closes "Base install under 15 MB", which is only true because the
+		Delivery column makes them on-demand. Summing the table into one number would report 78 MB and
+		read as a budget breach the section does not have; summing only the initial rows would report
+		15 MB and hide everything the person may later carry.
 
 		`within_budget` is therefore about the install, and the on-demand total is reported beside it
 		rather than folded in. The budget is `APK_BUDGET_MB`, read from §22.5's KPI table, so §20.2
 		lever 5, §16.5's closing line and §22.5's target stay one number instead of three.
+
+		**`within_statement` is the second finding and it is live.** §16.5 closes "Total with all
+		modules: ~60 MB" and its nine rows sum to 78. The 18 MB gap is the section's own arithmetic,
+		reported rather than resolved: the three rows a reader might use to explain it (the 25 MB
+		registry, the 15 MB library and the 5 MB cache are each marked optional or per-county) do not
+		sum to 18 on any reading, and rounding 78 to 60 in code would be inventing a reconciliation
+		the section does not state. §19.1's `ModelFootprint` reports the same shape of gap.
 		"""
 		base = round(sum(m.size_mb for m in MODULES if m.delivery == 'initial'), 2)
 		on_demand = round(sum(m.size_mb for m in MODULES if m.delivery == 'on_demand'), 2)
 		full = round(base + on_demand + sum(m.size_mb for m in MODULES if m.delivery == 'automatic'), 2)
 		within = base <= APK_BUDGET_MB
-		self._log_info('app size plan', base_mb=base, on_demand_mb=on_demand, within=within)
+		within_statement = full <= STATED_TOTAL_MB
+		notes: list[str] = []
+		if not within_statement:
+			notes.append(
+				f'the nine rows sum to {full:g} MB against §16.5\'s stated ~{STATED_TOTAL_MB:g} MB, '
+				f'a {full - STATED_TOTAL_MB:g} MB gap the section does not explain')
+		self._log_info('app size plan', base_mb=base, on_demand_mb=on_demand, full_mb=full,
+		               within=within, within_statement=within_statement)
 		return AppSizePlan(
 			components=list(MODULES), base_install_mb=base, on_demand_mb=on_demand, full_install_mb=full,
+			stated_total_mb=STATED_TOTAL_MB, within_statement=within_statement,
 			budget_mb=APK_BUDGET_MB, within_budget=within,
-			note=(
+			note='; '.join([
 				f'base install {base:g} MB against the {APK_BUDGET_MB:g} MB budget; '
 				f'{on_demand:g} MB more is available on demand and {full:g} MB with every module'
 				if within else
-				f'base install {base:g} MB exceeds the {APK_BUDGET_MB:g} MB budget §20.2 lever 5 and §22.5 set'
-			),
+				f'base install {base:g} MB exceeds the {APK_BUDGET_MB:g} MB budget §20.2 lever 5 and §22.5 set',
+				*notes,
+			]),
 		)
 
 	def readiness(self) -> ReadinessReport:

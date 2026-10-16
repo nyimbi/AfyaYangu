@@ -316,10 +316,11 @@ class ModuleDelivery(BaseModel):
 	"""One §16.5 row: a component, its size, and how it reaches the device.
 
 	§16.5 is the table §19.1's "loaded as needed, not all at once" points at, and the two sections
-	disagree unless the delivery column is carried: a 20 MB speech model is only compatible with a
-	15 MB base install because the section makes it on-demand. `automatic` marks the one row that
-	arrives without the person asking (the per-county facility cache), because it is the only row
-	whose size is spent on every install whether or not anyone wants it.
+	agree only because the delivery column is carried: §19.1's speech model is a 20 MB row in *its*
+	table, and it is compatible with a 15 MB base install here only because §16.5 makes the large
+	components on-demand. `automatic` marks the one row that arrives without the person asking (the
+	per-county facility cache), because it is the only row whose size is spent on every install
+	whether or not anyone wants it.
 	"""
 
 	model_config = MODEL_CONFIG
@@ -341,7 +342,17 @@ class AppSizePlan(BaseModel):
 	15 MB — the same number §16.5's own "Base install under 15 MB" line gives, which is why the plan
 	reads the budget from the KPI table rather than restating it. The on-demand total is reported
 	separately rather than added: a plan whose full module set exceeds the budget is not a plan whose
-	*install* does, and §16.5's own ~60 MB total is the section saying so.
+	*install* does.
+
+	**`stated_total_mb` is the section's own closing figure, and the table does not reach it.** §16.5
+	closes "Total with all modules: ~60 MB", and its nine rows sum to 78 — 15 base + 8 Tier 3 + 4
+	LiDAR + 6 acoustic + 25 registry + 15 library + 5 facility cache. The 18 MB gap is the section
+	contradicting itself, which is the finding `within_statement` reports rather than a number the
+	code may quietly resolve: rounding 78 down to 60 would be the code inventing a reconciliation the
+	section does not state, and the three rows that could explain it (the registry, the library and
+	the facility cache are each marked optional or per-county) do not add to 18 on any reading.
+	Carrying both numbers is what makes the disagreement visible; §19.1's `ModelFootprint` reports the
+	same shape of gap for the on-device models.
 	"""
 
 	model_config = MODEL_CONFIG
@@ -349,6 +360,8 @@ class AppSizePlan(BaseModel):
 	base_install_mb: float = Field(ge=0)
 	on_demand_mb: float = Field(ge=0)
 	full_install_mb: float = Field(ge=0)
+	stated_total_mb: float = Field(gt=0)
+	within_statement: bool
 	budget_mb: float = Field(gt=0)
 	within_budget: bool
 	note: str

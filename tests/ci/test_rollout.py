@@ -487,7 +487,10 @@ def test_the_module_table_is_the_sections_nine_rows() -> None:
 async def test_the_base_install_is_under_budget_and_the_modules_are_not_folded_in() -> None:
 	"""The section's own distinction. §16.5 lists 25 MB and 15 MB modules and still closes "Base
 	install under 15 MB", which is only true because Delivery makes them on-demand. A plan that
-	summed the table into one number would report ~60 MB and read as a breach §16.5 does not have."""
+	summed the table into one number would report 78 MB — the whole table, which no install carries
+	— and read as a breach §16.5 does not have. (The section's *own* closing total, ~60 MB, is a
+	different number and does not equal 78; that gap is the finding
+	`test_the_sections_stated_total_is_carried_and_its_rows_do_not_reach_it` carries.)"""
 	plan = _svc().app_size()
 	assert plan.base_install_mb == 15.0, 'Base app is the only initial row with a size'
 	assert plan.within_budget is True
@@ -515,6 +518,64 @@ async def test_the_app_size_route_is_open_and_reports_the_split() -> None:
 		assert out['base_install_mb'] == 15.0 and out['within_budget'] is True
 		assert len(out['components']) == 9
 		assert out['on_demand_mb'] > out['base_install_mb'], 'the modules a person may pull outweigh the base'
+
+
+def _spec_stated_total_mb() -> float:
+	"""§16.5's closing line read out of `docs/spec.md`, so the constant cannot drift from the section.
+
+	The section writes "**Total with all modules:** ~60 MB. Base install under 15 MB." on one line,
+	and the `~` is why the comparison in `app_size` is `<=` rather than `==`. Read rather than
+	restated for the same reason `_spec_module_table` is: a second copy of the number in this file
+	would be the two-sources-of-truth drift this test exists to catch.
+	"""
+	text = (Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	section = text.split('### 16.5 App Size Strategy', 1)[1].split('\n## ', 1)[0]
+	m = _re.search(r'Total with all modules:\*\* ~(\d+(?:\.\d+)?) MB', section)
+	assert m, '§16.5 no longer prints a "Total with all modules" figure'
+	return float(m.group(1))
+
+
+def test_the_sections_stated_total_is_carried_and_its_rows_do_not_reach_it() -> None:
+	"""§16.5 contradicts itself, and the contradiction is a finding rather than a rounding error.
+
+	The section's nine rows sum to 78 MB — 15 base + 8 Tier 3 + 4 LiDAR + 6 acoustic + 25 registry +
+	15 library + 5 facility cache — and its own closing line says "~60 MB". The gap is 18 MB, and it
+	was invisible because the code carried neither number: `full_install_mb` existed and nothing
+	compared it to anything, so a reader had to add the column up by hand to find it.
+
+	**Reported, not resolved.** The three rows a reader might use to explain the gap (the registry,
+	the library and the cache are each marked optional or per-county) do not sum to 18 on any
+	reading, so rounding 78 down to 60 in code would invent a reconciliation the section does not
+	state. `within_statement` is False and stays False until §16.5's arithmetic or its closing line
+	changes — which is the point: a test asserting `within_statement is True` would be asserting the
+	section is consistent, and it is not.
+
+	Both directions are asserted. `stated_total_mb` is compared to the figure *read from the
+	section*, so a constant that drifts fails here; and the sum is compared to the section's own
+	rows, so a transcribed size that changes is caught rather than silently widening the gap.
+	"""
+	from afya.rollout.service import STATED_TOTAL_MB
+	plan = _svc().app_size()
+	assert STATED_TOTAL_MB == _spec_stated_total_mb() == 60.0, \
+		'the carried total is the section\'s closing figure'
+	assert plan.stated_total_mb == STATED_TOTAL_MB
+	assert plan.full_install_mb == 78.0, 'the nine rows sum to 78, which is the finding'
+	assert sum(m.size_mb for m in plan.components) == 78.0, \
+		'every row counts toward the total, including the automatic facility cache'
+	assert plan.within_statement is False
+	assert '60' in plan.note and '78' in plan.note, 'the note names both figures rather than one'
+
+
+async def test_the_app_size_route_serves_the_stated_total_and_the_disagreement() -> None:
+	"""A finding a reader cannot reach is not a finding. The route carries both numbers, and the
+	note says which way the gap runs — a served `within_statement: false` with no figures beside it
+	reads as a budget breach, which is the opposite of what it is."""
+	app, _ = _auditor_app()
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://testserver') as c:
+		out = (await c.get('/rollout/app-size')).json()
+		assert out['stated_total_mb'] == 60.0 and out['within_statement'] is False
+		assert out['within_budget'] is True, 'the install is under budget; only the module total is not'
+		assert '60' in out['note'] and '78' in out['note']
 
 
 # --- §21.2–21.7 the phase sections -----------------------------------------------------------
