@@ -6971,3 +6971,49 @@ reasons of its own accepts every field the form offers and reads clean.
   beside another `Body` parameter still embeds into an object schema with `properties`, so it never
   reaches the open-map branch and the predicate it aimed at is already canaried by a route that does.
   A canary that cannot fire is a canary that did not run, and leaving one is worse than not writing it.
+
+## §18's Frequency column, and the one row my own gate caught (2026-10-16)
+
+`test_every_feed_declares_its_granularity_and_cadence` asserted that §18.3's six feeds have the same
+*key set* in `FEED_GRANULARITY` and `FEED_CADENCE`, and one granularity value. Nothing compared a
+cadence to the section. So a feed could move from hourly to weekly against a spec row reading
+"Hourly" and every gate in the tree stayed green — the defect class §SEC-005's retention cells had,
+which is why the reader is that test's shape.
+
+The other seven subsections were worse than unchecked: they had **no carrier at all**. The cadence
+lived in a client docstring — `adam.py`'s "App → ADaM, daily, consented only", `service.py`'s
+"MoHF → App, weekly" — where no test reads it and no operator can query it. A duty desk asking "how
+often does PHEOC get symptom reports" had to open the source.
+
+- **The column is now a register, and it is crossed twice.** `src/afya/integrations/frequencies.py`
+  holds `SPEC_18_FREQUENCY`, keyed by `(subsection, integration point)` and carrying the section's
+  cell **verbatim** — not normalised into a slug vocabulary, because a second spelling of what the
+  section already states is exactly how §18.3's copy drifted. `CARRIER` names the route per row.
+  `test_every_spec_18_frequency_is_the_sections_own` parses the eight tables out of `docs/spec.md`
+  and asserts equality **both ways**; `test_every_spec_18_row_names_a_route_that_carries_it` reads
+  the *running app* and asserts every carrier is a route it serves. The second crossing is what stops
+  the register describing a wire nobody built — the defect §18 was fixed from in the first place
+  ("the clients existed and no path reached them").
+- **The first run of the new gate failed on a real drift, and the drift was mine.** The module-level
+  join between the register and `FEED_CADENCE` used `.lower()`: §18.3's cell is `Real-time` and the
+  key the PHEOC client posts under is `realtime`, so five rows passed and that one failed. A
+  normalisation that works for five of six rows is a hand-kept exception list waiting to happen, so
+  the join is a **rule** — drop every non-alphanumeric — which makes it total. A gate whose first
+  green came from adjusting the constant would have been worthless; this one failed first, on the
+  object, and the object was wrong.
+- **A canary pointed at a node that cannot see its mutation.** Canary #4 moved a §18.3 cadence in the
+  register and named `test_every_feed_declares_its_granularity_and_cadence` — a test that never
+  imports `frequencies.py`, so its module-level assert could not fire on that path and the canary
+  reported MISSED while the file it mutated was genuinely broken. Repointed at the spec-reading test
+  (which does import the module) and re-aimed at `FEED_CADENCE` instead, which is the register↔wire
+  crossing rather than a second register↔section one. Same lesson as the nameless-form canary in the
+  previous entry, in a different disguise: a canary that cannot fire is a canary that did not run.
+- **The frequency is served, not just declared.** `GET /integrations/status` gains `frequencies`,
+  eight subsystems and their 34 rows, each with its carrier route — probed through the front door,
+  which is the only evidence that says anything about what the app answers. 34 rows read off the
+  spec, 34 served, 0 carriers the app does not serve.
+- **Canaried four ways, 4/4 fired**, each mutation disjoint from what its predicate reads: the
+  register's cell moved against an untouched section; the **section** reworded against an untouched
+  register (the direction an in-process canary cannot make, and the one that catches "edit the
+  constant until it agrees"); a row losing its carrier while its frequency stays; and `FEED_CADENCE`
+  moved under a register that still agrees with the spec.

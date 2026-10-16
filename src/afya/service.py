@@ -5570,12 +5570,17 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		"""
 		from afya.config import ServiceConfig
 		cfg = ServiceConfig.from_env()
+		from afya.integrations.frequencies import frequencies_for
 		return {
 			'wired': sorted(['adam', 'jali', 'pheoc', 'mohf', 'ppb', 'sha', 'telco']),
 			'configured': cfg.live_vendors(),
 			'adam_mutual_tls': adam.mutual_tls_configured,
 			'jali_offline': jali.__class__.__name__ == 'InlineJaliPort',
 			'pheoc_feeds': sorted(FEED_GRANULARITY),
+			# §18's Frequency column per subsystem, with the route that carries each row. Served
+			# because the cadence is an operating obligation — a duty desk asking "how often does
+			# PHEOC get symptom reports" could previously only be answered by reading a docstring.
+			'frequencies': {s: frequencies_for(s) for s in ('18.1', '18.2', '18.3', '18.4', '18.5', '18.6', '18.7', '18.8')},
 		}
 
 	# §18.1 ADaM — case reports out, status/assignments/definitions in.

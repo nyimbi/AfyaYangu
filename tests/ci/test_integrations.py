@@ -758,3 +758,130 @@ def test_every_spec_18_client_is_exported_and_wired() -> None:
 		assert name in services, f'§18 system {name} is not wired'
 	for exported in ('AdamClient', 'JaliClient', 'PheocClient', 'MoHFFacilityClient', 'PPBClient', 'SHAClient', 'TelcoGatewayClient'):
 		assert exported in v.__all__, exported
+
+
+# --- §18's Frequency column, read out of the section ----------------------------------------
+
+_SPEC_18_HEADINGS = {
+	'18.1': '### 18.1 ADaM Platform',
+	'18.2': '### 18.2 JALI Chatbot',
+	'18.3': '### 18.3 PHEOC Dashboards',
+	'18.4': '### 18.4 719 Hotline',
+	'18.5': '### 18.5 Kenya Master Health Facility List',
+	'18.6': '### 18.6 SHA / NHIF',
+	'18.7': '### 18.7 Pharmacy and Poisons Board',
+	'18.8': '### 18.8 Telco Gateways',
+}
+
+
+def _spec_18_rows() -> dict[tuple[str, str], str]:
+	"""§18.1–§18.8's four-column tables as `{(section, integration point): Frequency}`.
+
+	Read off `docs/spec.md` rather than from the register it checks, so a cell reworded in the
+	section fails here instead of passing against a constant edited to agree with it. The first
+	column's spelling is the section's own — §18.3 heads it "Data feed" and the rest "Integration
+	point", and both are the same thing.
+	"""
+	import pathlib
+	text = (pathlib.Path(__file__).resolve().parents[2] / 'docs' / 'spec.md').read_text(encoding='utf-8')
+	rows: dict[tuple[str, str], str] = {}
+	for section, heading in _SPEC_18_HEADINGS.items():
+		assert heading in text, f'§{section}: heading `{heading}` not found in docs/spec.md'
+		block = text.split(heading, 1)[1].split('\n### ', 1)[0]
+		for line in block.splitlines():
+			if not line.startswith('|') or set(line) <= set('|-: '):
+				continue
+			cells = [c.strip() for c in line.strip('|').split('|')]
+			if len(cells) != 4 or cells[0] in ('Integration point', 'Data feed', ''):
+				continue
+			rows[(section, cells[0])] = cells[3]
+	return rows
+
+
+def test_every_spec_18_frequency_is_the_sections_own() -> None:
+	"""§18's Frequency column, both ways, against `docs/spec.md`.
+
+	The column had no carrier in seven of the eight subsections — a cadence appeared in a client
+	docstring ("App → ADaM, daily, consented only") where no test reads it — and the eighth,
+	§18.3, carried it as slugs with a test asserting only the *key set*. So a feed could move from
+	hourly to weekly against a section reading "Hourly" and every gate stayed green. This is the
+	same defect class §SEC-005's retention cells had, and the reader is the same shape.
+	"""
+	from afya.integrations.frequencies import SPEC_18_FREQUENCY
+	spec = _spec_18_rows()
+	assert len(spec) == 34, f'§18 lists 34 integration points, read {len(spec)}'
+	missing = sorted(f'{s} {p}' for s, p in spec if (s, p) not in SPEC_18_FREQUENCY)
+	assert not missing, f'§18 rows with no declared frequency: {missing}'
+	extra = sorted(f'{s} {p}' for s, p in SPEC_18_FREQUENCY if (s, p) not in spec)
+	assert not extra, f'the register declares rows §18 does not state: {extra}'
+	for key, stated in spec.items():
+		assert SPEC_18_FREQUENCY[key] == stated, (
+			f'§{key[0]} `{key[1]}`: the section states {stated!r}, the register says '
+			f'{SPEC_18_FREQUENCY[key]!r}')
+
+
+def test_every_spec_18_row_names_a_route_that_carries_it() -> None:
+	"""A declared frequency with no route is a wire nobody built, which is the defect §18 was fixed
+	from in the first place. Each row's `CARRIER` is checked against what the app actually serves,
+	read off the running object rather than the source — an inventory read from source is not an
+	inventory the app serves.
+	"""
+	from afya.integrations.frequencies import CARRIER, SPEC_18_FREQUENCY
+	from afya.service import build_services, create_app
+
+	assert set(CARRIER) == set(SPEC_18_FREQUENCY), 'a row carries a frequency or a route, not one of the two'
+	app = create_app(build_services())
+	served: set[tuple[str, str]] = set()
+
+	def walk(routes: object) -> None:
+		for r in routes:  # type: ignore[attr-defined]
+			if hasattr(r, 'routes'):
+				walk(r.routes)
+				continue
+			for method in getattr(r, 'methods', None) or []:
+				if method not in ('HEAD', 'OPTIONS'):
+					served.add((method, getattr(r, 'path', '')))
+
+	walk(app.routes)
+	absent = sorted(f'§{s} {p} -> {m} {path}' for (s, p), (m, path) in CARRIER.items() if (m, path) not in served)
+	assert not absent, f'§18 rows naming a route the app does not serve: {absent}'
+
+
+def test_the_spec_18_frequency_gate_catches_a_drifted_cell() -> None:
+	"""The gate's own canary, driven in-process: a cell moved in either direction must fail it.
+
+	Two mutations, each disjoint from what the comparison reads. The first changes the register
+	and leaves the section alone; the second does the reverse, which is the direction that catches
+	the "edit the constant until it agrees" move.
+	"""
+	import afya.integrations.frequencies as freq
+	spec = _spec_18_rows()
+	key = ('18.1', 'Contact monitoring summaries')
+	assert spec[key] == 'Daily' and freq.SPEC_18_FREQUENCY[key] == 'Daily'
+
+	saved = dict(freq.SPEC_18_FREQUENCY)
+	try:
+		freq.SPEC_18_FREQUENCY[key] = 'Weekly'
+		drifted = {k: v for k, v in freq.SPEC_18_FREQUENCY.items() if spec.get(k) != v}
+		assert drifted == {key: 'Weekly'}, f'the comparison must see the register move: {drifted}'
+	finally:
+		freq.SPEC_18_FREQUENCY.clear()
+		freq.SPEC_18_FREQUENCY.update(saved)
+
+	# And the other direction: the section's cell changes and the register does not. Simulated by
+	# comparing the register against a spec read whose one cell was rewritten.
+	rewritten = dict(spec)
+	rewritten[key] = 'On change'
+	drifted = {k: v for k, v in freq.SPEC_18_FREQUENCY.items() if rewritten.get(k) != v}
+	assert drifted == {key: 'Daily'}, f'the comparison must see the section move: {drifted}'
+
+
+def test_the_wiring_report_serves_the_frequencies_it_declares() -> None:
+	"""`GET /integrations/status` answers "how often does each national system get what", which the
+	register makes possible and which previously required reading a docstring."""
+	from afya.integrations.frequencies import SPEC_18_FREQUENCY, frequencies_for
+
+	for section in ('18.1', '18.2', '18.3', '18.4', '18.5', '18.6', '18.7', '18.8'):
+		rows = frequencies_for(section)
+		assert len(rows) == sum(1 for s, _ in SPEC_18_FREQUENCY if s == section), section
+		assert all(r['frequency'] and r['carrier'] for r in rows), rows
