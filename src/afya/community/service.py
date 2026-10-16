@@ -12,10 +12,10 @@ from afya.auth.views import now_ms
 from afya.channels.views import PushPayload
 from afya.community.protocol import PROTOCOL, ResponseClock, coverage, response_clock
 from afya.community.views import (
-	ALERT_WINDOW_DAYS, FOLLOWUP_DAYS, ISSUE_ROUTING, CaseReport, CaseReportView, CaseStatus,
-	ClaimAnswer, CommunityIssue, ContactEntry, ContactList, ContactShare, ContactShareReceipt,
-	ContactTracingSummary, CorrectionNotice, IssueReceipt, IssueStatus, MisinfoCluster,
-	MisinfoSubmission, PeerAlert, PeerAlertAck, PeerAlertGuidance, PeerAlertReceipt,
+	ALERT_WINDOW_DAYS, FOLLOWUP_DAYS, ISSUE_ROUTING, PEER_VERIFIERS, CaseReport, CaseReportView,
+	CaseStatus, ClaimAnswer, CommunityIssue, ContactEntry, ContactList, ContactShare,
+	ContactShareReceipt, ContactTracingSummary, CorrectionNotice, IssueReceipt, IssueStatus,
+	MisinfoCluster, MisinfoSubmission, PeerAlert, PeerAlertAck, PeerAlertGuidance, PeerAlertReceipt,
 )
 from afya.crypto.service import CryptoService
 from afya.identity.service import IdentityService
@@ -402,7 +402,7 @@ class CommunityService(LogMixin):
 	# --- COM-102 peer alert network -------------------------------------------------------
 
 	async def send_peer_alert(self, alert: PeerAlert) -> PeerAlertReceipt:
-		assert alert.verified_by in ('County', 'PHEOC', 'MoH'), 'a peer alert needs county verification first'
+		assert alert.verified_by in PEER_VERIFIERS, 'a peer alert needs county verification first'
 		# §6.2.5 and §6.2.9, through the one table that holds them. The peer alert carried its own
 		# four-word alarmist list, which missed the stigmatising substitutions the section states and
 		# would not have moved if the section did. It is instruction text — a peer alert tells someone

@@ -39,8 +39,9 @@ from afya.monitoring.views import LARVICIDE_CLASSES
 from afya.records.views import WALLET_DOC_KINDS
 from afya.registry.diseases import DISEASES
 from afya.access.views import LANGUAGE_MATRIX
-from afya.alerts.views import AlertKind
-from afya.community.views import CaseStatus, IssueKind
+from afya.alerts.views import ALERT_ISSUERS, AlertKind
+from afya.community.views import CaseStatus, IssueKind, PEER_VERIFIERS
+from afya.chw.views import PROVISIONERS
 from afya.evidence.views import EvidenceKind
 from afya.facilities.views import FacilityKind
 from afya.info.views import CONTENT_LANGS, ContentStage
@@ -957,7 +958,7 @@ def catalogue() -> list[MobileAction]:
 		_a('air_advisory', 'How is the air?', 'Environment', 'POST', '/environment/air', [_f('county', 'County'), _f('location', 'Where you are'), _f('pm25', 'PM2.5 µg/m³', 'decimal'), _f('hourly', 'Today\'s hourly readings', 'list', ph='6=18, 12=34, 18=52')]),
 		_a('flood_risk', 'Flood and cholera risk', 'Environment', 'POST', '/environment/flood', [_f('county', 'County'), _f('rainfall_mm_72h', 'Rainfall mm in 3 days', 'decimal'), _f('population_at_risk', 'People at risk', 'int')]),
 		# Alerts
-		_a('issue_alert', 'Send a public alert', 'Alerts', 'POST', '/alerts', [_auto('alert_id', 'Alert number'), _f('kind', 'Kind', 'select', ALERT_KINDS), _f('county', 'County'), _f('headline', 'Headline'), _f('body', 'Message', 'textarea'), _f('issued_by', 'Issued by', 'select', ['PHEOC', 'MoH', 'County', 'KMD'])]),
+		_a('issue_alert', 'Send a public alert', 'Alerts', 'POST', '/alerts', [_auto('alert_id', 'Alert number'), _f('kind', 'Kind', 'select', ALERT_KINDS), _f('county', 'County'), _f('headline', 'Headline'), _f('body', 'Message', 'textarea'), _f('issued_by', 'Issued by', 'select', list(ALERT_ISSUERS))]),
 		_a('alerts_by_county', 'Alerts for my county', 'Alerts', 'GET', '/alerts/{county}', [_f('county', 'County', 'path')]),
 		_a('publish_feed_item', 'Publish a verified alert', 'Alerts', 'POST', '/alerting/feed', [_f('item_id', 'Item number'), _f('category', 'Category', 'select', list(FEED_CATEGORIES)), _f('headline', 'Headline'), _f('body', 'Message', 'textarea'), _f('source', 'Source'), _f('verified', 'Verified?', 'bool'), _f('published_iso', 'Published on'), _f('county', 'County', ph='optional')]),
 		_a('alert_feed', 'Alerts near me', 'Alerts', 'GET', '/alerting/feed', [_f('county', 'County', ph='optional')]),
@@ -974,7 +975,7 @@ def catalogue() -> list[MobileAction]:
 		_a('submit_case', 'Report a suspected case', 'Community', 'POST', '/community/cases', [_auto('report_id', 'Report number'), _f('chw_ref', 'Health worker'), _f('county', 'County'), _f('community', 'Village or estate'), _f('symptoms', 'Symptoms', 'list'), _f('age_years', 'Age in years', 'int'), _f('sex', 'Sex', 'select', ['male', 'female', 'other']), _f('temperature_c', 'Temperature °C', 'decimal'), _f('exposure_history', 'Who has the patient been near?', 'textarea'), _f('geotagged', 'Attach location?', 'bool'), _f('suspected_disease', 'What do you suspect?', 'select', VECTOR_DISEASES), _f('reported_offline', 'Reported without network?', 'bool')]),
 		_a('advance_case', 'Update a case', 'Community', 'POST', '/community/cases/{report_id}/advance', [_f('report_id', 'Report number', 'path'), _f('status', 'New status', 'select', CASE_STATUSES)]),
 		_a('ppe_reminder', 'Protective equipment reminder', 'Community', 'GET', '/community/ppe-reminder', []),
-		_a('peer_alert', 'Warn people nearby', 'Community', 'POST', '/community/peer-alert', [_f('alert_id', 'Alert number'), _f('county', 'County'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('radius_m', 'How far? (metres)', 'select', [str(r) for r in ALERT_ZONE_RADII_M]), _f('headline', 'Headline'), _f('location', 'Which place should people avoid?'), _f('issued_iso', 'Issued on', ph='YYYY-MM-DD'), _f('verified_by', 'Verified by', 'select', ['County', 'PHEOC', 'MoH'])]),
+		_a('peer_alert', 'Warn people nearby', 'Community', 'POST', '/community/peer-alert', [_f('alert_id', 'Alert number'), _f('county', 'County'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('radius_m', 'How far? (metres)', 'select', [str(r) for r in ALERT_ZONE_RADII_M]), _f('headline', 'Headline'), _f('location', 'Which place should people avoid?'), _f('issued_iso', 'Issued on', ph='YYYY-MM-DD'), _f('verified_by', 'Verified by', 'select', list(PEER_VERIFIERS))]),
 		_a('peer_alert_followup', 'Follow-up prompt for one day', 'Community', 'GET', '/community/peer-alert/{alert_id}/followup/{day}', [_f('alert_id', 'Alert number', 'path'), _f('day', 'Day of the window (' + ', '.join(str(d) for d in FOLLOWUP_DAYS) + ')', 'path')]),
 		_a('tracing_prompts', 'Help me remember who I met', 'Community', 'GET', '/community/tracing-prompts', []),
 		_a('save_contacts', 'Save my contact list', 'Community', 'POST', '/community/contacts', [_s(), _f('entries', 'People, and where you know them from', 'list', ph='Jane:market, the tailor:work (home, work, transport, worship, market, social, other)'), _f('share_consent', 'Share with the health team?', 'bool')]),
@@ -1125,7 +1126,7 @@ def catalogue() -> list[MobileAction]:
 		_a('fairness_audit', 'Check an AI model is fair', 'Access', 'POST', '/ai/fairness-audit', [_f('model_id', 'Model'), _f('axes', 'Axes tested', 'list'), _f('unmet_axes', 'Failures found', 'list')]),
 		_a('file_redress', 'Challenge a decision', 'Access', 'POST', '/ai/redress', [_f('request_id', 'Request number'), _s(), _f('output_kind', 'What are you challenging?', 'select', OUTPUT_KINDS), _f('output_ref', 'Which result?'), _f('challenge', 'Why do you disagree?', 'textarea')]),
 		# Health workers
-		_a('provision_chw', 'Register a health worker', 'Health workers', 'POST', '/chw/provision', [_f('chw_ref', 'Health worker'), _f('name', 'Full name'), _f('county', 'County'), _f('community', 'Village or estate'), _f('registry_verified', 'Verified on the national register?', 'bool'), _f('provisioned_by', 'Registered by', 'select', ['County', 'MoH'])]),
+		_a('provision_chw', 'Register a health worker', 'Health workers', 'POST', '/chw/provision', [_f('chw_ref', 'Health worker'), _f('name', 'Full name'), _f('county', 'County'), _f('community', 'Village or estate'), _f('registry_verified', 'Verified on the national register?', 'bool'), _f('provisioned_by', 'Registered by', 'select', list(PROVISIONERS))]),
 		_a('chw_profile', 'Health worker profile', 'Health workers', 'GET', '/chw/{chw_ref}', [_f('chw_ref', 'Health worker', 'path')]),
 		_a('chw_training', 'Training modules', 'Health workers', 'GET', '/chw/training', []),
 		_a('job_aid', 'Job aid', 'Health workers', 'GET', '/chw/job-aid/{topic}', [_f('topic', 'Topic', 'path')]),

@@ -7,10 +7,10 @@
 # long, which is the failure the storage step exists to prevent.
 REMINDER_INTERVAL_HOURS = 24
 from afya.alerts.views import (
-	AQI_CATEGORIES, CHLORINE_TURBIDITY_LIMIT_NTU, SERVICE_STATUS_KINDS, TREATMENT_CAVEATS,
-	TREATMENT_STEPS, AirQuality, AirQualityGuidance, AirQualityReading, AlertKind, CommunityAlert,
-	FloodReport, OutdoorWindow, PollutionSource, ServiceStatus, StorageGuidance, TreatmentGuidance,
-	TreatmentMethod, TreatmentReminder, WaterQuality, WaterSafety, pm25_aqi,
+	ALERT_ISSUERS, AQI_CATEGORIES, CHLORINE_TURBIDITY_LIMIT_NTU, SERVICE_STATUS_KINDS,
+	TREATMENT_CAVEATS, TREATMENT_STEPS, AirQuality, AirQualityGuidance, AirQualityReading, AlertKind,
+	CommunityAlert, FloodReport, OutdoorWindow, PollutionSource, ServiceStatus, StorageGuidance,
+	TreatmentGuidance, TreatmentMethod, TreatmentReminder, WaterQuality, WaterSafety, pm25_aqi,
 )
 from afya.alerting.views import FeedItem
 from afya.logmixin import LogMixin
@@ -25,8 +25,10 @@ class AlertsService(LogMixin):
 
 	async def issue(self, alert: CommunityAlert) -> CommunityAlert:
 		assert alert.headline and alert.body, 'alert content required'
-		if alert.kind.value.startswith('outbreak_'):
-			assert alert.issued_by in ('PHEOC', 'MoH', 'County'), 'outbreak alerts require official issue'
+		# The vocabulary is the model's now (`ALERT_ISSUER_PATTERN`), so this is the second door and
+		# not the only one. Kept because `issue` is called in-process with a constructed alert as well
+		# as through the route, and a second door should not be a weaker one.
+		assert alert.issued_by in ALERT_ISSUERS, 'alerts are issued by an authority'
 		self._alerts[alert.alert_id] = alert
 		self._latest[f'{alert.county}:{alert.kind.value}'] = alert.alert_id
 		self._log_warn('community alert issued', kind=alert.kind.value, county=alert.county)

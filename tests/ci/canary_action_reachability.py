@@ -19,6 +19,8 @@ ROOT = pathlib.Path('/Users/nyimbiodero/src/pjs/afya')
 SVC = ROOT / 'src/afya/service.py'
 ACT = ROOT / 'src/afya/mobile/actions.py'
 CH = ROOT / 'src/afya/channels/views.py'
+ALERTS_V = ROOT / 'src/afya/alerts/views.py'
+ALERTS_S = ROOT / 'src/afya/alerts/service.py'
 TEST = ROOT / 'tests/ci/test_action_reachability.py'
 
 GATE = 'tests/ci/test_action_reachability.py'
@@ -119,6 +121,44 @@ CANARIES = [
 	 "	kind: str = Field(default='text', pattern=r'^(text|voice)$')",
 	 "	kind: str = Field(pattern=r'^(text|voice)$')",
 	 'test_every_closed_vocabulary_a_route_declares_is_offered_as_a_select'),
+
+	# --- the assert-enforced-vocabulary crossing ---------------------------------------------------
+
+	# 12. The KMD defect, restored exactly: the model's pattern admits a fourth member while the
+	#     handler assert keeps its own narrower set. The two schema-reading gates above both pass on
+	#     this — the form matched the model and the model matched the form — and only the model-vs-
+	#     assert crossing sees it. This is the mutation the gate exists for, and it is what the
+	#     `KMD` in `ALERT_ISSUERS` was before this unit: a value the document promises and the route
+	#     refuses.
+	('a model vocabulary is wider than the assert that guards it', ALERTS_V,
+	 "	issued_by: str = Field(pattern=ALERT_ISSUER_PATTERN)",
+	 "	issued_by: str = Field(pattern=r'^(MoH|PHEOC|County|KMD)$')",
+	 'test_a_models_vocabulary_is_no_wider_than_the_assert_that_guards_it'),
+
+	# 13. The same field, from the other layer: the handler stops naming the vocabulary at all and
+	#     admits anything, which is how the field was *before* the set was declared on the model.
+	#     Disjoint from #12, which widens the document; this one widens the assert.
+	('an assert stops naming a vocabulary', ALERTS_S,
+	 "		assert alert.issued_by in ALERT_ISSUERS, 'alerts are issued by an authority'",
+	 "		assert alert.issued_by, 'alerts are issued by an authority'",
+	 'test_a_models_vocabulary_is_no_wider_than_the_assert_that_guards_it'),
+
+	# 14. The reader stops resolving the model through the parameter annotation, so the whole
+	#     crossing goes blind: `_asserted_vocabularies()` returns nothing and every comparison passes
+	#     vacuously. The `len(asserted)` floor is what catches it — the per-row comparison cannot,
+	#     because the rows are gone. Same shape as canary #10.
+	('the assert reader stops resolving the model', TEST,
+	 "					if field in models.get(model, {}):",
+	 "					if False:",
+	 'test_a_models_vocabulary_is_no_wider_than_the_assert_that_guards_it'),
+
+	# 15. The form offers an option the handler refuses — the same defect one layer up, where the
+	#     model and the assert agree and the *form* is the stale copy. `KMD` goes back into the
+	#     spinner only, so the document stays honest and the control is still a 422.
+	('the form offers a value the handler refuses', ACT,
+	 "_f('provisioned_by', 'Registered by', 'select', list(PROVISIONERS))]),",
+	 "_f('provisioned_by', 'Registered by', 'select', [*PROVISIONERS, 'Self'])]),",
+	 'test_a_form_offers_no_value_the_assert_that_guards_it_refuses'),
 ]
 
 failures = []

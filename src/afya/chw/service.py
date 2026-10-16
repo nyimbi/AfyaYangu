@@ -6,8 +6,8 @@ it — the trust layer is worthless if anyone can self-enrol as a health worker.
 from datetime import date
 
 from afya.chw.views import (
-	JOB_AID_TITLES, JOB_AIDS, TRAINING_MODULES, ActivityLogEntry, ActivitySummary, ChwCase, ChwProfile,
-	JobAidSheet,
+	JOB_AID_TITLES, JOB_AIDS, PROVISIONERS, TRAINING_MODULES, ActivityLogEntry, ActivitySummary,
+	ChwCase, ChwProfile, JobAidSheet,
 )
 from afya.logmixin import LogMixin
 
@@ -50,7 +50,7 @@ class ChwService(LogMixin):
 	async def provision(self, profile: ChwProfile) -> ChwProfile:
 		# §COM-101's registry check, named here rather than in the message a caller reads back.
 		assert profile.registry_verified, 'a community health worker must be verified against the national registry'
-		assert profile.provisioned_by in ('County', 'MoH'), 'accounts are provisioned by a county health team'
+		assert profile.provisioned_by in PROVISIONERS, 'accounts are provisioned by a county health team'
 		self._chws[profile.chw_ref] = profile
 		self._log_info('chw provisioned', chw=profile.chw_ref, county=profile.county)
 		return profile

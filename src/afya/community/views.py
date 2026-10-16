@@ -12,6 +12,13 @@ from afya.registry.diseases import DISEASE_PATTERN
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
+# Who may verify a peer alert. §COM-102's Verification clause is "alerts are only sent after
+# verification by county health authorities", and the set was carried only by an assert in
+# `CommunityService.send_peer_alert` — so the document served a bare `str` and the mobile form kept
+# its own copy. Declared here so the form is a view of it and the assert reads the same tuple.
+PEER_VERIFIERS: tuple[str, ...] = ('County', 'PHEOC', 'MoH')
+PEER_VERIFIER_PATTERN: str = '^(' + '|'.join(PEER_VERIFIERS) + ')$'
+
 
 # --- COM-005 community reporting ---------------------------------------------------------
 
@@ -201,7 +208,7 @@ class PeerAlert(DerivedFields, BaseModel):
 	headline: str = Field(max_length=120)
 	# The "[specific location]" slot. Named for what it is: a place, not a case.
 	location: str = Field(min_length=2, max_length=80)
-	verified_by: str
+	verified_by: str = Field(pattern=PEER_VERIFIER_PATTERN)
 	# When the alert was issued, which is when §COM-102's 21-day window opens — not when a recipient
 	# happens to read it. Required rather than defaulted to today: an alert filed after the fact is
 	# filed with the date it was issued, and a server that stamped `now` would silently move the

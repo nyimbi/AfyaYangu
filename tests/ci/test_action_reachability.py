@@ -34,6 +34,8 @@ which keys a form should send and no check can compare them. That is not a looph
 is the reason three of these routes were unfixable while they stayed open maps. They are typed
 models now, and `test_a_write_route_takes_no_open_map_body` keeps them that way.
 """
+import ast
+import pathlib
 import re
 from functools import lru_cache
 from typing import Any
@@ -471,3 +473,199 @@ def test_the_select_crossing_finds_a_value_the_form_cannot_offer() -> None:
 		# An option the route refuses — the other direction, and the one `schedule_review.kind` was.
 		assert sorted(set(options) | {'nowhere_to_go'}) != sorted(set(values)), (
 			'an option outside the route vocabulary must break the comparison')
+
+
+# --- the third crossing: a form select against a vocabulary only a handler assert knows -----------
+#
+# The two gates above compare a form's options against the route's *model*. Both pass on a field
+# whose real vocabulary lives in an `assert` inside the handler, because the OpenAPI document serves
+# the model and the model took any string. That is how `issue_alert.issued_by` offered `KMD` — the
+# model's pattern admitted it and `AlertsService.issue` refused it for all eight `outbreak_*` kinds —
+# while every schema-reading check reported clean.
+#
+# **A vocabulary enforced by an assert rather than by the model has a drift horizon and no symptom.**
+# The document, the form and the assert agree on the day they are written; the day one moves, a
+# control is a 422 the document promises cannot happen, and nothing fails. So the crossing is made
+# here, from the source, in three parts:
+#
+#   * `_asserted_vocabularies()` reads every closed-set membership assert in `src/afya` — in **both**
+#     spellings of the set (an inline tuple and a module-level constant, reached by name), because a
+#     reader that knew only the first would report clean on every vocabulary written the second way.
+#   * `_guarded_fields()` resolves each to the **model field** it guards, through the enclosing
+#     function's annotated parameter. A name-only matcher is not enough: `status` is a field of
+#     `ChwCase`, `TaggedEquipment` and `MilestoneReport` at once, and matching by name alone reports
+#     five mismatches that are collisions rather than defects.
+#   * `test_a_models_vocabulary_is_no_wider_than_the_assert_that_guards_it` asserts the model's
+#     declared set is a **subset** of the assert's, and `..._the_form_offers...` asserts the form's
+#     options are a **subset** of it too. A value the model admits that no assert admits is a 422 the
+#     document promises cannot happen; an option the assert refuses is the same defect one layer up.
+
+SRC = pathlib.Path(__file__).resolve().parents[2] / 'src' / 'afya'
+
+
+def _string_collections() -> dict[tuple[str, str], tuple[str, ...]]:
+	"""Every module-level name bound to a literal collection of strings, keyed `(file, name)`."""
+	out: dict[tuple[str, str], tuple[str, ...]] = {}
+	for path in SRC.rglob('*.py'):
+		for node in ast.parse(path.read_text()).body:
+			value: ast.expr | None = None
+			name: str | None = None
+			if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+				value, name = node.value, node.target.id
+			elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+				value, name = node.value, node.targets[0].id
+			if name is None:
+				continue
+			if isinstance(value, (ast.Tuple, ast.List, ast.Set)) and value.elts:
+				literals = [e.value for e in value.elts
+				            if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+				if len(literals) == len(value.elts):
+					out[(str(path), name)] = tuple(literals)
+	return out
+
+
+def _models() -> dict[str, dict[str, str]]:
+	"""Every model class's annotated fields, by name."""
+	models: dict[str, dict[str, str]] = {}
+	for path in SRC.rglob('*.py'):
+		for node in ast.parse(path.read_text()).body:
+			if not isinstance(node, ast.ClassDef):
+				continue
+			fields = {st.target.id: ast.unparse(st.annotation) for st in node.body
+			          if isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name)}
+			if fields:
+				models[node.name] = fields
+	return models
+
+
+@lru_cache(maxsize=1)
+def _asserted_vocabularies() -> dict[tuple[str, str], tuple[tuple[str, ...], str]]:
+	"""`{(model, field): (values the assert admits, where it is)}` for every closed-set assert.
+
+	Both spellings of the set, and the model resolved through the enclosing function's annotated
+	parameter — an assert whose subject cannot be tied to a model is left out and named by the
+	coverage floor below, rather than silently compared against a same-named field elsewhere.
+	"""
+	consts = _string_collections()
+	models = _models()
+	out: dict[tuple[str, str], tuple[tuple[str, ...], str]] = {}
+	for path in sorted(SRC.rglob('*.py')):
+		tree = ast.parse(path.read_text())
+		for fn in ast.walk(tree):
+			if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+				continue
+			# the models this function's parameters are annotated with, in order
+			params = [ast.unparse(a.annotation).replace('| None', '').replace('None |', '').strip()
+			          for a in fn.args.args + fn.args.kwonlyargs + fn.args.posonlyargs
+			          if a.annotation is not None]
+			for node in ast.walk(fn):
+				if not isinstance(node, ast.Assert) or not isinstance(node.test, ast.Compare):
+					continue
+				if not any(isinstance(op, (ast.In, ast.NotIn)) for op in node.test.ops):
+					continue
+				subject = node.test.left
+				field = subject.attr if isinstance(subject, ast.Attribute) else (
+					subject.id if isinstance(subject, ast.Name) else None)
+				if field is None:
+					continue
+				coll = node.test.comparators[0]
+				values: tuple[str, ...] | None = None
+				label = ''
+				if isinstance(coll, (ast.Tuple, ast.List, ast.Set)) and coll.elts:
+					literals = [e.value for e in coll.elts
+					            if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+					if len(literals) == len(coll.elts):
+						values, label = tuple(literals), 'literal'
+				elif isinstance(coll, ast.Name):
+					for (owner_file, name), vals in consts.items():
+						if name == coll.id:
+							values, label = vals, f'{pathlib.Path(owner_file).name}:{name}'
+							break
+				if values is None:
+					continue
+				for model in params:
+					if field in models.get(model, {}):
+						out[(model, field)] = (values, f'{path}:{node.lineno} ({label})')
+	return out
+
+
+@lru_cache(maxsize=1)
+def _model_fields_in_document() -> dict[tuple[str, str], tuple[list[str], str]]:
+	"""`{(model, field): (values the document declares, spelling)}` — both spellings, as above."""
+	spec = _spec()
+	components = spec.get('components', {}).get('schemas', {})
+	out: dict[tuple[str, str], tuple[list[str], str]] = {}
+	for model, schema in components.items():
+		for field, prop in ((schema or {}).get('properties') or {}).items():
+			values = _closed_vocabulary(prop, components)
+			if values is not None:
+				out[(model, field)] = (values, 'enum' if prop.get('enum') else 'pattern')
+	return out
+
+
+def test_a_models_vocabulary_is_no_wider_than_the_assert_that_guards_it() -> None:
+	"""The KMD crossing: a value the document admits that no handler assert admits.
+
+	`CommunityAlert.issued_by` was `Field(pattern=r'^(MoH|PHEOC|County|KMD)$')` and
+	`AlertsService.issue` asserted `in ('MoH', 'PHEOC', 'County')` for the outbreak kinds. Every
+	schema-reading gate passed — the form matched the model, and the model matched the form — while
+	the route refused a value the document said it took. A person picked "KMD" from a spinner and read
+	a 422 about a field they had set, on a screen the schema had told them was fine.
+
+	The check is a **subset**, not equality: an assert may be narrower than the document on purpose
+	(a field the model admits for a read and the handler refuses for a write), but a value no assert
+	admits at all is a refusal the document cannot express, and a form built from the document cannot
+	warn anyone.
+	"""
+	asserted = _asserted_vocabularies()
+	assert len(asserted) >= 4, f'the reader found only {len(asserted)} assert-guarded vocabularies: {sorted(asserted)}'
+	declared = _model_fields_in_document()
+	wider: list[str] = []
+	for (model, field), (values, where) in sorted(asserted.items()):
+		doc = declared.get((model, field))
+		if doc is None:
+			continue
+		unadmitted = sorted(set(doc[0]) - set(values))
+		if unadmitted:
+			wider.append(f'{model}.{field}: the document admits {unadmitted}, the assert at {where} '
+			             f'admits only {sorted(values)}')
+	assert wider == [], f'the schema promises values the route refuses: {wider}'
+
+
+def test_a_form_offers_no_value_the_assert_that_guards_it_refuses() -> None:
+	"""The other layer of the same crossing: the form against the assert, not against the model.
+
+	Once the model and the assert agree, the form is the remaining copy. It is compared to the
+	assert's set rather than the model's, because the assert is what actually refuses at runtime and
+	a form derived from a model that a handler narrows is a form offering values the handler rejects.
+	"""
+	asserted = _asserted_vocabularies()
+	spec = _spec()
+	components = spec.get('components', {}).get('schemas', {})
+	bodies: dict[tuple[str, str], str | None] = {}
+	for path, ops in spec.get('paths', {}).items():
+		for method, op in ops.items():
+			body = (op.get('requestBody') or {}).get('content', {}).get('application/json', {})
+			schema = body.get('schema') or {}
+			name = None
+			while isinstance(schema, dict) and '$ref' in schema:
+				name = schema['$ref'].rsplit('/', 1)[-1]
+				schema = components.get(name, {})
+			bodies[(method.upper(), path)] = name
+	refused: list[str] = []
+	for action in catalogue():
+		model = bodies.get((action.method.upper(), action.path))
+		if model is None:
+			continue
+		for field in action.fields:
+			if field.type != 'select':
+				continue
+			hit = asserted.get((model, field.name))
+			if hit is None:
+				continue
+			values, where = hit
+			extra = sorted(set(field.options or []) - set(values))
+			if extra:
+				refused.append(f'{action.id}.{field.name}: the form offers {extra}, the assert at {where} '
+				               f'admits only {sorted(values)}')
+	assert refused == [], f'controls the handler refuses: {refused}'

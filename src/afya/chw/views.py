@@ -8,6 +8,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 MODEL_CONFIG = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
+# Who may open a CHW account. §COM-101's registry check and §CHAN-5's programme are county health
+# teams and the ministry; the set is declared once here and read by the model, the service assert and
+# the mobile form, so a form cannot offer a provisioner the route refuses.
+PROVISIONERS: tuple[str, ...] = ('County', 'MoH')
+PROVISIONER_PATTERN: str = '^(' + '|'.join(PROVISIONERS) + ')$'
+
 # §5.3 COM-101 job aids — reference material a CHW can open offline.
 JOB_AIDS: dict[str, str] = {
 	'idsr_case_definition': 'IDSR case definition: sudden onset of fever with bleeding, or fever with three or more of headache, vomiting, diarrhoea, muscle pain, sore throat, rash, plus an epidemiological link.',
@@ -64,7 +70,14 @@ class ChwProfile(BaseModel):
 	county: str
 	community: str
 	registry_verified: bool
-	provisioned_by: str
+	# §CHAN-5's programme accounts are opened by a county health team or the ministry, and the set was
+	# carried only by an assert in `ChwService.provision` — so the document served a bare `str` and
+	# the mobile form kept its own copy of the two values. They agree today, which is a vocabulary with
+	# a drift horizon and no symptom when it passes: the form submits, the route answers 200, and a
+	# value added to one and not the other is simply not on the spinner, or is a 422. Declared here so
+	# the form is a *view* of it, and asserted at import so a third value cannot be added to the model
+	# and forgotten by the handler.
+	provisioned_by: str = Field(pattern=PROVISIONER_PATTERN)
 	trained_iso: str | None = None
 	# §INF-006's sixth Content is "CHW" in a directory of *contacts*, and a profile carried a name, a
 	# county and a community with no way to reach the person — so the row was unanswerable even for a

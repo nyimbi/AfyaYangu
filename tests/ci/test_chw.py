@@ -2,6 +2,7 @@
 import re
 
 import pytest
+from pydantic import ValidationError
 
 from afya.chw.service import ChwService
 from afya.chw.views import JOB_AIDS, TRAINING_MODULES, ActivityLogEntry, ChwCase, ChwProfile
@@ -32,9 +33,23 @@ async def test_provision_refused_without_registry_verification() -> None:
 
 
 async def test_provision_refused_when_not_provisioned_by_county_or_moh() -> None:
+	"""The vocabulary is the model's now, so a bad provisioner never reaches the service.
+
+	This used to be the service assert alone: the model took any string and `provision` refused
+	`Self` at the door. The set is declared on `ChwProfile` now — which is what lets the mobile form
+	be a view of it — so the refusal happens at construction. Asserted at both ends, because the
+	service keeps its own assert for the in-process caller that builds a profile some other way, and
+	a second door should not be a weaker one.
+	"""
+	with pytest.raises(ValidationError, match='provisioned_by'):
+		_profile('CHW-2', provisioned_by='Self')
 	svc = ChwService()
+	# The service door still refuses a value that got past the model.
 	with pytest.raises(AssertionError, match='provisioned by a county health team'):
-		await svc.provision(_profile('CHW-2', provisioned_by='Self'))
+		await svc.provision(ChwProfile.model_construct(
+			chw_ref='CHW-2', name='Amina Wanjiru', county='Kilifi', community='Gede',
+			registry_verified=True, provisioned_by='Self',
+		))
 	assert svc._chws == {}
 
 

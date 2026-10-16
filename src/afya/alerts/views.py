@@ -44,6 +44,26 @@ OUTBREAK_KINDS: tuple[AlertKind, ...] = tuple(k for k in AlertKind if k.value.st
 assert tuple(k.value.removeprefix('outbreak_') for k in OUTBREAK_KINDS) == DISEASES, \
 	'every §3.3 principle 12 disease needs an outbreak alert kind, and no kind without a disease'
 
+# Who may issue a community alert. §ALT-001's "Verification: all alerts verified before publishing"
+# is what makes this a closed set, and it is the same three the sibling issuer fields already read:
+# `monitoring`'s campaign and larviciding notices and `community`'s peer alert all say
+# `MoH|PHEOC|County` and nothing else.
+#
+# `KMD` was a fourth member and was the whole of a defect. Nothing in the tree constructs a
+# KMD-issued alert, no test sends one, no client offers it, and the spec never names it — but the
+# mobile form's "Issued by" spinner offered it, and `AlertsService.issue` refuses it for all eight
+# `outbreak_*` kinds. That is a *conditional* vocabulary: a meteorological service may issue a
+# weather notice and may not declare an outbreak. A select cannot say "valid except when the kind
+# starts with `outbreak_`", so eight of the twelve kinds paired with KMD were a 422 nobody could
+# have predicted, and the schema could not warn them because the condition lived in a handler assert
+# and not on the model.
+#
+# §ALT-001 does list "weather emergencies" among the alert contents and has no `AlertKind` for them.
+# That gap is real and separate, and it is left open rather than papered over with an issuer that has
+# no kind to issue: when a weather kind is added, its issuer is decided with it.
+ALERT_ISSUERS: tuple[str, ...] = ('MoH', 'PHEOC', 'County')
+ALERT_ISSUER_PATTERN: str = '^(' + '|'.join(ALERT_ISSUERS) + ')$'
+
 
 class CommunityAlert(BaseModel):
 	model_config = MODEL_CONFIG
@@ -52,7 +72,7 @@ class CommunityAlert(BaseModel):
 	county: str
 	headline: str = Field(max_length=80)
 	body: str = Field(max_length=400)
-	issued_by: str = Field(pattern=r'^(MoH|PHEOC|County|KMD)$')
+	issued_by: str = Field(pattern=ALERT_ISSUER_PATTERN)
 	multi_disease: bool = False
 
 	@classmethod

@@ -7115,3 +7115,70 @@ defect); an option the route refuses returning to it (`schedule_review.kind` exa
 direction that proves the comparison reads values and not membership); the reader dropping the `pattern`
 branch, caught by the coverage floor because the rows are simply gone; and a required closed vocabulary
 with no control at all.
+
+---
+
+## The third crossing: a vocabulary only a handler assert knows
+
+The two gates above compare a form's options against the route's **model**, in both spellings and both
+directions. Both passed `issue_alert.issued_by` cleanly. The route, however, refused one of the four
+values the form offered.
+
+`CommunityAlert.issued_by` was `Field(pattern=r'^(MoH|PHEOC|County|KMD)$')`, and the mobile spinner
+offered exactly those four. `AlertsService.issue` asserted `alert.issued_by in ('MoH', 'PHEOC',
+'County')` **for the eight `outbreak_*` kinds only** — a meteorological service may issue a weather
+notice and may not declare an outbreak. Measured through the front door with a scoped token:
+
+	kind=outbreak_evd     issued_by=KMD   -> 422 {"detail":"outbreak alerts require official issue"}
+	kind=outbreak_evd     issued_by=MoH   -> 200 {"ok":true}
+	kind=school_closure   issued_by=KMD   -> 200 {"ok":true}
+
+That is a **conditional vocabulary**: an option accepted for some values of a sibling field and
+refused for others. A `select` cannot express "valid except when the kind starts with `outbreak_`", so
+eight of the twelve kinds paired with KMD were a 422 nobody could have predicted — and no
+schema-reading gate could warn them, because the condition lived in an `if` inside the handler and not
+on the model.
+
+`KMD` was an orphan: `grep -c KMD docs/spec.md` → 0, no test sends it, no client references it, and all
+three sibling issuer fields (`monitoring`'s campaign and larviciding notices, `community`'s peer alert)
+read `MoH|PHEOC|County` and nothing else. The vocabulary is now declared once — `ALERT_ISSUERS` in
+`alerts/views.py`, a tuple plus the `'^(' + '|'.join(...) + ')$'` pattern built from it — and read by
+the model, the service assert and the form. The same shape was closed at two more sites found by the
+sweep, both agreeing on the day they were written and both a drift horizon with no symptom:
+`ChwProfile.provisioned_by` (`PROVISIONERS`) and `PeerAlert.verified_by` (`PEER_VERIFIERS`).
+
+§ALT-001 lists "weather emergencies" among the alert contents and has no `AlertKind` for them. That gap
+is real and separate, and it is recorded in the `ALERT_ISSUERS` docstring rather than papered over with
+an issuer that has no kind to issue.
+
+### What the gate reads, and the two ways it nearly failed to
+
+`test_a_models_vocabulary_is_no_wider_than_the_assert_that_guards_it` asserts the document's declared
+set is a **subset** of the assert's. A value the document admits that no assert admits is a 422 the
+document promises cannot happen. A second test makes the same crossing for the form against the assert.
+
+Building it exposed the defect class inside the sweep itself, twice:
+
+* **A name-only matcher over-reaches.** `status` is a field of `ChwCase`, `TaggedEquipment` and
+  `MilestoneReport` at once, and matching by name alone reported five mismatches that were collisions
+  rather than defects — each of which would have been "fixed" by widening a form that was already
+  right. The subject is resolved to a **model field**, through the enclosing function's annotated
+  parameter, and the route's body must be that model.
+* **A sweep that reads one spelling of membership is blind to the others.** The first version read only
+  `assert x in (a, b, c)`. It missed `assert x in MODULE_CONSTANT` (the second spelling, and the one
+  every vocabulary in this tree uses) and `DICT[key]` — a dict's keys are a closed vocabulary whose
+  refusal is a `KeyError`, and `LARVICIDE_CLASSES[notice.larvicide]` and `STRATEGY_MATRIX[op.dataset]`
+  are exactly that. Both were found only by widening the reader and re-running it against the same
+  tree, which is the "one of two spellings" defect this file has now recorded four times.
+
+**Canaried four ways, 15/15 fired.** The KMD defect restored exactly (the document widened, the assert
+unchanged) is caught; so is the assert widened instead; so is the reader ceasing to resolve the model,
+caught by the `len(asserted)` coverage floor because the rows are simply gone; and so is the form
+carrying an option the handler refuses while the document stays honest.
+
+One canary mishap worth recording: a `cp` backup written to a fixed `/tmp` path was overwritten by a
+second `cp` taken *after* the patch was applied, so the "revert" restored the mutated file and `KMD`
+stayed in `ALERT_ISSUERS` through three subsequent green runs. The gate caught it — the `len(asserted)`
+floor and the row comparison both read the tuple — but only because the canary was re-run. Reverting
+from a backup means taking it **before** the write, and a revert that is not followed by re-reading the
+value it was supposed to restore is not a revert.
