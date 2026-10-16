@@ -231,3 +231,50 @@ async def test_flagged_rumour_returns_its_own_topic_not_the_busiest() -> None:
 	assert got.topic == 'alpha', 'must report the submitted topic, not the busiest one'
 	assert got.reports == 1
 	assert got.correction == svc.correction_for('alpha')
+
+
+async def test_the_contacts_route_reads_the_typed_entries_the_form_sends() -> None:
+	"""The catalogue draws one text box for `entries`, and both clients send a `list` as an array of
+	strings. The route took `list[ContactEntry]` — an object list no client can build — so the
+	control's own value was refused. The coercion is at the model, so the same request works whether
+	the caller hand-builds objects or sends the strings a person typed.
+
+	The comma split is asserted as its own step: the first version replaced only the first comma, so
+	`Jane:market, the tailor:work` filed the tailor as part of Jane's setting. Two people in, two
+	people out, each with the setting it named.
+	"""
+	import httpx
+	from afya.service import build_services, create_app
+
+	app = create_app(build_services())
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		token = (await c.post('/auth/anonymous', json={'subject_ref': 'U-contacts'})).json()['token']
+		h = {'authorization': f'Bearer {token}'}
+		# The string a client produces from one text box, split on the commas the client splits on.
+		typed = 'Jane:market, the tailor:work'
+		res = await c.post('/community/contacts', headers=h, json={
+			'subject_ref': 'U-contacts',
+			'entries': [part.strip() for part in typed.split(',')],
+			'share_consent': True,
+		})
+		assert res.status_code == 200, res.text
+		body = res.json()
+		assert body['total'] == 2, body
+		assert body['by_setting'] == {'market': 1, 'work': 1}, body
+		# And the object form a hand-built request sends is still accepted, so the coercion is a
+		# widening rather than a replacement.
+		obj = await c.post('/community/contacts', headers=h, json={
+			'subject_ref': 'U-contacts',
+			'entries': [{'description': 'Neighbour', 'setting': 'home'}],
+		})
+		assert obj.status_code == 200, obj.text
+		assert obj.json()['by_setting'] == {'home': 1}, obj.text
+		# And the same list as one unsplit string, which is what a hand-built request or a client
+		# that does not split its own control sends. The comma split has to happen here, before the
+		# `who:where` split, or the second person is swallowed into the first one's setting.
+		bare = await c.post('/community/contacts', headers=h, json={
+			'subject_ref': 'U-contacts',
+			'entries': 'Jane:market, the tailor:work',
+		})
+		assert bare.status_code == 200, bare.text
+		assert bare.json()['by_setting'] == {'market': 1, 'work': 1}, bare.text

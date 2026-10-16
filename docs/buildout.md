@@ -6909,3 +6909,65 @@ server refuses".
   which is blind to it by construction); and the catalogue offering a field the route genuinely does
   not read. 5/5 fired. Each mutation is **disjoint** from what its predicate looks for — a *renamed*
   query field would pass a name-only comparison, so the mutations move fields rather than rename them.
+
+## The forms that could not name their subject, and the four bodies that refused their own control (2026-10-16)
+
+`test_action_reachability.py`'s first gate crosses **fields against places a value can go**: the
+catalogue offers fields, a route accepts them in a path placeholder, a body model or a query
+parameter, and a field in none of the three is a control nobody can submit. The crossing found
+thirty-two routes and left a class invisible, because a route whose *guard* refuses a request for
+reasons of its own accepts every field the form offers and reads clean.
+
+- **The second crossing is the same fields against a different question: does the guard demand a
+  subject the form has no way to name?** `require_self()` reads the subject out of the path, query or
+  body and 422s when it finds none; `require_self(names_subject=False)` binds it from the token and
+  needs nothing from the form. The two are the same guard by name and opposite in what they demand, so
+  the gate reads the **closure** (`inspect.getclosurevars(guard).nonlocals['names_subject']`) rather
+  than the name — the reading `test_self_scope.py` already does for the guard's name.
+- **The first measurement over-reported by a factor of eight, and the error was in the gate.** Fifteen
+  of seventeen failures were `{ref}` path-placeholder routes whose form *does* fill the placeholder:
+  `'ref'` was missing from the gate's subject-name set, so a route that is reachable read as nameless.
+  `test_self_scope.py` carries `'ref'` for the same reason. A gate that has never been pointed at a
+  known-good input is a gate whose first number means nothing.
+- **The canary did not fire, and that was the finding.** It named `/records/timeline`, which is itself
+  `names_subject=False` — so `_demands_a_subject` correctly returned `False` and the canary proved
+  nothing about the crossing it exists to test. Repointed at `/community/contacts`, whose guard takes
+  the default. A canary pointed at a route that does not have the property cannot fire, and a canary
+  that cannot fire is a canary that did not run.
+- **A real IDOR was found while measuring, and it was in `may_create`.** The enrolment guard waived
+  the ownership check for the create route and, with it, the *taken-reference* check — but the
+  enrolment map is keyed by the reference, so a caller naming a `member_ref` another wallet already
+  held **re-enrolled that member under its own guardianship**: the original guardian lost the record
+  and the caller gained it. The route's own `guardian_ref` binding cannot catch this, because a client
+  that omits `guardian_ref` is the normal path and the binding then fills in the caller. Probed
+  through the front door before and after: U2 re-enrolling U1's reference returned 200 and U1's read
+  became 403; now U2 gets 403 `that reference belongs to another wallet` and U1 still owns the record.
+- **Four route bodies took a shape no client can build, and each was fixed at the route.** The
+  catalogue draws one text box per field and both clients send a `list` field as an array of *strings*
+  (`ActionsActivity.typed`, `Endpoints.jsonValue`), so `list[ContactEntry]`, `list[WarningSignal]` and
+  `dict[str, int]` are controls no form can produce. `POST /community/contacts` coerces at the model
+  (`model_validator(mode='before')`, matching `emergency.views._parse_named_contacts`); `/ai/early-warning`
+  and `/retention/purge-expired` take `name=observed=baseline=stdev` and `type=days` strings, the shape
+  §MON-006's `hourly` already uses. `z_score` is still derived rather than accepted: a caller that could
+  set its own z-score could raise or silence an alert at will.
+- **The comma split has to happen before the `who:where` split.** The first version replaced only the
+  first comma, so `Jane:market, the tailor:work` filed the tailor as part of Jane's setting — two people
+  in, one out, and the tracing summary counting a setting nobody named. The test drives the bare string
+  as well as the pre-split array, because the array form alone cannot see this.
+- **A matcher keyed on slugs while the spinner offers labels is a refusal nobody sees.** `drug_interactions`
+  offers `CONDITION_AXES`' *labels* — a person picks a condition by name — and `for_patient` compared
+  *slugs*, so a stated condition matched no axis and was silently not considered: on the one field where
+  silence is dangerous. `condition_axis()` bridges both spellings, and the test asserts the two against
+  **each other** (identical flag sets) rather than only that a flag exists.
+- **Two parses sat outside their `try`, so a typo answered with a 500.** `int('soon')` on `age_days` and a
+  signal name outside §11.7's six both escaped their handlers as `ValueError` / `ValidationError`. Both
+  are 422s now, and the refusal names the shape it wanted. A string a person typed is their input being
+  wrong; a 500 tells them the server broke.
+- **Canaried six ways, each watched failing and reverted from a `cp` backup.** The member-ref takeover
+  restored; a bad age escaping the purge handler; the label→slug bridge dropped; a bad signal name
+  escaping the warning handler; the contact coercion keeping the object branch and dropping the string
+  one; and the comma split reduced to no split at all. 6/6 fired, and the two new gate canaries 7/7.
+  A seventh canary was **deleted rather than left passing**: `age_days` returning to `dict[str, int]`
+  beside another `Body` parameter still embeds into an object schema with `properties`, so it never
+  reaches the open-map branch and the predicate it aimed at is already canaried by a route that does.
+  A canary that cannot fire is a canary that did not run, and leaving one is worse than not writing it.

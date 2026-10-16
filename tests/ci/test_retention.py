@@ -413,3 +413,52 @@ def test_the_policy_route_serves_the_sections_own_cells() -> None:
 	# lifetime — the set is asserted so a fifth row cannot start disagreeing unnoticed.
 	assert sorted(r['data_type'] for r in stated_rows if not r['within_statement']) == [
 		'case_reports', 'contact_lists', 'immunisation_records', 'photos']
+
+
+async def test_the_purge_route_reads_the_age_strings_the_form_sends() -> None:
+	"""`age_days` is `type=days` strings, and the parse is what makes the catalogue's control work.
+
+	The route took a `dict[str, int]` — a control no client renders, since a generic form draws one
+	text box per field and both clients send a `list` field as an array of strings. The catalogue's
+	own placeholder is `symptom_logs=400, triage_results=30`, so the test drives that exact string.
+	"""
+	import httpx
+	from afya.service import build_services, create_app
+	app = create_app(build_services())
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		token = (await c.post('/auth/anonymous', json={'subject_ref': 'U-purge'})).json()['token']
+		h = {'authorization': f'Bearer {token}'}
+		# symptom_logs is automatic at 90 days, location_history automatic at 21.
+		for t in ('symptom_logs', 'location_history'):
+			assert (await c.post('/retention/holding', json={'subject_ref': 'U-purge', 'data_type': t,
+			                                                 'count': 1}, headers=h)).status_code == 200
+		# A list of `type=days` strings, split the way a client splits a comma-separated control.
+		res = await c.post('/retention/purge-expired', headers=h, json={
+			'subject_ref': 'U-purge',
+			'age_days': ['symptom_logs=400', 'location_history=5'],
+		})
+		assert res.status_code == 200, res.text
+		# Only the one past its clock fires; 5 days against a 21-day window does not.
+		assert res.json()['expired'] == ['symptom_logs'], res.text
+		# And the age really was read as the number it names: 400 days fires, 30 does not.
+		second = await c.post('/retention/purge-expired', headers=h, json={
+			'subject_ref': 'U-purge', 'age_days': ['location_history=30']})
+		assert second.json()['expired'] == ['location_history'], second.text
+
+
+async def test_the_purge_route_refuses_an_age_that_is_not_a_number() -> None:
+	"""A string a person typed is their input being wrong, so it is a 422 rather than a 500.
+
+	The first version of this parse sat outside the `try`, so `int('soon')` escaped the handler and
+	the route answered a typo with a server error. The refusal has to name the shape it wanted.
+	"""
+	import httpx
+	from afya.service import build_services, create_app
+	app = create_app(build_services())
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		token = (await c.post('/auth/anonymous', json={'subject_ref': 'U-bad'})).json()['token']
+		res = await c.post('/retention/purge-expired',
+		                   headers={'authorization': f'Bearer {token}'},
+		                   json={'subject_ref': 'U-bad', 'age_days': ['symptom_logs=soon']})
+	assert res.status_code == 422, res.text
+	assert 'type=days' in res.json()['detail'], res.text

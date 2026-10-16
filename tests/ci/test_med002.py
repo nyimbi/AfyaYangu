@@ -178,3 +178,38 @@ def test_condition_labels_are_human_readable(axis: str, label: str) -> None:
 	assert dict(contraindications.CONDITION_AXES)[axis] == label
 	# And the slug is not a feature code wearing a different hat.
 	assert '-' not in axis and not axis.isupper()
+
+
+async def test_the_catalogue_offers_condition_labels_and_the_route_reads_them() -> None:
+	"""The spinner's own text, sent back through the front door, must select the axis it names.
+
+	The catalogue offers `CONDITION_AXES`' *labels* — a person picks a condition by name — while the
+	matcher compared *slugs*. So the value the control actually produces matched no axis and a stated
+	condition was silently not considered: a refusal the person never sees, on the one field where
+	silence is dangerous. `nitrofurantoin` is used because its monograph's own line names renal
+	impairment, so the flag is the drug's and not the test's.
+	"""
+	from afya.mobile.actions import catalogue
+
+	offered = next(a for a in catalogue() if a.id == 'drug_interactions')
+	options = next(f for f in offered.fields if f.name == 'conditions').options
+	assert options, 'the catalogue must offer the conditions it asks about'
+
+	transport = httpx.ASGITransport(app=create_app())
+	async with httpx.AsyncClient(transport=transport, base_url='http://testserver') as client:
+		# The label exactly as the control renders it — this is the string a client puts on the wire.
+		by_label = (await client.post('/medicine/interactions', json={
+			'drugs': ['nitrofurantoin', 'paracetamol'], 'conditions': ['Kidney problems']})).json()
+		by_slug = (await client.post('/medicine/interactions', json={
+			'drugs': ['nitrofurantoin', 'paracetamol'], 'conditions': ['renal_impairment']})).json()
+		assert any(f['axis'] == 'renal_impairment' for f in by_label['flags']), by_label['flags']
+		# The two spellings are one condition: the flag set is identical, so the bridge is not a
+		# second code path that happens to answer the same way.
+		assert by_label['flags'] == by_slug['flags'], (by_label['flags'], by_slug['flags'])
+		# And a condition the drug's line does not name fires nothing — so the match is real.
+		other = (await client.post('/medicine/interactions', json={
+			'drugs': ['nitrofurantoin', 'paracetamol'], 'conditions': ['Gout']})).json()
+		assert not any(f['axis'] == 'renal_impairment' for f in other['flags']), other['flags']
+		# Every label the catalogue offers resolves to an axis, so no option is a dead control.
+		for label in options:
+			assert contraindications.condition_axis(label) is not None, label

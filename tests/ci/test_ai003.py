@@ -601,3 +601,57 @@ def test_the_period_window_is_the_same_every_time_it_is_asked() -> None:
 	assert long_year == sorted(long_year)
 	assert all(isinstance(y, int) and isinstance(w, int) for y, w in long_year)
 	assert _monday(2026, 20) - _monday(2026, 19) == timedelta(weeks=1)
+
+
+async def test_the_warning_route_reads_the_signal_strings_the_form_sends() -> None:
+	"""The catalogue's `early_warning` action draws one text box, so `signals` arrives as strings.
+
+	The route took `list[WarningSignal]` — an object list neither client can build — which made the
+	section's only write action unsubmittable through its own control. The placeholder is
+	`fever_triage=42=20=6, cough_events=18=11=3`, so that is the shape driven here, and `z_score` is
+	asserted *derived* rather than accepted: a caller that could set its own z could raise or silence
+	an alert at will.
+	"""
+	client, _ = _client()
+	async with client:
+		officer = await _county_officer(client)
+		h = {'authorization': f'Bearer {officer}'}
+		# 42 against a baseline of 20 with sd 6 is +3.67σ, past the 2.5 threshold; 18/11/3 is +2.33.
+		res = await client.post('/ai/early-warning', headers=h, json={
+			'county': 'Nairobi', 'disease': 'cholera',
+			'signals': ['fever_triage=42=20=6', 'cough_events=18=11=3']})
+		assert res.status_code == 200, res.text
+		body = res.json()
+		assert body['review_required'] is True, body
+		raised = {r['signal']: r['z_score'] for r in body['raised']}
+		assert raised == {'fever_triage': 3.67}, body
+		assert body['public_alert'] is False, 'no public alert is issued automatically'
+
+		# A quiet week: every signal inside the range, so nothing is raised.
+		quiet = await client.post('/ai/early-warning', headers=h, json={
+			'county': 'Nairobi', 'disease': 'cholera', 'signals': ['fever_triage=22=20=6']})
+		assert quiet.json()['review_required'] is False, quiet.text
+
+
+async def test_the_warning_route_refuses_a_signal_name_outside_the_six() -> None:
+	"""A typo in a string a person typed is their input being wrong, so it is a 422 and not a 500.
+
+	The parse sits inside the route's `try` for this reason: the first version let the model's own
+	`ValidationError` escape, and a mistyped signal name answered with a server error. The six names
+	are on the catalogue field's placeholder, so the refusal is the caller's to act on.
+	"""
+	client, _ = _client()
+	async with client:
+		officer = await _county_officer(client)
+		h = {'authorization': f'Bearer {officer}'}
+		bad_name = await client.post('/ai/early-warning', headers=h, json={
+			'county': 'Nairobi', 'disease': 'cholera', 'signals': ['fever=42=20=6']})
+		assert bad_name.status_code == 422, bad_name.text
+		# And a count that is not a number is refused the same way, not crashed on.
+		bad_count = await client.post('/ai/early-warning', headers=h, json={
+			'county': 'Nairobi', 'disease': 'cholera', 'signals': ['fever_triage=many=20=6']})
+		assert bad_count.status_code == 422, bad_count.text
+		# A zero baseline stdev is refused by the service's own assert, surfaced as a 422.
+		flat = await client.post('/ai/early-warning', headers=h, json={
+			'county': 'Nairobi', 'disease': 'cholera', 'signals': ['fever_triage=42=20=0']})
+		assert flat.status_code == 422, flat.text

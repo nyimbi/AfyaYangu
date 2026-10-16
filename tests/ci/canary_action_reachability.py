@@ -58,6 +58,24 @@ CANARIES = [
 	 "		_a('request_activation', 'Ask us to switch this on for me', 'Outbreak', 'POST', '/tier4/activation/request', [_f('county', 'Where you are', ph='optional')]),",
 	 "		_a('request_activation', 'Ask us to switch this on for me', 'Outbreak', 'POST', '/tier4/activation/request', [_f('county', 'Where you are', ph='optional'), _f('nowhere_to_go', 'Nowhere')]),",
 	 'test_every_field_a_form_offers_is_one_the_route_accepts'),
+
+	# 6. A route whose guard binds the subject from the token goes back to the default, which reads a
+	#    `subject_ref` out of the path, query or body — and the catalogue's `my_corrections` action
+	#    offers no such field, because a person typing one here would be asking to read somebody
+	#    else's correction log. The form 422s on a control the person was never shown. The mutation
+	#    *removes* the binding rather than renaming anything, so a name-only comparison cannot help.
+	('a token-bound route starts demanding a named subject', SVC,
+	 "	async def retention_corrections(_subject: str = Depends(require_self(names_subject=False))) -> list[dict[str, object]]:",
+	 "	async def retention_corrections(_subject: str = Depends(require_self())) -> list[dict[str, object]]:",
+	 'test_every_action_can_name_the_subject_its_guard_requires'),
+
+	# 7. The same defect reached from the other side: the form stops offering the subject its guard
+	#    reads. `submit_evidence`'s route takes `subject_ref` with a default and the guard demands it,
+	#    so dropping the field leaves a form whose only submittable value is a 422.
+	('a form stops offering the subject its guard reads', ACT,
+	 "		_a('submit_evidence', 'Send a photo for review', 'Sensors', 'POST', '/evidence', [_s(), _f('file', 'Photo', 'file'),",
+	 "		_a('submit_evidence', 'Send a photo for review', 'Sensors', 'POST', '/evidence', [_f('file', 'Photo', 'file'),",
+	 'test_every_action_can_name_the_subject_its_guard_requires'),
 ]
 
 failures = []

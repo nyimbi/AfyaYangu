@@ -720,6 +720,19 @@ _FLAGS_BY_NAME: dict[str, list[tuple[str, str]]] = {}
 for _drug, _slug, _text in CONDITION_FLAGS:
 	_FLAGS_BY_NAME.setdefault(_drug.lower(), []).append((_slug, _text))
 CONDITION_LABELS: dict[str, str] = dict(CONDITION_AXES)
+# label -> slug, lowercased. The catalogue offers the labels because a person selects a condition
+# by name, and both clients put the selected text on the wire, so the service has to read the
+# label back. Without this the spinner's value matched no axis and a stated condition was silently
+# not considered — a refusal the person never sees, on the one field where silence is dangerous.
+CONDITION_SLUGS: dict[str, str] = {label.lower(): slug for slug, label in CONDITION_AXES}
+
+
+def condition_axis(value: str) -> str | None:
+	"""The axis a caller named, whether they named its slug or its label."""
+	key = value.strip().lower()
+	if key in CONDITION_LABELS:
+		return key
+	return CONDITION_SLUGS.get(key)
 
 
 def canonical(name: str) -> str | None:
@@ -762,7 +775,7 @@ def for_patient(drugs: list[str], pregnant: bool | None = None,
 	the caller names that condition. Nothing is inferred from an input the caller did not give.
 	"""
 	assert drugs is not None, 'a drug list is required'
-	wanted = {c.strip().lower() for c in (conditions or [])}
+	wanted = {a for a in (condition_axis(c) for c in (conditions or [])) if a is not None}
 	flags: list[tuple[str, str, str]] = []
 	for raw in drugs:
 		name = canonical(raw)

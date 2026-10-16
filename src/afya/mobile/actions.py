@@ -242,7 +242,7 @@ FEATURE_OF: dict[str, str] = {
 	'checkin_followup': 'LOC-004',
 	'register_border': 'LOC-005', 'border_status': 'LOC-005', 'travel_advisory': 'INF-005', 'traveller_declare': 'LOC-005',
 	'traveller_prompt': 'LOC-005', 'traveller_report': 'LOC-005',
-	'hotspots': 'AI-001', 'risk_score': 'AI-002', 'early_warning': 'AI-003',
+	'risk_score': 'AI-002', 'early_warning': 'AI-003',
 	'signal_scan': 'AI-003', 'signal_report': 'AI-003',
 	'model_cards': 'AI-004', 'fairness_audit': 'AI-004', 'file_redress': 'AI-005',
 	'access_profile': 'ACC-001', 'ui_screens': 'ACC-001', 'languages': 'ACC-002', 'voice': 'ACC-002',
@@ -319,8 +319,11 @@ OPERATOR_SCOPES: dict[str, str] = {
 	# share the patient issued. It is an operator action for that reason: a citizen's catalogue must
 	# not carry a screen that reads *another person's* record, which is what this is by construction.
 	'provider_view': 'consented_patient',
-	# County-level analysis and the provisioning of workers.
-	'early_warning': 'county_aggregate', 'hotspots': 'county_aggregate',
+	# County-level analysis and the provisioning of workers. `hotspots` is here and not in the
+	# catalogue: its routes take a `list[AggregateCell]` — a list of objects — and both clients send a
+	# `list` field as an array of strings, so the only control a generic form could draw would carry a
+	# value the model refuses. The pair is recorded in `API_ONLY`.
+	'early_warning': 'county_aggregate',
 	'signal_scan': 'county_aggregate',
 	# §11.7's six signals feed a county's baseline, and a baseline is what a PHEOC review is
 	# triggered from. An ingest a citizen could reach would be a way to page an epidemiologist about
@@ -531,8 +534,16 @@ API_ONLY: dict[tuple[str, str], str] = {
 	# 1 routes: guarded on the audit_logs+infrastructure dataset.
 	('GET', '/tier4/activation'): 'audit_logs+infrastructure',
 
-	# 5 routes: guarded on the county_aggregate dataset.
+	# 6 routes: guarded on the county_aggregate dataset. Both `POST /ai/hotspots` routes take
+	# `list[AggregateCell]` — a list of *objects* — and neither client can build one: Android's
+	# `typed()` maps `list` to a `JSONArray` of strings and `Endpoints.jsonValue` to `[String]`, so a
+	# field the catalogue renders as one text box arrives as an array of strings and the model refuses
+	# it. The county health team's own surface is the scan sibling, `GET /ai/early-warning/{county}/scan`,
+	# which the catalogue reaches and which runs the same pipeline end to end from the county's own
+	# ledger. `POST /ai/early-warning` used to be here for the same reason; it takes
+	# `name=observed=baseline=stdev` strings now, so it is reached.
 	('DELETE', '/sensors/tags/{tag_id}'): 'county_aggregate',
+	('POST', '/ai/hotspots'): 'county_aggregate',
 	('POST', '/ai/hotspots/deploy'): 'county_aggregate',
 	('POST', '/facilities'): 'county_aggregate',
 	('POST', '/surveillance/geofence'): 'county_aggregate',
@@ -601,7 +612,7 @@ DORMANT_SLUGS: frozenset[str] = frozenset({
 	'register_checkin_point', 'check_in', 'checkin_points', 'checkin_list', 'checkin_followup',
 	'register_border', 'border_status', 'traveller_declare', 'traveller_prompt', 'traveller_report',
 	# Outbreak AI (AI-001..003)
-	'hotspots', 'risk_score', 'early_warning', 'signal_scan', 'signal_report',
+	'risk_score', 'early_warning', 'signal_scan', 'signal_report',
 	# Outbreak-mode sensors: acoustic cough (SENS-002), camera symptom capture (SENS-004)
 	'analyse_cough', 'submit_evidence',
 	# Respiration-rate estimation (SENS-001). The route derives a rate from a motion series rather
@@ -760,8 +771,9 @@ def catalogue() -> list[MobileAction]:
 			[_f('drugs', 'Medicines', 'list', ph='e.g. warfarin, aspirin'),
 			 _f('pregnant', 'Pregnant or breastfeeding', 'bool'),
 			 _f('age_months', 'Age in months (for a child)', 'int'),
-			 _f('conditions', 'Ongoing conditions', 'select',
-			    options=[label for _slug, label in contraindications.CONDITION_AXES])]),
+			 _f('conditions', 'Ongoing conditions', 'list',
+			    options=[label for _slug, label in contraindications.CONDITION_AXES],
+			    ph='e.g. Kidney problems, Asthma')]),
 		# `mg_per_kg` was a field here and is gone: it asked a parent for the one constant the
 		# calculator exists to look up, so the action answered a multiplication. `age_months` is the
 		# section's own "Enter weight and age", and it is what zinc's dose turns on.
@@ -773,7 +785,7 @@ def catalogue() -> list[MobileAction]:
 		_a('restock_alerts', 'What came back in stock?', 'Medicine', 'GET', '/medicine/stock/alerts', [_f('facility_id', 'Facility', ph='optional')]),
 		_a('medicine_registry', 'Which medicines are approved?', 'Medicine', 'GET', '/medicine/registry', [_f('since', 'Only changes since', ph='optional')]),
 		_a('medicine_recalls', 'Has a medicine been recalled?', 'Medicine', 'GET', '/medicine/recalls', [_f('since', 'Only changes since', ph='optional')]),
-		_a('report_suspicious_medicine', 'Report a fake medicine', 'Medicine', 'POST', '/medicine/suspicious', [_f('gtin', 'Barcode number', ph='optional if you have the batch'), _f('batch_number', 'Batch number', ph='optional if you have the barcode'), _f('note', 'What is wrong?', 'textarea'), _f('photo_sha256', 'Photo', 'file', ph='optional')]),
+		_a('report_suspicious_medicine', 'Report a fake medicine', 'Medicine', 'POST', '/medicine/suspicious', [_f('gtin', 'Barcode number', ph='optional if you have the batch'), _f('batch_number', 'Batch number', ph='optional if you have the barcode'), _f('note', 'What is wrong?', 'textarea'), _f('photo_sha256', 'Photo of the packaging', ph='from the camera upload')]),
 		# Emergency
 		# §EMG-001's fan-out: where the person is, how serious, who to tell and what to attach.
 		# `contacts` is the section's "up to three emergency contacts" and the model caps it at
@@ -862,7 +874,7 @@ def catalogue() -> list[MobileAction]:
 		# read-only from every client, so the reviews a person could see were the ones a clinician
 		# had already recorded and never the ones they scheduled for themselves.
 		_a('schedule_review', 'Book a review', 'Daily care', 'POST', '/chronic/appointments', [_auto('appointment_id', 'Reference'), _f('condition', 'Which condition?', 'select', ['hypertension', 'diabetes', 'asthma', 'epilepsy', 'sickle_cell', 'hiv', 'chronic_kidney']), _f('due_iso', 'When is it due?'), _f('interval_days', 'Repeat every how many days?', 'int'), _f('kind', 'What kind of review?', 'select', ['clinic', 'home', 'telehealth']), _f('facility_id', 'Where?', ph='optional'), _s()]),
-		_a('lifestyle_guidance', 'What should I eat and avoid?', 'Daily care', 'GET', '/chronic/lifestyle', [_f('condition', 'Which condition?', 'select', ['hypertension', 'diabetes', 'asthma', 'epilepsy', 'sickle_cell', 'hiv', 'chronic_kidney'])]),
+		_a('lifestyle_guidance', 'What should I eat and avoid?', 'Daily care', 'GET', '/chronic/lifestyle', [_s(), _f('condition', 'Which condition?', 'select', ['hypertension', 'diabetes', 'asthma', 'epilepsy', 'sickle_cell', 'hiv', 'chronic_kidney'])]),
 		# Women & maternal
 		_a('log_cycle', 'Log my period', 'Women', 'POST', '/women/cycle', [_s(), _f('start_iso', 'First day of period'), _f('cycle_days', 'Cycle length in days', 'int'), _f('pain_level', 'Pain level (0-10)', 'int')]),
 		_a('cycle_prediction', 'When is my next period?', 'Women', 'GET', '/women/cycle/{ref}/predict', [_f('ref', 'Who is this for?', 'path'), _f('ref_date', 'As at', ph='YYYY-MM-DD')]),
@@ -935,12 +947,12 @@ def catalogue() -> list[MobileAction]:
 		_a('peer_alert', 'Warn people nearby', 'Community', 'POST', '/community/peer-alert', [_f('alert_id', 'Alert number'), _f('county', 'County'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('radius_m', 'How far? (metres)', 'select', [str(r) for r in ALERT_ZONE_RADII_M]), _f('headline', 'Headline'), _f('location', 'Which place should people avoid?'), _f('issued_iso', 'Issued on', ph='YYYY-MM-DD'), _f('verified_by', 'Verified by', 'select', ['County', 'PHEOC', 'MoH'])]),
 		_a('peer_alert_followup', 'Follow-up prompt for one day', 'Community', 'GET', '/community/peer-alert/{alert_id}/followup/{day}', [_f('alert_id', 'Alert number', 'path'), _f('day', 'Day of the window (' + ', '.join(str(d) for d in FOLLOWUP_DAYS) + ')', 'path')]),
 		_a('tracing_prompts', 'Help me remember who I met', 'Community', 'GET', '/community/tracing-prompts', []),
-		_a('save_contacts', 'Save my contact list', 'Community', 'POST', '/community/contacts', [_s(), _f('entries', 'People', 'list'), _f('share_consent', 'Share with the health team?', 'bool')]),
+		_a('save_contacts', 'Save my contact list', 'Community', 'POST', '/community/contacts', [_s(), _f('entries', 'People, and where you know them from', 'list', ph='Jane:market, the tailor:work (home, work, transport, worship, market, social, other)'), _f('share_consent', 'Share with the health team?', 'bool')]),
 		_a('add_contact', 'Add one person I met', 'Community', 'POST', '/community/contacts/{subject_ref}/entry', [_s('path'), _f('description', 'Who was it?'), _f('setting', 'Where?', 'select', CONTACT_SETTINGS), _f('approx_location', 'Roughly where?'), _f('name_unknown', "I don't know their name", 'bool')]),
 		_a('share_contacts', 'Share my contact list with the health team', 'Community', 'POST', '/community/contacts/{subject_ref}/share', [_s('path'), _f('with_who', 'Who should get it?', ph='optional')]),
 		_a('contact_shares', 'What I have shared', 'Community', 'GET', '/community/contacts/{subject_ref}/shares', [_s('path')]),
 		_a('withdraw_contact_shares', 'Take my contact list back', 'Community', 'DELETE', '/community/contacts/{subject_ref}/shares', [_s('path')]),
-		_a('flag_misinformation', 'Report something I heard', 'Community', 'POST', '/community/misinformation', [_auto('submission_id', 'Report number'), _f('claim', 'What did you hear?', 'textarea'), _f('county', 'County'), _f('medium', 'How did you get it?', 'select', MISINFO_MEDIA), _f('topic', 'Topic', ph='optional'), _f('evidence_ref', 'The recording or picture', 'file', ph='voice note or screenshot'), _f('transcript', 'What the voice note said', 'textarea', ph='type it if you have no recording'), _f('evidence_consent', 'Share the recording or picture with the health team', 'bool'), _f('flagger_ref', 'Tell me when this is answered', ph='your number or reference')]),
+		_a('flag_misinformation', 'Report something I heard', 'Community', 'POST', '/community/misinformation', [_auto('submission_id', 'Report number'), _f('claim', 'What did you hear?', 'textarea'), _f('county', 'County'), _f('medium', 'How did you get it?', 'select', MISINFO_MEDIA), _f('topic', 'Topic', ph='optional'), _f('evidence_ref', 'The recording or picture', ph='from the camera or recorder upload'), _f('transcript', 'What the voice note said', 'textarea', ph='type it if you have no recording'), _f('evidence_consent', 'Share the recording or picture with the health team', 'bool'), _f('flagger_ref', 'Tell me when this is answered', ph='your number or reference')]),
 		_a('misinformation_clusters', 'Rumours going around', 'Community', 'GET', '/community/misinformation/clusters', []),
 		_a('misinformation_notices', 'Answers to what I reported', 'Community', 'GET', '/community/misinformation/notices/{subject_ref}', [_s('path')]),
 		# Outbreak mode
@@ -992,9 +1004,12 @@ def catalogue() -> list[MobileAction]:
 		_a('traveller_declare', 'Declare my arrival', 'Outbreak', 'POST', '/location/traveller/declare', [_f('declaration_id', 'Declaration number'), _s(), _f('destination', 'Where are you going?'), _f('arrival_iso', 'Arrival date'), _f('origin_country', 'Coming from'), _f('symptoms', 'Any symptoms?', 'list'), _f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
 		_a('traveller_prompt', 'What am I asked today?', 'Outbreak', 'GET', '/location/traveller/{subject_ref}/prompt', [_s('path'), _f('day', 'Which day of the 21?', 'int')]),
 		_a('traveller_report', 'Report how I feel today', 'Outbreak', 'POST', '/location/traveller/report', [_s(), _f('day', 'Which day of the 21?', 'int'), _f('symptoms', 'Any symptoms?', 'list'), _f('temperature_c', 'Temperature °C', 'decimal')]),
-		_a('hotspots', 'Where might cases appear next?', 'Outbreak', 'POST', '/ai/hotspots', [_f('cells', 'Area data', 'list')]),
+		# `hotspots` has no catalogue action. Both its routes take `list[AggregateCell]` and neither
+		# client can build an object list, so the only control a generic form could draw is one whose
+		# value the server refuses. The county health team's surface is `signal_scan`, which runs the
+		# same pipeline for a week from the county's own ledger and needs no cells from the caller.
 		_a('risk_score', 'What is my personal risk?', 'Outbreak', 'POST', '/ai/risk-score', [_f('symptoms', 'Symptoms', 'list'), _f('exposure_contact', 'Contact with a case?', 'bool'), _f('travel_affected_area', 'Travelled to an affected area?', 'bool'), _f('geofence_entry', 'Entered a risk area?', 'bool'), _f('proximity_encounters', 'Nearby encounters', 'int'), _f('vaccinated', 'Vaccinated?', 'bool')]),
-		_a('early_warning', 'Is something unusual happening?', 'Outbreak', 'POST', '/ai/early-warning', [_f('county', 'County'), _f('disease', 'Disease'), _f('signals', 'Signals', 'list')]),
+		_a('early_warning', 'Is something unusual happening?', 'Outbreak', 'POST', '/ai/early-warning', [_f('county', 'County'), _f('disease', 'Disease'), _f('signals', 'Signals, as what was seen = this week = usual = week-to-week variation', 'list', ph='fever_triage=42=20=6, cough_events=18=11=3')]),
 		_a('signal_scan', 'How is my county this week?', 'Outbreak', 'GET', '/ai/early-warning/{county}/scan', [_f('county', 'County', 'path'), _f('disease', 'Disease'), _f('week_isoyear', 'Year', 'int'), _f('week', 'Week number', 'int'), _f('baseline_weeks', 'Weeks to compare against', 'int')]),
 		# The six option values are §11.7's own signal names — the strings the API accepts, like the
 		# `under_5` age band and the `low` risk level elsewhere in this file. They are not spec feature
@@ -1041,7 +1056,7 @@ def catalogue() -> list[MobileAction]:
 		_a('data_inventory', 'What do you know about me?', 'Privacy', 'GET', '/retention/inventory/{subject_ref}', [_s('path')]),
 		_a('export_my_data', 'Download my data', 'Privacy', 'GET', '/retention/export/{subject_ref}', [_s('path'), _f('at_iso', 'When'), _f('channel', 'How?', 'select', ['native', 'sms', 'ussd', 'whatsapp'])]),
 		_a('delete_my_data', 'Delete my data', 'Privacy', 'POST', '/retention/delete', [_s(), _f('data_type', 'Only this type', ph='leave blank for everything'), _f('channel', 'How?', 'select', ['native', 'sms', 'ussd', 'whatsapp'])]),
-		_a('purge_expired', 'Clear what has expired', 'Privacy', 'POST', '/retention/purge-expired', [_s(), _f('age_days', 'How old each record is, by type', 'text')]),
+		_a('purge_expired', 'Clear what has expired', 'Privacy', 'POST', '/retention/purge-expired', [_s(), _f('age_days', 'How old each record is, by type', 'list', ph='symptom_logs=400, triage_results=30')]),
 		_a('encryption_posture', 'How is my data protected?', 'Privacy', 'GET', '/retention/encryption', []),
 		_a('transparency_report', 'Transparency report', 'Privacy', 'GET', '/retention/transparency', [_f('period', 'Period'), _f('subject_ref', 'Person the report is about', ph='optional')]),
 		# §SEC-006's public quarterly document, which is a different thing from the row above: that
@@ -1145,7 +1160,7 @@ def catalogue() -> list[MobileAction]:
 		# it writes to SENS-001. Tier-4 gated like the ingest, so it stays dark until PHEOC activates.
 		_a('estimate_breathing', 'Work out my breathing rate', 'Sensors', 'POST', '/sensors/breath/estimate', [_s(), _f('series', 'Motion readings', 'list', ph='a comma-separated series from the sensor'), _f('fps', 'Readings per second', 'decimal')]),
 		_a('analyse_cough', 'Check a cough recording', 'Sensors', 'POST', '/ml/cough/analyze', [_f('file', 'Recording', 'file')]),
-		_a('submit_evidence', 'Send a photo for review', 'Sensors', 'POST', '/evidence', [_f('file', 'Photo', 'file'), _f('kind', 'What is it?', 'select', EVIDENCE_KINDS), _f('note', 'What did you notice?', 'textarea'), _f('consent', 'I agree to share this photo', 'bool')]),
+		_a('submit_evidence', 'Send a photo for review', 'Sensors', 'POST', '/evidence', [_s(), _f('file', 'Photo', 'file'), _f('kind', 'What is it?', 'select', EVIDENCE_KINDS), _f('note', 'What did you notice?', 'textarea'), _f('consent', 'I agree to share this photo', 'bool')]),
 		# Tag taps. The titles are what a person does at a bedside, not what the mechanism is: a
 		# wristband, a medicine box and a station are three things in a room and one action each.
 		_a('tag_resolve', 'What is this tag?', 'Sensors', 'GET', '/sensors/tags/{tag_id}', [_f('tag_id', 'Tag', 'path')]),

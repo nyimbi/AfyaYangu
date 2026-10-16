@@ -853,6 +853,18 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		exist yet, so there is no relation to check and the route binds the write itself by forcing
 		the recorded guardian to be the caller. It is a flag rather than a second guard so the two
 		remain visibly the same rule with one exemption, not two rules that can drift.
+
+		`may_create` waives the *ownership* check, never the *taken-ref* one. Without that second
+		check a caller could name a `member_ref` another wallet already holds and the write would
+		land on it: the enrolment map is keyed by the ref, so a stranger's child is re-enrolled under
+		the caller's guardianship and the original guardian loses the record. The route's own
+		`guardian_ref` binding cannot catch it, because a client that omits `guardian_ref` is the
+		normal path and the binding then fills in the caller.
+
+		A create that names no ref is allowed through rather than refused: `WalletMember.member_ref`
+		has a `default_factory`, so the model mints one and there is nothing to collide with. The
+		catalogue marks the field `server_assigned` for exactly that reason — no form draws it — so
+		requiring it here would 422 the one action the route exists for.
 		"""
 		async def guard(request: Request, authorization: str | None = Header(default=None)) -> str:
 			import inspect
@@ -865,9 +877,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			named: object = member_from_request(request)
 			if inspect.isawaitable(named):
 				named = await named
+			if may_create:
+				if named and str(named) in records.member_refs() and not records.owns(subject, str(named)):
+					raise HTTPException(status_code=403, detail='that reference belongs to another wallet')
+				return subject
 			if not named:
 				raise HTTPException(status_code=422, detail='this request must name the family member it acts for')
-			if not may_create and not records.owns(subject, str(named)):
+			if not records.owns(subject, str(named)):
 				raise HTTPException(status_code=403, detail='these records belong to someone else')
 			return subject
 		return guard
@@ -1237,10 +1253,16 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/sensors/tags/{tag_id}/tap')
 	async def tag_tap(tag_id: str, at_iso: str = Body(...), worker_ref: str | None = Body(None),
-	                  _subject: str = Depends(require_self())) -> dict[str, object]:
+	                  _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
 		"""Record a tap. A PPE station log names the worker because §COM-101 states it as
 		occupational; every other target is about the object, and `tap` asserts the distinction
-		rather than trusting the caller to keep it."""
+		rather than trusting the caller to keep it.
+
+		`names_subject=False`: the tap is about the *tag*, not about a person, and the subject the
+		reading is filed under is the token's own. With the default the guard demanded a
+		`subject_ref` the catalogue does not offer — no form draws it, because there is nothing for a
+		person to type — so the action 422'd on a field the client was never given.
+		"""
 		try:
 			reading: TagReading = tags.tap(tag_id, at_iso, worker_ref)
 		except AssertionError as exc:
@@ -4872,11 +4894,35 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/ai/early-warning')
 	async def ai_warning(county: str = Body(...), disease: str = Body(...),
-			signals: list[WarningSignal] = Body(..., embed=True),
+			signals: list[str] = Body(..., embed=True),
 			_subject: str = Depends(require_scope('county_aggregate'))) -> dict[str, object]:
+		"""`signals` is `name=observed=baseline=stdev` strings — the same shape §MON-006's `hourly`
+		uses, and for the same reason: a generic form draws one text box per field, so a
+		`list[WarningSignal]` is a control no client renders, and both clients send a `list` field as
+		an array of strings. It was a list of objects, which meant the catalogue's own control
+		produced a body the route refused — the section's only write action, unsubmittable.
+
+		Four values rather than a nested object, and the *order* is fixed by the placeholder the
+		catalogue prints. `z_score` is still not among them: it is derived here, and a caller that
+		could set its own z-score could raise or silence an alert at will.
+		"""
+		parsed: list[WarningSignal] = []
 		try:
-			return ai.assess_warning(county, disease, signals).model_dump(mode='json')
+			for spec in signals:
+				if not spec.strip():
+					continue
+				name, _, rest = spec.partition('=')
+				observed, _, rest = rest.partition('=')
+				baseline, _, stdev = rest.partition('=')
+				parsed.append(WarningSignal(county=county, disease=disease, signal=name.strip(),
+					observed=float(observed), baseline=float(baseline), baseline_stdev=float(stdev)))
+			return ai.assess_warning(county, disease, parsed).model_dump(mode='json')
 		except AssertionError as exc:
+			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		except (ValueError, ValidationError) as exc:
+			# A signal name outside §11.7's six, or a count that is not a number. Refused as 422 with
+			# the model's own message: a string the caller typed is their input being wrong, and a 500
+			# would tell them the server broke. The six names are on the catalogue field's placeholder.
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/ai/signals')
@@ -5077,12 +5123,28 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return (await retention.delete(req)).model_dump(mode='json')
 
 	@app.post('/retention/purge-expired')
-	async def retention_purge(subject_ref: str = Body(...), age_days: dict[str, int] = Body(default_factory=dict),
+	async def retention_purge(subject_ref: str = Body(...), age_days: list[str] = Body(default_factory=list),
 			_subject: str = Depends(require_self())) -> dict[str, object]:
+		"""`age_days` is `type=days` strings — the same shape §MON-006's `hourly` uses, and for the
+		same reason: a generic form draws one text box per field, so a `dict[str, int]` is a control
+		no client renders, and both clients send a `list` field as an array of strings. It was a
+		JSON object, which meant the catalogue's own control produced a body the route refused.
+
+		The parse is inside the `try` and a non-numeric age is a 422: `int(days)` on a string a person
+		typed raises `ValueError`, and letting it escape answers a typo with a 500.
+		"""
 		try:
-			return {'expired': retention.purge_expired(subject_ref, age_days)}
+			ages: dict[str, int] = {}
+			for pair in age_days:
+				if not pair.strip():
+					continue
+				data_type, _, days = pair.partition('=')
+				ages[data_type.strip()] = int(days)
+			return {'expired': retention.purge_expired(subject_ref, ages)}
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
+		except ValueError as exc:
+			raise HTTPException(status_code=422, detail=f'each entry is `type=days`: {exc}') from exc
 
 	@app.get('/retention/encryption')
 	async def retention_encryption() -> dict[str, object]:
@@ -5106,10 +5168,15 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.get('/retention/corrections')
-	async def retention_corrections(_subject: str = Depends(require_self())) -> list[dict[str, object]]:
+	async def retention_corrections(_subject: str = Depends(require_self(names_subject=False))) -> list[dict[str, object]]:
 		"""The correction history §17.2's "workflow" implies: what was changed, to what, and by whom.
 
 		A right to correct that left no trace would be indistinguishable from a right to overwrite.
+
+		`names_subject=False`: the history is the caller's own, read from the token, and the route
+		names nobody. With the default the guard demanded a `subject_ref` the catalogue's
+		`my_corrections` action does not offer — and must not, since a person typing a subject here
+		would be asking to read somebody else's correction log.
 		"""
 		return retention.corrections(_subject)
 

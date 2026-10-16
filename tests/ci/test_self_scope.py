@@ -400,3 +400,31 @@ async def test_a_family_board_is_readable_only_by_its_members() -> None:
 		assert (await c.get('/alerting/family/FAM-1', headers=u2)).status_code == 403, 'a stranger read the board'
 		# A group that does not include its own creator is refused, so no one can link a stranger in.
 		assert (await c.post('/alerting/family/link', json={'family_ref': 'FAM-2', 'members': ['U9']}, headers=u2)).status_code == 403
+
+
+async def test_a_stranger_cannot_re_enrol_a_member_reference_that_is_already_taken() -> None:
+	"""`may_create` waives the ownership check, and it must not waive the taken-reference one.
+
+	The enrolment map is keyed by the reference, so a create that names a reference another wallet
+	already holds *re-enrols that member under the caller's guardianship*: the original guardian
+	loses the record and the caller gains it. The route's own `guardian_ref` binding cannot catch
+	this, because a client that omits `guardian_ref` is the normal path and the binding then fills in
+	the caller — so the check has to be against the reference itself, inside the guard.
+	"""
+	app = create_app(build_services())
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		u1 = {'authorization': f'Bearer {await _token(c, "U1")}'}
+		u2 = {'authorization': f'Bearer {await _token(c, "U2")}'}
+		# U1 enrols their own member, and it is theirs.
+		assert (await c.post('/records/member', json={'member_ref': 'TAKEN-1', 'dob_iso': '2024-01-01'},
+		                     headers=u1)).status_code == 200
+		assert (await c.get('/records/TAKEN-1/labs', headers=u1)).status_code == 200
+		# U2 naming the same reference — with no `guardian_ref`, the normal client shape — is refused.
+		takeover = await c.post('/records/member', json={'member_ref': 'TAKEN-1', 'dob_iso': '2024-01-01'}, headers=u2)
+		assert takeover.status_code == 403, 'a stranger re-enrolled a member reference that was already taken'
+		# And the write did not land: U1 still owns the member, U2 still does not.
+		assert (await c.get('/records/TAKEN-1/labs', headers=u1)).status_code == 200
+		assert (await c.get('/records/TAKEN-1/labs', headers=u2)).status_code == 403
+		# A reference nobody holds is still free to create — the guard refuses a collision, not a create.
+		assert (await c.post('/records/member', json={'member_ref': 'FRESH-1', 'dob_iso': '2024-01-01'},
+		                     headers=u2)).status_code == 200

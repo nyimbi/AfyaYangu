@@ -291,6 +291,51 @@ class ContactList(BaseModel):
 	entries: list[ContactEntry] = Field(default_factory=list)
 	share_consent: bool = False
 
+	@model_validator(mode='before')
+	@classmethod
+	def _parse_typed_entries(cls, data: object) -> object:
+		"""Accept `"Jane:market"` where the model holds a `ContactEntry`.
+
+		A generic mobile form can only offer one text box per field, so the catalogue hands a
+		comma-separated list of `who:where` strings and the model wants `ContactEntry` objects.
+		Both clients render a `list` field the same way — split on commas, trim, keep the non-empty
+		parts — so `"Jane:market, the tailor:work"` arrives as two strings and is parsed as two
+		people. Without this the form and the model disagree on the shape, and every submission from
+		a client rendering the catalogue is refused.
+
+		`setting` is required and pattern-constrained, so a string with no separator is left as a
+		description with no setting and the model refuses it — the same choice
+		`emergency.views._parse_named_contacts` makes for `relationship`. Guessing `home` for a
+		contact who did not say would file a person under a place they never named, and the field
+		is what the tracing summary counts by.
+		"""
+		if not isinstance(data, dict):
+			return data
+		raw = data.get('entries')
+		if raw is None:
+			return data
+		# A client's `list` control sends an array already split on commas; a hand-built request may
+		# send the one string. Splitting the bare string here rather than inside the loop is what
+		# keeps `Jane:market, the tailor:work` two people instead of one description containing a
+		# comma — the first version replaced only the first comma and filed the second person as
+		# part of the first one's setting.
+		entries = raw.split(',') if isinstance(raw, str) else (raw if isinstance(raw, list) else [raw])
+		if not any(isinstance(e, str) for e in entries):
+			return data
+		parsed: list[object] = []
+		for item in entries:
+			if not isinstance(item, str):
+				parsed.append(item)
+				continue
+			# `who:where`, or the `who,where` a person is as likely to type. Split once, so a
+			# description that contains a colon keeps the rest of it.
+			who, sep, where = item.replace(',', ':', 1).partition(':')
+			entry: dict[str, object] = {'description': who.strip()}
+			if sep and where.strip():
+				entry['setting'] = where.strip()
+			parsed.append(entry)
+		return {**data, 'entries': parsed}
+
 
 class ContactTracingSummary(BaseModel):
 	model_config = MODEL_CONFIG
