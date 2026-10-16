@@ -7061,3 +7061,57 @@ row happens to live in `### Records`.
   row); a name moved likewise; the reader narrowed back to `### Records` alone — the shipped defect,
   which the comparison test still passes because its recorded rows live in that table, so only the
   coverage test sees it; and a name row recorded whose two cells are identical.
+
+## What a form offers against what its route accepts (2026-10-16)
+
+The reachability gate had one direction. It read the catalogue's fields and asked, per field, *is this
+in the path, the body model, or the query string* — a field in none of the three is a control nobody
+can submit. It compared **names**. It never compared **values**, and a `select` whose options are not
+the set its route accepts is a defect with no symptom at either end: the form submits, the route
+answers 200, and the option that is missing is a capability with no screen.
+
+**Two rows had already drifted past that horizon, in opposite directions.**
+
+- `issue_alert.kind` offered **ten** of `AlertKind`'s **twelve**. The two it omitted — `outbreak_measles`
+  and `outbreak_other` — are the two the enum's own docstring says it was widened for, because §3.3
+  principle 12 names measles among the diseases Tier 4 activates for and ends "and the next unknown".
+  So the two diseases the section is most explicit about were the two an outbreak alert could not be
+  raised for from the app, for exactly as long as the hand-typed list stopped at ten.
+- `schedule_review.kind` offered `clinic` / `home` / `telehealth` — a *mode of visit*, a different
+  question — against a route accepting `review` / `test` / `refill` / `vaccination`. **Every option the
+  form drew was a 422.** The action could not be submitted at all, and the name-only gate was blind to
+  it because the field name matched on both sides.
+
+`nearest_facilities.kind` was a third, milder: five of `FacilityKind`'s six, missing
+`therapeutic_feeding` — §MON-008's "therapeutic feeding programme locations", which `NearestRequest.kind`
+accepts and which the enum's own comment says was added for that section.
+
+**The fix is that a form is a view of a vocabulary, not a second copy of it.** Eight constants in
+`mobile/actions.py` were hand-typed lists that happened to equal their enum on the day they were
+written; they are now derived from it (`ALERT_KINDS = [k.value for k in AlertKind]`, and seven more).
+Two bare `str`-with-a-pattern fields became enums, because a vocabulary with no name is one a form
+cannot be a view of: `AppointmentKind` in `chronic/views.py`, and `CONTENT_LANGS` /
+`CONTENT_LANG_PATTERN` in `info/views.py` for the three models that had `^(en|sw|sheng)$` written out.
+`REVIEW_INTERVAL_DAYS` — the condition table — is what the condition spinner now reads, so a condition
+added to the interval table cannot go missing from the form that books its review.
+
+**The gate reads both spellings of a closed vocabulary, and that is the whole point.** FastAPI writes
+an `Enum` annotation as `enum` and a `str` with a pattern as `pattern`; a reader that knew only the
+first reports clean forever on every field written the second way — and 50 of the 63 rows are written
+that way. This is the same "one of two spellings" defect that let fifteen dead relative links pass an
+internal-link checker matching `href="/…"` only. A pattern is read as a vocabulary when it is a plain
+alternation `^(a|b|c)$`; an escaped letter or a character class means it describes a *format* (a
+reference, a geohash, an ISO stamp), where a text field is correct and a spinner would be wrong. The
+two readers are one function and the canary names the coverage loss rather than a row.
+
+The crossing runs **both ways**: 63 closed-vocabulary selects now offer exactly their route's set, and
+no **required** body property carries a closed vocabulary that no form draws. Optional ones are out of
+jurisdiction on purpose — an omitted optional field is a default the route chose, and `/channels/whatsapp`
+defaulting `kind='text'` while the voice branch is its own action is a decision, not a gap.
+
+**Canaried five ways, 11/11 fired** in `canary_action_reachability.py`, each disjoint from what its
+predicate reads: a value the route accepts leaving the form (`AlertKind.outbreak_measles` — the shipped
+defect); an option the route refuses returning to it (`schedule_review.kind` exactly as it shipped, the
+direction that proves the comparison reads values and not membership); the reader dropping the `pattern`
+branch, caught by the coverage floor because the rows are simply gone; and a required closed vocabulary
+with no control at all.

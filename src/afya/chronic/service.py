@@ -17,7 +17,7 @@ from afya.chronic.trends import (
 	appointment_status, build_chart, lifestyle, lifestyle_for_profile, review_interval_days,
 )
 from afya.chronic.views import (
-	AppointmentStatus, BPReading, ChronicAppointment, ConditionReading, GlucoseReading,
+	AppointmentKind, AppointmentStatus, BPReading, ChronicAppointment, ConditionReading, GlucoseReading,
 	KidneyFunction, LifestyleGuidance, RefillTracker, SeizureEvent, SickleCrisis, TrendChart,
 	TrendPoint,
 )
@@ -199,7 +199,7 @@ class ChronicService(LogMixin):
 		due = _iso_add_days(last_visit_iso, days)
 		return ChronicAppointment(
 			appointment_id=f'REV-{subject_ref}-{condition}-{due}', subject_ref=subject_ref,
-			condition=condition, due_iso=due, interval_days=days, kind='review',
+			condition=condition, due_iso=due, interval_days=days, kind=AppointmentKind.review,
 		)
 
 	# --- §MON-003's lifestyle guidance -----------------------------------------------------------

@@ -279,6 +279,15 @@ class ContactDirectory(BaseModel):
 
 
 
+# The languages §6.5's localisation workflow publishes in. `en` and `sw` are the two the corpus is
+# written in and `sheng` is the one §CHAN-004's myth-busting videos are spoken in ("in Swahili and
+# Sheng"), which is why it is a content language and not a UI one. Declared once and read by the
+# three models that constrain `lang` and by the mobile form that offers it — a second copy of the set
+# is how a form comes to offer a language the route refuses, or omit one it accepts.
+CONTENT_LANGS: tuple[str, ...] = ('en', 'sw', 'sheng')
+CONTENT_LANG_PATTERN: str = '^(' + '|'.join(CONTENT_LANGS) + ')$'
+
+
 class ContentStage(str, Enum):
 	"""§6.5 localisation workflow, as an order. An item advances through these; only `published`
 	is ever served, and `archived` is terminal — retirement keeps the item for audit rather than
@@ -355,7 +364,7 @@ class ContentItem(DerivedFields, BaseModel):
 	item_id: str
 	title: str
 	body: str
-	lang: str = Field(pattern=r'^(en|sw|sheng)$')
+	lang: str = Field(pattern=CONTENT_LANG_PATTERN)
 	harmony_tag: str | None = None  # verified/official-source tag per §6.2
 	# A stable, code-free handle. The seed ids embed spec codes (`INF-003-en`); this is what a client
 	# keys on and what may reach a screen, so the code stays internal like every other spec id.

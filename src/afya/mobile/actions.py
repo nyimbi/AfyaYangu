@@ -39,6 +39,19 @@ from afya.monitoring.views import LARVICIDE_CLASSES
 from afya.records.views import WALLET_DOC_KINDS
 from afya.registry.diseases import DISEASES
 from afya.access.views import LANGUAGE_MATRIX
+from afya.alerts.views import AlertKind
+from afya.community.views import CaseStatus, IssueKind
+from afya.evidence.views import EvidenceKind
+from afya.facilities.views import FacilityKind
+from afya.info.views import CONTENT_LANGS, ContentStage
+from afya.chronic.views import AppointmentKind
+from afya.chronic.trends import REVIEW_INTERVAL_DAYS
+from afya.monitoring.views import AdherenceAction, ReminderSlot
+from afya.sensors.views import SenseKind
+from afya.alerting.views import FEED_CATEGORIES
+from afya.live.views import LivePlatform, LiveStatus
+from afya.privacy.views import LegalBasis
+from afya.info.submissions import StoryKind
 from afya.sensors.tags import EQUIPMENT_STATUSES, TAG_TARGETS
 from afya.strings import SUPPORTED_LANGS
 
@@ -78,14 +91,31 @@ class MobileAction(BaseModel):
 
 
 BLOOD_GROUPS = ['O-', 'O+', 'A-', 'A+', 'B-', 'B+', 'AB-', 'AB+']
-SENS_KINDS = ['respiration', 'cough', 'fall', 'ppg', 'sleep', 'ambient']
-ALERT_KINDS = ['outbreak_cholera', 'outbreak_malaria', 'outbreak_dengue', 'outbreak_mpox', 'outbreak_rvf', 'outbreak_evd', 'flood', 'water_quality', 'school_closure', 'public_health_notice']
+# Every one of these is now a *view* of the enum the route validates against rather than a second
+# copy of it. Six were hand-typed lists that happened to equal their enum on the day they were
+# written, which is a vocabulary with a drift horizon and no symptom when it passes: the form
+# submits, the route answers 200, and the value that is missing is simply not on the spinner.
+# `ALERT_KINDS` and `FACILITY_KINDS` had already passed that horizon — they offered ten of twelve and
+# five of six — and nothing in the tree could see it, because the only thing comparing a form to its
+# route compared field *names*, never the values a field offers.
+SENS_KINDS = [k.value for k in SenseKind]
+# Derived from the enum the route validates against, not typed out beside it. A second list is a
+# vocabulary that drifts the moment the first one grows: this one offered ten of `AlertKind`'s twelve
+# and the two it omitted were `outbreak_measles` and `outbreak_other` — exactly the two the enum's own
+# docstring says it was widened for, because §3.3 principle 12 names measles and ends "and the next
+# unknown". Nothing failed: the form submitted, the route answered 200, and the two diseases the
+# section is most explicit about could not be alerted on from the app at all.
+ALERT_KINDS = [k.value for k in AlertKind]
 SYNC_DATASETS = ['symptom_logs', 'temperature', 'case_reports', 'immunisation', 'medication', 'facility', 'content', 'proximity_tokens']
 PROCEDURES = ['c_section', 'normal_delivery', 'outpatient', 'inpatient_day', 'dialysis', 'x_ray', 'theatre']
-FACILITY_KINDS = ['treatment_unit', 'ed', 'testing_site', 'pharmacy', 'vaccination_point']
-EVIDENCE_KINDS = ['rash', 'red_eye', 'pallor', 'scene_photo']
-ISSUE_KINDS = ['broken_water_point', 'open_sewage', 'illegal_dumping', 'mosquito_breeding', 'dead_animal', 'unsafe_food_vendor', 'counterfeit_medicine', 'facility_stockout', 'facility_staff_absence']
-CASE_STATUSES = ['reported', 'investigated', 'lab_result', 'closed']
+# Same rule as ALERT_KINDS: the enum is the vocabulary, and the spinner is a view of it. This one
+# offered five of six and omitted `therapeutic_feeding` — §MON-008's "therapeutic feeding programme
+# locations", which `NearestRequest.kind` accepts and which the enum's own comment says was added for
+# that section. A capability with no screen.
+FACILITY_KINDS = [k.value for k in FacilityKind]
+EVIDENCE_KINDS = [k.value for k in EvidenceKind]
+ISSUE_KINDS = [k.value for k in IssueKind]
+CASE_STATUSES = [k.value for k in CaseStatus]
 CONTACT_SETTINGS = ['home', 'work', 'transport', 'worship', 'market', 'social', 'other']
 MISINFO_MEDIA = ['text', 'voice', 'screenshot', 'whatsapp_forward']
 CHECKIN_KINDS = list(CHECKIN_KINDS_SPEC)
@@ -94,7 +124,7 @@ CHECKIN_METHODS = list(CHECKIN_METHODS_SPEC)
 # of the list, and the copies had already drifted: this one and `community.CaseReport` had `measles`,
 # `surveillance.CountySignal` did not, and `alerts.AlertKind` had neither `measles` nor `other`.
 VECTOR_DISEASES = list(DISEASES)
-ADHERENCE_ACTIONS = ['taken', 'skipped', 'snoozed']
+ADHERENCE_ACTIONS = [k.value for k in AdherenceAction]
 # §MON-007's larvicide classes, read off the model so a class added to the table cannot go missing
 # from the form a county fills in — the same reasoning `VECTOR_DISEASES` gives for reading the
 # disease list rather than restating it.
@@ -116,7 +146,7 @@ VOICE_LANGS = sorted(code for code in TRAVELLER_LANGS if LANGUAGE_MATRIX_ASR.get
 VOICE_PURPOSES = ['symptoms', 'note']
 OUTPUT_KINDS = ['triage', 'risk_score', 'hotspot', 'exposure', 'tier4_activation']
 # §6.5's content workflow, in order. The server refuses a jump, so the control offers the steps.
-CONTENT_STAGES = ['draft', 'clinical_review', 'translation', 'back_translation', 'community_validation', 'published', 'archived']
+CONTENT_STAGES = [k.value for k in ContentStage]
 ACTIVITY_KINDS = ['report', 'followup', 'sensitisation', 'referral', 'training', 'supervision']
 JOB_AID_TOPICS = ['idsr_case_definition', 'ppe_donning', 'ppe_doffing', 'isolation_basics', 'safe_burial', 'reporting_flow']
 CHW_TASK_KINDS = ['followup', 'referral', 'sensitisation']
@@ -706,7 +736,7 @@ def catalogue() -> list[MobileAction]:
 		# was answered if they missed it — three controls, and the *asker is the token*, so there is
 		# no field here for a subject: the route derives a §SEC-004 handle from whoever holds it.
 		_a('live_sessions', 'Programmes on air', 'Information', 'GET', '/live/sessions',
-		   [_f('platform', 'Where?', 'select', ['radio_callin', 'social_live']), _f('status', 'When?', 'select', ['scheduled', 'live', 'ended'])]),
+		   [_f('platform', 'Where?', 'select', [k.value for k in LivePlatform]), _f('status', 'When?', 'select', [k.value for k in LiveStatus])]),
 		_a('ask_live_question', 'Ask a question on air', 'Information', 'POST', '/live/sessions/{session_id}/questions',
 		   [_f('session_id', 'Programme', 'path'), _f('text', 'Your question', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw'])]),
 		_a('live_transcript', 'What was answered', 'Information', 'GET', '/live/sessions/{session_id}/transcript',
@@ -716,9 +746,9 @@ def catalogue() -> list[MobileAction]:
 		# only the handle could never find its own consent and the check would silently never fire.
 		# The route binds it to the token, so a person cannot file a story against someone else's.
 		_a('submit_story', 'Share your experience', 'Information', 'POST', '/info/stories',
-		   [_s(), _f('kind', 'What kind of story?', 'select', ['testimonial', 'day_in_the_life']),
+		   [_s(), _f('kind', 'What kind of story?', 'select', [k.value for k in StoryKind]),
 		    _f('author_role', 'Who are you?', ph='e.g. community health worker, parent, patient'),
-		    _f('text', 'Your story', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw']),
+		    _f('text', 'Your story', 'textarea'), _f('lang', 'Language', 'select', list(CONTENT_LANGS)),
 		    _f('consent_id', 'Consent record', ph='the consent you gave when you agreed to share this')]),
 		_a('county_risk', 'How is my county doing?', 'Information', 'GET', '/info/dashboard/{county}', [_f('county', 'County', 'path')]),
 		_a('set_county_risk', 'Update a county status', 'Information', 'POST', '/info/dashboard/{county}', [_f('county', 'County', 'path'), _f('risk_level', 'Risk level', 'select', ['low', 'moderate', 'high']), _f('active_signals', 'Active signals', 'int'), _f('bulletin', 'What should people do?', 'textarea'), _f('source', 'Source', ph='county health office')]),
@@ -748,7 +778,7 @@ def catalogue() -> list[MobileAction]:
 		_a('my_zone_events', 'Which zone did I enter or leave?', 'Alerts', 'GET', '/location/zones/{subject_ref}', [_f('subject_ref', 'Me', 'path', client_supplied=True), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('lang', 'Language', 'select', TRAVELLER_LANGS)]),
 		_a('zone_alerts_setting', 'Am I getting zone alerts?', 'Alerts', 'GET', '/location/zone-alerts/{subject_ref}', [_f('subject_ref', 'Me', 'path', client_supplied=True)]),
 		_a('set_zone_alerts', 'Turn zone alerts on or off', 'Alerts', 'POST', '/location/zone-alerts/{subject_ref}', [_f('subject_ref', 'Me', 'path', client_supplied=True), _f('enabled', 'Alerts on', 'bool')]),
-		_a('publish_content', 'Draft health information', 'Information', 'POST', '/info/content', [_f('item_id', 'Reference'), _f('title', 'Title'), _f('body', 'Text', 'textarea'), _f('lang', 'Language', 'select', ['en', 'sw', 'sheng']), _f('harmony_tag', 'Official source tag'), _f('slug', 'Short name'), _f('owner', 'Who owns this'), _f('reviewer', 'Who reviewed it'), _f('reviewed_on_iso', 'Review date', ph='YYYY-MM-DD'), _f('version', 'Version', 'int'), _f('stage', 'Stage', 'select', CONTENT_STAGES)]),
+		_a('publish_content', 'Draft health information', 'Information', 'POST', '/info/content', [_f('item_id', 'Reference'), _f('title', 'Title'), _f('body', 'Text', 'textarea'), _f('lang', 'Language', 'select', list(CONTENT_LANGS)), _f('harmony_tag', 'Official source tag'), _f('slug', 'Short name'), _f('owner', 'Who owns this'), _f('reviewer', 'Who reviewed it'), _f('reviewed_on_iso', 'Review date', ph='YYYY-MM-DD'), _f('version', 'Version', 'int'), _f('stage', 'Stage', 'select', CONTENT_STAGES)]),
 		_a('advance_content', 'Move a draft forward', 'Information', 'POST', '/info/content/{item_id}/advance', [_f('item_id', 'Reference', 'path'), _f('to', 'Next stage', 'select', CONTENT_STAGES)]),
 		_a('content_governance', 'Who reviewed this?', 'Information', 'GET', '/info/content/governance', [_f('today_iso', 'As at', ph='YYYY-MM-DD'), _f('regime', 'Review cycle', 'select', ['steady', 'outbreak'])]),
 		_a('report_content_error', 'Report a wrong guidance item', 'Information', 'POST', '/info/content/errors', [_f('error_id', 'Reference'), _f('item_id', 'Item reference'), _f('found_by', 'Found by'), _f('what_is_wrong', 'What is wrong', 'textarea'), _f('correction_en', 'Correction (English)', 'textarea'), _f('correction_sw', 'Correction (Kiswahili)', 'textarea'), _f('replacement_slug', 'Replacement short name')]),
@@ -873,8 +903,8 @@ def catalogue() -> list[MobileAction]:
 		# The list above had no way to put anything in it: §MON-003's "Appointment tracking" was
 		# read-only from every client, so the reviews a person could see were the ones a clinician
 		# had already recorded and never the ones they scheduled for themselves.
-		_a('schedule_review', 'Book a review', 'Daily care', 'POST', '/chronic/appointments', [_auto('appointment_id', 'Reference'), _f('condition', 'Which condition?', 'select', ['hypertension', 'diabetes', 'asthma', 'epilepsy', 'sickle_cell', 'hiv', 'chronic_kidney']), _f('due_iso', 'When is it due?'), _f('interval_days', 'Repeat every how many days?', 'int'), _f('kind', 'What kind of review?', 'select', ['clinic', 'home', 'telehealth']), _f('facility_id', 'Where?', ph='optional'), _s()]),
-		_a('lifestyle_guidance', 'What should I eat and avoid?', 'Daily care', 'GET', '/chronic/lifestyle', [_s(), _f('condition', 'Which condition?', 'select', ['hypertension', 'diabetes', 'asthma', 'epilepsy', 'sickle_cell', 'hiv', 'chronic_kidney'])]),
+		_a('schedule_review', 'Book a review', 'Daily care', 'POST', '/chronic/appointments', [_auto('appointment_id', 'Reference'), _f('condition', 'Which condition?', 'select', list(REVIEW_INTERVAL_DAYS)), _f('due_iso', 'When is it due?'), _f('interval_days', 'Repeat every how many days?', 'int'), _f('kind', 'What kind of review?', 'select', [k.value for k in AppointmentKind]), _f('facility_id', 'Where?', ph='optional'), _s()]),
+		_a('lifestyle_guidance', 'What should I eat and avoid?', 'Daily care', 'GET', '/chronic/lifestyle', [_s(), _f('condition', 'Which condition?', 'select', list(REVIEW_INTERVAL_DAYS))]),
 		# Women & maternal
 		_a('log_cycle', 'Log my period', 'Women', 'POST', '/women/cycle', [_s(), _f('start_iso', 'First day of period'), _f('cycle_days', 'Cycle length in days', 'int'), _f('pain_level', 'Pain level (0-10)', 'int')]),
 		_a('cycle_prediction', 'When is my next period?', 'Women', 'GET', '/women/cycle/{ref}/predict', [_f('ref', 'Who is this for?', 'path'), _f('ref_date', 'As at', ph='YYYY-MM-DD')]),
@@ -929,7 +959,7 @@ def catalogue() -> list[MobileAction]:
 		# Alerts
 		_a('issue_alert', 'Send a public alert', 'Alerts', 'POST', '/alerts', [_auto('alert_id', 'Alert number'), _f('kind', 'Kind', 'select', ALERT_KINDS), _f('county', 'County'), _f('headline', 'Headline'), _f('body', 'Message', 'textarea'), _f('issued_by', 'Issued by', 'select', ['PHEOC', 'MoH', 'County', 'KMD'])]),
 		_a('alerts_by_county', 'Alerts for my county', 'Alerts', 'GET', '/alerts/{county}', [_f('county', 'County', 'path')]),
-		_a('publish_feed_item', 'Publish a verified alert', 'Alerts', 'POST', '/alerting/feed', [_f('item_id', 'Item number'), _f('category', 'Category', 'select', ['outbreak', 'weather', 'flood', 'fire', 'road', 'security', 'drug_recall', 'water', 'food_recall', 'service']), _f('headline', 'Headline'), _f('body', 'Message', 'textarea'), _f('source', 'Source'), _f('verified', 'Verified?', 'bool'), _f('published_iso', 'Published on'), _f('county', 'County', ph='optional')]),
+		_a('publish_feed_item', 'Publish a verified alert', 'Alerts', 'POST', '/alerting/feed', [_f('item_id', 'Item number'), _f('category', 'Category', 'select', list(FEED_CATEGORIES)), _f('headline', 'Headline'), _f('body', 'Message', 'textarea'), _f('source', 'Source'), _f('verified', 'Verified?', 'bool'), _f('published_iso', 'Published on'), _f('county', 'County', ph='optional')]),
 		_a('alert_feed', 'Alerts near me', 'Alerts', 'GET', '/alerting/feed', [_f('county', 'County', ph='optional')]),
 		_a('set_alert_preference', 'Choose which alerts I get', 'Alerts', 'POST', '/alerting/preferences', [_s(), _f('category', 'Alert type'), _f('enabled', 'Turn on?', 'bool')]),
 		_a('alert_preferences', 'My alert settings', 'Alerts', 'GET', '/alerting/preferences/{subject_ref}', [_s('path')]),
@@ -957,7 +987,7 @@ def catalogue() -> list[MobileAction]:
 		_a('misinformation_notices', 'Answers to what I reported', 'Community', 'GET', '/community/misinformation/notices/{subject_ref}', [_s('path')]),
 		# Outbreak mode
 		_a('enrol_monitoring', 'Start my 21-day check-in', 'Outbreak', 'POST', '/monitoring/contact/enrol', [_s(), _f('officer', 'Monitoring officer', ph='optional'), _f('officer_number', 'Their phone number', ph='optional')]),
-		_a('monitoring_day', 'Log today (21-day check-in)', 'Outbreak', 'POST', '/monitoring/contact/day', [_auto('entry_id', 'Entry number'), _s(), _f('day', 'Day (1-21)', 'int'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('symptoms', 'Symptoms', 'list'), _f('household_member', 'Family member', ph='optional'), _f('slot', 'Morning or evening', 'select', ['morning', 'evening']), _f('location_logged', 'Share where I am today', 'bool')]),
+		_a('monitoring_day', 'Log today (21-day check-in)', 'Outbreak', 'POST', '/monitoring/contact/day', [_auto('entry_id', 'Entry number'), _s(), _f('day', 'Day (1-21)', 'int'), _f('temperature_c', 'Temperature °C', 'decimal'), _f('symptoms', 'Symptoms', 'list'), _f('household_member', 'Family member', ph='optional'), _f('slot', 'Morning or evening', 'select', [k.value for k in ReminderSlot]), _f('location_logged', 'Share where I am today', 'bool')]),
 		_a('monitoring_diary', 'My 21-day diary', 'Outbreak', 'GET', '/monitoring/contact/{subject_ref}/diary', [_s('path')]),
 		_a('monitoring_reminders', 'What is still to log today', 'Outbreak', 'GET', '/monitoring/contact/{subject_ref}/reminders/{day}', [_s('path'), _f('day', 'Day (1-21)', 'path')]),
 		_a('monitoring_consent', 'Share my location while I am monitored', 'Outbreak', 'POST', '/monitoring/contact/{subject_ref}/location-consent', [_s('path'), _f('granted', 'Yes, share it', 'bool'), _f('at_iso', 'When')]),
@@ -1032,7 +1062,7 @@ def catalogue() -> list[MobileAction]:
 		# is the entire content of the response, and a language with no table is served English with
 		# the toggle saying so.
 		_a('consent_choices', 'What am I agreeing to?', 'Privacy', 'GET', '/privacy/consent', [_f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
-		_a('record_consent', 'Record my consent', 'Privacy', 'POST', '/privacy/consent', [_s(), _f('purpose', 'What for?'), _f('data_types', 'Which data?', 'list'), _f('retention_days', 'Keep for how many days', 'int'), _f('legal_basis', 'Why are we allowed to?', 'select', ['consent', 'legal_obligation', 'legitimate_interest']), _f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
+		_a('record_consent', 'Record my consent', 'Privacy', 'POST', '/privacy/consent', [_s(), _f('purpose', 'What for?'), _f('data_types', 'Which data?', 'list'), _f('retention_days', 'Keep for how many days', 'int'), _f('legal_basis', 'Why are we allowed to?', 'select', [k.value for k in LegalBasis]), _f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
 
 		# §SEC-001's consent audit log, visible to the person it is about. No `subject_ref` field: the
 		# route binds the subject to the token (`names_subject=False`), so a form drawing one would be
@@ -1118,7 +1148,7 @@ def catalogue() -> list[MobileAction]:
 		# broadcaster's, because §17.4's eight roles hold no such scope and inventing a ninth is not
 		# a thing a route may do.
 		_a('schedule_live_session', 'Put a programme on the schedule', 'Channels', 'POST', '/live/sessions',
-		   [_f('platform', 'Where?', 'select', ['radio_callin', 'social_live']), _f('topic', 'What is it about?'),
+		   [_f('platform', 'Where?', 'select', [k.value for k in LivePlatform]), _f('topic', 'What is it about?'),
 		    _f('clinician', 'Who is answering?', ph='the name they are announced under'),
 		    _f('starts_at_iso', 'Starts at', ph='YYYY-MM-DDTHH:MM:SSZ'), _f('ends_at_iso', 'Ends at', ph='YYYY-MM-DDTHH:MM:SSZ'),
 		    _f('lang', 'Language', 'select', ['en', 'sw']), _f('venue', 'Where from?', ph='optional')]),

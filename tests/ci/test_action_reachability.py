@@ -34,6 +34,7 @@ which keys a form should send and no check can compare them. That is not a looph
 is the reason three of these routes were unfixable while they stayed open maps. They are typed
 models now, and `test_a_write_route_takes_no_open_map_body` keeps them that way.
 """
+import re
 from functools import lru_cache
 from typing import Any
 
@@ -291,3 +292,182 @@ def test_the_gate_catches_a_form_that_cannot_name_its_subject() -> None:
 		id='zzz_bound', title='Bound', group='Test', method='GET', path='/chronic/lifestyle',
 		fields=[MobileField(name='condition', label='Condition', type='text')],
 	)]) == {}, 'names_subject=False must not be read as demanding one'
+
+
+
+
+# --- the third crossing: what a select *offers* against what its route *accepts* ---------------
+
+# A form whose options are deliberately narrower than the vocabulary its route accepts, with the
+# reason. Empty is the goal: an entry is a capability nobody can reach, which is the mirror of the
+# gate above (a field nobody can submit) and has no symptom on either side — the form submits, the
+# route answers 200, and the value that is missing is simply not on the spinner.
+NARROWER_THAN_THE_ROUTE: dict[str, str] = {}
+
+# `^(a|b|c)$` and nothing else. A pattern that is not a plain alternation is a *format* (a geohash, a
+# reference, an ISO stamp), not a vocabulary, and a form is right to offer it as text.
+_ALTERNATION = re.compile(r'^\^\(([^)]*)\)\$$')
+
+# An escaped *letter* in a pattern is a character class — `\d`, `\w`, `[A-Z]` — which means the
+# pattern describes a format (a reference, a geohash, an ISO stamp) rather than a vocabulary. A form
+# is right to draw those as text, and a reader that unescaped one into a "value" would report a
+# vocabulary the route never declared.
+_FORMAT_ESCAPE = re.compile(r'\\[A-Za-z]|\[')
+
+
+def _closed_vocabulary(prop: dict[str, Any], components: dict[str, Any]) -> list[str] | None:
+	"""The values a body property admits, or None when it admits anything.
+
+	Two spellings of the same thing, and a reader that knew only one of them would report clean
+	forever on every field written the other way: FastAPI emits an `enum` for an `Enum` annotation and
+	a `pattern` for a `str` with one. Both are a closed set a form has to be a view of, so both are
+	read — the same "one of two spellings" defect that let fifteen dead relative links pass an
+	internal-link checker that matched `href="/…"` only.
+	"""
+	for branch in (prop, *(prop.get('anyOf') or []), *(prop.get('allOf') or [])):
+		if not isinstance(branch, dict):
+			continue
+		if '$ref' in branch:
+			branch = components.get(branch['$ref'].rsplit('/', 1)[-1], {})
+		if branch.get('enum'):
+			return [str(v) for v in branch['enum']]
+		pat = branch.get('pattern')
+		if isinstance(pat, str) and not _FORMAT_ESCAPE.search(pat):
+			m = _ALTERNATION.match(pat)
+			if m:
+				# The members are regex literals, so one carrying a metacharacter is escaped — the
+				# blood groups are written `O\+` and the value is `O+`. Unescaping punctuation only:
+				# an escaped *letter* is a character class (`\d`, `\w`), which means the pattern is
+				# a format rather than a vocabulary and this function should not have claimed it.
+				import re as _re
+				return sorted({_re.sub(r'\\([^A-Za-z0-9])', r'\1', v) for v in m.group(1).split('|')})
+	return None
+
+
+@lru_cache(maxsize=1)
+def _select_vocabularies() -> dict[tuple[str, str], tuple[list[str], list[str]]]:
+	"""`{(action_id, field): (options the form offers, values the route's model accepts)}`.
+
+	The crossing the field/place gate cannot make. That one asks *can a value reach the route*; this
+	asks *is every value the route accepts one a person can choose*.
+
+	Read from the OpenAPI document rather than the Python annotation, because the document is what a
+	client is generated from — the same reason the field/place gate reads it.
+	"""
+	spec = _spec()
+	components = spec.get('components', {}).get('schemas', {})
+	bodies: dict[tuple[str, str], dict[str, Any]] = {}
+	for path, ops in spec.get('paths', {}).items():
+		for method, op in ops.items():
+			if method.upper() not in ('GET', 'POST', 'PUT', 'DELETE', 'PATCH'):
+				continue
+			body = (op.get('requestBody') or {}).get('content', {}).get('application/json', {})
+			schema = body.get('schema') or {}
+			if '$ref' in schema:
+				schema = components.get(schema['$ref'].rsplit('/', 1)[-1], {})
+			if schema.get('properties'):
+				bodies[(method.upper(), path)] = schema['properties']
+	out: dict[tuple[str, str], tuple[list[str], list[str]]] = {}
+	for action in catalogue():
+		props = bodies.get((action.method.upper(), action.path))
+		if not props:
+			continue
+		for field in action.fields:
+			if field.type != 'select':
+				continue
+			prop = props.get(field.name)
+			if not isinstance(prop, dict):
+				continue
+			values = _closed_vocabulary(prop, components)
+			if values is None:
+				continue
+			out[(action.id, field.name)] = (list(field.options or []), values)
+	return out
+
+
+def test_every_select_offers_exactly_the_vocabulary_its_route_accepts() -> None:
+	"""A spinner narrower than its route is a capability with no screen.
+
+	Asserted in **both** directions, because the two failures differ and only one is visible from the
+	form: an option the route refuses is a control that 422s — the class the gate above catches by
+	*name*, and which this one catches by *value* — while a value the route accepts that the spinner
+	omits has no symptom at all. The form submits, the route answers 200, and the option is not there.
+
+	Both directions are load-bearing here. `schedule_review.kind` offered `clinic`/`home`/`telehealth`
+	against a route accepting `review`/`test`/`refill`/`vaccination`: every option the form drew was
+	refused, so the action could not be submitted, and the name-only gate was blind to it because the
+	field name matched. `issue_alert.kind` was the other way round.
+	"""
+	checked = _select_vocabularies()
+	assert len(checked) >= 40, f'the reader found only {len(checked)} closed-vocabulary selects'
+	offered_more: list[str] = []
+	offered_less: list[str] = []
+	for (action_id, field_name), (options, values) in sorted(checked.items()):
+		key = f'{action_id}.{field_name}'
+		if key in NARROWER_THAN_THE_ROUTE:
+			continue
+		extra = sorted(set(options) - set(values))
+		missing = sorted(set(values) - set(options))
+		if extra:
+			offered_more.append(f'{key}: the form offers {extra}, the route refuses them')
+		if missing:
+			offered_less.append(f'{key}: the route accepts {missing}, the form cannot offer them')
+	assert offered_more == [], f'controls the route refuses: {offered_more}'
+	assert offered_less == [], f'values no form can choose: {offered_less}'
+
+
+def test_every_closed_vocabulary_a_route_declares_is_offered_as_a_select() -> None:
+	"""The other side of the same crossing: a closed set the form never draws at all.
+
+	A body property constrained to an enum or an alternation is a question with a known answer set, and
+	a form that draws it as free text asks a person to guess a token. The two defects this catches are
+	different from the one above — there, the field is offered and the values are wrong; here the field
+	is not offered, so nothing about it is checked.
+
+	Scoped to **required** properties on purpose. An optional one the form omits is a default the route
+	chose, which is a decision and not a gap: `/channels/whatsapp` defaults `kind='text'` and the form
+	is right not to ask, because the voice branch is its own action (`whatsapp_voice`).
+	"""
+	spec = _spec()
+	components = spec.get('components', {}).get('schemas', {})
+	offered: dict[tuple[str, str], set[str]] = {}
+	for action in catalogue():
+		offered.setdefault((action.method.upper(), action.path), set()).update(f.name for f in action.fields)
+	unoffered: list[str] = []
+	for path, ops in spec.get('paths', {}).items():
+		for method, op in ops.items():
+			key = (method.upper(), path)
+			if key not in offered:
+				continue
+			body = (op.get('requestBody') or {}).get('content', {}).get('application/json', {})
+			schema = body.get('schema') or {}
+			if '$ref' in schema:
+				schema = components.get(schema['$ref'].rsplit('/', 1)[-1], {})
+			required = set(schema.get('required') or [])
+			for name, prop in (schema.get('properties') or {}).items():
+				if name in offered[key] or name not in required:
+					continue
+				values = _closed_vocabulary(prop, components)
+				if values is not None:
+					unoffered.append(f'{method.upper()} {path}.{name} accepts {sorted(values)} and no '
+					                 f'form draws it, so every value has to be typed blind')
+	assert unoffered == [], unoffered
+
+
+def test_the_select_crossing_finds_a_value_the_form_cannot_offer() -> None:
+	"""Canary, in-process: a vocabulary the spinner omits must be reported.
+
+	Run against rows the gate above has already confirmed clean, and the shrink is what proves the
+	comparison reports it. Disjoint from what the comparison reads — this moves the *form's* options,
+	not the route's schema, and the value it drops is one the reader just confirmed the route accepts.
+	"""
+	checked = _select_vocabularies()
+	for key in (('issue_alert', 'kind'), ('nearest_facilities', 'kind'), ('schedule_review', 'kind')):
+		assert key in checked, f'{key} left the closed-vocabulary select set: {sorted(checked)}'
+		options, values = checked[key]
+		assert sorted(set(options)) == sorted(set(values)), (
+			f'{key} is a row this gate was written for and it is still out of step with its route: '
+			f'form-only={sorted(set(options) - set(values))} route-only={sorted(set(values) - set(options))}')
+		# An option the route refuses — the other direction, and the one `schedule_review.kind` was.
+		assert sorted(set(options) | {'nowhere_to_go'}) != sorted(set(values)), (
+			'an option outside the route vocabulary must break the comparison')

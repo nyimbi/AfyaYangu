@@ -1,4 +1,6 @@
 """Chronic disease: BP/glucose logging, refill tracking (hypertension & diabetes, Kenya NCD burden)."""
+from enum import Enum
+
 from afya.ids import ref8
 from afya.sensors.views import MeasurementSource
 from pydantic import BaseModel, ConfigDict, Field
@@ -145,6 +147,22 @@ class TrendChart(BaseModel):
 	note: str
 
 
+class AppointmentKind(str, Enum):
+	"""What a scheduled appointment is for.
+
+	Was a bare `str` with a pattern, which is a vocabulary with no name: the mobile form offered
+	`clinic`/`home`/`telehealth` — a *mode* of visit, a different question — against a route accepting
+	`review`/`test`/`refill`/`vaccination`. Every option the form drew was refused, so the action could
+	not be submitted at all, and the name-only reachability gate could not see it because the field
+	name matched. Naming the enum is what lets a form be a view of it.
+	"""
+
+	review = 'review'
+	test = 'test'
+	refill = 'refill'
+	vaccination = 'vaccination'
+
+
 class ChronicAppointment(BaseModel):
 	"""§MON-003's "Appointment tracking": a scheduled review, and what it is for."""
 
@@ -158,7 +176,7 @@ class ChronicAppointment(BaseModel):
 	condition: str
 	due_iso: str
 	interval_days: int = Field(ge=1, le=730)
-	kind: str = Field(pattern=r'^(review|test|refill|vaccination)$')
+	kind: AppointmentKind
 	facility_id: str | None = None
 
 

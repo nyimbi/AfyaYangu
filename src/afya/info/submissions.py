@@ -32,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from afya.auth.views import now_ms
 from afya.ids import ref8
 from afya.info.service import InfoService
-from afya.info.views import ContentItem, ContentStage
+from afya.info.views import CONTENT_LANG_PATTERN, ContentItem, ContentStage
 from afya.logmixin import LogMixin
 from afya.privacy.service import PrivacyService
 from afya.privacy.views import ConsentRecord
@@ -110,7 +110,7 @@ class StorySubmission(BaseModel):
 	author: str = Field(min_length=1, description='§SEC-004 rotating handle, never a subject reference')
 	author_role: str = Field(min_length=1)
 	text: str = Field(min_length=1)
-	lang: str = Field(default='en', pattern=r'^(en|sw|sheng)$')
+	lang: str = Field(default='en', pattern=CONTENT_LANG_PATTERN)
 	# The consent this story rests on, by id. Required at the model: a story with no consent to point
 	# at is a story nobody agreed to have published, and the default that let one exist was the shape
 	# the audit row described.
@@ -137,7 +137,7 @@ class StoryIn(BaseModel):
 	kind: StoryKind
 	author_role: str = Field(min_length=1)
 	text: str = Field(min_length=1)
-	lang: str = Field(default='en', pattern=r'^(en|sw|sheng)$')
+	lang: str = Field(default='en', pattern=CONTENT_LANG_PATTERN)
 	consent_id: str = Field(min_length=1)
 	media_ref: str | None = None
 
