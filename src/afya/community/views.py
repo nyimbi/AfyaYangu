@@ -397,6 +397,15 @@ class ContactShareReceipt(BaseModel):
 
 # --- COM-104 misinformation tracker ------------------------------------------------------
 
+# The media that name a payload: a recording, an image, or a forward of one. `text` is the only
+# medium that is complete as typed text, which is why the condition is stated as this set rather
+# than as "not text" — a fifth medium added to the pattern is a payload medium until someone says
+# otherwise, and a negation would make it silently complete. `afya.mobile.actions` reads this to
+# state the same condition on the form, so the sentence the person reads and the refusal the server
+# gives come from one place.
+MISINFO_PAYLOAD_MEDIA: tuple[str, ...] = ('voice', 'screenshot', 'whatsapp_forward')
+
+
 class MisinfoSubmission(BaseModel):
 	"""§COM-104's report, in whichever medium the person has it.
 
@@ -440,7 +449,7 @@ class MisinfoSubmission(BaseModel):
 		with no image is indistinguishable from a `text` one, and PHEOC reading the cluster counts
 		would see "12 screenshots" and have nothing to look at.
 		"""
-		if self.medium in ('voice', 'screenshot', 'whatsapp_forward') and not (
+		if self.medium in MISINFO_PAYLOAD_MEDIA and not (
 				self.evidence_ref or self.transcript):
 			raise ValueError(
 				f'a {self.medium} report must carry the recording, the image or its transcript — '

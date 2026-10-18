@@ -85,7 +85,7 @@ class ActionsActivity : Activity() {
 		// this for?" would offer a control the server refuses by construction. The only honest thing
 		// to show is nothing.
 		// Neither a subject the client holds nor a reference the server mints is a question.
-		for (f in a.fields) if (!f.clientSupplied && !f.serverAssigned) box.addView(fieldView(f, inputs, minTargetPx))
+		for (f in a.fields) if (!f.clientSupplied && !f.serverAssigned) box.addView(fieldView(a, f, inputs, minTargetPx))
 		box.addView(Button(this).apply {
 			text = if (a.method == "GET") "Run" else "Submit"
 			// Never below §ACC-001's 48dp floor. A small screen is where a thumb misses, so the
@@ -99,10 +99,51 @@ class ActionsActivity : Activity() {
 		setContentView(ScrollView(this).apply { addView(box) })
 	}
 
-	private fun fieldView(f: ActionField, inputs: MutableMap<String, android.view.View>, minTargetPx: Int): LinearLayout {
+	/**
+	 * Whether a field must be answered, given what the other fields currently hold.
+	 *
+	 * `required` alone is not the answer: a voice-note report needs the recording *only* because the
+	 * medium is a voice note, and the route refuses without it. The asterisk and the submit check
+	 * both read this one function, so the label can never promise less than the check demands.
+	 */
+	private fun needed(a: CatalogueAction, f: ActionField, answers: Map<String, String>): Boolean {
+		f.required && return true
+		val c = f.condition ?: return false
+		val given = answers[c.whenField] ?: ""
+		return if (c.equalsAny.isEmpty()) given.isNotEmpty() else c.equalsAny.contains(given)
+	}
+
+	/** Whether an either/or group is unsatisfied — the route accepts any one member. */
+	private fun groupUnsatisfied(g: FieldGroup, answers: Map<String, String>): Boolean {
+		g.whenField?.let { w ->
+			val given = answers[w] ?: ""
+			if (g.equalsAny.isEmpty()) { if (given.isEmpty()) return false } else if (!g.equalsAny.contains(given)) return false
+		}
+		return g.fields.none { !(answers[it] ?: "").isEmpty() }
+	}
+
+	/** The current answer for every drawn field, keyed by name — what a condition is evaluated against. */
+	private fun answersOf(a: CatalogueAction, inputs: Map<String, android.view.View>): Map<String, String> {
+		val out = HashMap<String, String>()
+		for (f in a.fields) out[f.name] = raw(inputs[f.name])
+		return out
+	}
+
+	/** One field's value as the string the request will carry, or "" when unanswered. */
+	private fun raw(v: android.view.View?): String = when (v) {
+		is CheckBox -> if (v.isChecked) "true" else ""
+		is Spinner -> v.selectedItem?.toString().orEmpty()
+		is EditText -> v.text.toString().trim()
+		else -> ""
+	}
+
+	private fun fieldView(a: CatalogueAction, f: ActionField, inputs: MutableMap<String, android.view.View>, minTargetPx: Int): LinearLayout {
 		val row = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(16, 8, 16, 0) }
 		if (f.type != "bool") {
-			val label = f.label + if (f.required) " *" else ""
+			// A conditional field is *asked* unconditionally — the person has to see the question
+			// before answering the one that makes it matter — so it carries the asterisk from the
+			// start and the check below is what actually enforces it.
+			val label = f.label + if (f.required || f.condition != null) " *" else ""
 			row.addView(TextView(this).apply { text = label; textSize = 13f })
 		}
 		val view: android.view.View = when (f.type) {
@@ -126,16 +167,25 @@ class ActionsActivity : Activity() {
 	}
 
 	private fun submit(a: CatalogueAction, inputs: Map<String, android.view.View>) {
+		val answers = answersOf(a, inputs)
+		// Refuse before the request, with the field names, for exactly the reasons the route would
+		// refuse after it. The two rules are the server's own: a conditional field whose condition
+		// holds, and an either/or group with nothing answered. Without this the person saw a form
+		// that looked complete and got a 422 naming a field they were never told to fill.
+		val missing = a.fields.filter { !it.clientSupplied && !it.serverAssigned && it.type != "file" &&
+			needed(a, it, answers) && (answers[it.name] ?: "").isEmpty() }
+		val openGroups = a.anyOf.filter { groupUnsatisfied(it, answers) }
+		if (missing.isNotEmpty() || openGroups.isNotEmpty()) {
+			val names = missing.map { it.label } + openGroups.map { g ->
+				"one of " + g.fields.joinToString(", ") { n -> a.fields.firstOrNull { it.name == n }?.label ?: n }
+			}
+			out.text = "Please fill in: " + names.joinToString(", ")
+			return
+		}
 		val pathValues = HashMap<String, String>()
 		val params = JSONObject()
 		for (f in a.fields) {
-			val v = inputs[f.name] ?: continue
-			val raw = when (v) {
-				is CheckBox -> if (v.isChecked) "true" else ""
-				is Spinner -> v.selectedItem?.toString().orEmpty()
-				is EditText -> v.text.toString().trim()
-				else -> ""
-			}
+			val raw = answers[f.name] ?: ""
 			if (raw.isEmpty()) continue // omit empty optional fields entirely
 			if (f.type == "path") pathValues[f.name] = raw
 			else params.put(f.name, typed(f.type, raw))

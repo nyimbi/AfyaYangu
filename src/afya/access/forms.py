@@ -135,7 +135,19 @@ def required_fields(app: 'FastAPI') -> dict[tuple[str, str], frozenset[str]]:
 				annotation = hints.get(name)
 				if isinstance(annotation, type) and issubclass(annotation, BaseModel):
 					names |= {k for k, v in annotation.model_fields.items() if v.is_required()}
-				elif param.default is inspect.Parameter.empty and name != 'authorization':
+					continue
+				if name == 'authorization':
+					continue
+				# A `Body(...)`/`Form(...)` marker is not `inspect.Parameter.empty`, so the obvious
+				# test misses every one of them: `claim: str = Body(...)` is required by the route and
+				# its default is a `Body` object, not `empty`. 34 routes were invisible here — and the
+				# catalogue's marking is computed from this function, so each missed parameter was a
+				# field drawn as optional that the route refuses without. The marker carries its own
+				# answer, which is the one FastAPI itself uses.
+				marked_required = getattr(param.default, 'is_required', None)
+				if marked_required is not None and marked_required():
+					names.add(name)
+				elif marked_required is None and param.default is inspect.Parameter.empty:
 					names.add(name)
 			path = getattr(route, 'path', '')
 			# A path placeholder is not a parameter FastAPI leaves in the signature, and a route

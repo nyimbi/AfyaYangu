@@ -172,6 +172,25 @@ struct MobileFieldDTO: Codable, Identifiable {
 	// A reference the server mints. Undrawn for the same reason and a different one: nobody knows
 	// the value until the request arrives, so a form could only ask a person to invent a key.
 	let server_assigned: Bool?
+	// Required only when another field holds one of `equals_any` (empty means any answer). `required`
+	// alone could not say this, which is how a voice-note report with no recording was drawn as a
+	// complete submission and refused by the route.
+	let condition: FieldConditionDTO?
+	// The field this one must not equal. Not requiredness — `required = (a != b)` is false for every
+	// answer — but a rule the route enforces and a form can at least label.
+	let distinct_from: String?
+}
+
+struct FieldConditionDTO: Codable {
+	let when: String
+	let equals_any: [String]
+}
+
+/// At least one of `fields` must be answered — the route accepts either. `when` gates the group.
+struct FieldGroupDTO: Codable {
+	let fields: [String]
+	let when: String?
+	let equals_any: [String]
 }
 
 struct MobileActionDTO: Codable, Identifiable {
@@ -181,6 +200,7 @@ struct MobileActionDTO: Codable, Identifiable {
 	let method: String
 	let path: String
 	let fields: [MobileFieldDTO]
+	let any_of: [FieldGroupDTO]?
 }
 
 extension BackendClient {

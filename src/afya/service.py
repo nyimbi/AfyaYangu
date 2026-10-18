@@ -3758,7 +3758,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		the default rather than a refusal.
 		"""
 		from afya.access.forms import required_fields, simplified
-		from afya.mobile.actions import available
+		from afya.mobile.actions import available, marked
 		scopes: frozenset[str] = frozenset()
 		subject_ref: str | None = None
 		if authorization:
@@ -3772,10 +3772,16 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			registry.tier4_active(), scopes,
 			feature_available=lambda fid: activation.feature_available(fid, state),
 		)
+		# `required` is read off the routes once, here, and used for both things that need it: the
+		# form's own asterisks and §ACC-001's drop list. Marking before simplifying is deliberate —
+		# a simplified form must not drop a field the route requires, and `simplified` checks that
+		# against the same reading, so the two cannot disagree about what a route needs.
+		required = required_fields(app)
+		acts = marked(acts, required)
 		simple = simple_mode if simple_mode is not None else (
 			subject_ref is not None and access.profile(subject_ref).simple_mode)
 		if simple:
-			acts = simplified(acts, required_fields(app))
+			acts = simplified(acts, required)
 		return [act.model_dump(mode='json') for act in acts]
 
 	@app.get('/places/nearest')
@@ -5152,7 +5158,7 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return retention.encryption_posture(crypto).model_dump(mode='json')
 
 	@app.post('/retention/correct')
-	async def retention_correct(req: CorrectionRequest, at_iso: str,
+	async def retention_correct(req: CorrectionRequest,
 	                            _subject: str = Depends(require_self())) -> dict[str, object]:
 		"""§17.2 accuracy: "user data editable; correction workflows".
 
@@ -5162,6 +5168,10 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		that is a different route with a different guard.
 		"""
 		req = req.model_copy(update={'subject_ref': _subject, 'corrected_by': _subject})
+		# `at_iso` is optional on the form — a person correcting a field is not asked to state the
+		# moment they did it — so an empty one is filled here rather than refused. It is still the
+		# body's value, so a caller who does name a moment gets the one they named.
+		at_iso = req.at_iso or datetime.now(timezone.utc).isoformat(timespec='seconds')
 		try:
 			return (await retention.correct(req, at_iso)).model_dump(mode='json')
 		except AssertionError as exc:

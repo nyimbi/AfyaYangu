@@ -153,6 +153,12 @@ class CorrectionRequest(BaseModel):
 	reason: str = Field(min_length=1)
 	corrected_by: str = Field(min_length=1)
 	channel: str = Field(default='native', pattern=r'^(native|sms|ussd|whatsapp)$')
+	# The moment of the correction, in the body rather than the query string: both clients put every
+	# non-path field of a write into the JSON body and send no query string, so a query parameter here
+	# was a value no form could supply — `correct_my_data` drew no field for it, and every complete
+	# submission was refused for a missing `at_iso` the form had never asked for. Empty means "now",
+	# which is what a client leaves it as when the person does not name a different moment.
+	at_iso: str = ''
 
 
 class CorrectionReceipt(BaseModel):

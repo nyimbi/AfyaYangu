@@ -346,11 +346,42 @@ struct ActionFormView: View {
 		}
 	}
 
+	/// Whether a field must be answered, given what the other fields currently hold.
+	///
+	/// `required` alone is not the answer: a voice-note report needs the recording *only* because the
+	/// medium is a voice note, and the route refuses without it. This screen draws no asterisk — it
+	/// has always refused at submit — so this is the only place the rule is read, and the refusal it
+	/// produces now names the same fields the route would.
+	private func needed(_ f: MobileFieldDTO) -> Bool {
+		if f.required { return true }
+		guard let c = f.condition else { return false }
+		let given = values[c.when] ?? ""
+		return c.equals_any.isEmpty ? !given.isEmpty : c.equals_any.contains(given)
+	}
+
+	/// Whether an either/or group is unsatisfied — the route accepts any one member.
+	private func groupUnsatisfied(_ g: FieldGroupDTO) -> Bool {
+		if let w = g.when {
+			let given = values[w] ?? ""
+			if g.equals_any.isEmpty {
+				if given.isEmpty { return false }
+			} else if !g.equals_any.contains(given) {
+				return false
+			}
+		}
+		return !g.fields.contains { !(values[$0] ?? "").isEmpty }
+	}
+
 	private func run() {
-		let missing = action.fields.filter { $0.required && $0.client_supplied != true && $0.server_assigned != true && $0.type != "file" && (values[$0.name] ?? "").isEmpty }
-		guard missing.isEmpty else {
+		let missing = action.fields.filter { !($0.client_supplied ?? false) && !($0.server_assigned ?? false)
+			&& $0.type != "file" && needed($0) && (values[$0.name] ?? "").isEmpty }
+		let open = (action.any_of ?? []).filter { groupUnsatisfied($0) }
+		guard missing.isEmpty && open.isEmpty else {
 			failed = true
-			result = "Please fill in: " + missing.map(\.label).joined(separator: ", ")
+			let labels = missing.map(\.label) + open.map { g in
+				"one of " + g.fields.map { n in action.fields.first { $0.name == n }?.label ?? n }.joined(separator: ", ")
+			}
+			result = "Please fill in: " + labels.joined(separator: ", ")
 			return
 		}
 		busy = true

@@ -7344,3 +7344,106 @@ their forms today.
 which the form's `note` option no longer satisfies. The match had to be widened to two lines — `lang:
 str` then the field — because `VoiceRequest` carries an identical line four lines above and a one-line
 target matched twice. A canary whose target is not unique is a canary that did not run.
+
+## The condition no form could express
+
+`MisinfoSubmission` is `medium: str = Field(pattern=r'^(text|voice|screenshot|whatsapp_forward)$')`,
+and the form offered exactly those four in both directions. So this was never a value mismatch and no
+vocabulary gate could see it. What the model validator adds is a **conditional requirement**: a
+`voice`, `screenshot` or `whatsapp_forward` report must carry an `evidence_ref` or a `transcript`,
+"otherwise it is a text report with a different label". Probed at the front door: `medium='voice'`
+alone is a 422, with a transcript a 200, `medium='text'` alone a 200.
+
+`MobileField` had `required: bool` and nothing else, set from `type == 'path'` — so **no body field
+was ever marked required by the catalogue**. Both clients read the flag and draw an asterisk; neither
+could express a condition, because there was nothing to express. A person filled the form, pressed the
+button, and was refused for a combination the screen had presented as complete.
+
+The general count, measured: **875 catalogue fields across 306 actions, of which 113 are path
+placeholders and 79 client-supplied. Before the marking, 86 person-filled fields were drawn required.
+After it, 481 — 395 questions the person answers that the route refuses without and the form said
+nothing about.** That is the size of the class this one reported instance stood for.
+
+### The mechanism
+
+Three shapes, each a field on the catalogue rather than a rule in a client:
+
+- **`FieldCondition(when, equals_any)`** on a field — required exactly when another field's answer is
+  one of a set. `lab_tests` and `lab_turnaround_hours` are required when `mobile_lab` is `'true'`.
+- **`equals_any` empty** — required on *any* answer at all. `evidence_consent` is required once
+  `evidence_ref` is filled, because there is then something whose sharing needs consent.
+- **`FieldGroup(fields, when, equals_any)`** in `any_of` — at least one of a set, optionally gated.
+  This is the `MisinfoSubmission` shape exactly: `['evidence_ref', 'transcript']` when `medium` is one
+  of the payload media.
+
+A fourth shape is **not** requiredness and is carried separately as `distinct_from`: `a != b` is
+answered by *both* fields being filled, so folding it into a condition would have made a client refuse
+a submission for a reason the server does not. `record_back_translation.back_translated_by` must
+differ from `translated_by`.
+
+`marked(actions, required)` applies the route requirement set to the catalogue and asserts four
+invariants rather than trusting the data: no field is both conditional and unconditionally required
+(the second would make the condition dead), no group member is unconditionally required (the group
+would be satisfied by construction), every condition names a field the form draws, every group member
+exists. A condition naming a field the action does not carry reads `""` forever and is inert.
+
+Both clients evaluate the same three shapes: `needed()` and `groupUnsatisfied()` in Kotlin
+(`ActionsActivity.kt`) and Swift (`Features.swift`), an asterisk for `required || condition != null`,
+and a pre-request refusal so the person is told before the round trip rather than after it.
+
+### The census, and the defect it found that the gates did not
+
+`tests/ci/refusal_census.py` is a kept script, not a pytest module. It probes every write route with
+**all** its fields filled and reads the refusal's own error type: a `missing` body property is a
+question the form failed to draw; anything else — `string_pattern_mismatch`, a model validator's
+`value_error`, a handler's `HTTPException` — is a refusal of an answer that *was* given.
+
+Getting it to measure the right thing took four corrections, each of which had been reporting a
+defect that was the probe's:
+
+- **401/403 counted as form refusals.** 105 of 162 routes were probed anonymously. Tokens now come
+  through the same PKCE flow the app uses, one per role, plus a citizen token for the three quarters
+  of write routes that are the person's own.
+- **`403` outranking `422`.** The best-answer ranking picked the numerically lowest status, so a role
+  the route does not admit beat the role that reaches it. 106 routes read as unreachable. A transport
+  refusal is not evidence about the fields and must not outrank a schema refusal.
+- **`subject_ref` sent as a placeholder.** `require_self()` checks it against the token, so 65 citizen
+  routes answered `a token may act only for its own subject`. Rebuilt per role from `/auth/whoami`.
+- **`['a']` sent to a `list[int]`.** Pydantic reported a *missing* element at index 1 — a `missing`
+  the form draws perfectly well.
+
+Final measurement: **159 write routes probed, 4 missing-field refusals, all on `multipart/form-data`
+routes** (`voice_audio`, `whatsapp_voice`, `analyse_cough`, `submit_evidence`), **0 unexplained**. The
+exemption is scoped to the **route's** media type, not the field's type — the first version asked "is
+it a `file` field?" and `whatsapp_voice` failed it on `from_msisdn`, a `Form(...)` part a JSON body
+cannot carry either. That is the "one of two spellings" defect on the exemption itself.
+
+And the census found a real defect the unit's own ten gates had missed: **`correct_my_data` required
+a parameter its form never drew.** `POST /retention/correct` took `at_iso: str` as a required *query
+parameter*, and the catalogue drew no field for it, so a person filling every question on the screen
+was refused for a value the screen had never asked for. `required` can only be marked on a field that
+exists, so a requirement with no field is invisible to every mechanism in this unit — the unit's own
+defect one step out.
+
+### The wrong fix, caught by an existing gate
+
+Adding `_f('at_iso', ...)` to the catalogue made the census clean and broke
+`test_action_reachability.py`, which is the gate that had been right all along:
+
+	A field the route cannot receive ... both clients put every non-path field in the JSON body, so a
+	value read from the query string is one no form can send.
+
+The field was not missing from the form; it was missing from the *route's body*. A `Body(...)` marker
+made it worse — FastAPI then embeds the model, the body becomes `{"req": {...}, "at_iso": ...}`, and
+all seven fields break instead of one. The fix belongs in the model: `CorrectionRequest.at_iso: str =
+''`, empty meaning "now", which is what every other `at_iso` in the catalogue already is — a body
+field. **A census that says "the form does not draw X" does not say which side is wrong.**
+
+### Gates and canaries
+
+Ten gates in `tests/ci/test_conditional_required.py`, seven canaries, **7/7 fired**. Canary 7 had to be
+retargeted: it planted the defect by removing the catalogue field, and once the route stopped requiring
+`at_iso` that mutation planted nothing. The shipped defect had changed shape, so the mutation moved to
+the **route** — a required parameter the form does not draw — which is disjoint from the requirement
+set the gate reads. A canary for a defect that has been fixed on one side must be moved to the side
+that still has it.

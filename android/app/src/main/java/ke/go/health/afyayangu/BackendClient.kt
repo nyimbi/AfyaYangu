@@ -10,8 +10,19 @@ import java.net.URL
 data class HealthDTO(val status: String, val version: String, val tier4: Boolean)
 data class FeatureDTO(val id: String, val name: String)
 data class TriageResultDTO(val riskLevel: String, val recommendation: String, val escalate719: Boolean)
-data class ActionField(val name: String, val label: String, val type: String, val options: List<String>?, val placeholder: String?, val required: Boolean, val clientSupplied: Boolean, val serverAssigned: Boolean)
-data class CatalogueAction(val id: String, val title: String, val group: String, val method: String, val path: String, val fields: List<ActionField>)
+/**
+ * When a field is required because of an answer to another field, and what that answer is.
+ *
+ * `required` alone could not say this, which is how a form came to draw a voice-note report with no
+ * recording as a complete submission. `equalsAny` empty means any answer fires it.
+ */
+data class FieldCondition(val whenField: String, val equalsAny: List<String>)
+
+/** At least one of [fields] must be answered — the route accepts either. `when` gates the group. */
+data class FieldGroup(val fields: List<String>, val whenField: String?, val equalsAny: List<String>)
+
+data class ActionField(val name: String, val label: String, val type: String, val options: List<String>?, val placeholder: String?, val required: Boolean, val clientSupplied: Boolean, val serverAssigned: Boolean, val condition: FieldCondition?, val distinctFrom: String?)
+data class CatalogueAction(val id: String, val title: String, val group: String, val method: String, val path: String, val fields: List<ActionField>, val anyOf: List<FieldGroup>)
 
 // Offline-first: last good response cached in SharedPreferences (spec 16.1).
 class BackendClient(private val context: Context) {
@@ -458,6 +469,12 @@ class BackendClient(private val context: Context) {
 		const val BASE = "http://localhost:8000/"
 
 		/** Catalogue JSON -> models. Pure, so the parse can be tested without a device or network. */
+		/** A JSON string array as a Kotlin list. Absent and empty are the same list, deliberately:
+		 * an empty `equals_any` means "any answer fires this", which is a value the parser must be
+		 * able to produce rather than a missing key it must guard against. */
+		private fun strings(arr: JSONArray?): List<String> =
+			if (arr == null) emptyList() else (0 until arr.length()).map { arr.getString(it) }
+
 		fun parseActions(arr: JSONArray): List<CatalogueAction> = (0 until arr.length()).map { i ->
 			val a = arr.getJSONObject(i)
 			val fArr = a.optJSONArray("fields") ?: JSONArray()
@@ -468,6 +485,7 @@ class BackendClient(private val context: Context) {
 				// Both are rejected here so the parse is correct whichever implementation is
 				// underneath, and so the rule can be tested off-device.
 				val ph = if (f.isNull("placeholder")) null else f.optString("placeholder").takeIf { it.isNotEmpty() && it != "null" }
+				val c = f.optJSONObject("condition")
 				ActionField(
 					f.getString("name"), f.getString("label"), f.getString("type"),
 					f.optJSONArray("options")?.let { o -> (0 until o.length()).map { o.getString(it) } },
@@ -475,9 +493,20 @@ class BackendClient(private val context: Context) {
 					f.optBoolean("required", false),
 					f.optBoolean("client_supplied", false),
 					f.optBoolean("server_assigned", false),
+					c?.let { FieldCondition(it.getString("when"), strings(it.optJSONArray("equals_any"))) },
+					if (f.isNull("distinct_from")) null else f.optString("distinct_from").takeIf { it.isNotEmpty() && it != "null" },
 				)
 			}
-			CatalogueAction(a.getString("id"), a.getString("title"), a.getString("group"), a.getString("method"), a.getString("path"), fields)
+			val gArr = a.optJSONArray("any_of") ?: JSONArray()
+			val anyOf = (0 until gArr.length()).map { j ->
+				val g = gArr.getJSONObject(j)
+				FieldGroup(
+					strings(g.getJSONArray("fields")),
+					if (g.isNull("when")) null else g.optString("when").takeIf { it.isNotEmpty() && it != "null" },
+					strings(g.optJSONArray("equals_any")),
+				)
+			}
+			CatalogueAction(a.getString("id"), a.getString("title"), a.getString("group"), a.getString("method"), a.getString("path"), fields, anyOf)
 		}
 	}
 }

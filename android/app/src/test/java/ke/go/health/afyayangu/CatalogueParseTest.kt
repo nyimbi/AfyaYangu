@@ -75,4 +75,49 @@ class CatalogueParseTest {
 		val arr = JSONArray("""[{"id":"a","title":"t","group":"g","method":"GET","path":"/p"}]""")
 		assertEquals(0, BackendClient.parseActions(arr).single().fields.size)
 	}
+
+	/**
+	 * A condition survives the parse, and an absent one stays absent.
+	 *
+	 * The bug this guards is the one the field exists for: a voice-note report needs the recording
+	 * *only* because the medium is a voice note, and a client that dropped the condition would draw
+	 * the field as an ordinary optional question and submit a form the route refuses. `equals_any`
+	 * empty is a value the parser must be able to produce — it means "any answer fires this" — so it
+	 * is asserted as an empty list rather than as null.
+	 */
+	@Test fun aConditionSurvivesTheParse() {
+		val arr = JSONArray("""[{"id":"flag_misinformation","title":"t","group":"g","method":"POST","path":"/p",
+			"fields":[
+			  {"name":"medium","label":"How did you get it?","type":"select","options":["text","voice"],
+			   "placeholder":null,"required":true},
+			  {"name":"transcript","label":"What the voice note said","type":"textarea","options":null,
+			   "placeholder":null,"required":false,
+			   "condition":{"when":"medium","equals_any":["voice"]}}
+			],
+			"any_of":[{"fields":["a","b"],"when":"medium","equals_any":["voice"]}]}]""")
+		val action = BackendClient.parseActions(arr).single()
+		val cond = action.fields[1].condition
+		assertEquals("medium", cond?.whenField)
+		assertEquals(listOf("voice"), cond?.equalsAny)
+		// A field with no condition carries none — not an empty one, which would read as "any answer".
+		assertNull(action.fields[0].condition)
+		assertEquals(listOf("a", "b"), action.anyOf.single().fields)
+		assertEquals("medium", action.anyOf.single().whenField)
+	}
+
+	@Test fun anEmptyEqualsAnyIsAnEmptyListNotAnAbsentCondition() {
+		val arr = JSONArray("""[{"id":"a","title":"t","group":"g","method":"POST","path":"/p",
+			"fields":[{"name":"evidence_consent","label":"Share it","type":"bool","options":null,
+			 "placeholder":null,"required":false,"condition":{"when":"evidence_ref","equals_any":[]}}]}]""")
+		val cond = BackendClient.parseActions(arr).single().fields.single().condition
+		assertEquals("evidence_ref", cond?.whenField)
+		assertEquals(emptyList<String>(), cond?.equalsAny)
+	}
+
+	@Test fun aDistinctnessRuleSurvivesTheParse() {
+		val arr = JSONArray("""[{"id":"a","title":"t","group":"g","method":"POST","path":"/p",
+			"fields":[{"name":"back_translated_by","label":"Rendered back by","type":"text","options":null,
+			 "placeholder":null,"required":true,"distinct_from":"translated_by"}]}]""")
+		assertEquals("translated_by", BackendClient.parseActions(arr).single().fields.single().distinctFrom)
+	}
 }

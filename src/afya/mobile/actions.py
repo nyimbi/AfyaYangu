@@ -26,9 +26,9 @@ enforces this.
 """
 from typing import Callable, Literal, TypeAlias, cast
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from afya.community.views import FOLLOWUP_DAYS
+from afya.community.views import FOLLOWUP_DAYS, MISINFO_PAYLOAD_MEDIA
 from afya.location.views import (
 	ALERT_ZONE_RADII_M, CHECKIN_KINDS as CHECKIN_KINDS_SPEC,
 	CHECKIN_METHODS as CHECKIN_METHODS_SPEC,
@@ -63,6 +63,54 @@ FieldType: TypeAlias = Literal['text', 'int', 'decimal', 'bool', 'select', 'text
 FIELD_TYPES: tuple[str, ...] = ('text', 'int', 'decimal', 'bool', 'select', 'textarea', 'list', 'file', 'path')
 
 
+class FieldCondition(BaseModel):
+	"""What a person must have answered before this field is required — §11.1's other half.
+
+	`required` says the route refuses without this field. It cannot say *when*, and three of this
+	catalogue's routes refuse a combination: `MisinfoSubmission` wants the recording or the transcript
+	when the medium is a voice note, `BorderPost` wants a turnaround and a test list when it reports a
+	mobile lab, and `SuspiciousReport` wants a barcode or a batch number. A form that draws every one
+	of those as optional offers a submission the route refuses, and the person has no way to know
+	which answer made it incomplete — the refusal names a field they were never told to fill.
+
+	One predicate, in two spellings:
+
+	* `equals_any` non-empty — the trigger's answer is one of these values (`medium` is `voice`,
+	  `screenshot` or `whatsapp_forward`).
+	* `equals_any` empty — *any* answer at all fires it. `MisinfoSubmission` wants
+	  `evidence_consent` whenever there is a recording to consent to, and naming the values a
+	  recording could take is impossible.
+
+	A rule that a field must *differ* from another is not a condition and is carried separately, as
+	`MobileField.distinct_from`: `required = (a != b)` is false for every answer a person gives, so
+	stating `BackTranslation`'s "the renderer is not the translator" here would produce a condition
+	that can never fire.
+
+	A rule that *one of several* fields must be answered is also not a condition on any one of them,
+	and is carried on the action as `FieldGroup` — see `MobileAction.any_of`. Marking each member
+	required-when-the-other-is-blank would make an empty form demand all of them, which is the mirror
+	of the defect this module exists to close: a form refusing a submission the route accepts.
+	"""
+	model_config = MODEL_CONFIG
+	when: str
+	equals_any: list[str] = []
+
+
+class FieldGroup(BaseModel):
+	"""At least one of `fields` must be answered — `SuspiciousReport`'s "a gtin or a batch number".
+
+	Carried on the action rather than on each field because it is not a property of any one of them.
+	`gtin` is not required (a batch number satisfies the route) and not optional (nothing else does),
+	and a per-field boolean has no third state to say so. `when`/`equals_any` gate the group the same
+	way `FieldCondition` gates a field, so a group can itself be conditional — `MisinfoSubmission`
+	wants the recording *or* its transcript, and only when the medium is one that carries a payload.
+	"""
+	model_config = MODEL_CONFIG
+	fields: list[str] = Field(min_length=2)
+	when: str | None = None
+	equals_any: list[str] = []
+
+
 class MobileField(BaseModel):
 	model_config = MODEL_CONFIG
 	name: str
@@ -70,7 +118,18 @@ class MobileField(BaseModel):
 	type: Literal['text', 'int', 'decimal', 'bool', 'select', 'textarea', 'list', 'file', 'path']
 	options: list[str] | None = None
 	placeholder: str | None = None
+	# Filled in at serve time from the route's own requirement set, never from the field's type.
+	# It was `type_ == 'path'` — so no body field was ever marked, 385 offered fields a route refuses
+	# without were drawn as optional, and 101 actions presented a complete-looking form whose
+	# submission the route rejected. `marked()` is where the correction happens.
 	required: bool = False
+	# Required only when `condition` holds. Never both: `marked()` asserts the two are disjoint,
+	# because a client that read a condition on an unconditionally-required field would drop the
+	# asterisk exactly when the answer made the field matter most.
+	condition: FieldCondition | None = None
+	# The field this one must not equal. Not requiredness — see `FieldCondition` — but a rule the
+	# route enforces and a form can act on by refusing to submit, which prose in a placeholder cannot.
+	distinct_from: str | None = None
 	# True when the client must supply this field from its own identity and must not draw it. A
 	# personal-data route binds the subject it is given to the token that gave it (§17), so a form
 	# offering to type a subject would offer a control the server refuses — the §11.1 defect.
@@ -90,6 +149,9 @@ class MobileAction(BaseModel):
 	method: Literal['GET', 'POST', 'DELETE']
 	path: str  # may contain {placeholders} backed by type='path' fields
 	fields: list[MobileField] = []
+	# Groups of fields where answering *one* satisfies the route. Not a property of any member, so it
+	# cannot live on a member: see `FieldGroup`.
+	any_of: list[FieldGroup] = []
 
 
 BLOOD_GROUPS = ['O-', 'O+', 'A-', 'A+', 'B-', 'B+', 'AB-', 'AB+']
@@ -671,8 +733,20 @@ def tier4_feature_ids() -> frozenset[str]:
 	return frozenset(f.id for f in FeatureRegistry().by_tier(Tier.tier4))
 
 
-def _f(name: str, label: str, type_: str = 'text', options: list[str] | None = None, ph: str | None = None, client_supplied: bool = False, server_assigned: bool = False) -> MobileField:
-	return MobileField(name=name, label=label, type=cast(FieldType, type_), options=options, placeholder=ph, required=type_ == 'path', client_supplied=client_supplied, server_assigned=server_assigned)
+def _f(name: str, label: str, type_: str = 'text', options: list[str] | None = None, ph: str | None = None, client_supplied: bool = False, server_assigned: bool = False, when: str | None = None, equals_any: list[str] | None = None, distinct_from: str | None = None) -> MobileField:
+	"""A field, with nothing said about whether it is required.
+
+	`required` is deliberately absent here. It used to be `type_ == 'path'`, which is a fact about the
+	field rather than about the route, and it was wrong for every body field in the catalogue. What
+	the route needs is only knowable from the route, so `marked()` fills it at serve time from
+	`afya.access.forms.required_fields` — the same reading §ACC-001's drop list is checked against, so
+	the form and the drop list cannot disagree about what a route requires.
+
+	`when` states the condition the route's own model enforces, and is the one thing about
+	requiredness a field *can* know by itself: it is a property of the answers, not of the route.
+	"""
+	condition = FieldCondition(when=when, equals_any=equals_any or []) if when else None
+	return MobileField(name=name, label=label, type=cast(FieldType, type_), options=options, placeholder=ph, client_supplied=client_supplied, server_assigned=server_assigned, condition=condition, distinct_from=distinct_from)
 
 
 def _auto(name: str, label: str) -> MobileField:
@@ -694,10 +768,10 @@ def _s(type_: str = 'text') -> MobileField:
 	return _f('subject_ref', 'Me', type_, client_supplied=True)
 
 
-def _a(id: str, title: str, group: str, method: str, path: str, fields: list[MobileField]) -> MobileAction:
+def _a(id: str, title: str, group: str, method: str, path: str, fields: list[MobileField], any_of: list[FieldGroup] | None = None) -> MobileAction:
 	assert method in ('GET', 'POST', 'DELETE') and all(fl.type in FIELD_TYPES for fl in fields), 'contract'
 	assert id in FEATURE_OF, f'action {id} must declare its source feature in FEATURE_OF'
-	return MobileAction(id=id, title=title, group=group, method=method, path=path, fields=fields)
+	return MobileAction(id=id, title=title, group=group, method=method, path=path, fields=fields, any_of=any_of or [])
 
 
 def catalogue() -> list[MobileAction]:
@@ -791,7 +865,12 @@ def catalogue() -> list[MobileAction]:
 		_a('content_governance', 'Who reviewed this?', 'Information', 'GET', '/info/content/governance', [_f('today_iso', 'As at', ph='YYYY-MM-DD'), _f('regime', 'Review cycle', 'select', ['steady', 'outbreak'])]),
 		_a('report_content_error', 'Report a wrong guidance item', 'Information', 'POST', '/info/content/errors', [_f('error_id', 'Reference'), _f('item_id', 'Item reference'), _f('found_by', 'Found by'), _f('what_is_wrong', 'What is wrong', 'textarea'), _f('correction_en', 'Correction (English)', 'textarea'), _f('correction_sw', 'Correction (Kiswahili)', 'textarea'), _f('replacement_slug', 'Replacement short name')]),
 		_a('content_errors', 'What guidance was found wrong?', 'Information', 'GET', '/info/content/errors', []),
-		_a('record_back_translation', 'Record a back-translation', 'Information', 'POST', '/info/content/back-translation', [_f('item_id', 'Translation reference'), _f('translated_by', 'Translated by'), _f('back_translated_by', 'Rendered back by'), _f('back_translation', 'Text rendered back into English', 'textarea')]),
+		# `BackTranslation._the_renderer_is_not_the_translator`: the two names must differ, because "a
+		# back-translation rendered by the translator is not a back-translation". This is *not* a
+		# condition — `required = (a != b)` is false for every answer a person gives — so it is
+		# carried as its own flag, which lets a client label the pair without pretending to a rule it
+		# cannot evaluate. Both are marked required by `marked()`, from the route.
+		_a('record_back_translation', 'Record a back-translation', 'Information', 'POST', '/info/content/back-translation', [_f('item_id', 'Translation reference'), _f('translated_by', 'Translated by'), _f('back_translated_by', 'Rendered back by', ph='someone who has not seen the source', distinct_from='translated_by'), _f('back_translation', 'Text rendered back into English', 'textarea')]),
 		_a('record_community_validation', 'Record community validation', 'Information', 'POST', '/info/content/community-validation', [_f('item_id', 'Translation reference'), _f('validated_by', 'Taken to the community by'), _f('validator_role', 'Their community role', ph='religious leader, community elder, anthropologist'), _f('concerns', 'What the community raised', 'list')]),
 		_a('content_localisation', 'How was this translated?', 'Information', 'GET', '/info/content/localisation', []),
 		# Facilities
@@ -823,7 +902,13 @@ def catalogue() -> list[MobileAction]:
 		_a('restock_alerts', 'What came back in stock?', 'Medicine', 'GET', '/medicine/stock/alerts', [_f('facility_id', 'Facility', ph='optional')]),
 		_a('medicine_registry', 'Which medicines are approved?', 'Medicine', 'GET', '/medicine/registry', [_f('since', 'Only changes since', ph='optional')]),
 		_a('medicine_recalls', 'Has a medicine been recalled?', 'Medicine', 'GET', '/medicine/recalls', [_f('since', 'Only changes since', ph='optional')]),
-		_a('report_suspicious_medicine', 'Report a fake medicine', 'Medicine', 'POST', '/medicine/suspicious', [_f('gtin', 'Barcode number', ph='optional if you have the batch'), _f('batch_number', 'Batch number', ph='optional if you have the barcode'), _f('note', 'What is wrong?', 'textarea'), _f('photo_sha256', 'Photo of the packaging', ph='from the camera upload')]),
+		# `SuspiciousReport._names_something`: "a suspicious-medicine report needs a gtin or a batch
+		# number". Either satisfies the route, so neither is required on its own — which is what the
+		# placeholders said in prose ("optional if you have the batch") and what no form could act on:
+		# both drew as optional, and a person with neither was refused. Marking each required-when-the-
+		# other-is-blank would be the mirror defect, demanding both from an empty form.
+		_a('report_suspicious_medicine', 'Report a fake medicine', 'Medicine', 'POST', '/medicine/suspicious', [_f('gtin', 'Barcode number', ph='if you have it'), _f('batch_number', 'Batch number', ph='if you have it'), _f('note', 'What is wrong?', 'textarea'), _f('photo_sha256', 'Photo of the packaging', ph='from the camera upload')],
+			any_of=[FieldGroup(fields=['gtin', 'batch_number'])]),
 		# Emergency
 		# §EMG-001's fan-out: where the person is, how serious, who to tell and what to attach.
 		# `contacts` is the section's "up to three emergency contacts" and the model caps it at
@@ -990,7 +1075,17 @@ def catalogue() -> list[MobileAction]:
 		_a('share_contacts', 'Share my contact list with the health team', 'Community', 'POST', '/community/contacts/{subject_ref}/share', [_s('path'), _f('with_who', 'Who should get it?', ph='optional')]),
 		_a('contact_shares', 'What I have shared', 'Community', 'GET', '/community/contacts/{subject_ref}/shares', [_s('path')]),
 		_a('withdraw_contact_shares', 'Take my contact list back', 'Community', 'DELETE', '/community/contacts/{subject_ref}/shares', [_s('path')]),
-		_a('flag_misinformation', 'Report something I heard', 'Community', 'POST', '/community/misinformation', [_auto('submission_id', 'Report number'), _f('claim', 'What did you hear?', 'textarea'), _f('county', 'County'), _f('medium', 'How did you get it?', 'select', MISINFO_MEDIA), _f('topic', 'Topic', ph='optional'), _f('evidence_ref', 'The recording or picture', ph='from the camera or recorder upload'), _f('transcript', 'What the voice note said', 'textarea', ph='type it if you have no recording'), _f('evidence_consent', 'Share the recording or picture with the health team', 'bool'), _f('flagger_ref', 'Tell me when this is answered', ph='your number or reference')]),
+		_a('flag_misinformation', 'Report something I heard', 'Community', 'POST', '/community/misinformation', [_auto('submission_id', 'Report number'), _f('claim', 'What did you hear?', 'textarea'), _f('county', 'County'), _f('medium', 'How did you get it?', 'select', MISINFO_MEDIA), _f('topic', 'Topic', ph='optional'),
+			# `MisinfoSubmission._payload_matches_medium`: a voice note, a picture or a forward must
+			# carry the recording *or* its transcript, "otherwise it is a text report with a different
+			# label". Neither is required alone and the group is required only for a payload medium —
+			# which is what the label said in prose ("type it if you have no recording") and what no
+			# form could act on.
+			_f('evidence_ref', 'The recording or picture', ph='from the camera or recorder upload'), _f('transcript', 'What the voice note said', 'textarea', ph='type it if you have no recording'),
+			# "the recording or image is shared only with explicit per-item consent, and none was
+			# given for this report" — required exactly when there is something to share.
+			_f('evidence_consent', 'Share the recording or picture with the health team', 'bool', when='evidence_ref'), _f('flagger_ref', 'Tell me when this is answered', ph='your number or reference')],
+			any_of=[FieldGroup(fields=['evidence_ref', 'transcript'], when='medium', equals_any=list(MISINFO_PAYLOAD_MEDIA))]),
 		_a('misinformation_clusters', 'Rumours going around', 'Community', 'GET', '/community/misinformation/clusters', []),
 		_a('misinformation_notices', 'Answers to what I reported', 'Community', 'GET', '/community/misinformation/notices/{subject_ref}', [_s('path')]),
 		# Outbreak mode
@@ -1036,7 +1131,12 @@ def catalogue() -> list[MobileAction]:
 		# receipt's `synced`, which the person reads back off this same call — so the field asks the
 		# question rather than asserting the answer, which is what it did when the two were one field.
 		_a('check_in', 'Check in here', 'Outbreak', 'POST', '/location/checkin', [_f('checkin_id', 'Check-in number'), _f('point_token', 'Check-in code'), _s(), _f('method', 'How?', 'select', CHECKIN_METHODS), _f('at_iso', 'When'), _f('lang', 'Which language?', 'select', TRAVELLER_LANGS), _f('share_with_authority', 'Ask to send this to the health team?', 'bool')]),
-		_a('register_border', 'Set up a border post', 'Outbreak', 'POST', '/location/border', [_f('post_id', 'Post number'), _f('name', 'Name'), _f('county', 'County'), _f('country_pair', 'Between which countries?'), _f('queue_minutes', 'Queue in minutes', 'int'), _f('screening_required', 'Screening required?', 'bool'), _f('mobile_lab', 'Is there a mobile lab here?', 'bool'), _f('lab_turnaround_hours', 'Results in how many hours?', 'int'), _f('lab_tests', 'Which tests can it run?', 'list', ph='e.g. mRDT, Ebola PCR')]),
+		_a('register_border', 'Set up a border post', 'Outbreak', 'POST', '/location/border', [_f('post_id', 'Post number'), _f('name', 'Name'), _f('county', 'County'), _f('country_pair', 'Between which countries?'), _f('queue_minutes', 'Queue in minutes', 'int'), _f('screening_required', 'Screening required?', 'bool'), _f('mobile_lab', 'Is there a mobile lab here?', 'bool'),
+			# `BorderPost._a_lab_is_described_or_absent`: "The three fields move together or none of
+			# them is set." So both are required exactly when the post reports a lab — and the client
+			# sends a `bool` as the string "true", which is why the trigger's value is that string and
+			# not `True`. A condition written in the other spelling is one no client would ever match.
+			_f('lab_turnaround_hours', 'Results in how many hours?', 'int', when='mobile_lab', equals_any=['true']), _f('lab_tests', 'Which tests can it run?', 'list', ph='e.g. mRDT, Ebola PCR', when='mobile_lab', equals_any=['true'])]),
 		_a('border_status', 'Border queue', 'Outbreak', 'GET', '/location/border/{post_id}', [_f('post_id', 'Post number', 'path')]),
 		_a('travel_advisory', 'Should I travel?', 'Outbreak', 'GET', '/location/travel-advisory', [_f('destination', 'Where to?'), _f('origin_country', 'Coming from'), _f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
 		_a('traveller_declare', 'Declare my arrival', 'Outbreak', 'POST', '/location/traveller/declare', [_f('declaration_id', 'Declaration number'), _s(), _f('destination', 'Where are you going?'), _f('arrival_iso', 'Arrival date'), _f('origin_country', 'Coming from'), _f('symptoms', 'Any symptoms?', 'list'), _f('lang', 'Which language?', 'select', TRAVELLER_LANGS)]),
@@ -1114,7 +1214,7 @@ def catalogue() -> list[MobileAction]:
 		# feature", and no client could reach either half of it: the right to correct, and the history
 		# that makes it a workflow rather than an overwrite. The subject is the token's own, so no
 		# form draws one and `corrected_by` is the person themselves.
-		_a('correct_my_data', 'Something about me is wrong', 'Privacy', 'POST', '/retention/correct', [_f('data_type', 'Which record?'), _f('field', 'Which detail?'), _f('corrected_value', 'What it should say'), _f('reason', 'Why is it wrong?', 'textarea'), _s(), _f('corrected_by', 'Who is correcting it?', ph='you'), _f('channel', 'How?', 'select', ['native', 'sms', 'ussd', 'whatsapp'])]),
+		_a('correct_my_data', 'Something about me is wrong', 'Privacy', 'POST', '/retention/correct', [_f('data_type', 'Which record?'), _f('field', 'Which detail?'), _f('corrected_value', 'What it should say'), _f('reason', 'Why is it wrong?', 'textarea'), _s(), _f('corrected_by', 'Who is correcting it?', ph='you'), _f('channel', 'How?', 'select', ['native', 'sms', 'ussd', 'whatsapp']), _f('at_iso', 'When', ph='2026-10-12T08:30')]),
 		_a('my_corrections', 'Corrections I have asked for', 'Privacy', 'GET', '/retention/corrections', []),
 		# Access & fairness
 		_a('access_profile', 'Make the app easier to use', 'Access', 'POST', '/access/profile', [_s(), _f('simple_mode', 'Simple mode', 'bool'), _f('large_text', 'Large text', 'bool'), _f('high_contrast', 'High contrast', 'bool'), _f('read_aloud', 'Read screens aloud', 'bool'), _f('voice_input', 'Speak instead of typing', 'bool'), _f('lang', 'Language')]),
@@ -1266,6 +1366,52 @@ def available(
 	]
 	assert rows, 'catalogue must never be empty'
 	return rows
+
+
+def marked(actions: 'list[MobileAction]',
+           required: dict[tuple[str, str], frozenset[str]]) -> 'list[MobileAction]':
+	"""The same actions with `required` read off each route rather than off each field's type.
+
+	Pure, so the route can call it per request and a test can call it with a catalogue it built. The
+	caller passes `afya.access.forms.required_fields(app)` — one reading of what a route needs, shared
+	with §ACC-001's drop list, so the form and the list cannot disagree about what a route requires.
+
+	The assertion is the contract `FieldCondition` states: a field is either unconditionally required
+	or conditionally required, never both. A client that read a condition on an always-required field
+	would drop the asterisk exactly when the answer made the field matter most, and the failure would
+	be a form that stops warning rather than one that stops working — which is the shape this whole
+	unit is about.
+	"""
+	out: list[MobileAction] = []
+	for act in actions:
+		needed = required.get((act.method, act.path), frozenset())
+		names = {f.name for f in act.fields}
+		# A group naming a field the action does not carry is a rule no form can satisfy: the client
+		# would look for an answer to a question that is not on the screen and refuse every
+		# submission. A group naming a field the route *always* requires is dead for the same reason —
+		# the group can never be the thing that makes the submission complete.
+		for group in act.any_of:
+			unknown = set(group.fields) - names
+			assert not unknown, f'{act.id}: any_of names fields the action lacks: {sorted(unknown)}'
+			if group.when is not None:
+				assert group.when in names, f'{act.id}: any_of is gated on {group.when!r}, which it lacks'
+			dead = set(group.fields) & needed
+			assert not dead, (
+				f'{act.id}: any_of includes {sorted(dead)}, which the route always requires, so the '
+				'group is never what makes the submission complete')
+		fields: list[MobileField] = []
+		for f in act.fields:
+			conditional = f.condition is not None
+			in_group = any(f.name in g.fields for g in act.any_of)
+			assert not (conditional and f.name in needed), (
+				f'{act.id}.{f.name} is both unconditionally required by its route and conditional; '
+				'the condition would be shadowed and a client would stop asking for it')
+			assert not (in_group and f.name in needed), (
+				f'{act.id}.{f.name} is in an any_of group and unconditionally required by its route; '
+				'the group would demand a field the route already has')
+			fields.append(f.model_copy(update={'required': f.name in needed and not conditional}))
+		out.append(act.model_copy(update={'fields': fields}))
+	return out
 
 
 # slug -> (screen-visible title, one-line human description). No spec codes anywhere.
