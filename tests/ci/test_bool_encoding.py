@@ -63,8 +63,10 @@ def test_an_unticked_toggle_is_unanswered_for_the_pre_request_check() -> None:
 	assert 'private fun answered(f: ActionField, raw: String): Boolean' in kotlin and \
 		'if (f.type == "bool") raw == "true" else raw.isNotEmpty()' in kotlin, (
 		'Android has no bool-aware answered-predicate, so "false" reads as an answer')
-	assert 'needed(a, it, answers) && !answered(it, answers[it.name] ?: "")' in kotlin, (
+	assert 'needed(a, it, answers) && unanswered(it)' in kotlin, (
 		'Android\'s missing-field check does not use the answered-predicate')
+	assert '!answered(it, answers[it.name] ?: "")' in kotlin, (
+		'Android\'s `unanswered` helper no longer reads the answered-predicate')
 	assert 'return g.fields.none { n -> answered(' in kotlin, (
 		'Android\'s either/or check does not use the answered-predicate, so an unticked toggle '
 		'satisfies a group it should leave open')

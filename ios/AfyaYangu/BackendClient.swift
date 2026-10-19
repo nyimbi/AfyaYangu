@@ -154,8 +154,12 @@ actor BackendClient {
 	/// carries the same key and a replay after a restart is a repeat, not a second write (§15.5).
 	/// It is also the row's primary key, which makes the deduplication a constraint rather than a
 	/// convention.
-	func enqueue(method: String, url: String, body: String) {
-		let key = Self.opKey(method: method, url: url, body: body)
+	func enqueue(method: String, url: String, body: String, bodyBytes: Data? = nil,
+		contentType: String = "application/json") {
+		// A multipart op is keyed on its *bytes*, not on the base64 text: two encodings of the same
+		// body would otherwise be two ops, and the key is what makes the replay a repeat.
+		let key = bodyBytes.map { Self.opKey(method: method, url: url, body: $0) }
+			?? Self.opKey(method: method, url: url, body: body)
 		store.enqueue(
 			QueuedOp(
 				opId: key,
@@ -164,6 +168,7 @@ actor BackendClient {
 				method: method,
 				url: url,
 				body: body,
+				contentType: contentType,
 				key: key,
 				attempt: 0,
 				retryAtMs: nil
@@ -178,7 +183,15 @@ actor BackendClient {
 	/// repeat and the write landed twice — the exact failure the key exists to prevent. A digest of
 	/// the content is the same on every launch and on every device.
 	static func opKey(method: String, url: String, body: String) -> String {
-		let material = "\(method) \(url) \(body)"
+		opKey(method: method, url: url, body: Data(body.utf8))
+	}
+
+	/// The same key over bytes. A multipart body is binary, and `String(decoding:as:)` maps every
+	/// byte that is not valid UTF-8 to the same replacement character — so two different photographs
+	/// would digest identically and the second would replay as the first. The text overload stays the
+	/// spelling for a JSON op, because it is the one the server's replay table was built against.
+	static func opKey(method: String, url: String, body: Data) -> String {
+		let material = "\(method) \(url) " + body.base64EncodedString()
 		let digest = SHA256.hash(data: Data(material.utf8))
 		return "OP-" + digest.prefix(12).map { String(format: "%02X", $0) }.joined()
 	}
@@ -200,9 +213,9 @@ actor BackendClient {
 			guard let url = URL(string: op.url) else { store.drop(op.opId); continue }
 			var req = URLRequest(url: url)
 			req.httpMethod = op.method
-			req.setValue("application/json", forHTTPHeaderField: "content-type")
+			req.setValue(op.contentType, forHTTPHeaderField: "content-type")
 			req.setValue(op.key, forHTTPHeaderField: "idempotency-key")
-			req.httpBody = op.body.data(using: .utf8)
+			req.httpBody = op.bodyData
 			req.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
 			do {
 				let (_, resp) = try await session.data(for: req)

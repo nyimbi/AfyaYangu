@@ -8,10 +8,20 @@ struct QueuedOp {
 	let clientTs: Int64
 	let method: String
 	let url: String
+	/// A JSON body, or — when `contentType` is multipart — the base64 of the exact multipart bytes.
 	let body: String
+	let contentType: String
 	let key: String
 	let attempt: Int
 	let retryAtMs: Int64?
+
+	/// The bytes to replay: a queued upload carries its file, so it is not resent as text.
+	var bodyData: Data? {
+		if contentType.hasPrefix("multipart/form-data") {
+			return Data(base64Encoded: body)
+		}
+		return body.data(using: .utf8)
+	}
 }
 
 /// §ACC-003's local-first store: a real SQLite database, so §16.1's promises are ones the device
@@ -100,7 +110,8 @@ final class LocalStore {
 
 	/// Queue a write. One statement, so the row and its key are committed together.
 	func enqueue(_ op: QueuedOp) {
-		let payload: [String: Any] = ["method": op.method, "url": op.url, "body": op.body, "key": op.key]
+		let payload: [String: Any] = ["method": op.method, "url": op.url, "body": op.body, "key": op.key,
+			"contentType": op.contentType]
 		let json = (try? JSONSerialization.data(withJSONObject: payload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
 		exec(
 			LocalStoreSchema.insertOp,
@@ -126,6 +137,8 @@ final class LocalStore {
 					method: obj["method"] as? String ?? "POST",
 					url: obj["url"] as? String ?? "",
 					body: obj["body"] as? String ?? "",
+					// A row written before this field existed was always JSON.
+					contentType: obj["contentType"] as? String ?? "application/json",
 					key: obj["key"] as? String ?? "",
 					attempt: Int(sqlite3_column_int(stmt, 4)),
 					retryAtMs: sqlite3_column_type(stmt, 5) == SQLITE_NULL ? nil : sqlite3_column_int64(stmt, 5)

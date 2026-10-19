@@ -179,6 +179,13 @@ struct MobileFieldDTO: Codable, Identifiable {
 	// The field this one must not equal. Not requiredness — `required = (a != b)` is false for every
 	// answer — but a rule the route enforces and a form can at least label.
 	let distinct_from: String?
+	// The route reads this action's fields from a `multipart/form-data` body rather than JSON. The
+	// server marks it because the transport is the route's, not the field's: inferring multipart
+	// from "there is a file field" is a rule the client invented, and a form-encoded action without
+	// a file would be sent as JSON and refused.
+	let form: Bool?
+	// What the picker may offer for a `file` field, from the route's own claim.
+	let accept: String?
 }
 
 struct FieldConditionDTO: Codable {
@@ -215,16 +222,20 @@ extension BackendClient {
 		return try await send(req: req)
 	}
 
-	/// §16.1: submit, or keep the write if the network is down. A GET is never queued, and neither
-	/// is a file upload — its multipart boundary differs every time, so a replayed body would not be
-	/// byte-identical and the server's idempotency check would not recognise it as a repeat.
+	/// §16.1: submit, or keep the write if the network is down. A GET is never queued.
+	///
+	/// A file upload is queued **with its bytes**. The queue stores the multipart body it would have
+	/// sent, base64'd, and replays it byte-identically: the boundary is derived from the action's
+	/// content rather than a UUID, so the replayed body is the same bytes and §15.5's replay table
+	/// recognises it. Leaving the upload unqueued meant a person who photographed evidence with no
+	/// signal lost the photograph — the one case where the form's payload cannot be retyped.
 	func submitOrQueue(_ action: MobileActionDTO, values: [String: String], file: Data?) async throws -> Data {
-		if action.method == "GET" || action.fields.contains(where: { $0.type == "file" }) {
-			return try await invoke(action, values: values, file: file)
-		}
+		if action.method == "GET" { return try await invoke(action, values: values, file: file) }
 		if !(await online()) {
 			let (req, body) = try await buildRequest(action, values: values, file: file)
-			enqueue(method: action.method, url: req.url!.absoluteString, body: body)
+			let contentType = req.value(forHTTPHeaderField: "content-type") ?? "application/json"
+			enqueue(method: action.method, url: req.url!.absoluteString, body: body,
+				bodyBytes: req.httpBody, contentType: contentType)
 			return Data("{\"queued\":true}".utf8)
 		}
 		return try await invoke(action, values: values, file: file)
@@ -262,11 +273,25 @@ extension BackendClient {
 		if !query.isEmpty { comps.queryItems = query }
 		var req = URLRequest(url: comps.url!)
 		req.httpMethod = action.method
+		// For multipart this is the base64 of the exact bytes sent, so the queue can replay them.
 		var bodyText = ""
-		if action.method != "GET", action.fields.contains(where: { $0.type == "file" }), let file {
-			let boundary = "afya-\(UUID().uuidString)"
+		let encodedAsForm = action.fields.contains(where: { $0.form == true })
+		if action.method != "GET", encodedAsForm || action.fields.contains(where: { $0.type == "file" }) {
+			// The boundary is derived from the body's own text, not a UUID: the server's §15.5
+			// replay table compares bodies, so a random boundary would make every retry a
+			// different request. The filename and mime come from what the picker produced.
+			// Sorted, because a Swift dictionary's description is not ordered: a boundary taken from
+			// it would differ between launches, so the replay would not be the bytes the first
+			// attempt sent and §15.5's replay table would see a new request.
+			let canonical = values.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "&")
+			let boundary = "afya-" + String(Self.opKey(method: action.method, url: action.path, body: canonical).dropFirst(3))
 			req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "content-type")
-			req.httpBody = Self.multipart(boundary: boundary, fields: body, file: file)
+			// The catalogue's own claim about the part, not a guess from the path.
+			let accepting = action.fields.first { $0.type == "file" }?.accept ?? ""
+			let kind = accepting.hasPrefix("image") ? ("photo.jpg", "image/jpeg") : ("recording.wav", "audio/wav")
+			let encoded = Self.multipart(boundary: boundary, fields: body, file: file, filename: kind.0, mime: kind.1)
+			req.httpBody = encoded
+			bodyText = encoded.base64EncodedString()
 		} else if action.method != "GET", !body.isEmpty {
 			req.setValue("application/json", forHTTPHeaderField: "content-type")
 			let data = try JSONSerialization.data(withJSONObject: body)
@@ -294,8 +319,12 @@ extension BackendClient {
 		if field.type == "bool" { return raw == nil ? nil : trimmed == "true" }
 		if trimmed.isEmpty { return nil }
 		switch field.type {
-		case "int": return Int(trimmed)
-		case "decimal": return Double(trimmed)
+		// A number the device cannot parse is sent as the text the person typed, not dropped: the
+		// route then refuses it with a message naming the field. `Int("1,5")` returning nil used to
+		// omit the field silently, so a required value vanished from the body and the refusal named
+		// nothing at all.
+		case "int": return Int(trimmed) ?? trimmed
+		case "decimal": return Double(trimmed) ?? trimmed
 		case "list": return trimmed.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
 		default: return trimmed
 		}
@@ -305,14 +334,19 @@ extension BackendClient {
 		(value as? [String])?.joined(separator: ",") ?? "\(value)"
 	}
 
-	private static func multipart(boundary: String, fields: [String: Any], file: Data) -> Data {
+	private static func multipart(boundary: String, fields: [String: Any], file: Data?,
+		filename: String = "upload.jpg", mime: String = "image/jpeg") -> Data {
 		var out = Data()
 		for (name, value) in fields {
 			let text = (value as? [String])?.joined(separator: ",") ?? "\(value)"
 			out.append(contentsOf: "--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(text)\r\n".utf8)
 		}
-		out.append(contentsOf: "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"upload.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8)
-		out.append(file)
+		// A form action without a file still sends its fields: the route decides whether the file
+		// part is required, and inventing an empty one would hand it a zero-byte upload.
+		if let file {
+			out.append(contentsOf: "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: \(mime)\r\n\r\n".utf8)
+			out.append(file)
+		}
 		out.append(contentsOf: "\r\n--\(boundary)--\r\n".utf8)
 		return out
 	}

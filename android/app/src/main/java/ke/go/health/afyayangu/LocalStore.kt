@@ -18,6 +18,10 @@ data class QueuedOp(
 	val key: String,
 	val attempt: Int,
 	val retryAtMs: Long?,
+	/** A `multipart/form-data` upload's file part, base64 in the row. Null for a JSON op. */
+	val upload: UploadPart? = null,
+	/** The route reads a form body. Persisted because a replay that forgot it would send JSON. */
+	val form: Boolean = false,
 )
 
 /**
@@ -66,6 +70,17 @@ class LocalStore(context: Context) : SQLiteOpenHelper(context, LocalStoreSchema.
 				put("path_values", op.pathValues)
 				put("params", op.params)
 				put("key", op.key)
+				put("form", op.form)
+				// A queued upload is the recording or photo itself. Dropping it here would queue an
+				// op that replays without the one part the route needs, and the replay would 422
+				// forever — the write lost in the direction that looks like it was kept.
+				op.upload?.let { u ->
+					put("upload", JSONObject().apply {
+						put("filename", u.filename)
+						put("mime", u.mime)
+						put("base64", android.util.Base64.encodeToString(u.bytes, android.util.Base64.NO_WRAP))
+					})
+				}
 			}.toString())
 			put("attempt", op.attempt)
 			put("synced", 0)
@@ -101,6 +116,13 @@ class LocalStore(context: Context) : SQLiteOpenHelper(context, LocalStoreSchema.
 						key = payload.getString("key"),
 						attempt = c.getInt(4),
 						retryAtMs = if (c.isNull(5)) null else c.getLong(5),
+						form = payload.optBoolean("form", false),
+						upload = payload.optJSONObject("upload")?.let { u ->
+							UploadPart(
+								android.util.Base64.decode(u.getString("base64"), android.util.Base64.NO_WRAP),
+								u.getString("filename"), u.getString("mime"),
+							)
+						},
 					),
 				)
 			}

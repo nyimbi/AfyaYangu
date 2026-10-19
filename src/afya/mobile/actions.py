@@ -130,6 +130,11 @@ class MobileField(BaseModel):
 	# The field this one must not equal. Not requiredness — see `FieldCondition` — but a rule the
 	# route enforces and a form can act on by refusing to submit, which prose in a placeholder cannot.
 	distinct_from: str | None = None
+	# What the picker may offer, for a `file` field. The route's own claim, not the client's: a
+	# recording sent to a photo route is refused after the upload, and Android offered audio for
+	# every file action and images for evidence, so the cough recording and the voice note were
+	# unselectable on that client.
+	accept: str | None = None
 	# True when the client must supply this field from its own identity and must not draw it. A
 	# personal-data route binds the subject it is given to the token that gave it (§17), so a form
 	# offering to type a subject would offer a control the server refuses — the §11.1 defect.
@@ -139,6 +144,12 @@ class MobileField(BaseModel):
 	# means nobody knows it until the request arrives. Both are undrawn, and the difference matters
 	# because a client injecting its own subject keys off the first and must not key off the second.
 	server_assigned: bool = False
+	# True when the route reads this field from a `multipart/form-data` body rather than JSON. It is
+	# the transport, not a property of the value: the same text field is JSON on one route and a form
+	# part on another, and a client that sends JSON to a `File(...)`/`Form(...)` route is refused
+	# before the handler runs. The four actions carrying a `file` field are all of this kind, and a
+	# client that sent them a JSON body 422'd on every one.
+	form: bool = False
 
 
 class MobileAction(BaseModel):
@@ -733,7 +744,7 @@ def tier4_feature_ids() -> frozenset[str]:
 	return frozenset(f.id for f in FeatureRegistry().by_tier(Tier.tier4))
 
 
-def _f(name: str, label: str, type_: str = 'text', options: list[str] | None = None, ph: str | None = None, client_supplied: bool = False, server_assigned: bool = False, when: str | None = None, equals_any: list[str] | None = None, distinct_from: str | None = None) -> MobileField:
+def _f(name: str, label: str, type_: str = 'text', options: list[str] | None = None, ph: str | None = None, client_supplied: bool = False, server_assigned: bool = False, when: str | None = None, equals_any: list[str] | None = None, distinct_from: str | None = None, form: bool = False, accept: str | None = None) -> MobileField:
 	"""A field, with nothing said about whether it is required.
 
 	`required` is deliberately absent here. It used to be `type_ == 'path'`, which is a fact about the
@@ -746,7 +757,7 @@ def _f(name: str, label: str, type_: str = 'text', options: list[str] | None = N
 	requiredness a field *can* know by itself: it is a property of the answers, not of the route.
 	"""
 	condition = FieldCondition(when=when, equals_any=equals_any or []) if when else None
-	return MobileField(name=name, label=label, type=cast(FieldType, type_), options=options, placeholder=ph, client_supplied=client_supplied, server_assigned=server_assigned, condition=condition, distinct_from=distinct_from)
+	return MobileField(name=name, label=label, type=cast(FieldType, type_), options=options, placeholder=ph, client_supplied=client_supplied, server_assigned=server_assigned, condition=condition, distinct_from=distinct_from, form=form, accept=accept)
 
 
 def _auto(name: str, label: str) -> MobileField:
@@ -759,13 +770,13 @@ def _auto(name: str, label: str) -> MobileField:
 	return _f(name, label, server_assigned=True)
 
 
-def _s(type_: str = 'text') -> MobileField:
+def _s(type_: str = 'text', form: bool = False) -> MobileField:
 	"""The caller's own subject: carried so the client can send it, marked so no form draws it.
 
 	Every route that carries one binds it to the token (§17), so a person typing a different subject
 	would be offered a control the server refuses. The label is never shown.
 	"""
-	return _f('subject_ref', 'Me', type_, client_supplied=True)
+	return _f('subject_ref', 'Me', type_, client_supplied=True, form=form)
 
 
 def _a(id: str, title: str, group: str, method: str, path: str, fields: list[MobileField], any_of: list[FieldGroup] | None = None) -> MobileAction:
@@ -1230,7 +1241,7 @@ def catalogue() -> list[MobileAction]:
 		_a('ui_screens', 'Screen list', 'Access', 'GET', '/access/screens', [_f('simple_mode', 'Simple mode', 'bool')]),
 		_a('languages', 'Languages', 'Access', 'GET', '/access/languages', [_f('tier', 'Priority tier', 'int')]),
 		_a('voice', 'Speak to the app', 'Access', 'POST', '/access/voice', [_s(), _f('lang', 'Language'), _f('utterance', 'What you said'), _f('purpose', 'Symptoms or a note?', 'select', VOICE_PURPOSES), _f('offline', 'No network?', 'bool')]),
-		_a('voice_audio', 'Send a recording', 'Access', 'POST', '/access/voice/audio', [_s(), _f('lang', 'Language', 'select', VOICE_LANGS), _f('purpose', 'Symptoms or a note?', 'select', VOICE_PURPOSES), _f('file', 'Recording', 'file')]),
+		_a('voice_audio', 'Send a recording', 'Access', 'POST', '/access/voice/audio', [_s(form=True), _f('lang', 'Language', 'select', VOICE_LANGS, form=True), _f('purpose', 'Symptoms or a note?', 'select', VOICE_PURPOSES, form=True), _f('file', 'Recording', 'file', form=True, accept='audio/*')]),
 		# §ACC-004's context flags. The device knows them, so the client fills them from its own state
 		# rather than asking — but they are fields, not `server_assigned`, because a form that cannot
 		# reach them would leave the adaptive rate unreachable from the one screen that shows it.
@@ -1290,7 +1301,7 @@ def catalogue() -> list[MobileAction]:
 		_a('plain_language', 'Is our message plain enough?', 'Channels', 'GET', '/channels/plain-language', []),
 		_a('ussd_menu', 'USSD menu', 'Channels', 'POST', '/channels/ussd', [_f('session_id', 'Session'), _f('msisdn', 'Phone number'), _f('text', 'Selection')]),
 		_a('whatsapp_send', 'WhatsApp reply', 'Channels', 'POST', '/channels/whatsapp', [_f('from_msisdn', 'Phone number'), _f('body', 'Message')]),
-		_a('whatsapp_voice', 'Send a WhatsApp voice note', 'Channels', 'POST', '/channels/whatsapp/voice', [_f('from_msisdn', 'Phone number'), _f('voice_note_lang', 'Language', 'select', VOICE_LANGS), _f('file', 'Voice note', 'file')]),
+		_a('whatsapp_voice', 'Send a WhatsApp voice note', 'Channels', 'POST', '/channels/whatsapp/voice', [_f('from_msisdn', 'Phone number', form=True), _f('voice_note_lang', 'Language', 'select', VOICE_LANGS, form=True), _f('file', 'Voice note', 'file', form=True, accept='audio/*')]),
 		_a('queue_sync_op', 'Save for later (offline)', 'Sync', 'POST', '/sync/ops', [_f('op_id', 'Change number'), _f('dataset', 'What kind of change?', 'select', SYNC_DATASETS), _f('client_ts', 'When it happened', 'int')]),
 		_a('flush_sync', 'Send everything now', 'Sync', 'POST', '/sync/flush', [_f('connection', 'Connection', 'select', ['wifi', 'metered', 'offline'], ph='wifi')]),
 		_a('offline_state', 'Is my work saved?', 'Sync', 'GET', '/sync/state', []),
@@ -1306,8 +1317,8 @@ def catalogue() -> list[MobileAction]:
 		# derived — this route does the derivation, and `_INGEST_FEATURE` binds the respiration kind
 		# it writes to SENS-001. Tier-4 gated like the ingest, so it stays dark until PHEOC activates.
 		_a('estimate_breathing', 'Work out my breathing rate', 'Sensors', 'POST', '/sensors/breath/estimate', [_s(), _f('series', 'Motion readings', 'list', ph='a comma-separated series from the sensor'), _f('fps', 'Readings per second', 'decimal')]),
-		_a('analyse_cough', 'Check a cough recording', 'Sensors', 'POST', '/ml/cough/analyze', [_f('file', 'Recording', 'file')]),
-		_a('submit_evidence', 'Send a photo for review', 'Sensors', 'POST', '/evidence', [_s(), _f('file', 'Photo', 'file'), _f('kind', 'What is it?', 'select', EVIDENCE_KINDS), _f('note', 'What did you notice?', 'textarea'), _f('consent', 'I agree to share this photo', 'bool')]),
+		_a('analyse_cough', 'Check a cough recording', 'Sensors', 'POST', '/ml/cough/analyze', [_f('file', 'Recording', 'file', form=True, accept='audio/*')]),
+		_a('submit_evidence', 'Send a photo for review', 'Sensors', 'POST', '/evidence', [_s(form=True), _f('file', 'Photo', 'file', form=True, accept='image/*'), _f('kind', 'What is it?', 'select', EVIDENCE_KINDS, form=True), _f('note', 'What did you notice?', 'textarea', form=True), _f('consent', 'I agree to share this photo', 'bool', form=True)]),
 		# Tag taps. The titles are what a person does at a bedside, not what the mechanism is: a
 		# wristband, a medicine box and a station are three things in a room and one action each.
 		_a('tag_resolve', 'What is this tag?', 'Sensors', 'GET', '/sensors/tags/{tag_id}', [_f('tag_id', 'Tag', 'path')]),

@@ -49,8 +49,8 @@ CANARIES = [
 	 'test_the_idempotency_key_is_a_digest_of_the_content_on_both_clients'),
 
 	('Android first attempt carries no key', KOTLIN,
-	 '			val key = opKey(method, path, pathValues, params)\n			perform(method, path, pathValues, params, key)',
-	 '			perform(method, path, pathValues, params)',
+	 '			perform(method, path, pathValues, params, key, upload, form)',
+	 '			perform(method, path, pathValues, params, upload = upload, form = form)',
 	 'test_the_first_attempt_carries_the_key_the_replay_will'),
 
 	('the server stops sending Retry-After', SVC,

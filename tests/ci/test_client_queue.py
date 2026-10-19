@@ -74,13 +74,13 @@ def test_the_idempotency_key_is_a_digest_of_the_content_on_both_clients() -> Non
 	assert kotlin.count('digest(material.toByteArray())') == 1, (
 		'the op key is derived in more than one place, so the first attempt and the replay can differ')
 	assert kotlin.count('private fun opKey(') == 1, 'the key derivation is not one function'
-	assert 'val key = opKey(method, path, pathValues, params)' in kotlin
+	assert 'val key = opKey(method, path, pathValues, params, upload, form)' in kotlin
 
 
 def test_the_first_attempt_carries_the_key_the_replay_will() -> None:
 	"""A 5xx returned after the write committed must be recognisable on replay."""
 	kotlin = KOTLIN.read_text()
-	assert 'perform(method, path, pathValues, params, key)' in kotlin, (
+	assert 'perform(method, path, pathValues, params, key,' in kotlin, (
 		'Android\'s first attempt carries no idempotency key, so a 5xx after a commit queues an op '
 		'whose key the server has never seen and the write lands twice')
 	swift = SWIFT.read_text()

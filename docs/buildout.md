@@ -7616,3 +7616,50 @@ the branch *body* rather than the file, since `store.drop` appears in the branch
 file-wide search passes a branch that drops. The server half is driven at the front door: a stranger
 refused, an owner reclaiming, a lost token falling back, and the limiter's `Retry-After` read off
 the response the clients now honour. Full suite 2424 passed, pyright clean, both clients build.
+
+### Four routes that read a form body, and the four ways a client could not reach them
+
+`GET /mobile/actions` now marks the transport. `MobileField.form` says the route reads this field
+from a `multipart/form-data` body, and `MobileField.accept` says what the file picker may offer. Both
+are the server's claims, crossed against the route's own OpenAPI content type in
+`test_client_upload.py`, in both directions: an unmarked form action and a marked JSON action each
+fail the gate.
+
+The defect class is `test_action_reachability.py`'s, one layer down. There the crossing was *field →
+place a route reads it*; here it is *field → transport the route declares*, and the clients were
+wrong in four separate ways:
+
+* **Both clients inferred multipart from "this action has a `file` field".** That is a rule the
+  client invented. `submit_evidence` also sends `kind`, `note` and `consent` as form parts, and a
+  form-encoded action with no file would have been sent as JSON and refused before the handler ran.
+* **Android guessed the picker's MIME type from the path** — `/evidence` → images, everything else →
+  audio — so the cough recording and the WhatsApp voice note could only be selected as images, and
+  the evidence photo only as audio.
+* **iOS had no control that could produce a recording.** Its only file control was `PhotosPicker`,
+  which offers images: a voice-note action on iOS had a button that could not supply the part the
+  route requires.
+* **iOS dropped a file upload instead of queueing it.** `submitOrQueue` short-circuited every action
+  with a file field straight to `invoke`, so a person who photographed evidence with no signal got
+  an exception and lost the photograph — the one payload that cannot be retyped. The queue now
+  stores the exact multipart bytes, base64'd, and replays them byte-identically.
+
+Three defects fell out of fixing that last one:
+
+* The multipart boundary was a fresh `UUID` on iOS and a hash of the op key on Android. §15.5
+  compares bodies, so a random boundary made every retry a different request. iOS now derives it from
+  the action's fields, **sorted**, because a Swift dictionary's description is unordered — a boundary
+  taken from it would differ between launches even when the action did not.
+* iOS keyed the op on `String(decoding: body, as: UTF8.self)`. Every byte that is not valid UTF-8
+  becomes the same replacement character, so two different photographs digested identically and the
+  second replayed as the first. The key is now taken over the bytes.
+* A queued op forgot its content type, so a multipart body was replayed with `application/json`.
+  Both queues persist the transport alongside the bytes.
+
+One more, unrelated but in the same screens: `jsonValue` returned `nil` for an unparseable number
+and the caller omitted the field, so `1,5` typed into a decimal silently vanished from the body and
+the refusal named nothing. The raw text is sent now, and the route refuses it by name.
+
+**Gates and canaries: 6 gates in `test_client_upload.py`, 12/12 canaries fired.** The first version
+of the mark gate accepted an action with *one* marked field and missed a form action whose `lang`
+was unmarked — caught by its own canary, and the predicate now requires every body field. Full suite
+and pyright clean; both clients build.

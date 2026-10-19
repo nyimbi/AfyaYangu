@@ -1,7 +1,10 @@
 package ke.go.health.afyayangu
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.text.InputType
 import android.view.ViewGroup
 import android.widget.Button
@@ -29,6 +32,17 @@ class ActionsActivity : Activity() {
 	private lateinit var client: BackendClient
 	private lateinit var out: TextView
 	private lateinit var queueNote: TextView
+	// The one file part a form carries, and the row that asked for it. The catalogue has no action
+	// with two file fields, so one slot is the whole contract; the row is kept so the label can say
+	// which file was chosen.
+	/** The action whose form is on screen, for the picker's own label and type. */
+	private var openAction: CatalogueAction? = null
+	private var picked: UploadPart? = null
+	private var pickedRow: LinearLayout? = null
+
+	private companion object {
+		const val PICK_FILE = 41
+	}
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
@@ -69,6 +83,9 @@ class ActionsActivity : Activity() {
 	}
 
 	private fun openForm(a: CatalogueAction) {
+		openAction = a
+		picked = null
+		pickedRow = null
 		val inputs = LinkedHashMap<String, android.view.View>()
 		val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 		// §ACC-005's "support for low-resolution screens". The layout is chosen from the device's own
@@ -175,6 +192,20 @@ class ActionsActivity : Activity() {
 				val items = if (f.required) f.options ?: emptyList() else listOf("") + (f.options ?: emptyList())
 				adapter = ArrayAdapter(this@ActionsActivity, android.R.layout.simple_spinner_dropdown_item, items)
 			}
+			"file" -> Button(this).apply {
+				// The route reads this as `file: UploadFile = File(...)`, so the control is a picker,
+				// not a text field. Without one the four file actions had no way to supply the one
+				// part their route requires: the form could be filled and submitted, and the request
+				// could not carry a recording or a photo at all.
+				text = f.label
+				minHeight = minTargetPx
+				setOnClickListener {
+					pickedRow = row
+					val intent = Intent(Intent.ACTION_GET_CONTENT).apply { type = mimeFor(a) }
+					@Suppress("DEPRECATION")
+					startActivityForResult(intent, PICK_FILE)
+				}
+			}
 			"textarea" -> EditText(this).apply { setSingleLine(false); minLines = 3; hint = f.placeholder }
 			"int" -> EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED; hint = f.placeholder }
 			"decimal" -> EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED; hint = f.placeholder }
@@ -200,8 +231,13 @@ class ActionsActivity : Activity() {
 		// emptiness no longer means "unanswered" for a bool. A ticked box is the only way to say
 		// yes, so an unticked one is unanswered *for the purpose of this check* — while the request
 		// still carries `false`, which is what lets a required yes/no question be answered "no".
-		val missing = a.fields.filter { !it.clientSupplied && !it.serverAssigned && it.type != "file" &&
-			needed(a, it, answers) && !answered(it, answers[it.name] ?: "") }
+		// A file has no text answer: its presence is the picker's state, and a required recording
+		// the person never chose is a submission the route refuses.
+		fun unanswered(it: ActionField): Boolean =
+			if (it.type == "file") picked == null else !answered(it, answers[it.name] ?: "")
+		val missing = a.fields.filter { it ->
+			!it.clientSupplied && !it.serverAssigned && needed(a, it, answers) && unanswered(it)
+		}
 		val openGroups = a.anyOf.filter { groupUnsatisfied(a, it, answers) }
 		// A rule the catalogue has carried since it was written and no client read: `distinct_from`
 		// says this answer must not equal another field's. `BackTranslation` refuses a render by the
@@ -251,13 +287,59 @@ class ActionsActivity : Activity() {
 		executor.execute {
 			// §16.1: a write with no network is queued, not lost. `performOrQueue` keeps it and
 			// replays it on the next successful submit or resume.
-			val res = runCatching { client.performOrQueue(a.id, a.method, a.path, pathValues, params) }
+			// A form with a `file` field is multipart, and the part goes with the request — and with
+			// the queued op, so an upload made offline is the same request when it is replayed.
+			val part = if (a.fields.any { it.type == "file" }) picked else null
+			// The transport is the route's, marked by the server: a form action without a file field
+			// would otherwise be sent as JSON. The file field is a fallback for a catalogue that
+			// predates the flag.
+			val form = a.fields.any { it.form }
+			val res = runCatching { client.performOrQueue(a.id, a.method, a.path, pathValues, params, part, form) }
 			runOnUiThread {
 				out.text = res.fold({ pretty(it) }, { "Request failed: ${it.message}" })
 				refreshQueueNote()
 			}
 		}
 	}
+
+	/**
+	 * The file the person chose, read into memory as the multipart part.
+	 *
+	 * `contentResolver` and not a path: the picker hands back a content URI, and a file path would
+	 * only work for the storage provider the device happens to use. The mime comes from the resolver
+	 * and falls back to the route's own expectation, because the route's contract is what decides
+	 * whether the upload is accepted.
+	 */
+	@Deprecated("startActivityForResult is the API this Activity targets")
+	override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+		super.onActivityResult(requestCode, resultCode, data)
+		if (requestCode != PICK_FILE || resultCode != RESULT_OK) return
+		val uri: Uri = data?.data ?: return
+		val resolver = contentResolver
+		val mime = resolver.getType(uri) ?: "application/octet-stream"
+		val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+			if (c.moveToFirst()) c.getString(0) else null
+		} ?: "upload"
+		val bytes = runCatching { resolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+		if (bytes == null) {
+			out.text = "Could not read that file."
+			return
+		}
+		picked = UploadPart(bytes, name, mime)
+		pickedRow?.let { row ->
+			// The row's own label, not the word "Recording": this control is a photo on one action
+			// and a recording on another, and the confirmation named the wrong one.
+			val label = openAction?.fields?.firstOrNull { it.type == "file" }?.label ?: "File"
+			(row.getChildAt(0) as? TextView)?.text = "$label: $name ✓"
+		}
+	}
+
+	/** What the route expects, used as the picker's filter so the wrong kind cannot be chosen. */
+	/** The route's own claim about the file part, used for the picker and the part's MIME type. */
+	private fun acceptOf(a: CatalogueAction): String =
+		a.fields.firstOrNull { it.type == "file" }?.accept ?: "*/*"
+
+	private fun mimeFor(a: CatalogueAction): String = acceptOf(a)
 
 	/** §16.1: how many writes are waiting for a network, shown so a user knows nothing was lost. */
 	private fun refreshQueueNote() {

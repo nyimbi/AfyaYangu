@@ -21,8 +21,22 @@ data class FieldCondition(val whenField: String, val equalsAny: List<String>)
 /** At least one of [fields] must be answered — the route accepts either. `when` gates the group. */
 data class FieldGroup(val fields: List<String>, val whenField: String?, val equalsAny: List<String>)
 
-data class ActionField(val name: String, val label: String, val type: String, val options: List<String>?, val placeholder: String?, val required: Boolean, val clientSupplied: Boolean, val serverAssigned: Boolean, val condition: FieldCondition?, val distinctFrom: String?)
+data class ActionField(val name: String, val label: String, val type: String, val options: List<String>?, val placeholder: String?, val required: Boolean, val clientSupplied: Boolean, val serverAssigned: Boolean, val condition: FieldCondition?, val distinctFrom: String?, val form: Boolean, val accept: String?)
 data class CatalogueAction(val id: String, val title: String, val group: String, val method: String, val path: String, val fields: List<ActionField>, val anyOf: List<FieldGroup>)
+
+/**
+ * A file the person attached, as the multipart body carries it.
+ *
+ * The four catalogue actions with a `file` field are all `multipart/form-data` routes — the route
+ * declares `file: UploadFile = File(...)` and its other fields as `Form(...)`, so a JSON body is
+ * refused before the handler runs. This is the shape both the first attempt and a queued replay
+ * send, so an upload made offline is not a different request from the one made online.
+ */
+data class UploadPart(val bytes: ByteArray, val filename: String, val mime: String) {
+	override fun equals(other: Any?): Boolean = other is UploadPart &&
+		bytes.contentEquals(other.bytes) && filename == other.filename && mime == other.mime
+	override fun hashCode(): Int = 31 * (31 * bytes.contentHashCode() + filename.hashCode()) + mime.hashCode()
+}
 
 // Offline-first: last good response cached in SharedPreferences (spec 16.1).
 class BackendClient(private val context: Context) {
@@ -109,6 +123,53 @@ class BackendClient(private val context: Context) {
 			conn.doOutput = true
 			conn.setRequestProperty("content-type", "application/json")
 			conn.outputStream.use { it.write(body.toByteArray()) }
+		}
+		val code = conn.responseCode
+		val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+		val text = stream?.use { ins -> ByteArrayOutputStream().apply { ins.copyTo(this) }.toString() } ?: ""
+		if (code !in 200..299) throw HttpError(code, text, conn.getHeaderField("Retry-After")?.trim()?.toLongOrNull())
+		return text
+	}
+
+	/**
+	 * A `multipart/form-data` write: the shape every route with a `file: UploadFile = File(...)`
+	 * declares. The catalogue's four file actions are all of this kind, and a client that sent them
+	 * a JSON body was refused before the handler ran — the recording or photo could not be sent at
+	 * all, from any screen.
+	 *
+	 * `fields` carries the text parts (the route's `Form(...)` parameters) and `file` the one file
+	 * part. The boundary is derived from the op's key so a replay is byte-identical: the server's
+	 * §15.5 replay table compares the body, and a random boundary would make every replay a
+	 * different request.
+	 */
+	private fun requestMultipart(
+		path: String,
+		fields: Map<String, String>,
+		file: UploadPart?,
+		idempotencyKey: String? = null,
+		method: String = "POST",
+	): String {
+		val boundary = "----afya" + (idempotencyKey ?: "adhoc")
+		val conn = URL(BASE + path).openConnection() as HttpURLConnection
+		conn.connectTimeout = 30000  // a recording is not a JSON body
+		conn.readTimeout = 30000
+		conn.setRequestProperty("authorization", "Bearer ${ensureSession().second}")
+		idempotencyKey?.let { conn.setRequestProperty("idempotency-key", it) }
+		conn.requestMethod = method
+		conn.doOutput = true
+		conn.setRequestProperty("content-type", "multipart/form-data; boundary=$boundary")
+		conn.outputStream.use { out ->
+			for ((k, v) in fields) {
+				out.write(("--$boundary\r\nContent-Disposition: form-data; name=\"$k\"\r\n\r\n$v\r\n").toByteArray())
+			}
+			// A form route without a file still sends its text parts. Inventing an empty file part
+			// would hand the route a zero-byte upload it would happily accept.
+			if (file != null) {
+				out.write(("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"${file.filename}\"\r\n" +
+					"Content-Type: ${file.mime}\r\n\r\n").toByteArray())
+				out.write(file.bytes)
+			}
+			out.write("\r\n--$boundary--\r\n".toByteArray())
 		}
 		val code = conn.responseCode
 		val stream = if (code in 200..299) conn.inputStream else conn.errorStream
@@ -349,7 +410,8 @@ class BackendClient(private val context: Context) {
 	fun actions(): List<CatalogueAction> = parseActions(JSONArray(request("mobile/actions", null)))
 
 	/** Calls one catalogue action. `pathValues` fills {placeholders}; `params` carries the rest. */
-	fun perform(method: String, path: String, pathValues: Map<String, String>, params: JSONObject, idempotencyKey: String? = null): String {
+	fun perform(method: String, path: String, pathValues: Map<String, String>, params: JSONObject,
+		idempotencyKey: String? = null, upload: UploadPart? = null, form: Boolean = false): String {
 		// The subject is the device's, not a form field: a personal-data route binds the subject it
 		// is given to the token, so anything else is a 403 by construction. Overwriting whatever the
 		// form collected is what keeps the client unable to name a stranger.
@@ -363,6 +425,15 @@ class BackendClient(private val context: Context) {
 		}
 		var resolved = path
 		for ((k, v) in filled) resolved = resolved.replace("{$k}", v)
+		if (form || upload != null) {
+			// A multipart route reads every other field from the form body, so the text parts go
+			// alongside the file and the path placeholders are already resolved above. `form` is the
+			// server's own mark, not an inference from "there is a file field": a form-encoded action
+			// without one would otherwise be sent as JSON and refused before the handler ran.
+			val fields = HashMap<String, String>()
+			for (k in params.keys()) fields[k] = params.get(k).toString()
+			return requestMultipart(resolved, fields, upload, idempotencyKey, method)
+		}
 		return when (method) {
 			"GET" -> {
 				val q = params.keys().asSequence().joinToString("&") { k ->
@@ -385,10 +456,11 @@ class BackendClient(private val context: Context) {
 	 * idempotency key derived from its content, so replaying it after a restart cannot double-write:
 	 * the server returns the first response for a repeated key with an identical body (§15.5).
 	 */
-	fun performOrQueue(actionId: String, method: String, path: String, pathValues: Map<String, String>, params: JSONObject): String {
+	fun performOrQueue(actionId: String, method: String, path: String, pathValues: Map<String, String>,
+		params: JSONObject, upload: UploadPart? = null, form: Boolean = false): String {
 		if (method == "GET") return perform(method, path, pathValues, params)
 		if (!online()) {
-			queue(actionId, method, path, pathValues, params)
+			queue(actionId, method, path, pathValues, params, upload, form)
 			return "{\"queued\":true}"
 		}
 		return try {
@@ -396,13 +468,13 @@ class BackendClient(private val context: Context) {
 			// *after* the write committed leaves the replay unable to be recognised as a repeat —
 			// the key it mints on queueing is one the server has never seen — and the write lands
 			// twice. Minting the key from the content means both attempts spell it identically.
-			val key = opKey(method, path, pathValues, params)
-			perform(method, path, pathValues, params, key)
+			val key = opKey(method, path, pathValues, params, upload, form)
+			perform(method, path, pathValues, params, key, upload, form)
 		} catch (e: HttpError) {
 			// A 5xx is the server failing, which a retry may fix; a 4xx is the server refusing this
 			// request, which a retry will not. Only the first is queued.
 			if (e.code in 500..599) {
-				queue(actionId, method, path, pathValues, params)
+				queue(actionId, method, path, pathValues, params, upload, form)
 				return "{\"queued\":true}"
 			}
 			throw e
@@ -417,12 +489,13 @@ class BackendClient(private val context: Context) {
 	 * and nothing could be rolled back, because there was no transaction to roll back to. A queue
 	 * that can lose the entry it exists to keep is not §16.1's queue.
 	 */
-	private fun queue(actionId: String, method: String, path: String, pathValues: Map<String, String>, params: JSONObject) {
+	private fun queue(actionId: String, method: String, path: String, pathValues: Map<String, String>,
+		params: JSONObject, upload: UploadPart? = null, form: Boolean = false) {
 		// The key is derived from the op's own content, so the same op always carries the same key
 		// and a replay after a restart is recognised as a repeat rather than a second write. It is
 		// also the row's primary key, which is what makes the deduplication a constraint rather than
 		// a convention.
-		val key = opKey(method, path, pathValues, params)
+		val key = opKey(method, path, pathValues, params, upload, form)
 		store.enqueue(
 			QueuedOp(
 				opId = key,
@@ -435,6 +508,8 @@ class BackendClient(private val context: Context) {
 				key = key,
 				attempt = 0,
 				retryAtMs = null,
+				upload = upload,
+				form = form,
 			),
 		)
 	}
@@ -448,8 +523,14 @@ class BackendClient(private val context: Context) {
 	 * the first attempt and the replay after a restart spell the key identically — which is what
 	 * makes a 5xx-after-commit a repeat rather than a second write.
 	 */
-	private fun opKey(method: String, path: String, pathValues: Map<String, String>, params: JSONObject): String {
-		val material = "$method $path $pathValues ${params}"
+	private fun opKey(method: String, path: String, pathValues: Map<String, String>, params: JSONObject,
+		upload: UploadPart? = null, form: Boolean = false): String {
+		// A file's content is part of the op's identity: two photos submitted to `/evidence` from
+		// the same form are two writes, and keying them on the fields alone would make the second
+		// a replay of the first. `form` is in the material too: the same fields sent as JSON and as
+		// a form are different requests, and a key that ignored the difference would make one a
+		// replay of the other.
+		val material = "$method $path $pathValues ${params} $form ${upload?.mime.orEmpty()} ${upload?.bytes?.contentHashCode() ?: 0}"
 		val digest = java.security.MessageDigest.getInstance("SHA-256").digest(material.toByteArray())
 		return "OP-" + digest.take(12).joinToString("") { "%02X".format(it) }
 	}
@@ -470,7 +551,7 @@ class BackendClient(private val context: Context) {
 			op.retryAtMs?.let { if (now < it) return sent }  // inside its backoff window: nothing after it is due either
 			val pathValues = op.pathValues.keys().asSequence().associateWith { op.pathValues.getString(it) }
 			try {
-				perform(op.method, op.path, pathValues, op.params, op.key)
+				perform(op.method, op.path, pathValues, op.params, op.key, op.upload, op.form)
 				store.markSynced(op.opId, now)
 				sent++
 			} catch (err: HttpError) {
@@ -543,6 +624,8 @@ class BackendClient(private val context: Context) {
 					f.optBoolean("server_assigned", false),
 					c?.let { FieldCondition(it.getString("when"), strings(it.optJSONArray("equals_any"))) },
 					if (f.isNull("distinct_from")) null else f.optString("distinct_from").takeIf { it.isNotEmpty() && it != "null" },
+					f.optBoolean("form", false),
+					if (f.isNull("accept")) null else f.optString("accept").takeIf { it.isNotEmpty() && it != "null" },
 				)
 			}
 			val gArr = a.optJSONArray("any_of") ?: JSONArray()

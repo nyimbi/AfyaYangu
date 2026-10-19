@@ -280,6 +280,7 @@ struct ActionFormView: View {
 	@State private var values: [String: String] = [:]
 	@State private var fileData: Data?
 	@State private var pickerItem: PhotosPickerItem?
+	@State private var showingFileImporter = false
 	@State private var result = ""
 	@State private var failed = false
 	@State private var busy = false
@@ -340,8 +341,29 @@ struct ActionFormView: View {
 					set: { values[field.name] = $0 }), axis: .vertical).lineLimit(3...6)
 			}
 		case "file":
-			PhotosPicker(selection: $pickerItem, matching: .images) {
-				Label(fileData == nil ? field.label : "\(field.label) ✓", systemImage: "photo.on.rectangle")
+			// What the route accepts, not what the screen guessed: `PhotosPicker` alone could only
+			// offer images, so a voice note or a cough recording could not be selected at all. A
+			// non-image type gets the document picker with the route's own MIME filter.
+			if (field.accept ?? "").hasPrefix("image") {
+				PhotosPicker(selection: $pickerItem, matching: .images) {
+					Label(fileData == nil ? field.label : "\(field.label) ✓", systemImage: "photo.on.rectangle")
+				}
+			} else {
+				Button {
+					showingFileImporter = true
+				} label: {
+					Label(fileData == nil ? field.label : "\(field.label) ✓", systemImage: "waveform")
+				}
+				.fileImporter(isPresented: $showingFileImporter,
+					allowedContentTypes: [.audio, .movie, .data],
+					allowsMultipleSelection: false) { result in
+					guard case .success(let urls) = result, let url = urls.first else { return }
+					// A security-scoped URL is unreadable outside the scope; the copy is what makes
+					// the bytes ours, and the queue keeps them after the picker has gone.
+					guard url.startAccessingSecurityScopedResource() else { return }
+					defer { url.stopAccessingSecurityScopedResource() }
+					fileData = try? Data(contentsOf: url)
+				}
 			}
 		default:
 			TextField(field.placeholder.map { "\(field.label) (\($0))" } ?? field.label, text: Binding(
