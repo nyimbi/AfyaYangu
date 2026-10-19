@@ -592,3 +592,80 @@ async def test_a_biconditional_is_refused_from_both_sides_and_the_form_warns_on_
 	for name, cond in forms.items():
 		assert cond is not None, f'{name} carries no condition'
 		assert cond['when'] in conditions, f'{name} keys on a field the form does not draw'
+
+
+# --- The third rule the catalogue carries and no client read --------------------------------------
+#
+# `distinct_from` is not requiredness and is not a condition — `required = (a != b)` is false for
+# every answer — so it lives on its own flag. Both clients parsed it and neither read it, so the one
+# action carrying it offered a submission the route refuses with nothing on the form to warn about.
+
+def test_a_distinctness_rule_is_carried_on_exactly_the_fields_the_route_enforces() -> None:
+	"""`distinct_from` must name a field the form draws, on the action whose route refuses it.
+
+	`BackTranslation` raises when the renderer is the translator: the method needs someone who has not
+	seen the source, so a record naming one person twice is a false statement about who checked what.
+	The catalogue states it and the clients now act on it. What this pins is that the *carried* rule
+	still matches the route's, in both directions — a flag pointing at a field the action lacks is
+	unevaluable, and a route rule with no flag is a refusal the form cannot warn about.
+	"""
+	served = {a['id']: a for a in _full()}
+	carried = {(a['id'], f['name']): f['distinct_from'] for a in served.values() for f in a['fields']
+	           if f.get('distinct_from')}
+	assert carried == {('record_back_translation', 'back_translated_by'): 'translated_by'}, carried
+	# The field it names is drawn, so a client can compare two answers it actually holds.
+	act = served['record_back_translation']
+	drawn = {f['name'] for f in act['fields']
+	         if not f.get('client_supplied') and not f.get('server_assigned')}
+	for (_, name), other in carried.items():
+		assert other in drawn, f'{name} must differ from {other!r}, which the form does not draw'
+		assert name in drawn, f'{name} is not drawn, so the rule cannot be evaluated'
+
+
+async def test_the_distinctness_rule_is_the_routes_refusal() -> None:
+	"""The same rule, driven at the front door: equal names are refused, different ones accepted.
+
+	Both clients now refuse before the request, which is only honest if the route refuses after it for
+	the same reason. A route that accepted the pair would make the form stricter than the server; a
+	route that refused for another reason would make the form's message wrong.
+	"""
+	from afya.privacy.views import RBACRole
+	from afya.service import build_services as _build
+
+	services = _build()
+	from afya.auth.service import AuthService
+	auth: AuthService = services['auth']  # type: ignore[assignment]
+	ops = auth.provision_staff('distinct-0', RBACRole.sysadmin, registrar='MoH ops').access_token
+	h = {'authorization': f'Bearer {ops}'}
+	app = create_app(services)
+	body = {'item_id': 'INF-003-sw', 'back_translation': 'rendered back'}
+
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		same = await c.post('/info/content/back-translation',
+		                    json={**body, 'translated_by': 'A', 'back_translated_by': 'A'}, headers=h)
+		assert same.status_code == 422, f'the route accepted a render by the translator: {same.text[:120]}'
+		assert 'not a back-translation' in same.text, (
+			f'the refusal does not name the rule the form states: {same.text[:160]}')
+		apart = await c.post('/info/content/back-translation',
+		                     json={**body, 'translated_by': 'A', 'back_translated_by': 'B'}, headers=h)
+		assert apart.status_code == 200, apart.text[:160]
+
+
+def test_both_clients_read_the_distinctness_flag() -> None:
+	"""A flag both clients *parsed* and neither *read* is a field written and never used.
+
+	`ActionField.distinctFrom` and `MobileFieldDTO.distinct_from` were decoded on both platforms and
+	referenced nowhere else — the defect the repo has met before, a model field whose declaration,
+	construction and serialiser are its only reads. The check is on the read, not the declaration: a
+	client that decodes the flag and compares nothing satisfies `'distinct_from' in src`.
+	"""
+	import pathlib
+	root = pathlib.Path(__file__).resolve().parents[2]
+	kotlin = (root / 'android/app/src/main/java/ke/go/health/afyayangu/ActionsActivity.kt').read_text()
+	assert 'val other = f.distinctFrom ?: return@filter false' in kotlin, \
+		'Android decodes distinctFrom and never compares it'
+	assert 'mine == answers[other]' in kotlin, 'Android reads the flag without using the answer'
+	swift = (root / 'ios/AfyaYangu/Features.swift').read_text()
+	assert 'guard let other = f.distinct_from else { return false }' in swift, \
+		'iOS decodes distinct_from and never compares it'
+	assert 'mine == values[other]' in swift, 'iOS reads the flag without using the answer'

@@ -19,6 +19,8 @@ SVC = ROOT / 'src/afya/service.py'
 ACT = ROOT / 'src/afya/mobile/actions.py'
 COMM = ROOT / 'src/afya/community/views.py'
 FORMS = ROOT / 'src/afya/access/forms.py'
+LOC = ROOT / 'src/afya/info/localisation.py'
+KOT = ROOT / 'android/app/src/main/java/ke/go/health/afyayangu/ActionsActivity.kt'
 
 GATE = 'tests/ci/test_conditional_required.py'
 
@@ -126,6 +128,31 @@ CANARIES = [
 	 "_f('voice_note_lang', 'Which language was it spoken in?', 'select', VOICE_LANGS, when='voice_note')]),",
 	 "_f('voice_note_lang', 'Which language was it spoken in?', 'select', VOICE_LANGS)]),",
 	 'test_a_biconditional_is_refused_from_both_sides_and_the_form_warns_on_both'),
+
+	# 10. The distinctness rule is dropped from the catalogue. `BackTranslation` refuses a render by
+	#     the translator, and without the flag the form draws both questions as ordinary text fields —
+	#     the refusal arrives as a 422 after the person has filled everything. The mutation is on the
+	#     catalogue; the route is untouched, so the population gate and the front-door gate must both
+	#     notice that the carried rule and the enforced rule no longer agree.
+	('a distinctness rule is dropped from the catalogue', ACT,
+	 " _f('back_translated_by', 'Rendered back by', ph='someone who has not seen the source', distinct_from='translated_by')",
+	 " _f('back_translated_by', 'Rendered back by', ph='someone who has not seen the source')",
+	 'test_a_distinctness_rule_is_carried_on_exactly_the_fields_the_route_enforces'),
+
+	# 11. The route stops enforcing what the flag states. Widening the model's guard leaves the form
+	#     refusing a submission the server accepts — a control the person cannot get past — which is
+	#     the mirror of the unit's defect and equally invisible without crossing the two sides.
+	('the route stops refusing a render by the translator', LOC,
+	 "		if self.back_translated_by == self.translated_by:",
+	 "		if False and self.back_translated_by == self.translated_by:",
+	 'test_the_distinctness_rule_is_the_routes_refusal'),
+
+	# 12. A client goes back to decoding the flag and reading nothing — the state both were in. The
+	#     mutation removes the comparison, not the field, so the gate's read-check is what must fire.
+	('a client decodes the distinctness flag and never compares', KOT,
+	 "			val other = f.distinctFrom ?: return@filter false\n			val mine = answers[f.name] ?: \"\"\n			mine.isNotEmpty() && mine == answers[other]",
+	 "			val other = f.distinctFrom ?: return@filter false\n			false && answers[f.name] == answers[other]",
+	 'test_both_clients_read_the_distinctness_flag'),
 ]
 
 failures = []

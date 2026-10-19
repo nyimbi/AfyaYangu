@@ -203,11 +203,25 @@ class ActionsActivity : Activity() {
 		val missing = a.fields.filter { !it.clientSupplied && !it.serverAssigned && it.type != "file" &&
 			needed(a, it, answers) && !answered(it, answers[it.name] ?: "") }
 		val openGroups = a.anyOf.filter { groupUnsatisfied(a, it, answers) }
-		if (missing.isNotEmpty() || openGroups.isNotEmpty()) {
+		// A rule the catalogue has carried since it was written and no client read: `distinct_from`
+		// says this answer must not equal another field's. `BackTranslation` refuses a render by the
+		// translator — the method needs someone who has not seen the source — and the refusal arrived
+		// as a 422 after the person had filled the whole form. Only checked when both are answered:
+		// an empty field is `missing`'s business, not this rule's.
+		val same = a.fields.filter { f ->
+			val other = f.distinctFrom ?: return@filter false
+			val mine = answers[f.name] ?: ""
+			mine.isNotEmpty() && mine == answers[other]
+		}
+		if (missing.isNotEmpty() || openGroups.isNotEmpty() || same.isNotEmpty()) {
 			val names = missing.map { it.label } + openGroups.map { g ->
 				"one of " + g.fields.joinToString(", ") { n -> a.fields.firstOrNull { it.name == n }?.label ?: n }
 			}
-			out.text = "Please fill in: " + names.joinToString(", ")
+			val clashes = same.map { f ->
+				val other = a.fields.firstOrNull { it.name == f.distinctFrom }?.label ?: f.distinctFrom!!
+				"${f.label} must be someone other than $other"
+			}
+			out.text = "Please fill in: " + (names + clashes).joinToString(", ")
 			return
 		}
 		val pathValues = HashMap<String, String>()

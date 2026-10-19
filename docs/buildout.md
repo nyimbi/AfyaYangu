@@ -7549,3 +7549,22 @@ decision rather than a default. The canaries mutate the encoding without the pre
 without the encoding, and the Swift check separately from the Kotlin one — a canary on one client
 would have called the class fixed. Both clients compile: `gradle compileDebugKotlin` and
 `xcodebuild -sdk iphonesimulator` both succeed, and the full suite is 2413 passed with pyright clean.
+
+### The rule both clients parsed and neither read
+
+`MobileField.distinct_from` has been on the wire since the catalogue was written. Both clients decode
+it — `ActionField.distinctFrom`, `MobileFieldDTO.distinct_from` — and neither references it again.
+It is the repo's own recorded defect class: a field whose declaration, construction and serialiser are
+its only reads. The one action carrying it is `record_back_translation`, whose route raises when
+`back_translated_by == translated_by` because the method needs someone who has not seen the source.
+So a person filled four fields, submitted, and got a 422 about a rule the form never stated.
+
+Both clients now compare the pair before submitting and name it in the refusal ("Rendered back by must
+be someone other than Translated by"). The gates cross the two sides: the carried flag must name a
+field the form draws, the route must refuse exactly the pair the flag names (driven at the front door,
+equal and unequal), and each client must *read* the flag — a client that decodes it and compares
+nothing satisfies `'distinct_from' in src` and is the bug.
+
+**Two more gates, three more canaries, 12/12 fired.** The canaries drop the flag from the catalogue,
+disable the model's guard, and remove one client's comparison while leaving the decode — the last of
+which is the shipped state, so a gate that only checked the field existed would have passed it.

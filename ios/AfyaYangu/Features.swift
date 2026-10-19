@@ -395,10 +395,23 @@ struct ActionFormView: View {
 		let missing = action.fields.filter { !($0.client_supplied ?? false) && !($0.server_assigned ?? false)
 			&& $0.type != "file" && needed($0) && !answered($0) }
 		let open = (action.any_of ?? []).filter { groupUnsatisfied($0) }
-		guard missing.isEmpty && open.isEmpty else {
+		// A rule the catalogue has carried since it was written and no client read: `distinct_from`
+		// says this answer must not equal another field's. `BackTranslation` refuses a render by the
+		// translator — the method needs someone who has not seen the source — and the refusal arrived
+		// as a 422 after the person had filled the whole form. Only checked when both are answered:
+		// an empty field is `missing`'s business, not this rule's.
+		let same = action.fields.filter { f in
+			guard let other = f.distinct_from else { return false }
+			let mine = values[f.name] ?? ""
+			return !mine.isEmpty && mine == values[other]
+		}
+		guard missing.isEmpty && open.isEmpty && same.isEmpty else {
 			failed = true
 			let labels = missing.map(\.label) + open.map { g in
 				"one of " + g.fields.map { n in action.fields.first { $0.name == n }?.label ?? n }.joined(separator: ", ")
+			} + same.map { f in
+				let other = action.fields.first { $0.name == f.distinct_from }?.label ?? (f.distinct_from ?? "")
+				return "\(f.label) must be someone other than \(other)"
 			}
 			result = "Please fill in: " + labels.joined(separator: ", ")
 			return
