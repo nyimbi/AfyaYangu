@@ -7447,3 +7447,68 @@ retargeted: it planted the defect by removing the catalogue field, and once the 
 the **route** — a required parameter the form does not draw — which is disjoint from the requirement
 set the gate reads. A canary for a defect that has been fixed on one side must be moved to the side
 that still has it.
+
+## The dependency the form could not reach, and the picker that answered for the person
+
+Two defects, one cause: the catalogue could state a condition, and neither the catalogue nor the
+clients could *reach* the rules the models actually enforce.
+
+### The biconditional
+
+`CaseReport._a_note_is_kept_in_the_language_it_was_said_in` asserts
+`(voice_note is None) == (voice_note_lang is None)` — a transcript with no language and a language
+with no transcript are both refused. The model's own comment says the two fields exist so that "a CHW
+who dictated an observation had to type it afterwards or lose it" stops being true. The catalogue
+offered **neither field**, so the fix was implemented in the model and unreachable from every client:
+`submit_case` is the route §COM-101's voice-to-text bullet is carried by, and no form drew it.
+
+Found by crossing the 146 body models behind catalogue write routes against the fields each action
+draws: **43 actions accept body fields no form offers.** Most are server-computed (`synced`,
+`server_ts`, `payload`) or client-injected (`issued_by`), which is correct. The ones that matter are
+fields a *person* supplies whose absence is a defect — `submit_case`'s note, `WhatsAppIn`'s `kind` and
+`voice_note_lang`, `Tier4ActivationRequest`'s DPIA fields.
+
+Both directions are now carried, each keying on the other, and the front-door gate drives all four
+combinations: neither (accepted), transcript only (422), language only (422), both (accepted).
+
+### The picker that always held a value
+
+Chasing that biconditional exposed the real bug. `equals_any=[]` means "required on *any* answer", and
+a `select` is **never unanswered** — both clients render one as a picker holding its first option, and
+the body omits a field only when its value is empty. So a condition keyed on a select was **always
+true**, whatever the person did: a rule that reads as conditional and behaves as `required = True`.
+That is this unit's own defect one level down, and it was not a bug in the condition — it was a bug in
+the control.
+
+Worse, it was not confined to conditions. **63 optional selects in the catalogue were silently sent
+with their first option** — `language: en` (23 of them), `channel: native` (6), `suspected_disease:
+evd` (3) — answers the person never gave, recorded as if they had. A form that cannot say "not
+answered" is a form that invents an answer.
+
+Both clients now offer a blank choice on a select the route does not require, and none on one it does
+(the route refuses without an answer, so offering blank there would be a control the server rejects).
+That makes `equals_any=[]` mean what it says. `marked()` asserts the shape that remains dead: a
+condition with an empty `equals_any` keyed on a select its route always requires.
+
+The first attempt at this added a `when_blank` flag — a third condition spelling for "fires on the
+trigger being absent". It was reverted: it encoded a workaround for the picker bug into the wire
+format, and a rule that says "required when the other is blank" is the *mirror* of this unit's defect,
+a form demanding both fields from an empty screen. Fixing the control was the smaller change and the
+correct one.
+
+### The gate that read a different clock
+
+`test_the_scan_route_defaults_to_the_current_week` compared the route's default (UTC, from
+`datetime.now(timezone.utc)`, the same clock `now_iso()` stamps events with) against `date.today()` —
+the **host's** zone. In EAT, UTC+3, the two disagree for three hours every evening, so the gate failed
+on a correct route; on a Sunday night it fails about the whole preceding week. Found by the full suite
+running at 00:12 local.
+
+The fix is in the gate, not the route: the route and the event ingest agree on UTC, and a scan whose
+period came from a different clock than the events it counts would ask about a week the data has not
+reached. Canaried live — the clocks genuinely disagreed when the mutation was applied, and the gate
+failed; restored, it passed.
+
+**Gates and canaries: 12 gates, 9/9 canaries fired.** The two new canaries plant a route-level
+requirement that kills a condition's trigger, and drop one direction of the biconditional from the
+catalogue. The census is unchanged at 159 routes, 4 missing, 0 unexplained.

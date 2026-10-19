@@ -324,7 +324,12 @@ struct ActionFormView: View {
 			Picker(field.label, selection: Binding(
 				get: { values[field.name] ?? "" },
 				set: { values[field.name] = $0 })) {
-				Text("—").tag("")
+				// A picker always holds a value, so without a blank entry an optional select was
+				// sent with its first option whatever the person meant — `language: en`,
+				// `kind: native` — and a condition keyed on it read a fact about the control rather
+				// than about them. A required select offers no blank: the route refuses without an
+				// answer, so offering one would be a control the server rejects.
+				if !field.required { Text("—").tag("") }
 				ForEach(field.options ?? [], id: \.self) { Text($0).tag($0) }
 			}
 		case "textarea":

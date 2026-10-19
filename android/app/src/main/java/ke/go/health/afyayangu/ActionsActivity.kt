@@ -149,7 +149,13 @@ class ActionsActivity : Activity() {
 		val view: android.view.View = when (f.type) {
 			"bool" -> CheckBox(this).apply { text = f.label; textSize = 15f }
 			"select" -> Spinner(this).apply {
-				adapter = ArrayAdapter(this@ActionsActivity, android.R.layout.simple_spinner_dropdown_item, f.options ?: emptyList())
+				// A picker always holds a value, so an optional select used to be sent with its
+				// first option whatever the person meant — `language: en`, `kind: native` — and a
+				// condition keyed on it read a fact about the control rather than about them. The
+				// blank entry is what lets an optional select mean "not answered": `raw` maps it
+				// back to "", the body omits it, and a condition on it sees the absence.
+				val items = if (f.required) f.options ?: emptyList() else listOf("") + (f.options ?: emptyList())
+				adapter = ArrayAdapter(this@ActionsActivity, android.R.layout.simple_spinner_dropdown_item, items)
 			}
 			"textarea" -> EditText(this).apply { setSingleLine(false); minLines = 3; hint = f.placeholder }
 			"int" -> EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED; hint = f.placeholder }

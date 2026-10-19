@@ -1064,7 +1064,16 @@ def catalogue() -> list[MobileAction]:
 		_a('report_issue', 'Report a problem in my area', 'Community', 'POST', '/community/issues', [_auto('issue_id', 'Report number'), _f('kind', 'What is the problem?', 'select', ISSUE_KINDS), _f('county', 'County'), _f('description', 'Describe it', 'textarea'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal')]),
 		_a('issues_by_county', 'Problems reported near me', 'Community', 'GET', '/community/issues/{county}', [_f('county', 'County', 'path')]),
 		_a('resolve_issue', 'Mark a problem as fixed', 'Community', 'POST', '/community/issues/{issue_id}/resolve', [_f('issue_id', 'Report number', 'path')]),
-		_a('submit_case', 'Report a suspected case', 'Community', 'POST', '/community/cases', [_auto('report_id', 'Report number'), _f('chw_ref', 'Health worker'), _f('county', 'County'), _f('community', 'Village or estate'), _f('symptoms', 'Symptoms', 'list'), _f('age_years', 'Age in years', 'int'), _f('sex', 'Sex', 'select', ['male', 'female', 'other']), _f('temperature_c', 'Temperature °C', 'decimal'), _f('exposure_history', 'Who has the patient been near?', 'textarea'), _f('geotagged', 'Attach location?', 'bool'), _f('suspected_disease', 'What do you suspect?', 'select', VECTOR_DISEASES), _f('reported_offline', 'Reported without network?', 'bool')]),
+		_a('submit_case', 'Report a suspected case', 'Community', 'POST', '/community/cases', [_auto('report_id', 'Report number'), _f('chw_ref', 'Health worker'), _f('county', 'County'), _f('community', 'Village or estate'), _f('symptoms', 'Symptoms', 'list'), _f('age_years', 'Age in years', 'int'), _f('sex', 'Sex', 'select', ['male', 'female', 'other']), _f('temperature_c', 'Temperature °C', 'decimal'), _f('exposure_history', 'Who has the patient been near?', 'textarea'), _f('geotagged', 'Attach location?', 'bool'), _f('suspected_disease', 'What do you suspect?', 'select', VECTOR_DISEASES), _f('reported_offline', 'Reported without network?', 'bool'),
+			# `CaseReport._a_note_is_kept_in_the_language_it_was_said_in`: a transcript with no
+			# language, or a language with no transcript, is half a record. §COM-101's "voice-to-text
+			# notes in local languages" was implemented in the model and drawn nowhere — a CHW who
+			# dictated an observation still had to type it afterwards or lose it, which is the defect
+			# the model's own comment says the two fields exist to fix. `voice_note_lang` is required
+			# exactly when a transcript is present, and the route refuses the reverse too, so the
+			# client's pre-request check enforces the biconditional from both sides.
+			_f('voice_note', 'Dictated note, as text', 'textarea', ph='the recogniser’s transcript', when='voice_note_lang'),
+			_f('voice_note_lang', 'Which language was it spoken in?', 'select', VOICE_LANGS, when='voice_note')]),
 		_a('advance_case', 'Update a case', 'Community', 'POST', '/community/cases/{report_id}/advance', [_f('report_id', 'Report number', 'path'), _f('status', 'New status', 'select', CASE_STATUSES)]),
 		_a('ppe_reminder', 'Protective equipment reminder', 'Community', 'GET', '/community/ppe-reminder', []),
 		_a('peer_alert', 'Warn people nearby', 'Community', 'POST', '/community/peer-alert', [_f('alert_id', 'Alert number'), _f('county', 'County'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('radius_m', 'How far? (metres)', 'select', [str(r) for r in ALERT_ZONE_RADII_M]), _f('headline', 'Headline'), _f('location', 'Which place should people avoid?'), _f('issued_iso', 'Issued on', ph='YYYY-MM-DD'), _f('verified_by', 'Verified by', 'select', list(PEER_VERIFIERS))]),
@@ -1399,6 +1408,21 @@ def marked(actions: 'list[MobileAction]',
 			assert not dead, (
 				f'{act.id}: any_of includes {sorted(dead)}, which the route always requires, so the '
 				'group is never what makes the submission complete')
+		# "The trigger has any answer" is only a condition if the trigger can be left unanswered.
+		# It could not: both clients rendered a picker that always held a value, so every optional
+		# select was sent with its first option and this shape was **always true** — a condition that
+		# reads as conditional and behaves as `required = True`, which is the defect this unit exists
+		# to close, one level down. Both clients now offer a blank choice on a select the route does
+		# not require, which is what makes the shape mean what it says. On a select the route *does*
+		# require the trigger can never be blank, so the shape is dead there and stays refused.
+		kinds = {f.name: f.type for f in act.fields}
+		for f in act.fields:
+			c = f.condition
+			if c is not None and not c.equals_any and kinds.get(c.when) == 'select':
+				assert c.when not in needed, (
+					f'{act.id}.{f.name}: the condition fires on any answer to {c.when!r}, which its '
+					'route always requires — the trigger can never be blank, so the condition is '
+					'always true. Name the answers that fire it instead')
 		fields: list[MobileField] = []
 		for f in act.fields:
 			conditional = f.condition is not None

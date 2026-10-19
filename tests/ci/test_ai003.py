@@ -10,7 +10,7 @@ and a signal too small to publish both read as "nothing happened" if the collect
 silently, and an epidemiologist cannot tell an outbreak response that is working from one that is
 not collecting.
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -560,7 +560,12 @@ async def test_the_scan_route_defaults_to_the_current_week() -> None:
 	week by omitting a parameter.
 	"""
 	client, _ = _client()
-	today = date.today().isocalendar()
+	# UTC, because that is the clock the route defaults to and the clock `now_iso()` stamps an event
+	# with. `date.today()` reads the *host's* zone: in EAT, which is UTC+3, the two disagree for three
+	# hours every evening and the gate fails on a correct route — and on a Sunday night the whole
+	# preceding week is at stake. A gate that reads a different clock from the code it checks is
+	# asserting a coincidence of the two, not the property.
+	today = datetime.now(timezone.utc).date().isocalendar()
 	async with client:
 		officer = await _county_officer(client)
 		body = (await client.get('/ai/early-warning/Nairobi/scan',

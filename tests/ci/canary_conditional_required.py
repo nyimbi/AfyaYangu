@@ -105,6 +105,27 @@ CANARIES = [
 	 "	async def retention_correct(req: CorrectionRequest, witness: str,\n"
 	 "	                            _subject: str = Depends(require_self())) -> dict[str, object]:",
 	 'test_a_route_requires_nothing_its_form_does_not_draw'),
+
+	# 8. A condition fires on a trigger its route always requires, so it can never fire — or, with an
+	#    empty `equals_any`, fires always. `submit_case`'s transcript is required exactly when the
+	#    language is present, and the language's condition is required exactly when the transcript is.
+	#    If the route required the language outright, the trigger could never be blank and the rule
+	#    would be a boolean wearing a condition's clothes. The mutation is on the **route**, disjoint
+	#    from the catalogue the condition is read from.
+	('a condition fires on a trigger its route always requires', SVC,
+	 "	async def community_case(report: CaseReport, _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, object]:",
+	 "	async def community_case(report: CaseReport, voice_note_lang: str = Body(...), _subject: str = Depends(require_scope('assigned', purpose='case_management'))) -> dict[str, object]:",
+	 'test_a_select_a_condition_keys_off_can_be_left_unanswered'),
+
+	# 9. One direction of the biconditional is dropped from the catalogue. The model refuses a
+	#    transcript with no language *and* a language with no transcript, so a form carrying one
+	#    direction warns about half the rule and presents the other half as complete — the unit's
+	#    defect surviving on the side nobody checked. The mutation removes the language's condition,
+	#    which the front-door gate reads; the route is untouched.
+	('a biconditional loses one direction', ACT,
+	 "_f('voice_note_lang', 'Which language was it spoken in?', 'select', VOICE_LANGS, when='voice_note')]),",
+	 "_f('voice_note_lang', 'Which language was it spoken in?', 'select', VOICE_LANGS)]),",
+	 'test_a_biconditional_is_refused_from_both_sides_and_the_form_warns_on_both'),
 ]
 
 failures = []

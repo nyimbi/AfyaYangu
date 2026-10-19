@@ -19,9 +19,12 @@ The gates below read the **served** catalogue (`GET /mobile/actions`), not `cata
 what a client parses is the served document — the same reason `test_action_reachability.py` reads
 routes rather than restating them.
 """
+import secrets
+
 import httpx
 
 from afya.access.forms import required_fields
+from afya.auth.views import s256
 from afya.mobile.actions import catalogue
 from afya.service import build_services, create_app
 
@@ -224,6 +227,15 @@ _CONDITIONS = {
 	'register_border': {
 		'lab_turnaround_hours': ('mobile_lab', ['true']),
 		'lab_tests': ('mobile_lab', ['true']),
+	},
+	# `CaseReport._a_note_is_kept_in_the_language_it_was_said_in` is a **biconditional** — a
+	# transcript with no language and a language with no transcript are both refused — so it is
+	# carried as two conditions pointing at each other. Both directions are needed: the catalogue had
+	# neither, and the model's own comment says the two fields exist so a CHW who dictated an
+	# observation need not retype it, which no client could reach.
+	'submit_case': {
+		'voice_note': ('voice_note_lang', []),
+		'voice_note_lang': ('voice_note', []),
 	},
 }
 
@@ -493,3 +505,90 @@ async def test_a_simplified_form_does_not_drop_a_field_a_condition_makes_require
 	# And the medium question itself must survive, or the person cannot answer the one thing the
 	# condition keys off.
 	assert 'medium' in drawn, 'simple mode dropped the field every condition on this action names'
+
+
+# --- The condition has to be evaluable by the client that draws the control -----------------------
+#
+# The gates above check the catalogue against the route. This one checks it against the *control*:
+# a condition a client cannot evaluate is a condition that never fires, and the client's evaluation
+# depends on what the field type lets a person leave blank.
+
+def test_a_select_a_condition_keys_off_can_be_left_unanswered() -> None:
+	"""A picker always holds a value, so `equals_any=[]` on a select is a condition that is always true.
+
+	This is the unit's own defect one level down: `evidence_consent` is required "whenever there is a
+	recording", and `submit_case`'s transcript needs its language — both read as conditional and both
+	would behave as `required = True` if the trigger could never be blank. Both clients used to render
+	every select as a picker holding its first option, so *every* optional select was silently sent
+	with a default the person never chose.
+
+	The predicate is the shape, not the intent: a condition with an empty `equals_any` keyed on a
+	select whose route requires it can never fire, because the trigger is always answered.
+	"""
+	served = _full()
+	dead: dict[str, str] = {}
+	for act in served:
+		kinds = {f['name']: f['type'] for f in act['fields']}
+		needed = {f['name'] for f in act['fields'] if f['required']}
+		for f in act['fields']:
+			c = f.get('condition')
+			if c is None or c['equals_any'] or kinds.get(c['when']) != 'select':
+				continue
+			if c['when'] in needed:
+				dead[f"{act['id']}.{f['name']}"] = (
+					f"fires on any answer to {c['when']!r}, which the route always requires")
+	assert dead == {}, f'conditions that can never fire: {dead}'
+	# And the other half: an optional select is one a client can leave blank. Pinned by name rather
+	# than counted, because "there are some" is satisfied by the wrong ones.
+	optional_selects = {(a['id'], f['name']) for a in served for f in a['fields']
+	                    if f['type'] == 'select' and not f['required']}
+	assert optional_selects, 'no optional select exists, so the blank-choice rule is untested'
+
+
+async def test_a_biconditional_is_refused_from_both_sides_and_the_form_warns_on_both() -> None:
+	"""`CaseReport`'s note rule, end to end, from the side the form used to be silent about.
+
+	The model refuses a transcript with no language *and* a language with no transcript. A catalogue
+	that carried only the first direction would warn about one refusal and present the other as
+	complete — the unit's defect surviving on half the rule. So both directions are driven at the
+	front door and both are evaluated by the same predicate the clients use.
+	"""
+	app = create_app(build_services())
+	act = {a['id']: a for a in _full()}['submit_case']
+	base = {'chw_ref': 'CHW-1', 'county': 'Nairobi', 'community': 'Kibera',
+	        'symptoms': ['fever'], 'suspected_disease': 'evd'}
+	refusals: list[str] = []
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		# The route is behind the `assigned` scope, so a token is needed for the refusal to be about
+		# the model rather than about the transport. A 401 read as "refused" would make this gate pass
+		# on a route it never reached.
+		verifier = secrets.token_urlsafe(64)[:64]
+		authz = (await c.post('/auth/pkce/authorize', json={
+			'client_id': 'app', 'redirect_uri': 'afya://cb',
+			'code_challenge': s256(verifier), 'state': 'state-1234'})).json()
+		tok = (await c.post('/auth/pkce/token', params={'role': 'chw'}, json={
+			'authorization_code': authz['authorization_code'], 'client_id': 'app',
+			'redirect_uri': 'afya://cb', 'code_verifier': verifier})).json()['access_token']
+		h = {'Authorization': f'Bearer {tok}', 'x-device-id': 'biconditional-probe'}
+		for label, extra, expect_refused in [
+			('neither field', {}, False),
+			('transcript only', {'voice_note': 'the child has a fever'}, True),
+			('language only', {'voice_note_lang': 'sw'}, True),
+			('both', {'voice_note': 'the child has a fever', 'voice_note_lang': 'sw'}, False),
+		]:
+			r = await c.post('/community/cases', json={**base, **extra}, headers=h)
+			assert r.status_code != 401, f'{label}: the probe never reached the model'
+			refused = r.status_code == 422
+			if refused != expect_refused:
+				refusals.append(f'{label}: route said {r.status_code}, expected '
+				                f'{"422" if expect_refused else "accepted"} — {r.text[:110]}')
+	assert refusals == [], f'the route disagrees with the rule the form states: {refusals}'
+
+	# And the form's own reading of the same four answers, through the predicate the clients share.
+	conditions = {f['name']: f.get('condition') for f in act['fields']}
+	forms = {'voice_note': conditions.get('voice_note'), 'voice_note_lang': conditions.get('voice_note_lang')}
+	assert forms['voice_note'] and forms['voice_note_lang'], (
+		'submit_case lost a direction of the biconditional, so a client warns on one side only')
+	for name, cond in forms.items():
+		assert cond is not None, f'{name} carries no condition'
+		assert cond['when'] in conditions, f'{name} keys on a field the form does not draw'
