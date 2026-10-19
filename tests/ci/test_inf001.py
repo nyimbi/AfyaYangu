@@ -38,7 +38,7 @@ def _worker_token(auth: object, ref: str, role: str = 'county_officer') -> dict[
 	verifier = secrets.token_urlsafe(64)[:64]
 	code = auth.start_pkce(PKCEStart(  # type: ignore[attr-defined]
 		client_id='county-app', redirect_uri='afya://cb', code_challenge=s256(verifier),
-		state=ref + '-state')).authorization_code
+		state=ref + '-state', role=role)).authorization_code
 	token = auth.exchange_pkce(  # type: ignore[attr-defined]
 		PKCETokenRequest(authorization_code=code, client_id='county-app', redirect_uri='afya://cb',
 		                 code_verifier=verifier), RBACRole[role])

@@ -571,7 +571,7 @@ async def test_a_biconditional_is_refused_from_both_sides_and_the_form_warns_on_
 		verifier = secrets.token_urlsafe(64)[:64]
 		authz = (await c.post('/auth/pkce/authorize', json={
 			'client_id': 'app', 'redirect_uri': 'afya://cb',
-			'code_challenge': s256(verifier), 'state': 'state-1234'})).json()
+			'code_challenge': s256(verifier), 'state': 'state-1234', 'role': 'chw'})).json()
 		tok = (await c.post('/auth/pkce/token', params={'role': 'chw'}, json={
 			'authorization_code': authz['authorization_code'], 'client_id': 'app',
 			'redirect_uri': 'afya://cb', 'code_verifier': verifier})).json()['access_token']

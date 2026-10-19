@@ -88,6 +88,12 @@ class ConflictRecord(BaseModel):
 	appealable: bool
 	appeal: AppealState = AppealState.none
 	appeal_note: str | None = None
+	# The subject whose device queued the losing write. Carried because `client_payload` and
+	# `server_payload` are the person's own data: `GET /sync/conflicts` returned every conflict in
+	# the process, so one caller read what every other device had written and what the server kept
+	# instead. It is `None` only for a conflict whose op was rehydrated from a store that predates
+	# the binding — an unknown owner is shown to nobody rather than to everybody.
+	subject_ref: str | None = None
 
 	def resolved(self) -> bool:
 		"""Whether this conflict has stopped needing anyone's attention. A conflict with no appeal
@@ -180,6 +186,13 @@ class SyncOp(BaseModel):
 	attempt: int = Field(default=0, ge=0)
 	synced: bool = False
 	retry_at_ms: int | None = None
+	# Whose write this is. It travels with the op because a queued write is a person's, not a
+	# device's, and the appeal surface has to answer "which of these are mine" from the record
+	# rather than from a token the conflict route trusts. Excluded from `model_dump` because the op
+	# is serialised onto the wire by `SyncService.encode`, and a subject reference is a health-data
+	# identifier the server already knows — sending it back over a metered link would be §16.4's
+	# bandwidth spent to tell the server its own row.
+	subject_ref: str | None = Field(default=None, exclude=True)
 
 	def due(self, now_ms: int) -> bool:
 		"""Whether the backoff window has elapsed. An op that has never failed is always due."""

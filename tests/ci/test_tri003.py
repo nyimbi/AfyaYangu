@@ -31,8 +31,9 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from afya.auth.service import AuthService
 from afya.privacy.service import PrivacyService
-from afya.privacy.views import ConsentCategory, ConsentRecord, LegalBasis
+from afya.privacy.views import ConsentCategory, ConsentRecord, LegalBasis, RBACRole
 from afya.registry.service import FeatureRegistry
 from afya.triage.service import TriageService
 from afya.triage.views import (
@@ -70,7 +71,7 @@ async def _token(c: httpx.AsyncClient, subject: str = 's') -> dict[str, str]:
 	return {'authorization': f'Bearer {tok}'}
 
 
-def _worker_token(auth: object, role: object, ref: str) -> dict[str, str]:
+def _worker_token(auth: AuthService, role: RBACRole, ref: str) -> dict[str, str]:
 	"""A worker token through the app's own flow — PKCE, because `chw` is not provisionable.
 
 	`provision_staff` refuses a role the app issues, and that refusal is the point: the only way to
@@ -83,7 +84,7 @@ def _worker_token(auth: object, role: object, ref: str) -> dict[str, str]:
 	verifier = secrets.token_urlsafe(64)[:64]
 	code = auth.start_pkce(PKCEStart(  # type: ignore[attr-defined]
 		client_id='chw-app', redirect_uri='afya://cb', code_challenge=s256(verifier),
-		state=ref + '-state')).authorization_code
+		state=ref + '-state', role=role.value)).authorization_code
 	token = auth.exchange_pkce(  # type: ignore[attr-defined]
 		PKCETokenRequest(authorization_code=code, client_id='chw-app', redirect_uri='afya://cb',
 		                 code_verifier=verifier), role)
@@ -395,7 +396,7 @@ async def test_the_county_view_is_scoped_and_shows_what_was_sent() -> None:
 	with the exposures on it. The refusal alone would pass against a route that returned an empty
 	list to everyone.
 	"""
-	from afya.privacy.views import RBACRole
+
 	from afya.registry.service import Tier4Activation
 	from afya.service import build_services, create_app
 	services = build_services()
@@ -419,7 +420,8 @@ async def test_the_county_view_is_scoped_and_shows_what_was_sent() -> None:
 		# A citizen token cannot read the county's queue — the escalation is one-way by design.
 		assert (await c.get('/triage/rrt/Garissa', headers=head)).status_code == 403
 		# The team's own scope reads it, and reads what the person reported.
-		chw = _worker_token(services['auth'], RBACRole.chw, 'chw-1')
+		auth: AuthService = services['auth']  # type: ignore[assignment]
+		chw = _worker_token(auth, RBACRole.chw, 'chw-1')
 		read = await c.get('/triage/rrt/Garissa', headers=chw)
 		assert read.status_code == 200, read.text
 		rows = read.json()

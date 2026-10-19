@@ -52,12 +52,25 @@ class PostgresStore(LogMixin):
 				ON CONFLICT (op_id) DO UPDATE SET server_version=$3, server_ts=$5, payload=$6::jsonb, attempt=$7, synced=$8, retry_at_ms=$9, updated_at=now()''',
 				op.op_id, op.dataset, op.server_version, op.client_ts, op.server_ts, json.dumps(op.payload), op.attempt, op.synced, op.retry_at_ms,
 			)
+			# Written once, in its own table: the upsert above rewrites the op on every flush, and
+			# a rehydrated queue has no subject to re-supply, so an owner carried on the op row
+			# would be blanked at the flush — the moment `GET /sync/conflicts` needs it.
+			if op.subject_ref is not None:
+				await c.execute(
+					'INSERT INTO afya.sync_op_owners (op_id, subject_ref) VALUES ($1, $2) '
+					'ON CONFLICT (op_id) DO NOTHING',
+					op.op_id, op.subject_ref,
+				)
 
 	async def sync_ops(self) -> list[SyncOp]:
 		async with (await self.pool()).acquire() as c:
-			rows = await c.fetch('SELECT op_id, dataset, server_version, client_ts, server_ts, payload, attempt, synced, retry_at_ms FROM afya.sync_ops ORDER BY client_ts')
+			rows = await c.fetch(
+				'SELECT s.op_id, s.dataset, s.server_version, s.client_ts, s.server_ts, s.payload, '
+				's.attempt, s.synced, s.retry_at_ms, o.subject_ref '
+				'FROM afya.sync_ops s LEFT JOIN afya.sync_op_owners o ON o.op_id = s.op_id '
+				'ORDER BY s.client_ts')
 		return [
-			SyncOp(op_id=r['op_id'], dataset=r['dataset'], server_version=r['server_version'], client_ts=r['client_ts'], server_ts=r['server_ts'], payload=json.loads(r["payload"]), attempt=r['attempt'], synced=r['synced'], retry_at_ms=r['retry_at_ms'])
+			SyncOp(op_id=r['op_id'], dataset=r['dataset'], server_version=r['server_version'], client_ts=r['client_ts'], server_ts=r['server_ts'], payload=json.loads(r["payload"]), attempt=r['attempt'], synced=r['synced'], retry_at_ms=r['retry_at_ms'], subject_ref=r['subject_ref'])
 			for r in rows
 		]
 

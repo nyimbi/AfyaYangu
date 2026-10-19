@@ -30,6 +30,7 @@ from afya.privacy.views import RBACRole
 from afya.registry.service import CHANNELS
 from afya.service import build_services, create_app
 from afya.strings import SUPPORTED_LANGS
+from conftest import sign
 
 REPO = Path(__file__).resolve().parents[2]
 SPEC = REPO / 'docs' / 'spec.md'
@@ -314,15 +315,16 @@ async def test_the_dholuo_gap_is_answered_in_english_and_says_so() -> None:
 			assert r.status_code == 200, f'{lang}: {r.status_code}'
 
 
-async def test_the_ussd_menu_serves_a_language_it_has_no_table_for() -> None:
+async def test_the_ussd_menu_serves_a_language_it_has_no_table_for(webhook_secret: str) -> None:
 	"""The same defect on the channel Grace actually uses. §CHAN-2's menu names Dholuo; before the
 	fix, asking for it raised inside `ChannelService.ussd` and the session died mid-menu."""
 	app = create_app()
 	body = {'session_id': 'S-1', 'msisdn': '+254700000001', 'text': ''}
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
-		en = await c.post('/channels/ussd?lang=en', json=body)
-		luo = await c.post('/channels/ussd?lang=luo', json=body)
-		sw = await c.post('/channels/ussd?lang=sw', json=body)
+		raw, h = sign(body)
+		en = await c.post('/channels/ussd?lang=en', content=raw, headers=h)
+		luo = await c.post('/channels/ussd?lang=luo', content=raw, headers=h)
+		sw = await c.post('/channels/ussd?lang=sw', content=raw, headers=h)
 	assert luo.status_code == 200, luo.text[:200]
 	assert luo.json()['menu'] == en.json()['menu'], 'a language with no table is served English'
 	assert sw.status_code == 200 and sw.json()['menu'] != en.json()['menu']

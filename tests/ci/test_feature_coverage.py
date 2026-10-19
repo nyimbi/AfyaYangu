@@ -95,6 +95,12 @@ ON_DEVICE: dict[str, str] = {
 	# in en and sw with a named authority. A registry-only id whose stated carrier does not exist is
 	# the citation defect this repo keeps meeting, so the entry names the carrier it has.
 	'INF-015': 'traditional and herbal safety is the `cure_claim` correction in afya.info.myths',
+	# §CHAN-003 is a conversation *inside WhatsApp*, and the handset that holds it is not running
+	# this app. Its route is a signature-guarded inbound webhook a carrier calls, so an action
+	# drawing a "your phone number" field would have been a control that could only ever 401 —
+	# which is what the three channel actions were until the guard landed. The feature is served;
+	# it is served to a phone that never installs anything, which is the section's whole argument.
+	'CHAN-003': 'the bot is an inbound WhatsApp conversation; its route is a signed carrier webhook',
 }
 
 

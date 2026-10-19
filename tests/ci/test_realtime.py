@@ -28,7 +28,7 @@ def _publish(c: TestClient, item: FeedItem) -> dict:
 	from afya.auth.views import s256
 	verifier = 'v' * 64
 	authz = c.post('/auth/pkce/authorize', json={
-		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234',
+		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234', 'role': 'chw',
 	}).json()
 	tok = c.post('/auth/pkce/token', params={'role': 'chw'}, json={
 		'authorization_code': authz['authorization_code'], 'client_id': 'app',

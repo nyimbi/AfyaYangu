@@ -27,6 +27,15 @@ APP_LAYER_DATASETS: frozenset[str] = frozenset({
 
 _SCHEMA = (
 	'CREATE TABLE IF NOT EXISTS sync_ops (op_id TEXT PRIMARY KEY, dataset TEXT NOT NULL, server_version INTEGER NOT NULL DEFAULT 0, client_ts INTEGER NOT NULL, server_ts INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL DEFAULT "{}", attempt INTEGER NOT NULL DEFAULT 0, synced INTEGER NOT NULL DEFAULT 0, retry_at_ms INTEGER)',
+	# Whose queued write each op is. A table of its own rather than a column on `sync_ops` because
+	# that statement is the *shared* contract with both device clients (`proto/local_store/contract.json`,
+	# held equal by `tests/ci/test_acc003.py`) and the clients have no subject to put in it — the token
+	# travels per request, not per row. The owner is server-side knowledge.
+	#
+	# `INSERT OR REPLACE` on `sync_ops` deletes and re-inserts the row, so a foreign key here would
+	# cascade the owner away on every flush. The binding is written once and never overwritten:
+	# a row rehydrated with no owner must not blank the owner a live enqueue recorded.
+	'CREATE TABLE IF NOT EXISTS sync_op_owners (op_id TEXT PRIMARY KEY, subject_ref TEXT NOT NULL)',
 	'CREATE TABLE IF NOT EXISTS consents (consent_id TEXT PRIMARY KEY, subject_ref TEXT NOT NULL, purpose TEXT NOT NULL, data_types TEXT NOT NULL, retention_days INTEGER NOT NULL, legal_basis TEXT NOT NULL, withdrawn INTEGER NOT NULL DEFAULT 0)',
 	'CREATE TABLE IF NOT EXISTS facilities (facility_id TEXT PRIMARY KEY, json TEXT NOT NULL)',
 	# §17.4: "All access is logged." Append-only by construction — there is no UPDATE or DELETE
@@ -112,6 +121,10 @@ class SqliteStore(LogMixin):
 		if 'retry_at_ms' not in existing:
 			await c.execute('ALTER TABLE sync_ops ADD COLUMN retry_at_ms INTEGER')
 			self._log_info('sync_ops migrated', added='retry_at_ms')
+		# The queue's owner lives in `sync_op_owners`, so there is no `subject_ref` column to add
+		# here — the shared contract with both device clients fixes `sync_ops`'s column list, and
+		# a server-only column would have to be written into that contract as a column neither
+		# client can fill.
 
 		audit_cols = {r[1] for r in await (await c.execute('PRAGMA table_info(access_audit)')).fetchall()}
 		if audit_cols and 'purpose' not in audit_cols:
@@ -126,13 +139,25 @@ class SqliteStore(LogMixin):
 				 self._seal(json.dumps(op.payload), app_layer=op.dataset in APP_LAYER_DATASETS),
 				 op.attempt, int(op.synced), op.retry_at_ms),
 			)
+			# The owner, written once. `REPLACE INTO sync_ops` deletes and re-inserts the row on
+			# every flush, so a binding that travelled with it would have to be re-supplied from a
+			# `SyncOp` that a rehydrated queue has no subject for — and the flush would blank the
+			# owner exactly when it matters, at the conflict. `DO NOTHING` keeps the first one.
+			if op.subject_ref is not None:
+				await c.execute(
+					'INSERT INTO sync_op_owners (op_id, subject_ref) VALUES (?, ?) '
+					'ON CONFLICT(op_id) DO NOTHING',
+					(op.op_id, op.subject_ref),
+				)
 			await c.commit()
 
 	async def sync_ops(self) -> list[SyncOp]:
 		async with self._conn() as c:
-			rows = await (await c.execute('SELECT * FROM sync_ops')).fetchall()
+			rows = await (await c.execute(
+				'SELECT s.*, o.subject_ref FROM sync_ops s LEFT JOIN sync_op_owners o ON o.op_id = s.op_id'
+			)).fetchall()
 		return [
-			SyncOp(op_id=r[0], dataset=r[1], server_version=r[2], client_ts=r[3], server_ts=r[4], payload=json.loads(self._open(r[5])), attempt=r[6], synced=bool(r[7]), retry_at_ms=r[8])
+			SyncOp(op_id=r[0], dataset=r[1], server_version=r[2], client_ts=r[3], server_ts=r[4], payload=json.loads(self._open(r[5])), attempt=r[6], synced=bool(r[7]), retry_at_ms=r[8], subject_ref=r[9])
 			for r in rows
 		]
 

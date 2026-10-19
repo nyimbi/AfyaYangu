@@ -7703,3 +7703,67 @@ that a condition's `when` names a field the form *draws*.
 counts moved with the wider walk — 86 feature sections under three heading spellings, not 78 under
 `#### FID:` alone — and `test_chan001.py` now reads the walker's totals out of its own docstring
 rather than restating them. Full suite 2430 passed; pyright clean; Android compiles.
+
+### Five ways to reach a record you do not own, and four actions no handset could ever run
+
+This unit is the audit's second pass over authorisation, and every defect in it is the same shape:
+a route that reads or writes a person's record and binds the request to nothing but the values the
+caller supplied.
+
+* **`POST /auth/anonymous` was the key to anyone's record** — closed in the previous unit. The same
+  class, one layer up: **the PKCE role was taken from the redemption query string**, so an anonymous
+  caller started a flow with an ordinary challenge and named `clinician`, `county_officer` or
+  `pheoc_analyst` when redeeming it. The code now binds the role at `authorize` and redeems it from
+  the code; a caller naming a different one is refused rather than silently given the code's role.
+* **An `SOS-` id was a capability.** `ref8()` is a 12-bit process prefix and a counter, so
+  `SOS-1A300001` is one increment from the alert the person before you sent. Cancel, fire and the
+  state read were unguarded, so anyone could cancel a stranger's alert mid-countdown or read where
+  they were and which contacts were texted. `SOSAlert.owner_ref` records the arming token when one
+  was presented; an alert *with* an owner refuses a caller presenting none (401) or another's (403),
+  and an alert armed anonymously stays callable by anyone, which is §EMG-001's one tap with no login.
+  Arming itself now refuses an id already held by a different owner — otherwise the takeover happens
+  one step earlier, and no guard on cancel would matter.
+* **`/blood/donors`, `/blood/match` and `/blood/alerts` were open.** Enrolment wrote a donor row
+  under any `donor_ref` and the two reads returned every donor's reference, group and county. A donor
+  is a person who never agreed to a public list. All three are `self`-scoped.
+* **`/insurance/sha-check` was a member-number oracle** — the same question `/insurance/sha/verify`
+  already guards, and the one the live route spends SHA credentials on. `self`-scoped.
+* **`/monitoring/medication/adherence` demanded a subject the body cannot carry.** `AdherenceEvent`
+  names a schedule and no member, so the default extractor found nothing and every dose 422'd; the
+  guard now resolves the member from `MedSchedule.member_ref`, which is what the reminder was filed
+  against. (`MonitoringService.schedule` was silently shadowed by a second method of the same name,
+  which turned every immunisation read into a `TypeError`; the accessor is `med_schedule` now.)
+* **The queued write's owner had no durable home.** `GET /sync/conflicts` filters on the op's
+  `subject_ref`, and it was kept in memory: a restart lost it and a flush — which precedes every
+  conflict — blanked it, because `REPLACE INTO sync_ops` deletes and re-inserts. It lives in
+  `sync_op_owners`, written once with `ON CONFLICT DO NOTHING`, in all three stores. It is a table
+  of its own rather than a column because `sync_ops` is the *shared* contract with both device
+  clients, and neither client has a subject to put in it.
+
+**The four actions no handset could run.** Once `/channels/ussd`, `/channels/whatsapp` and
+`/channels/whatsapp/voice` took `require_webhook`, `ussd_menu`, `whatsapp_send` and `whatsapp_voice`
+were catalogue entries pointing at routes that answer only a carrier holding the shared secret. A
+form drawing "your phone number" to authenticate a carrier is a control that can only ever 401, so
+the three moved to `API_ONLY` as `inbound_wire` and off the catalogue, and `CHAN-003` is named in
+`ON_DEVICE` — the bot is served to a phone that never installs anything, which is the section's own
+argument.
+
+**`POST /channels/sms` was an open spend.** §18.8's direction is App → Telco, so a signature would
+authenticate the wrong party — but "not a webhook" is not "no guard". Any caller could post an
+arbitrary body to an arbitrary number and have the deployment send it under the Ministry's sender ID:
+a budget burn and an impersonation, the second worse. It is now `infrastructure`-scoped, the reading
+`/intermediaries/incentives` already carries for an airtime disbursement, and §17.4's sysadmin holds
+that scope and reaches no personal data.
+
+**A multipart webhook could not be signed at all.** FastAPI parses a route's body — form included —
+*before* it solves the route's dependencies, so `require_webhook` on the voice route was handed a
+consumed stream and raised `Stream consumed`. The middleware now reads the raw body into
+`request.scope['afya.raw_body']` when the signature header is present, so the digest covers the
+bytes that arrived (boundary and part headers included) and Starlette replays the same body to the
+route.
+
+**Gates and canaries: 3 new gates, 3/3 canaries fired.** `test_inbound_webhooks.py` drives the
+multipart route with a signature replayed over a one-byte-different recording, and
+`test_persistence.py` holds the owner through a flush, a restart and a re-enqueue by a different
+caller — each canaried against a mutation disjoint from what its predicate reads. Full suite 2446
+passed, pyright clean.

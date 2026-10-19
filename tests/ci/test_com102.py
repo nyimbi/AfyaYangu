@@ -226,7 +226,7 @@ def _worker_token(auth: object, ref: str) -> dict[str, str]:
 	verifier = secrets.token_urlsafe(64)[:64]
 	code = auth.start_pkce(PKCEStart(  # type: ignore[attr-defined]
 		client_id='chw-app', redirect_uri='afya://cb', code_challenge=s256(verifier),
-		state=ref + '-state')).authorization_code
+		state=ref + '-state', role='chw')).authorization_code
 	token = auth.exchange_pkce(  # type: ignore[attr-defined]
 		PKCETokenRequest(authorization_code=code, client_id='chw-app', redirect_uri='afya://cb',
 		                 code_verifier=verifier), RBACRole.chw)

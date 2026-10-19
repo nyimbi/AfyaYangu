@@ -313,6 +313,7 @@ def _app_and_tokens():  # type: ignore[no-untyped-def]
 	auth: Any = svc['auth']
 	code = auth.start_pkce(PKCEStart(
 		client_id='chw-app', redirect_uri='afya://cb', code_challenge=s256(VERIFIER), state='state-1234',
+		role='chw',
 	)).authorization_code
 	chw_token = auth.exchange_pkce(PKCETokenRequest(
 		authorization_code=code, client_id='chw-app', redirect_uri='afya://cb', code_verifier=VERIFIER,

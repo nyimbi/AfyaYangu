@@ -230,7 +230,7 @@ def test_the_channel_answers_are_the_shared_engines_own_words() -> None:
 		assert reply == engine.assess(inp, 'en').recommendation, body
 
 
-async def test_the_app_route_and_the_channel_route_give_one_answer() -> None:
+async def test_the_app_route_and_the_channel_route_give_one_answer(webhook_secret: str) -> None:
 	"""The crossing §5.4 actually claims, driven through both entry points over HTTP.
 
 	The app reaches triage at `POST /triage/preliminary`; a person with no data reaches it through
@@ -239,6 +239,7 @@ async def test_the_app_route_and_the_channel_route_give_one_answer() -> None:
 	route test against the engine can both pass while the two entry points differ.
 	"""
 	import httpx
+	from conftest import sign
 	from afya.service import build_services, create_app
 
 	app = create_app(build_services())
@@ -249,15 +250,15 @@ async def test_the_app_route_and_the_channel_route_give_one_answer() -> None:
 			('rash', {'symptoms': ['rash']}),
 		):
 			app_reply = (await c.post('/triage/preliminary', json=payload)).json()['recommendation']
-			channel = (await c.post('/channels/whatsapp',
-			                        json={'from_msisdn': '+254711222333', 'body': body})).json()
+			raw, h = sign({'from_msisdn': '+254711222333', 'body': body})
+			channel = (await c.post('/channels/whatsapp', content=raw, headers=h)).json()
 			assert channel['reply'] == app_reply, body
 		# Swahili too: the language travels the same path on both, so the fallback behaviour is shared
 		# rather than reimplemented per channel.
 		app_sw = (await c.post('/triage/preliminary?lang=sw',
 		                       json={'symptoms': ['fever'], 'temperature_c': 38.0})).json()['recommendation']
-		channel_sw = (await c.post('/channels/whatsapp?lang=sw',
-		                           json={'from_msisdn': '+254711222333', 'body': 'I have fever'})).json()
+		raw, h = sign({'from_msisdn': '+254711222333', 'body': 'I have fever'})
+		channel_sw = (await c.post('/channels/whatsapp?lang=sw', content=raw, headers=h)).json()
 		assert channel_sw['reply'] == app_sw
 
 

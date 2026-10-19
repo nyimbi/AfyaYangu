@@ -24,6 +24,7 @@ VERIFIER = secrets.token_urlsafe(64)[:64]
 def _start(svc: AuthService, client_id: str = 'chw-app') -> str:
 	return svc.start_pkce(PKCEStart(
 		client_id=client_id, redirect_uri='afya://cb', code_challenge=s256(VERIFIER), state='state-1234',
+		role='chw',
 	)).authorization_code
 
 
@@ -49,7 +50,7 @@ def test_pkce_start_refuses_plain_challenge_method() -> None:
 	svc = AuthService()
 	with pytest.raises(ValidationError):
 		PKCEStart(client_id='c', redirect_uri='afya://cb', code_challenge=s256(VERIFIER),
-			code_challenge_method='plain', state='state-1234')
+			code_challenge_method='plain', state='state-1234', role='chw')
 
 
 def test_exchange_issues_a_scoped_worker_token() -> None:
@@ -84,7 +85,7 @@ def test_exchange_refuses_a_different_client_or_redirect() -> None:
 	with pytest.raises(AssertionError, match='different client'):
 		_exchange(svc, _start(svc, client_id='chw-app'), client_id='someone-else')
 	svc2 = AuthService()
-	code = svc2.start_pkce(PKCEStart(client_id='c', redirect_uri='afya://one', code_challenge=s256(VERIFIER), state='state-1234')).authorization_code
+	code = svc2.start_pkce(PKCEStart(client_id='c', redirect_uri='afya://one', code_challenge=s256(VERIFIER), state='state-1234', role='chw')).authorization_code
 	with pytest.raises(AssertionError, match='redirect_uri'):
 		svc2.exchange_pkce(PKCETokenRequest(
 			authorization_code=code, client_id='c', redirect_uri='afya://two', code_verifier=VERIFIER,
@@ -210,9 +211,10 @@ async def client() -> httpx.AsyncClient:
 
 async def _worker(client: httpx.AsyncClient, role: str = 'chw') -> str:
 	authz = (await client.post('/auth/pkce/authorize', json={
-		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(VERIFIER), 'state': 'state-1234',
+		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(VERIFIER),
+		'state': 'state-1234', 'role': role,
 	})).json()
-	out = (await client.post('/auth/pkce/token', params={'role': role}, json={
+	out = (await client.post('/auth/pkce/token', json={
 		'authorization_code': authz['authorization_code'], 'client_id': 'app',
 		'redirect_uri': 'afya://cb', 'code_verifier': VERIFIER,
 	})).json()

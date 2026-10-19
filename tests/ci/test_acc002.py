@@ -28,6 +28,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from conftest import sign, sign_multipart
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -379,7 +380,7 @@ TRUNCATED_WAV = (b'RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00'
 	b'\x80>\x00\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00')
 
 
-async def test_a_truncated_recording_is_the_callers_422_and_not_the_servers_500() -> None:
+async def test_a_truncated_recording_is_the_callers_422_and_not_the_servers_500(webhook_secret: str) -> None:
 	"""A half-sent recording is the network's doing, and the route answers for it.
 
 	`wave` raises `RuntimeError` — not its own `Error` — when a frame read seeks past EOF, so the
@@ -396,9 +397,9 @@ async def test_a_truncated_recording_is_the_callers_422_and_not_the_servers_500(
 	# that declares nothing fails the duration check, a seek past EOF raises `RuntimeError` — and
 	# both are the caller's 422. The status is the claim; the message is not.
 	assert 'detail' in r.json(), r.text
-	wa = c.post('/channels/whatsapp/voice',
-		files={'file': ('note.wav', TRUNCATED_WAV, 'audio/wav')},
-		data={'from_msisdn': '+254711222333'})
+	raw, signed = sign_multipart({'from_msisdn': '+254711222333'},
+		{'file': ('note.wav', TRUNCATED_WAV, 'audio/wav')}, webhook_secret)
+	wa = c.post('/channels/whatsapp/voice', content=raw, headers=signed)
 	assert wa.status_code == 422, f'the WhatsApp voice route answers {wa.status_code}'
 
 
@@ -427,29 +428,31 @@ async def test_the_text_route_refuses_a_purpose_it_does_not_have() -> None:
 	assert r.status_code == 422
 
 
-async def test_the_whatsapp_voice_webhook_transcribes_and_answers() -> None:
+async def test_the_whatsapp_voice_webhook_transcribes_and_answers(webhook_secret: str) -> None:
 	c = _client()
-	r = c.post('/channels/whatsapp/voice',
-		data={'from_msisdn': '+254711222333', 'voice_note_lang': 'en'},
-		files={'file': ('note.wav', _wav_bytes(SPEECH_EN), 'audio/wav')})
+	raw, headers = sign_multipart(
+		{'from_msisdn': '+254711222333', 'voice_note_lang': 'en'},
+		{'file': ('note.wav', _wav_bytes(SPEECH_EN), 'audio/wav')}, webhook_secret)
+	r = c.post('/channels/whatsapp/voice', content=raw, headers=headers)
 	assert r.status_code == 200, r.text
 	body = r.json()
 	assert 'nightfall' in body['transcript'].lower(), body
 	assert body['channel'] == 'whatsapp' and body['reply']
 
 
-async def test_the_whatsapp_text_webhook_refuses_a_voice_note() -> None:
+async def test_the_whatsapp_text_webhook_refuses_a_voice_note(webhook_secret: str) -> None:
 	"""Refused rather than answered, which is the fix: answering is what the defect did."""
 	c = _client()
-	r = c.post('/channels/whatsapp',
-		json={'from_msisdn': '+254711222333', 'body': 'media-ref', 'kind': 'voice',
-			'voice_note_lang': 'en'})
+	raw, headers = sign({'from_msisdn': '+254711222333', 'body': 'media-ref', 'kind': 'voice',
+		'voice_note_lang': 'en'}, webhook_secret)
+	r = c.post('/channels/whatsapp', content=raw, headers=headers)
 	assert r.status_code == 422, r.text
 
 
-async def test_the_whatsapp_text_webhook_still_answers_text() -> None:
+async def test_the_whatsapp_text_webhook_still_answers_text(webhook_secret: str) -> None:
 	c = _client()
-	r = c.post('/channels/whatsapp', json={'from_msisdn': '+254711222333', 'body': 'I have fever'})
+	raw, headers = sign({'from_msisdn': '+254711222333', 'body': 'I have fever'}, webhook_secret)
+	r = c.post('/channels/whatsapp', content=raw, headers=headers)
 	assert r.status_code == 200 and r.json()['reply']
 
 

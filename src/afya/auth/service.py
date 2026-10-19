@@ -100,17 +100,28 @@ class AuthService(LogMixin):
 		# code_challenge_method is pinned to S256 by the model; `plain` cannot be represented, so
 		# there is nothing to re-check here.
 		assert req.redirect_uri, 'redirect_uri required'
+		# A code is never minted for a role the app may not hand out, so an operational role cannot
+		# be reached by asking for it one step earlier.
+		assert req.role in {r.value for r in ISSUABLE_ROLES}, 'this role is not issued through the app'
 		code = new_opaque_token()
 		auth = PKCEAuthorization(
 			authorization_code=code, client_id=req.client_id, redirect_uri=req.redirect_uri,
-			code_challenge=req.code_challenge, state=req.state, expires_at_ms=now_ms() + AUTHORIZATION_CODE_TTL_MS,
+			code_challenge=req.code_challenge, state=req.state, role=req.role,
+			expires_at_ms=now_ms() + AUTHORIZATION_CODE_TTL_MS,
 		)
 		self._codes[code] = auth
-		self._log_info('pkce flow started', client=req.client_id)
+		self._log_info('pkce flow started', client=req.client_id, role=req.role)
 		return auth
 
-	def exchange_pkce(self, req: PKCETokenRequest, role: RBACRole) -> WorkerToken:
-		"""The verifier proves the client that started the flow. Single use, and it expires."""
+	def exchange_pkce(self, req: PKCETokenRequest, role: RBACRole | None = None) -> WorkerToken:
+		"""The verifier proves the client that started the flow. Single use, and it expires.
+
+		The role comes from the code, which is where it was bound when the flow started. A `role`
+		argument is accepted for a client that still sends one and must agree with the code: the
+		redemption step used to take the role from the request's query string, so an anonymous
+		caller started a flow and named `clinician` when redeeming it. A code is a claim about one
+		role, and naming another is refused.
+		"""
 		assert req.authorization_code in self._codes, 'unknown authorization code'
 		assert req.authorization_code not in self._used_codes, 'authorization code already redeemed'
 		auth = self._codes[req.authorization_code]
@@ -118,6 +129,11 @@ class AuthService(LogMixin):
 		assert auth.client_id == req.client_id, 'code was issued to a different client'
 		assert auth.redirect_uri == req.redirect_uri, 'redirect_uri must match the one used at start'
 		assert verify_pkce(req.code_verifier, auth.code_challenge), 'PKCE verifier does not match the challenge'
+		# The operational-role refusal is checked first so it keeps its own message: `sysadmin` is
+		# never issued through the app, whatever code a caller holds.
+		assert role is None or role in ISSUABLE_ROLES, 'this role is not issued through the app'
+		assert role is None or role.value == auth.role, f'the code was issued for {auth.role!r}, not {role.value!r}'
+		role = RBACRole(auth.role)
 		assert role in ISSUABLE_ROLES, 'this role is not issued through the app'
 		self._used_codes.add(req.authorization_code)
 		issued = now_ms()

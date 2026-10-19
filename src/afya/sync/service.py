@@ -116,7 +116,22 @@ class SyncService(LogMixin):
 		return RULE_BY_DATASET[dataset]
 
 	def conflicts(self, subject_ref: str | None = None) -> list[ConflictRecord]:
-		return sorted(self._conflicts.values(), key=lambda c: (c.dataset, c.op_id))
+		"""The conflicts this caller may see, newest dataset first.
+
+		`subject_ref` is the token's own and is *required* by the route: the conflict record holds
+		the losing payload and the value the server kept, both of which are the person's health
+		data, and the queue used to be returned whole. A conflict whose owner is unknown (a record
+		rebuilt from a store written before the binding) is matched by nobody, which is the safe
+		direction — it is withheld from every caller rather than shown to all of them.
+
+		The default `None` keeps the in-process callers that hold no subject (`open_conflicts`, the
+		offline indicator) reading the whole set: those are the server's own bookkeeping, not a
+		response to a caller.
+		"""
+		rows = sorted(self._conflicts.values(), key=lambda c: (c.dataset, c.op_id))
+		if subject_ref is None:
+			return rows
+		return [c for c in rows if c.subject_ref == subject_ref]
 
 	def offline_state(self, connection: ConnectionClass) -> OfflineState:
 		"""§16.1 principle 4, computed. `durable` reports whether the queue is actually backed by a
@@ -152,14 +167,21 @@ class SyncService(LogMixin):
 		"""Conflicts still needing someone's attention — §16.3's appeal surface."""
 		return [c for c in self.conflicts() if not c.resolved()]
 
-	def appeal(self, op_id: str, note: str) -> ConflictRecord:
+	def appeal(self, op_id: str, note: str, subject_ref: str | None = None) -> ConflictRecord:
 		"""§16.3's immunisation row: "Server-authoritative on conflict, user can appeal."
 
 		Only where the spec says so. Filing an appeal against a last-write-wins overwrite would be
 		an appeal against arithmetic — the newest write already won — so it is refused rather than
 		accepted and ignored.
+
+		`subject_ref`, when given, must be the conflict's owner: the op id is the only thing the
+		route has, so without this check any caller could file an appeal against a stranger's
+		conflict by naming its id. A conflict with no recorded owner cannot be claimed by anyone,
+		for the same reason `conflicts` withholds it.
 		"""
 		rec = self._conflicts[op_id]
+		if subject_ref is not None and rec.subject_ref != subject_ref:
+			raise LookupError('no such conflict')
 		if not rec.appealable:
 			raise PermissionError(
 				f'a {rec.strategy.value} conflict is not appealable; the server decides {rec.dataset}')
@@ -344,7 +366,7 @@ class SyncService(LogMixin):
 						op_id=op.op_id, dataset=op.dataset, strategy=rule.strategy,
 						client_ts=op.client_ts, server_ts=srv.server_ts,
 						client_payload=dict(op.payload), server_payload=dict(srv.payload),
-						appealable=rule.appealable,
+						appealable=rule.appealable, subject_ref=op.subject_ref,
 					)
 					self._queue.pop(op.op_id, None)
 					if self._store is not None:

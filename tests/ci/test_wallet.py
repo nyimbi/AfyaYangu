@@ -604,7 +604,7 @@ async def test_the_wallet_routes_as_a_client_reaches_them() -> None:
 		verifier = secrets.token_urlsafe(64)[:64]
 		authz = (await client.post('/auth/pkce/authorize', json={
 			'client_id': 'app', 'redirect_uri': 'afya://cb',
-			'code_challenge': s256(verifier), 'state': 'state-1234'})).json()
+			'code_challenge': s256(verifier), 'state': 'state-1234', 'role': 'clinician'})).json()
 		clinician = (await client.post('/auth/pkce/token', params={'role': 'clinician'}, json={
 			'authorization_code': authz['authorization_code'], 'client_id': 'app',
 			'redirect_uri': 'afya://cb', 'code_verifier': verifier})).json()['access_token']

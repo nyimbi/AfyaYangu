@@ -48,8 +48,8 @@ async def token_for(c: httpx.AsyncClient, role: str) -> str:
 	"""
 	authz = (await c.post('/auth/pkce/authorize', json={
 		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(VERIFIER),
-		'state': 'state-1234'})).json()
-	resp = await c.post('/auth/pkce/token', params={'role': role}, json={
+		'state': 'state-1234', 'role': role})).json()
+	resp = await c.post('/auth/pkce/token', json={
 		'authorization_code': authz['authorization_code'], 'client_id': 'app',
 		'redirect_uri': 'afya://cb', 'code_verifier': VERIFIER})
 	out = resp.json()

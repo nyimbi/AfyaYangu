@@ -316,7 +316,7 @@ FEATURE_OF: dict[str, str] = {
 	'water_advisory': 'INF-011', 'air_advisory': 'INF-012', 'flood_risk': 'INF-013',
 	'file_price': 'INF-016', 'price_quote': 'INF-016', 'sha_cover_check': 'INF-016',
 	'assign_chw_task': 'CHAN-005', 'chw_open_tasks': 'CHAN-005', 'complete_chw_task': 'CHAN-005',
-	'send_sms': 'CHAN-001', 'whatsapp_send': 'CHAN-003', 'ussd_menu': 'CHAN-002',
+	'send_sms': 'CHAN-001',
 	'channel_costs': 'CHAN-001',
 	# §CHAN-1's "plain language", read by the content team: the rows name strings and the sentences
 	# that overran the ceiling, which is editorial state. The same scope the other content reads take.
@@ -357,7 +357,7 @@ FEATURE_OF: dict[str, str] = {
 	'signal_scan': 'AI-003', 'signal_report': 'AI-003',
 	'model_cards': 'AI-004', 'fairness_audit': 'AI-004', 'file_redress': 'AI-005',
 	'access_profile': 'ACC-001', 'ui_screens': 'ACC-001', 'languages': 'ACC-002', 'voice': 'ACC-002',
-	'voice_audio': 'ACC-002', 'whatsapp_voice': 'ACC-002',
+	'voice_audio': 'ACC-002',
 	'battery_profile': 'ACC-004', 'compatibility': 'ACC-005', 'sensor_capabilities': 'ACC-005',
 	'screen_layouts': 'ACC-005',
 	'retention_policy': 'SEC-005', 'record_holding': 'SEC-006', 'record_share': 'SEC-006',
@@ -394,6 +394,12 @@ OPERATOR_SCOPES: dict[str, str] = {
 	'content_governance': 'audit_logs',
 	'content_errors': 'audit_logs',
 	'plain_language': 'audit_logs',
+	# §CHAN-1's outbound send spends the deployment's SMS budget and posts under its own sender
+	# ID, so it is `infrastructure` — the scope §17.4 gives the role that touches no personal data
+	# but operates the deployment, the same reading `/intermediaries/incentives` carries for an
+	# airtime disbursement. It was unguarded: any caller could have the Ministry's channel text an
+	# arbitrary body to an arbitrary number.
+	'send_sms': 'infrastructure',
 	# Publishing a community alert or a feed item is what the Ministry says, to everyone. A CHW
 	# holds `assigned` (§17.4), which is the role that carries a worker's reports up; a citizen
 	# holds `self` and can read the feed but not write it.
@@ -543,8 +549,15 @@ API_ONLY: dict[tuple[str, str], str] = {
 	('GET', '/triage/{ref}/diary'): 'citizen_self',
 	('POST', '/integrations/jali/link'): 'citizen_self',
 
-	# 5 routes: an external party posts to it, authenticated by signature.
+	# 8 routes: an external party posts to it, authenticated by signature. The three channel
+	# arrivals are here for the same reason the callback is: the carrier holds the shared secret and
+	# no handset does. They were catalogue actions until the signature guard landed, and a form a
+	# phone could fill was a control that could only ever 401 — the guard is the honest answer, and
+	# an action drawing a "your phone number" field to authenticate a carrier was never reachable.
 	('POST', '/channels/ussd/callback'): 'inbound_wire',
+	('POST', '/channels/ussd'): 'inbound_wire',
+	('POST', '/channels/whatsapp'): 'inbound_wire',
+	('POST', '/channels/whatsapp/voice'): 'inbound_wire',
 	('POST', '/integrations/hotline/follow-up'): 'inbound_wire',
 	('POST', '/integrations/hotline/outcome'): 'inbound_wire',
 	('POST', '/integrations/telco/sms/inbound'): 'inbound_wire',
@@ -1374,9 +1387,6 @@ def catalogue() -> list[MobileAction]:
 		_a('send_sms', 'Send a free text message', 'Channels', 'POST', '/channels/sms', [_f('to_msisdn', 'Phone number'), _f('body', 'Message')]),
 		_a('channel_costs', 'Will this cost me airtime?', 'Channels', 'GET', '/channels/cost', []),
 		_a('plain_language', 'Is our message plain enough?', 'Channels', 'GET', '/channels/plain-language', []),
-		_a('ussd_menu', 'USSD menu', 'Channels', 'POST', '/channels/ussd', [_f('session_id', 'Session'), _f('msisdn', 'Phone number'), _f('text', 'Selection')]),
-		_a('whatsapp_send', 'WhatsApp reply', 'Channels', 'POST', '/channels/whatsapp', [_f('from_msisdn', 'Phone number'), _f('body', 'Message')]),
-		_a('whatsapp_voice', 'Send a WhatsApp voice note', 'Channels', 'POST', '/channels/whatsapp/voice', [_f('from_msisdn', 'Phone number', form=True), _f('voice_note_lang', 'Language', 'select', VOICE_LANGS, form=True), _f('file', 'Voice note', 'file', form=True, accept='audio/*')]),
 		_a('queue_sync_op', 'Save for later (offline)', 'Sync', 'POST', '/sync/ops', [_f('op_id', 'Change number'), _f('dataset', 'What kind of change?', 'select', SYNC_DATASETS), _f('client_ts', 'When it happened', 'int')]),
 		_a('flush_sync', 'Send everything now', 'Sync', 'POST', '/sync/flush', [_f('connection', 'Connection', 'select', ['wifi', 'metered', 'offline'])]),
 		_a('offline_state', 'Is my work saved?', 'Sync', 'GET', '/sync/state', []),
@@ -1687,7 +1697,6 @@ FRIENDLY_COPY: dict[str, tuple[str, str]] = {
 	'channel_report_handled': ('Mark a report as read', 'Say you have read a report, so the next person does not read it again'),
 	'voice': ('Speak to the app', 'Ask in your own language'),
 	'voice_audio': ('Send a recording', 'Speak a symptom report or a note and we will write it down'),
-	'whatsapp_voice': ('Send a WhatsApp voice note', 'Hold the button, speak, and we will triage it'),
 	'enrol_monitoring': ('Start my 21-day check-in', 'A short daily temperature log while you are being watched over'),
 	'monitoring_day': ('Log today', 'Temperature and how you feel, morning and evening'),
 	'monitoring_diary': ('My 21-day diary', 'Every day you have logged, and the countdown to the end'),

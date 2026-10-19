@@ -564,18 +564,21 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/auth/pkce/authorize'), # starts the PKCE flow, before any token exists
 	('POST', '/auth/pkce/token'),     # redeems the code; the verifier is the proof
 	('POST', '/auth/revoke'),         # revokes the presented token; a bad one revokes nothing
-	('POST', '/channels/sms'),        # the telco's inbound webhook, authenticated by signature
-	('POST', '/channels/ussd'),       # the aggregator's inbound USSD session
-	('POST', '/channels/whatsapp'),   # the WhatsApp Business webhook
-	# The same webhook, carrying a voice note instead of text. A note arrives from Meta exactly as
-	# a text message does — there is no token to require and no subject to check, because the only
-	# identity the channel has is the MSISDN in the form field. It stores nothing: the recording is
-	# transcribed in a temporary file, deleted in a `finally`, and what leaves is a triage verdict.
-	('POST', '/channels/whatsapp/voice'),
+	# `/channels/sms` left this list when it took `require_scope('infrastructure')`. It is still not
+	# a webhook — §18.8's direction is "App → Telco", so a signature would authenticate the wrong
+	# party — but "not a webhook" was never the same claim as "no guard". Unguarded, it let any
+	# caller post an arbitrary body to an arbitrary number under the Ministry's sender ID.
+	# The three inbound channel webhooks left this list when the signature guard reached them. They
+	# were open writes attributed to a real person — a USSD menu walk filed a §5.4 case report under
+	# whatever number the caller typed, and a WhatsApp message the same — so the walker counting
+	# `require_webhook`'s header parameter as a guard is the honest reading, not a technicality.
 	('POST', '/sync/batch'),          # a device's own queued ops, keyed by its device id
 	('POST', '/sync/delta'),
 	('POST', '/sync/flush'),
-	('POST', '/sync/ops'),
+	# `/sync/ops` left this list when the conflict scope landed. It now records the token's subject
+	# on the op, because `GET /sync/conflicts` filters the appeal surface on exactly that field —
+	# an unguarded enqueue would let a caller queue a write under no owner, whose conflict is then
+	# withheld from everybody, and the route's own subject is the only thing that can name it.
 	('POST', '/ml/cough/analyze'),    # a pure computation: audio in, verdict out, nothing stored
 	('POST', '/triage/diagnose'),     # the same: no subject, no record, no shared state
 	('POST', '/triage/preliminary'),
@@ -610,7 +613,6 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	# `infrastructure`, and all three are one wire to one authority, so it carries it too.
 	('POST', '/facilities/{facility_id}/wait'),
 	('POST', '/insurance/prices'),
-	('POST', '/insurance/sha-check'),
 	('POST', '/medicine/dose'),
 	('POST', '/medicine/interactions'),
 	('POST', '/medicine/verify'),
@@ -620,24 +622,17 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	('POST', '/environment/water'),
 	('POST', '/monitoring/breeding-site'),
 	('POST', '/monitoring/vector-risk'),
-	('POST', '/monitoring/medication/adherence'),
 	('POST', '/community/issues'),    # a citizen's own report of a problem where they live
 	('POST', '/community/misinformation'),
 	('POST', '/info/myths/ask'),      # a rumour in, a correction out; nothing stored, like `/triage/diagnose`
-	('POST', '/emergency/sos'),       # an emergency must not wait for a token
-	('POST', '/emergency/sos/arm'),   # the countdown starts before the alert: a login here is a
-	                                  # login standing between a person and a cancel window
-	('POST', '/emergency/sos/{sos_id}/cancel'),  # calling off your own alert; the id is a random
-	                                             # one only the arming device holds, and refusing a
-	                                             # cancel for want of a token sends the alert instead
-	('POST', '/emergency/sos/{sos_id}/fire'),    # the countdown expiring, on the same reasoning
+	# `/emergency/sos` and `/emergency/sos/arm` left this list when the SOS ownership binding
+	# landed. Both still answer an anonymous caller — §EMG-001's tap must not wait for a token —
+	# but they now read an *optional* token and record its subject as the alert's owner, which is
+	# what binds cancel, fire and the state read to the person who pressed the button. The walker
+	# counts the optional dependency as a guard, and that is the honest reading: the route reads
+	# the token to decide who the alert belongs to.
 	('POST', '/emergency/fall'),
 	('POST', '/emergency/card/qr'),
-	('POST', '/blood/donors'),        # a donor enrols themselves
-	('POST', '/blood/match'),
-	('POST', '/blood/alerts'),        # a POST because the request is a body, not because it writes:
-	                                  # it computes the alerts and stores none, and returns the same
-	                                  # donor fields `/blood/match` above already returns
 	('POST', '/privacy/dpia'),        # a self-assessment of a proposed use; stores nothing
 	('POST', '/location/border'),
 	('POST', '/location/checkin/point'),

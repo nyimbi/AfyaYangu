@@ -60,13 +60,21 @@ class TokenRequest(BaseModel):
 
 
 class PKCEStart(BaseModel):
-	"""The client's authorization request. `code_challenge` is S256(verifier), never the verifier."""
+	"""The client's authorization request. `code_challenge` is S256(verifier), never the verifier.
+
+	`role` is the role the code is being issued *for*, declared when the flow starts and carried on
+	the authorization code. It used to be supplied at redemption instead, from the token route's
+	query string — so a caller started an unprivileged flow and then asked for whatever role it
+	wanted. The role is part of what the code authorises, and a code is only good for the role it
+	was minted for.
+	"""
 	model_config = MODEL_CONFIG
 	client_id: str
 	redirect_uri: str
 	code_challenge: str = Field(min_length=43, max_length=128)
 	code_challenge_method: str = Field(default='S256', pattern=r'^S256$')
 	state: str = Field(min_length=8, max_length=128)
+	role: str
 
 
 class PKCEAuthorization(BaseModel):
@@ -77,6 +85,7 @@ class PKCEAuthorization(BaseModel):
 	code_challenge: str
 	state: str
 	expires_at_ms: int
+	role: str
 
 
 class PKCETokenRequest(BaseModel):

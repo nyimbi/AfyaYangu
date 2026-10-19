@@ -232,6 +232,15 @@ def _demands_a_subject(method: str, path: str) -> bool:
 		bound = inspect.getclosurevars(guard).nonlocals
 	except TypeError:
 		return True
+	# A guard given its own extractor reads the subject from something the form does not have to
+	# name — `/monitoring/medication/adherence` names a *schedule*, and the guard resolves the
+	# member it belongs to. That is the same binding as `names_subject=False` from the form's side:
+	# nothing the person types is compared, so a subject field would be a control the route ignores.
+	# Tested before `names_subject` because the two are independent arguments and the extractor
+	# wins: a guard carrying both reads its own extractor and never the body, so the default
+	# `names_subject=True` beside it demands nothing.
+	if bound.get('subject_from_request') is not None:
+		return False
 	if 'names_subject' in bound:
 		return bool(bound['names_subject'])
 	# `require_self_or_guardian` always demands one: it compares the named member against the
@@ -294,6 +303,16 @@ def test_the_gate_catches_a_form_that_cannot_name_its_subject() -> None:
 		id='zzz_bound', title='Bound', group='Test', method='GET', path='/chronic/lifestyle',
 		fields=[MobileField(name='condition', label='Condition', type='text')],
 	)]) == {}, 'names_subject=False must not be read as demanding one'
+	# And a guard with its *own extractor* is the same from the form's side: the route resolves the
+	# subject from the schedule the request names, so the default `names_subject=True` beside the
+	# extractor must not be read as demanding a field. `/monitoring/medication/adherence` is the
+	# case that caught this: the predicate returned the default before it ever looked for the
+	# extractor, and the gate blamed a form the route never reads.
+	assert _unsuppliable_subjects([MobileAction(
+		id='zzz_extracted', title='Extracted', group='Test', method='POST',
+		path='/monitoring/medication/adherence',
+		fields=[MobileField(name='schedule_id', label='Schedule', type='text', client_supplied=True)],
+	)]) == {}, 'a custom subject extractor must not be read as demanding one'
 
 
 

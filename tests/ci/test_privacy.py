@@ -96,9 +96,10 @@ async def test_access_log_endpoint_is_auditor_only_and_records_real_access(tmp_p
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		async def worker(role: str) -> str:
 			authz = (await c.post('/auth/pkce/authorize', json={
-				'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': challenge, 'state': 'state-1234',
+				'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': challenge,
+				'state': 'state-1234', 'role': role,
 			})).json()
-			return str((await c.post('/auth/pkce/token', params={'role': role}, json={
+			return str((await c.post('/auth/pkce/token', json={
 				'authorization_code': authz['authorization_code'], 'client_id': 'app',
 				'redirect_uri': 'afya://cb', 'code_verifier': verifier,
 			})).json()['access_token'])

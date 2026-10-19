@@ -24,9 +24,10 @@ async def _staff(c: httpx.AsyncClient, auth: AuthService, role: str) -> str:
 		return auth.provision_staff(f'ops-{role}', RBACRole(role), registrar='MoH ops').access_token
 	verifier = 'v' * 64
 	authz = (await c.post('/auth/pkce/authorize', json={
-		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234',
+		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier),
+		'state': 'state-1234', 'role': role,
 	})).json()
-	return (await c.post('/auth/pkce/token', params={'role': role}, json={
+	return (await c.post('/auth/pkce/token', json={
 		'authorization_code': authz['authorization_code'], 'client_id': 'app',
 		'redirect_uri': 'afya://cb', 'code_verifier': verifier,
 	})).json()['access_token']

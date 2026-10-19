@@ -60,7 +60,7 @@ async def _chw(c: httpx.AsyncClient) -> dict[str, str]:
 	verifier = 'v' * 43
 	challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
 	authz = (await c.post('/auth/pkce/authorize', json={
-		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': challenge, 'state': 'state-1234',
+		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': challenge, 'state': 'state-1234', 'role': 'chw',
 	})).json()
 	out = (await c.post('/auth/pkce/token', params={'role': 'chw'}, json={
 		'authorization_code': authz['authorization_code'], 'client_id': 'app',

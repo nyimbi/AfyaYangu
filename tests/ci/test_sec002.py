@@ -335,7 +335,7 @@ def test_the_chunk_routes_are_closed_to_a_worker_role() -> None:
 	verifier = 'v' * 43
 	challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
 	authz = client.post('/auth/pkce/authorize', json={
-		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': challenge, 'state': 'state-1234',
+		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': challenge, 'state': 'state-1234', 'role': 'chw',
 	}).json()
 	out = client.post('/auth/pkce/token', params={'role': 'chw'}, json={
 		'authorization_code': authz['authorization_code'], 'client_id': 'app',

@@ -273,6 +273,18 @@ class MonitoringService(LogMixin):
 		self._schedules[sched.schedule_id] = sched
 		return sched
 
+	def med_schedule(self, schedule_id: str) -> MedSchedule | None:
+		"""The medication reminder a dose names, or None when no such reminder was filed.
+
+		Named `med_schedule` rather than `schedule` because `schedule` is §MON-002's immunisation
+		list, and a second method of the same name silently replaced it — every child-schedule read
+		became a TypeError. An accessor rather than a read of `_schedules`, because the adherence
+		guard asks this question to bind a dose to the person the schedule belongs to. Returning
+		None rather than asserting lets the route answer "unknown schedule" with the 422
+		`record_adherence` already gives, instead of a 500 from a guard.
+		"""
+		return self._schedules.get(schedule_id)
+
 	async def record_adherence(self, event: AdherenceEvent) -> AdherenceReport:
 		assert event.schedule_id in self._schedules, 'unknown schedule'
 		self._adherence.append(event)

@@ -245,13 +245,15 @@ async def test_the_routes_serve_the_alerts_and_the_centres() -> None:
 	app = create_app(svc)
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		h = await _token(c)
-		await c.post('/blood/donors', json={'donor_ref': 'D1', 'blood_group': 'O-', 'county': 'Nairobi'})
-		await c.post('/blood/donors', json={'donor_ref': 'D2', 'blood_group': 'B+', 'county': 'Nairobi'})
-		await c.post('/blood/donors', json={'donor_ref': 'D3', 'blood_group': 'A+', 'county': 'Nairobi'})
-		await c.post('/blood/donors', json={'donor_ref': 'D4', 'blood_group': 'O-', 'county': 'Kiambu'})
+		# The donor list is personal data, so enrolment and every read of it carry the caller's own
+		# token: `self` scope is what makes the row theirs rather than a public register.
+		for ref, group, county in (('D1', 'O-', 'Nairobi'), ('D2', 'B+', 'Nairobi'),
+		                           ('D3', 'A+', 'Nairobi'), ('D4', 'O-', 'Kiambu')):
+			assert (await c.post('/blood/donors', json={
+				'donor_ref': ref, 'blood_group': group, 'county': county}, headers=h)).status_code == 200
 
 		alerts = await c.post('/blood/alerts', json={
-			'request_id': 'R1', 'blood_group': 'B+', 'county': 'Nairobi', 'urgency': 'critical'})
+			'request_id': 'R1', 'blood_group': 'B+', 'county': 'Nairobi', 'urgency': 'critical'}, headers=h)
 		assert alerts.status_code == 200, alerts.text
 		refs = {a['donor_ref'] for a in alerts.json()}
 		assert refs == {'D1', 'D2', 'D4'}, (
@@ -263,7 +265,7 @@ async def test_the_routes_serve_the_alerts_and_the_centres() -> None:
 
 		# A routine request in the same county reaches the exact group and nobody else.
 		routine = await c.post('/blood/alerts', json={
-			'request_id': 'R2', 'blood_group': 'B+', 'county': 'Nairobi', 'urgency': 'routine'})
+			'request_id': 'R2', 'blood_group': 'B+', 'county': 'Nairobi', 'urgency': 'routine'}, headers=h)
 		assert [a['donor_ref'] for a in routine.json()] == ['D2'], (
 			'a routine need is met from the stock list; it must not wake the O- donor')
 

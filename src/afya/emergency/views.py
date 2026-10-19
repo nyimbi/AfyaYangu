@@ -142,6 +142,11 @@ class SOSAlert(BaseModel):
 	event: SOSEvent
 	cancelled: bool = False
 	fired: bool = False
+	# The subject whose token armed this alert, when one was presented. `None` is the deliberate
+	# anonymous case: §EMG-001's tap must work with no login, so an alert armed without a token has
+	# no owner and is refused to nobody. When it *does* have an owner, cancel, fire and the state
+	# read are bound to that token — `sos_id` is a 20-bit counter, so the id alone is not a secret.
+	owner_ref: str | None = None
 
 
 class SOSDispatch(BaseModel):

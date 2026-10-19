@@ -415,7 +415,7 @@ async def test_an_unconsented_assessment_is_refused_at_the_boundary_not_only_in_
 	verifier = 'v' * 64
 	async with _httpx.AsyncClient(transport=_httpx.ASGITransport(app=app), base_url='http://t') as c:
 		authz = (await c.post('/auth/pkce/authorize', json={
-			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234',
+			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234', 'role': 'chw',
 		})).json()
 		chw = (await c.post('/auth/pkce/token', params={'role': 'chw'}, json={
 			'authorization_code': authz['authorization_code'], 'client_id': 'app',
@@ -527,7 +527,7 @@ async def test_pheoc_preview_applies_the_same_suppression_as_the_push() -> None:
 	async with _httpx.AsyncClient(transport=_httpx.ASGITransport(app=app), base_url='http://t') as c:
 		verifier = 'v' * 64
 		authz = (await c.post('/auth/pkce/authorize', json={
-			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234',
+			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234', 'role': 'pheoc_analyst',
 		})).json()
 		token = (await c.post('/auth/pkce/token', params={'role': 'pheoc_analyst'}, json={
 			'authorization_code': authz['authorization_code'], 'client_id': 'app',
@@ -585,7 +585,7 @@ async def test_hotline_follow_up_lands_in_the_feed(webhook_env: str) -> None:
 		from afya.auth.views import s256
 		verifier = 'v' * 64
 		authz = (await c.post('/auth/pkce/authorize', json={
-			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234',
+			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234', 'role': 'chw',
 		})).json()
 		chw = (await c.post('/auth/pkce/token', params={'role': 'chw'}, json={
 			'authorization_code': authz['authorization_code'], 'client_id': 'app',
@@ -595,7 +595,8 @@ async def test_hotline_follow_up_lands_in_the_feed(webhook_env: str) -> None:
 		assert (await c.get('/channels/callbacks', headers=h)).json() == [], 'nothing has asked for a call yet'
 		assert (await c.get('/integrations/hotline/outcomes', headers=h)).json() == [], 'and none has closed'
 		# The USSD walk's second prompt is answered `1`, which files the callback against the handset.
-		walk = await c.post('/channels/ussd', json={'session_id': 'S1', 'msisdn': '+254712345678', 'text': '1*1*1*1'})
+		walk_raw, walk_h = _signed({'session_id': 'S1', 'msisdn': '+254712345678', 'text': '1*1*1*1'})
+		walk = await c.post('/channels/ussd', content=walk_raw, headers=walk_h)
 		assert walk.status_code == 200, walk.text
 		queue = (await c.get('/channels/callbacks', headers=h)).json()
 		assert len(queue) == 1 and queue[0]['handled'] is False, queue

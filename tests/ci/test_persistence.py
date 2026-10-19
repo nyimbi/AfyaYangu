@@ -104,3 +104,40 @@ async def test_already_synced_ops_are_not_replayed(db: str) -> None:
 	second = SyncService(SqliteStore(db))
 	assert await second.load() == 0, 'synced ops must not return to the queue'
 	assert (await second.flush(0)).synced == 0
+
+
+async def test_a_queued_writes_owner_survives_the_restart_and_the_flush(db: str) -> None:
+	"""§16.3's appeal surface filters on the op's owner, and the owner has to outlive the process.
+
+	Two ways it was lost. The op row is written with `REPLACE INTO`, which deletes and re-inserts,
+	so an owner stored *on* that row is blanked by the next flush — and a flush is exactly what
+	precedes a conflict. And a queue rehydrated after a restart is built from the stored row, which
+	carries no token, so an owner kept only in memory is gone at the restart. Either way the write
+	survives and the record of whose it was does not, and the conflict it loses is then withheld
+	from every caller by the filter that was added to protect it.
+	"""
+	first = SyncService(SqliteStore(db))
+	await first.enqueue(SyncOp(op_id='OP-OWNER0001', dataset='immunisation', client_ts=1,
+	                          payload={'dose': '1'}, subject_ref='U-OWNER'))
+	# The flush rewrites the row. The owner must not be a casualty of that.
+	await first.flush(0)
+	assert (await SqliteStore(db).sync_ops())[0].subject_ref == 'U-OWNER', 'the flush blanked the owner'
+
+	# And a fresh process, which has no token to re-supply it from.
+	restored = (await SqliteStore(db).sync_ops())[0]
+	assert restored.subject_ref == 'U-OWNER', 'the restart lost the owner'
+	assert restored.op_id == 'OP-OWNER0001'
+
+	# The owner is written *once*. A later flush of the same op — the retry path, which re-enqueues
+	# a row the queue rehydrated and therefore carries no subject — must not blank it, and must not
+	# transfer it either: the op belongs to whoever queued it, and a re-enqueue is the same write.
+	second = SyncService(SqliteStore(db))
+	await second.enqueue(SyncOp(op_id='OP-OWNER0001', dataset='immunisation', client_ts=1,
+	                           payload={'dose': '2'}, subject_ref=None))
+	await second.flush(0)
+	after = (await SqliteStore(db).sync_ops())[0]
+	assert after.subject_ref == 'U-OWNER', 'a rehydrated re-enqueue blanked the owner'
+	await second.enqueue(SyncOp(op_id='OP-OWNER0001', dataset='immunisation', client_ts=1,
+	                           payload={'dose': '3'}, subject_ref='U-IMPOSTOR'))
+	assert (await SqliteStore(db).sync_ops())[0].subject_ref == 'U-OWNER', \
+		'a second enqueue transferred the op to a different caller'

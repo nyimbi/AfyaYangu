@@ -376,7 +376,7 @@ async def test_a_worker_token_cannot_use_a_citizen_route() -> None:
 	challenge = s256(verifier)
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		authz = (await c.post('/auth/pkce/authorize', json={
-			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': challenge, 'state': 'state-1234',
+			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': challenge, 'state': 'state-1234', 'role': 'chw',
 		})).json()
 		chw = (await c.post('/auth/pkce/token', params={'role': 'chw'}, json={
 			'authorization_code': authz['authorization_code'], 'client_id': 'app',

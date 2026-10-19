@@ -135,17 +135,30 @@ class EmergencyService(LogMixin):
 		"""The dispatch for an alert that has gone out, or None while it has not."""
 		return self._fired.get(sos_id)
 
-	def arm(self, event: SOSEvent, at_ms: int | None = None) -> SOSAlert:
+	def arm(self, event: SOSEvent, at_ms: int | None = None, owner_ref: str | None = None) -> SOSAlert:
 		"""Start the countdown. Nothing is sent until `fire`, which is the whole of the feature.
 
 		The deadline is computed here and travels with the alert, so the client counts down to the
 		server's instant rather than to its own — a device whose clock is a minute fast would
 		otherwise show a window that had already closed.
+
+		`owner_ref` is the subject whose token armed the alert, when there was one. It is recorded
+		rather than required: §EMG-001's tap must work with no login, so an anonymous alert has no
+		owner. What it does when present is make the id non-transferable — `ref8()` is a process
+		prefix plus a counter, so knowing an `sos_id` must not be enough to cancel or fire it.
 		"""
 		now = clock_ms() if at_ms is None else at_ms
+		# A client may supply `sos_id`, and arming writes into a map keyed by it. Without this
+		# check a caller could arm with someone else's id and take the alert over — the same
+		# enumeration the ownership guard closes on the other routes, one step earlier. Re-arming
+		# the same id is allowed when it is the same owner, which is the replay §EMG-001's Offline
+		# note describes.
+		prior = self._armed.get(event.sos_id)
+		assert prior is None or prior.owner_ref == owner_ref, 'that alert id belongs to another caller'
 		alert = SOSAlert(
 			sos_id=event.sos_id, message=_sos_message(event), countdown_s=self._countdown_s,
 			armed_at_ms=now, cancel_deadline_ms=now + self._countdown_s * 1000, event=event,
+			owner_ref=owner_ref,
 		)
 		self._armed[alert.sos_id] = alert
 		self._log_info('sos armed', sos_id=alert.sos_id, countdown_s=self._countdown_s)
@@ -188,14 +201,18 @@ class EmergencyService(LogMixin):
 
 	# --- §EMG-001 the fan-out --------------------------------------------------------------------
 
-	async def sos(self, event: SOSEvent) -> SOSDispatch:
+	async def sos(self, event: SOSEvent, owner_ref: str | None = None) -> SOSDispatch:
 		"""The one-tap path: arm and fire with no window, for a client that has none.
 
 		§EMG-001's countdown is a client feature the section describes as "prevents accidental
 		activation"; a caller that already knows the person meant it — a device that has been through
 		its own confirm, or a replay of a queued alert — posts here and gets the fan-out directly.
+
+		`owner_ref` is the arming token's subject, carried so the alert it records has an owner even
+		though nothing can be cancelled: an alert that has already gone out is still *someone's*, and
+		the state route binds to the same owner.
 		"""
-		alert = self.arm(event)
+		alert = self.arm(event, owner_ref=owner_ref)
 		out = await self._dispatch(alert)
 		alert.fired = True
 		self._fired[alert.sos_id] = out

@@ -21,6 +21,7 @@ from afya.channels.outbound import (
 )
 from afya.channels.service import ChannelService
 from afya.channels.views import SmsOut, UssdRequest
+from conftest import sign
 from afya.service import build_services, create_app
 
 MSISDN = '+254711222333'
@@ -187,7 +188,7 @@ def test_a_ussd_report_gets_a_follow_up_and_it_names_what_was_reported() -> None
 	assert 'Fever' in body, 'the follow-up names the menu item the person chose'
 
 
-async def test_the_follow_up_is_sent_once_however_many_sessions_follow() -> None:
+async def test_the_follow_up_is_sent_once_however_many_sessions_follow(webhook_secret: str) -> None:
 	"""The failure a follow-up actually has, and the reason it is keyed by report id.
 
 	The routes emit by walking the whole sink, so a send with no memory would text a person once per
@@ -247,7 +248,7 @@ def test_the_follow_up_is_served_in_the_language_the_person_was_served() -> None
 
 # --- end to end, as a person reaches it -----------------------------------------------------------
 
-async def test_the_ussd_route_sends_the_follow_up_over_the_one_outbound_path() -> None:
+async def test_the_ussd_route_sends_the_follow_up_over_the_one_outbound_path(webhook_secret: str) -> None:
 	"""The send goes through `send_sms`, so §CHAN-1's Critical requirement is resolved on it.
 
 	A follow-up composed here and pushed at the gateway would be a second outbound path, and the cost
@@ -266,7 +267,8 @@ async def test_the_ussd_route_sends_the_follow_up_over_the_one_outbound_path() -
 	app = create_app(services)
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
 		for text in ('1*1', '1*1*1', '1*1*1*2'):
-			r = await c.post('/channels/ussd', json={'session_id': 'S-9', 'msisdn': MSISDN, 'text': text})
+			raw, h = sign({'session_id': 'S-9', 'msisdn': MSISDN, 'text': text})
+			r = await c.post('/channels/ussd', content=raw, headers=h)
 			assert r.status_code == 200, r.text[:200]
 	assert len(sent) == 1, f'the follow-up must go once, not once per session: {len(sent)}'
 	assert sent[0].zero_rated is True, 'the follow-up is resolved on the cost path'

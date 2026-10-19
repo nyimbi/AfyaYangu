@@ -267,7 +267,7 @@ async def test_the_activity_route_defaults_to_the_week_it_is_running_in(tmp_path
 		verifier = 'v' * 43
 		challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
 		authz = (await c.post('/auth/pkce/authorize', json={
-			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': challenge,
+			'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': challenge, 'role': 'chw',
 			'state': 'state-1234'})).json()
 		tok = (await c.post('/auth/pkce/token', params={'role': 'chw'}, json={
 			'authorization_code': authz['authorization_code'], 'client_id': 'app',

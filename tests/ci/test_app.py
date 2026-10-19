@@ -10,7 +10,7 @@ async def _county_officer(c: httpx.AsyncClient) -> str:
 	from afya.auth.views import s256
 	verifier = 'v' * 64
 	authz = (await c.post('/auth/pkce/authorize', json={
-		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234',
+		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234', 'role': 'county_officer',
 	})).json()
 	return (await c.post('/auth/pkce/token', params={'role': 'county_officer'}, json={
 		'authorization_code': authz['authorization_code'], 'client_id': 'app',
@@ -19,9 +19,28 @@ async def _county_officer(c: httpx.AsyncClient) -> str:
 
 
 @pytest.fixture
-async def client() -> httpx.AsyncClient:
-	transport = httpx.ASGITransport(app=create_app())
+def services() -> dict[str, object]:
+	"""One service instance per test, so a token minted here is one the app knows."""
+	return build_services()
+
+
+@pytest.fixture
+async def client(services: dict[str, object]) -> httpx.AsyncClient:
+	transport = httpx.ASGITransport(app=create_app(services))
 	return httpx.AsyncClient(transport=transport, base_url='http://testserver')
+
+
+@pytest.fixture
+def sysadmin(services: dict[str, object]) -> str:
+	"""A sysadmin token for the app under test — §17.4's role for `infrastructure`.
+
+	Minted on the *same* service instance the app was built from: `AuthService` holds issued
+	tokens in memory, so a token from a second `build_services()` is unknown to the app and
+	every request with it reads as unauthenticated.
+	"""
+	from typing import Any, cast
+	auth: Any = cast(Any, services['auth'])
+	return auth.provision_staff('app-sys', RBACRole.sysadmin, registrar='MoH ops').access_token
 
 
 async def test_health(client: httpx.AsyncClient) -> None:
@@ -73,21 +92,35 @@ async def test_sos_endpoint(client: httpx.AsyncClient) -> None:
 	assert '719-hotline' in out['notified']
 
 
-async def test_whatsapp_and_ussd_endpoints(client: httpx.AsyncClient) -> None:
-	wa = (await client.post('/channels/whatsapp', json={'from_msisdn': '+254711222333', 'body': 'find facility'})).json()
+async def test_whatsapp_and_ussd_endpoints(client: httpx.AsyncClient, webhook_secret: str,
+		sysadmin: str) -> None:
+	from conftest import sign
+	raw, h = sign({'from_msisdn': '+254711222333', 'body': 'find facility'})
+	wa = (await client.post('/channels/whatsapp', content=raw, headers=h)).json()
 	assert 'nearest facility' in wa['reply']
-	ussd = (await client.post('/channels/ussd', json={'session_id': 's1', 'msisdn': '+254711222333', 'text': ''})).json()
+	raw, h = sign({'session_id': 's1', 'msisdn': '+254711222333', 'text': ''})
+	ussd = (await client.post('/channels/ussd', content=raw, headers=h)).json()
 	assert ussd['menu'].startswith('CON Afya Yangu')
-	sms = (await client.post('/channels/sms', json={'to_msisdn': '+254711222333', 'body': 'Call 719'})).json()
+	# The outbound SMS is not a webhook: §18.8's direction is App → Telco, so it carries no
+	# signature. It is `infrastructure`-scoped, because it spends the deployment's SMS budget and
+	# posts under the Ministry's sender ID — so an anonymous caller is refused and a sysadmin
+	# reaches it. Asserting only the happy path would pass on a route that required any token.
+	sms_body = {'to_msisdn': '+254711222333', 'body': 'Call 719'}
+	assert (await client.post('/channels/sms', json=sms_body)).status_code in (401, 403), \
+		'an anonymous caller sent an SMS under the Ministry sender ID'
+	sms = (await client.post('/channels/sms', json=sms_body,
+	                         headers={'authorization': f'Bearer {sysadmin}'})).json()
 	assert sms['segments'] == 1
 
 
 async def test_sync_endpoints(client: httpx.AsyncClient) -> None:
 	op = {'op_id': 'OP-AAA111222', 'dataset': 'symptom_logs', 'client_ts': 100, 'server_version': 0, 'payload': {}}
-	assert (await client.post('/sync/ops', json=op)).json() == {'queued': True}
+	token = (await client.post('/auth/anonymous', json={'subject_ref': 'S1'})).json()['token']
+	h = {'authorization': f'Bearer {token}'}
+	assert (await client.post('/sync/ops', json=op, headers=h)).json() == {'queued': True}
 	flushed = (await client.post('/sync/flush')).json()
 	assert flushed['synced'] == 1
-	assert (await client.post('/sync/ops', json={**op, 'op_id': 'OP-BBB222333', 'dataset': 'nope'})).status_code == 422
+	assert (await client.post('/sync/ops', json={**op, 'op_id': 'OP-BBB222333', 'dataset': 'nope'}, headers=h)).status_code == 422
 
 
 async def test_records_and_privacy_endpoints(client: httpx.AsyncClient) -> None:

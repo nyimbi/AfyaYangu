@@ -296,7 +296,7 @@ async def _county_officer(c: httpx.AsyncClient) -> str:
 	from afya.auth.views import s256
 	verifier = 'v' * 64
 	authz = (await c.post('/auth/pkce/authorize', json={
-		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234',
+		'client_id': 'app', 'redirect_uri': 'afya://cb', 'code_challenge': s256(verifier), 'state': 'state-1234', 'role': 'county_officer',
 	})).json()
 	return str((await c.post('/auth/pkce/token', params={'role': 'county_officer'}, json={
 		'authorization_code': authz['authorization_code'], 'client_id': 'app',

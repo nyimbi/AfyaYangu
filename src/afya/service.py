@@ -673,6 +673,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 				headers={'Retry-After': str(decision.retry_after_seconds)},
 			)
 		key = request.headers.get('idempotency-key')
+		if request.headers.get('x-afya-signature'):
+			# An inbound webhook's signature covers the bytes as they arrived, so they have to be
+			# read before anything parses them. FastAPI parses a route's body — form included —
+			# *before* it solves the route's dependencies, so a `require_webhook` guard on a
+			# multipart route was handed a consumed stream and raised `Stream consumed`. Reading it
+			# here is what makes the guard work on every body shape: the body is cached on this
+			# request, so Starlette replays it to the route, and the guard compares the same bytes.
+			request.scope['afya.raw_body'] = await request.body()
 		if key and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
 			body = (await request.body()).decode('utf-8', 'replace')
 			try:
@@ -738,6 +746,37 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			except (AssertionError, ValueError):
 				return None
 		return dependency
+
+	def require_sos_owner():  # type: ignore[no-untyped-def]
+		"""Route guard: an armed SOS is callable only by the token that armed it.
+
+		`ref8()` is a 12-bit process prefix and a monotonic counter, so `SOS-` ids are dense and
+		guessable: `SOS-1A300001` is one increment from the alert the person before you sent. With
+		cancel, fire and the state read unauthenticated, anyone could walk that space and cancel a
+		stranger's alert mid-countdown, or read where they were. The id is not a capability.
+
+		The binding is the token's subject, recorded by `arm` when one was presented. It is
+		deliberately *optional*: §EMG-001's one tap must work with no login, so an alert armed
+		without a token has no owner and stays callable by nobody in particular — the anonymous
+		path the section requires, and the only shape in which "cancel without a token" is not a
+		hole. An alert *with* an owner refuses a caller who presents no token (401) and a caller
+		who presents someone else's (403); an anonymous caller still reaches an anonymous alert.
+
+		An unknown id is left to the route, so cancel and fire keep answering 409 "no armed alert"
+		rather than turning a stale timer into a 404 the client would read as a wrong URL.
+		"""
+		async def guard(request: Request, authorization: str | None = Header(default=None)) -> str | None:
+			subject = await optional_subject()(authorization)
+			sos_id = request.path_params.get('sos_id')
+			alert = emergency.armed(str(sos_id)) if sos_id else None
+			if alert is None or alert.owner_ref is None:
+				return subject
+			if subject is None:
+				raise HTTPException(status_code=401, detail='this alert belongs to a signed-in caller')
+			if subject != alert.owner_ref:
+				raise HTTPException(status_code=403, detail='this alert belongs to another caller')
+			return subject
+		return guard
 
 	def require_scope(dataset: str, *, purpose: str | None = None):  # type: ignore[no-untyped-def]
 		"""Route guard: the token's role must cover the dataset it is asking for (§17 RBAC).
@@ -902,6 +941,25 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			return None
 		return body.get('member_ref') if isinstance(body, dict) else None
 
+	async def _adherence_subject(request: Request) -> str | None:
+		"""The member a dose's schedule belongs to, so `require_self` can compare it to the token.
+
+		`AdherenceEvent` names a schedule and no subject, so the default extractor would find
+		nothing and every dose would 422. The schedule is the subject's proxy: `MedSchedule.member_ref`
+		is what `/monitoring/medication` bound when the reminder was filed, and a dose is an action on
+		that reminder. An unknown schedule answers None, which the guard turns into the same 422
+		`record_adherence` gives — the route is not made into a 500 by a stale client.
+		"""
+		try:
+			body = json.loads(await request.body())
+		except ValueError:
+			return None
+		schedule_id = body.get('schedule_id') if isinstance(body, dict) else None
+		if not isinstance(schedule_id, str):
+			return None
+		sched = monitoring.med_schedule(schedule_id)
+		return sched.member_ref if sched is not None else None
+
 	def require_webhook(header_name: str = 'x-afya-signature'):  # type: ignore[no-untyped-def]
 		"""Guard for an inbound webhook: a carrier or a peer system has no app token.
 
@@ -924,7 +982,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 				raise HTTPException(status_code=503, detail='inbound webhooks are not configured on this deployment')
 			if not signature:
 				raise HTTPException(status_code=401, detail='webhook signature required')
-			body = await request.body()
+			# The middleware reads the body ahead of FastAPI's parse when the signature header is
+			# present, so the bytes the digest is taken over are the ones that arrived. Falling back
+			# to `request.body()` covers a caller that reaches the guard without the middleware —
+			# which is every non-multipart route's normal path — and a body that has already been
+			# parsed and cached replays from `_body` rather than the stream.
+			body = request.scope.get('afya.raw_body')
+			if body is None:
+				body = await request.body()
 			expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 			if not hmac.compare_digest(expected, signature.strip().lower()):
 				raise HTTPException(status_code=401, detail='webhook signature does not match')
@@ -979,6 +1044,12 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	@app.post('/auth/pkce/authorize')
 	async def auth_pkce_authorize(req: PKCEStart) -> dict[str, str]:
+		"""Start the flow, and bind the role it is for.
+
+		`req.role` is recorded on the authorization code. Before this the role was read from the
+		token route's query string instead, so the code bound the client and nothing else and any
+		caller could redeem it for a clinician, a county officer or a PHEOC analyst token.
+		"""
 		try:
 			authz = auth.start_pkce(req)
 		except AssertionError as exc:
@@ -986,7 +1057,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'authorization_code': authz.authorization_code, 'state': authz.state, 'redirect_uri': authz.redirect_uri}
 
 	@app.post('/auth/pkce/token')
-	async def auth_pkce_token(req: PKCETokenRequest, role: RBACRole) -> dict[str, object]:
+	async def auth_pkce_token(req: PKCETokenRequest, role: RBACRole | None = None) -> dict[str, object]:
+		"""Redeem the code for a token in the role the code was issued for.
+
+		`role` is optional and only checked: the code is authoritative. A caller that names a role
+		the code was not issued for is refused rather than silently given the code's role, because
+		a client that asks for the wrong thing has a bug and should hear about it.
+		"""
 		try:
 			token = auth.exchange_pkce(req, role)
 		except AssertionError as exc:
@@ -1592,25 +1669,28 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- emergency ---
 	@app.post('/emergency/sos')
-	async def emergency_sos(event: SOSEvent) -> dict[str, object]:
-		return (await emergency.sos(event)).model_dump(mode='json')
+	async def emergency_sos(event: SOSEvent, subject: str | None = Depends(optional_subject())) -> dict[str, object]:
+		"""§EMG-001's one tap. Ungated, because an emergency must not wait for a token — but when
+		a token *is* presented the alert records its subject, and that is what binds cancel, fire
+		and the state read to this caller rather than to whoever next guesses the id."""
+		return (await emergency.sos(event, owner_ref=subject)).model_dump(mode='json')
 
 	@app.post('/emergency/sos/arm')
-	async def emergency_sos_arm(event: SOSEvent) -> dict[str, object]:
+	async def emergency_sos_arm(event: SOSEvent, subject: str | None = Depends(optional_subject())) -> dict[str, object]:
 		"""§EMG-001's countdown, started. Ungated with `/emergency/sos` and for the same reason: an
 		emergency must not wait for a token, and the arming call is the one a person makes while
-		they can still cancel."""
-		return emergency.arm(event).model_dump(mode='json')
+		they can still cancel. A token, when presented, is recorded as the alert's owner."""
+		return emergency.arm(event, owner_ref=subject).model_dump(mode='json')
 
 	@app.post('/emergency/sos/{sos_id}/cancel')
-	async def emergency_sos_cancel(sos_id: str) -> dict[str, object]:
+	async def emergency_sos_cancel(sos_id: str, _owner: str | None = Depends(require_sos_owner())) -> dict[str, object]:
 		try:
 			return emergency.cancel(sos_id).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 	@app.post('/emergency/sos/{sos_id}/fire')
-	async def emergency_sos_fire(sos_id: str) -> dict[str, object]:
+	async def emergency_sos_fire(sos_id: str, _owner: str | None = Depends(require_sos_owner())) -> dict[str, object]:
 		"""The countdown ran out. 409 when it was cancelled or never armed, so a client that fires a
 		stale timer is told the alert did not go out rather than handed a receipt for one."""
 		try:
@@ -1628,13 +1708,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- §EMG-001 emergency, continued -----------------------------------------------------------
 	@app.get('/emergency/alert/{sos_id}')
-	async def emergency_sos_state(sos_id: str) -> dict[str, object]:
+	async def emergency_sos_state(sos_id: str, _owner: str | None = Depends(require_sos_owner())) -> dict[str, object]:
 		"""What became of one alert: armed, cancelled, or sent — and who it reached.
 
-		Public and unguarded, like the rest of the emergency path. The identifier is a random one the
-		server minted and only the caller's own device holds it, and a person who has just cancelled
-		an alert must be able to see that they did. Serving it behind a token would put a login in
-		front of the one screen where a person is checking whether help is coming.
+		Bound to the arming token, not to the id. `sos_id` is `ref8()`'s counter rather than a
+		secret, so an unguarded read of it told anyone walking the sequence where a stranger was
+		when they pressed SOS and which of their contacts were texted. The alert still answers to
+		an anonymous caller when it was armed anonymously; what it refuses is a caller other than
+		the one who armed it.
 		"""
 		alert = emergency.armed(sos_id)
 		if alert is None:
@@ -2493,15 +2574,40 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		}
 
 	@app.post('/channels/sms')
-	async def channels_sms(to_msisdn: str = Body(...), body: str = Body(...)) -> dict[str, object]:
+	async def channels_sms(to_msisdn: str = Body(...), body: str = Body(...),
+	                       _subject: str = Depends(require_scope('infrastructure'))) -> dict[str, object]:
+		"""Queue one outbound SMS.
+
+		Not a webhook, and deliberately not signature-guarded: §18.8's direction is "App → Telco",
+		so the body is this deployment's own message rather than a peer's signed payload. A
+		signature here would authenticate the wrong party.
+
+		It is `infrastructure`-scoped for the reason `/intermediaries/incentives` is: it spends
+		money. Unguarded, any caller could post an arbitrary body to an arbitrary number and have
+		the deployment send it under its own sender ID — a budget burn *and* an impersonation of
+		the Ministry's channel, which is the worse half. §17.4's sysadmin holds `infrastructure`
+		and reaches no personal data, so the scope fits what the route does: it composes a message,
+		it does not read a record. The carrier-facing sends the product itself makes —
+		`send_follow_up`, the emergency broadcast — call `ChannelService.send_sms` directly and do
+		not travel through this route.
+		"""
 		try:
 			return (await channels.send_sms(to_msisdn, body)).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/channels/ussd')
-	async def channels_ussd(req: UssdRequest, lang: str = 'en') -> dict[str, object]:
-		"""`lang` is a query parameter because USSD carries no headers: the carrier's gateway passes
+	async def channels_ussd(req: UssdRequest, lang: str = 'en',
+	                        _body: bytes = Depends(require_webhook())) -> dict[str, object]:
+		"""The telco's inbound USSD session, signature-guarded.
+
+		§18.8's direction for USSD is "Telco ↔ App", and the session that arrives is a menu walk
+		attributed to a phone number: unsigned, anyone could drive the national menu as any
+		subscriber, and every completed walk files a §5.4 case report under that number. The
+		carrier holds the shared secret; a handset never does, which is why this is a signature and
+		not a token.
+
+		`lang` is a query parameter because USSD carries no headers: the carrier's gateway passes
 		the subscriber's language out of band, and the menu it returns is the whole user interface.
 		Without it the route was English-only and Swahili — the language §ACC-002 puts first — was
 		unreachable on the one channel §4.1's feature-phone persona can use.
@@ -2523,8 +2629,16 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return out
 
 	@app.post('/channels/whatsapp')
-	async def channels_whatsapp(msg: WhatsAppIn, lang: str = 'en') -> dict[str, object]:
-		"""`lang` is a query parameter for the same reason the USSD route takes one: WhatsApp
+	async def channels_whatsapp(msg: WhatsAppIn, lang: str = 'en',
+	                            _body: bytes = Depends(require_webhook())) -> dict[str, object]:
+		"""The WhatsApp Business webhook, signature-guarded.
+
+		§18.8 does not list WhatsApp, and §CHAN-3 is the section that does: the bot is an inbound
+		conversation from a phone number, and the reply is filed as a §5.4 case report under it. It
+		is the same class as the USSD callback — an open write attributed to a real person — so it
+		carries the same guard, and Meta's shared secret is the only identity the channel has.
+
+		`lang` is a query parameter for the same reason the USSD route takes one: WhatsApp
 		Business carries no locale header we can trust, and §5.4 puts the same engine behind it.
 
 		A voice note is refused here rather than answered, and that is the fix to §ACC-002's fourth
@@ -2548,8 +2662,14 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	@app.post('/channels/whatsapp/voice')
 	async def channels_whatsapp_voice(
 		file: UploadFile = File(...), from_msisdn: str = Form(...), voice_note_lang: str = Form('en'),
+		_body: bytes = Depends(require_webhook()),
 	) -> dict[str, object]:
 		"""§ACC-002's "voice note triage on WhatsApp": audio in, the same answer the app gives.
+
+		Signature-guarded like the text webhook: the note is attributed to the `from_msisdn` the
+		body names, and unsigned it is a recording anyone can file as anyone. The guard reads the
+		raw multipart bytes before the form is parsed, and Starlette caches the body, so `file` and
+		the form fields still arrive intact.
 
 		Form fields rather than a JSON body, because this is the shape a webhook delivers — Meta
 		posts the media reference alongside the message metadata, and the audio arrives as a
@@ -3223,22 +3343,35 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 	@app.post('/blood/donors')
-	async def blood_register(d: Donor) -> dict[str, bool]:
+	async def blood_register(d: Donor, _subject: str = Depends(require_scope('self'))) -> dict[str, bool]:
+		"""§REC-006's donor enrolment, bound to the token that enrols.
+
+		It was open: anyone could write a donor row under any `donor_ref`, and the donor list is
+		then readable through `/blood/match` by anyone too. A donor is a person, and the `self`
+		scope is what makes the row theirs.
+		"""
 		await blood.register(d)
 		return {'ok': True}
 
 	@app.post('/blood/match')
-	async def blood_match(req: BloodRequest, today_iso: str = '2026-10-08') -> list[dict[str, object]]:
+	async def blood_match(req: BloodRequest, today_iso: str = '2026-10-08',
+	                      _subject: str = Depends(require_scope('self'))) -> list[dict[str, object]]:
+		"""Who can be called for this request. Guarded: the answer is a list of donors' references,
+		groups and counties — personal data about people who never consented to a public list."""
 		return [m.model_dump(mode='json') for m in blood.match(req, today_iso)]
 
 	@app.post('/blood/alerts')
-	async def blood_alerts(req: BloodRequest, today_iso: str = '2026-10-08') -> list[dict[str, object]]:
+	async def blood_alerts(req: BloodRequest, today_iso: str = '2026-10-08',
+	                       _subject: str = Depends(require_scope('self'))) -> list[dict[str, object]]:
 		"""§REC-006's "Receive alerts when your blood type is urgently needed nearby".
 
 		The donors who should be told, as data — the same shape §MON-001's missed-dose alerts and
 		§EMG-001's countdown take, and for §ACC-004's reason: the server states the alert and the
 		device schedules it, so nothing polls. `urgency` decides the reach, which is what the field
 		was for; before this it was carried on the request and read by nobody.
+
+		Guarded `self` like its two siblings: the rows name donors, and an open read of them is an
+		open read of the donor list.
 		"""
 		return [a.model_dump(mode='json') for a in blood.donor_alerts(req, today_iso, counties.ADJACENCY)]
 
@@ -3326,7 +3459,13 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'advisory': msg, 'cholera_risk': risk}
 
 	@app.post('/insurance/sha-check')
-	async def insurance_check(req: SHACheckRequest) -> dict[str, object]:
+	async def insurance_check(req: SHACheckRequest, _subject: str = Depends(require_scope('self'))) -> dict[str, object]:
+		"""§INF-016's cover check, guarded the way `/insurance/sha/verify` already is.
+
+		An open cover check is a member-number oracle: it answers whether any number is covered, and
+		it is the same question the live route spends SHA credentials on. The `self` scope makes it
+		a question a caller asks about their own cover rather than a search over the register.
+		"""
 		return (await insurance.check(req)).model_dump(mode='json')
 
 	@app.post('/insurance/prices')
@@ -3347,9 +3486,17 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- sync ---
 	@app.post('/sync/ops')
-	async def sync_enqueue(op: SyncOp) -> dict[str, bool]:
+	async def sync_enqueue(op: SyncOp, subject: str = Depends(require_self(names_subject=False))) -> dict[str, bool]:
+		"""Queue one write for §16.2's replay.
+
+		The op records the token's subject rather than trusting the body: a queued write is the
+		caller's, and the conflict it may lose is read back by `GET /sync/conflicts`, which filters
+		on exactly this field. `SyncOp.subject_ref` is excluded from the wire dump, so a client
+		cannot set it — and `names_subject=False` because there is no subject parameter to bind,
+		only one to record.
+		"""
 		try:
-			await sync.enqueue(op)
+			await sync.enqueue(op.model_copy(update={'subject_ref': subject}))
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
 		return {'queued': True}
@@ -3429,12 +3576,17 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def sync_conflicts(_subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
 		"""§16.3's appeal surface: the writes the server overruled, and whether each can be appealed.
 
-		The queue is the device's, so the route binds the caller's own token rather than naming a
-		subject — there is no subject parameter to get wrong. A conflict under a strategy the spec
-		does not make appealable is returned too, marked, because "the server decided and that is
-		the end of it" is a fact the user is entitled to see rather than infer from silence.
+		Scoped to the caller's own conflicts. The record carries both the losing payload and the
+		value the server kept — the person's health data, on both sides of the conflict — and the
+		queue used to be returned whole, so one caller read every other device's writes. The filter
+		is the subject the op recorded when it was queued, which the token supplies; the route
+		binds no subject *parameter* because there is none to get wrong.
+
+		A conflict under a strategy the spec does not make appealable is returned too, marked,
+		because "the server decided and that is the end of it" is a fact the user is entitled to
+		see rather than infer from silence.
 		"""
-		rows = sync.conflicts()
+		rows = sync.conflicts(_subject)
 		return {
 			'conflicts': [c.model_dump(mode='json') for c in rows],
 			'open': len([c for c in rows if not c.resolved()]),
@@ -3445,8 +3597,12 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 	async def sync_appeal(op_id: str, note: str = Body(embed=True),
 	                      _subject: str = Depends(require_self(names_subject=False))) -> dict[str, str]:
 		try:
-			rec = sync.appeal(op_id, note)
+			rec = sync.appeal(op_id, note, _subject)
 		except KeyError as exc:
+			raise HTTPException(status_code=404, detail='no such conflict') from exc
+		except LookupError as exc:
+			# A conflict that exists but is not the caller's answers the same 404 as one that does
+			# not exist: the difference is a fact about somebody else's record.
 			raise HTTPException(status_code=404, detail='no such conflict') from exc
 		except PermissionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -4029,7 +4185,16 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return {'schedule_id': out.schedule_id, 'reminder_times': out.reminder_times}
 
 	@app.post('/monitoring/medication/adherence')
-	async def monitoring_adherence(event: AdherenceEvent) -> dict[str, object]:
+	async def monitoring_adherence(event: AdherenceEvent,
+			_subject: str = Depends(require_self(_adherence_subject))) -> dict[str, object]:
+		"""A dose logged against one of the caller's own schedules.
+
+		The event names a schedule and no subject, so an unguarded route let anyone log a dose
+		against anyone's reminder — and the report it returns is that schedule's adherence. The
+		guard resolves the schedule's `member_ref` and compares it to the token through
+		`require_self`'s extractor, which is the same binding `/monitoring/medication` already uses
+		for the schedule itself.
+		"""
 		try:
 			return (await monitoring.record_adherence(event)).model_dump(mode='json')
 		except AssertionError as exc:

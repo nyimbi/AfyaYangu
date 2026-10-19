@@ -316,8 +316,11 @@ async def test_sync_policy_and_delta_over_http() -> None:
 		assert delta['changed_fields'] == 2 and delta['full_fields'] == 1
 
 		# §16.2's first diamond over HTTP: an offline flush defers rather than reporting success,
-		# and the op goes out on the next flush once the connection is back.
-		await c.post('/sync/ops', json={'op_id': 'OP-ROUTE00001', 'dataset': 'symptom_logs', 'client_ts': 1, 'payload': {'a': 'b'}})
+		# and the op goes out on the next flush once the connection is back. The enqueue names the
+		# token's subject, because the conflict the op may lose is read back by `/sync/conflicts`.
+		token = (await c.post('/auth/anonymous', json={'subject_ref': 'U1'})).json()['token']
+		h = {'authorization': f'Bearer {token}'}
+		await c.post('/sync/ops', json={'op_id': 'OP-ROUTE00001', 'dataset': 'symptom_logs', 'client_ts': 1, 'payload': {'a': 'b'}}, headers=h)
 		off = (await c.post('/sync/flush', json={'connection': 'offline'})).json()
 		assert off['synced'] == 0 and off['deferred'] == 1 and off['pending'] == 1, off
 		assert (await c.post('/sync/flush', json={'connection': 'satellite'})).status_code == 422

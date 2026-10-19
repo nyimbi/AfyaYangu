@@ -28,6 +28,7 @@ from afya.privacy.views import ConsentCategory, RBACRole
 from afya.registry.service import FeatureRegistry
 from afya.service import build_services, create_app
 from afya.triage.service import TriageService
+from conftest import sign
 
 MSISDN = '+254712345678'
 OTHER = '+254700000001'
@@ -454,7 +455,7 @@ async def test_a_link_is_forced_onto_the_callers_own_subject() -> None:
 		assert 'your own profile' in refused.json()['detail']
 
 
-async def test_the_whatsapp_route_and_the_ussd_route_share_one_subject() -> None:
+async def test_the_whatsapp_route_and_the_ussd_route_share_one_subject(webhook_secret: str) -> None:
 	"""The section's "WhatsApp → USSD → CHW" journey, asserted where it is reachable. One phone that
 	messages on WhatsApp and then opens USSD resolves to one subject through the app's own services,
 	which is what makes the journey a person rather than three strangers."""
@@ -462,8 +463,10 @@ async def test_the_whatsapp_route_and_the_ussd_route_share_one_subject() -> None
 	identity: IdentityService = services['identity']  # type: ignore[assignment]
 	channels: ChannelService = services['channels']  # type: ignore[assignment]
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(services)), base_url='http://t') as c:
-		await c.post('/channels/whatsapp', json={'from_msisdn': MSISDN, 'body': 'I have fever'})
-		await c.post('/channels/ussd', json={'session_id': 's1', 'msisdn': MSISDN, 'text': '1*1'})
+		raw, h = sign({'from_msisdn': MSISDN, 'body': 'I have fever'})
+		await c.post('/channels/whatsapp', content=raw, headers=h)
+		raw, h = sign({'session_id': 's1', 'msisdn': MSISDN, 'text': '1*1'})
+		await c.post('/channels/ussd', content=raw, headers=h)
 	wa_subject = channels.subject_of(MSISDN)
 	assert identity.subject_for(MSISDN) == wa_subject
 	# And the app's own token for that phone is the same subject once linked, which is the crossing
@@ -473,13 +476,14 @@ async def test_the_whatsapp_route_and_the_ussd_route_share_one_subject() -> None
 	assert channels.subject_of(MSISDN) == wa_subject
 
 
-async def test_the_ussd_route_still_answers_without_a_storage_grant() -> None:
+async def test_the_ussd_route_still_answers_without_a_storage_grant(webhook_secret: str) -> None:
 	"""The guard against over-applying consent. §5.4's registry decides whether a report is *kept*,
 	not whether a person gets triaged — refusing to answer someone with fever because a toggle is off
 	would trade a privacy protection for a case, which is the wrong trade at a triage boundary."""
 	services = build_services()
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(services)), base_url='http://t') as c:
-		body = (await c.post('/channels/ussd', json={'session_id': 's1', 'msisdn': OTHER, 'text': '1*1'})).json()
+		raw, h = sign({'session_id': 's1', 'msisdn': OTHER, 'text': '1*1'})
+		body = (await c.post('/channels/ussd', content=raw, headers=h)).json()
 	# §CHAN-2 draws two "→" prompts after the symptom entries, so the triage answer now arrives as a
 	# `CON` carrying the first prompt with the recommendation above it rather than as a final `END`.
 	answered = (body.get('menu') or '') + (body.get('end_text') or '')

@@ -21,6 +21,19 @@ CREATE TABLE IF NOT EXISTS afya.sync_ops (
 -- fresh installs and the first flush that scheduled a retry would fail on every existing one.
 ALTER TABLE afya.sync_ops ADD COLUMN IF NOT EXISTS retry_at_ms BIGINT;
 
+-- Whose queued write each op is. A table of its own rather than a column, because `afya.sync_ops`
+-- is the shared contract with both device clients (`proto/local_store/contract.json`) and neither
+-- client has a subject to fill — the token travels per request, not per row. The owner is
+-- server-side knowledge.
+--
+-- Written once and never overwritten: a queue rehydrated after a restart has no subject to supply,
+-- and an upsert that blanked the owner would lose it at the flush, which is the moment the appeal
+-- surface needs it. No foreign key, because the flush deletes and re-inserts the op row.
+CREATE TABLE IF NOT EXISTS afya.sync_op_owners (
+	op_id TEXT PRIMARY KEY,
+	subject_ref TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS afya.consents (
 	consent_id TEXT PRIMARY KEY,
 	subject_ref TEXT NOT NULL,

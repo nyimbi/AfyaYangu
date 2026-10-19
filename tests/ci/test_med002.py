@@ -181,19 +181,32 @@ def test_condition_labels_are_human_readable(axis: str, label: str) -> None:
 
 
 async def test_the_catalogue_offers_condition_labels_and_the_route_reads_them() -> None:
-	"""The spinner's own text, sent back through the front door, must select the axis it names.
+	"""The vocabulary a person types, sent back through the front door, must select the axis it names.
 
-	The catalogue offers `CONDITION_AXES`' *labels* — a person picks a condition by name — while the
-	matcher compared *slugs*. So the value the control actually produces matched no axis and a stated
-	condition was silently not considered: a refusal the person never sees, on the one field where
-	silence is dangerous. `nitrofurantoin` is used because its monograph's own line names renal
-	impairment, so the flag is the drug's and not the test's.
+	The route reads `CONDITION_AXES`' *labels* as well as their slugs — a person names a condition
+	by its name — and the matcher used to compare only slugs, so the value the control produced
+	matched no axis and a stated condition was silently not considered: a refusal the person never
+	sees, on the one field where silence is dangerous. `nitrofurantoin` is used because its
+	monograph's own line names renal impairment, so the flag is the drug's and not the test's.
+
+	The catalogue carries this as a text field with the vocabulary in its hint rather than as
+	`options`: `conditions` is a `list`, and both clients draw a `list` as comma text, so an
+	`options` list would be a closed set no control offered (see
+	`tests/ci/test_catalogue_vocabulary.py`). The examples in the hint are therefore the only
+	vocabulary a person sees, and each one has to be a label the route actually resolves.
 	"""
 	from afya.mobile.actions import catalogue
 
 	offered = next(a for a in catalogue() if a.id == 'drug_interactions')
-	options = next(f for f in offered.fields if f.name == 'conditions').options
-	assert options, 'the catalogue must offer the conditions it asks about'
+	field = next(f for f in offered.fields if f.name == 'conditions')
+	assert field.type == 'list' and field.options is None, (
+		'a list field carries no `options`: neither client draws a chooser for one')
+	examples = [part.strip().removeprefix('e.g. ').strip()
+	            for part in (field.placeholder or '').split(',') if part.strip()]
+	assert examples, 'the hint must name the vocabulary the route reads'
+	for label in examples:
+		assert contraindications.condition_axis(label) is not None, (
+			f'the hint offers {label!r}, which selects no axis')
 
 	transport = httpx.ASGITransport(app=create_app())
 	async with httpx.AsyncClient(transport=transport, base_url='http://testserver') as client:
@@ -210,6 +223,6 @@ async def test_the_catalogue_offers_condition_labels_and_the_route_reads_them() 
 		other = (await client.post('/medicine/interactions', json={
 			'drugs': ['nitrofurantoin', 'paracetamol'], 'conditions': ['Gout']})).json()
 		assert not any(f['axis'] == 'renal_impairment' for f in other['flags']), other['flags']
-		# Every label the catalogue offers resolves to an axis, so no option is a dead control.
-		for label in options:
+		# Every label the matcher publishes resolves to an axis, so the vocabulary has no dead entry.
+		for label in contraindications.CONDITION_LABELS.values():
 			assert contraindications.condition_axis(label) is not None, label
