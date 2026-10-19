@@ -18,13 +18,20 @@ path can be wrong is a way a person's words get published without their agreemen
   the person reading back what they agreed to is owed words, and `EXTRA_CONSENT_PURPOSES` is where
   they come from — asserted in both directions, the way `UNGATED_WRITES` is.
 """
+from pydantic import ValidationError
+
+from afya.access.forms import required_fields
 from afya.info.service import InfoService
-from afya.info.submissions import STORY_PURPOSE, StoryKind, StoryService, StoryStatus, StorySubmission
+from afya.info.submissions import (
+	STORY_PURPOSE, StoryKind, StoryModerationIn, StoryService, StoryStatus, StorySubmission,
+)
 from afya.info.views import ContentStage
+from afya.mobile.actions import catalogue, marked
 from afya.privacy.service import (
 	CONSENT_CATALOGUE, EXTRA_CONSENT_PURPOSES, MANDATORY_NOTIFICATION_PURPOSES, PrivacyService,
 )
 from afya.privacy.views import ConsentCategory, ConsentRecord, LegalBasis
+from afya.service import build_services, create_app
 
 SUBJECT = 'SUBJ-1'
 # A §SEC-004 handle: starts with a letter, as `PseudonymPolicy.handle` requires, and is *not* the
@@ -245,6 +252,35 @@ async def test_a_decline_needs_a_reason() -> None:
 		assert 'reason' in str(exc)
 	else:  # pragma: no cover
 		raise AssertionError('a story was declined with no reason the person could read')
+
+
+async def test_the_model_refuses_a_decline_with_no_reason_before_the_service_does() -> None:
+	"""The rule belongs to the model, so the refusal is a 422 that names the field.
+
+	`StoryService.decline` asserts the same thing, but the route catches `AssertionError` as 404 —
+	so a moderator who left the note blank was told the story did not exist. The catalogue carried
+	the rule in a placeholder ("optional when approving"), prose no client reads. Moving the refusal
+	to `StoryModerationIn` makes it a validation error on the body, which is what it is, and lets
+	the catalogue's `condition` state it with the same predicate every other combination uses.
+	"""
+	# Approving without a note is the ordinary case and must stay legal.
+	assert StoryModerationIn(decision='approve').note is None
+	assert StoryModerationIn(decision='decline', note='the clinic name identifies a child')
+	for blank in (None, '', '   '):
+		try:
+			StoryModerationIn(decision='decline', note=blank)
+		except ValidationError as exc:
+			assert 'reason' in str(exc)
+		else:  # pragma: no cover
+			raise AssertionError(f'a decline with note={blank!r} was accepted')
+
+	# And the catalogue's condition is the same rule, read off the served document: the field the
+	# form would mark required-when-decline is the field the model refuses without.
+	served = {a.id: a for a in marked(catalogue(), required_fields(create_app(build_services())))}
+	act = served['moderate_story']
+	cond = {f.name: f.condition for f in act.fields}['note']
+	assert cond is not None, 'the catalogue states the decline rule nowhere'
+	assert (cond.when, list(cond.equals_any)) == ('decision', ['decline'])
 
 
 async def test_a_decided_story_cannot_be_decided_again() -> None:

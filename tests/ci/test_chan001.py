@@ -9,6 +9,8 @@ The tests that matter are the ones about the *failures*, not the happy path: a f
 re-sent on every later session is a subscription to a person's own report, and a bound with no
 ceiling is the comment it replaced.
 """
+import pathlib
+import re
 from typing import Any, cast
 
 import httpx
@@ -104,8 +106,16 @@ def test_the_ceiling_is_above_everything_the_tree_actually_sends() -> None:
 	— a ceiling derived from the widest sentence already written is a description of the status quo.
 	"""
 	rows = plain_language_report()
-	# 30 surfaces / 181 strings measured; the flat-only walker sees 17 / 33, so these floors fail on
-	# a walker that stopped recursing long before they fail on content being edited.
+	# The figures are read out of the walker's own docstring rather than restated here: a second
+	# copy of "30 and 191" is the two-sources-of-truth drift this test exists to catch, and it would
+	# move with the walker. The flat-only walker sees 15 / 30, so these floors fail on a walker that
+	# stopped recursing long before they fail on content being edited.
+	quoted = re.search(r'against \*\*(\d+) tables and (\d+) strings\*\*',
+		pathlib.Path('src/afya/channels/outbound.py').read_text())
+	assert quoted is not None, 'the walker no longer states its own measured totals'
+	assert (len(rows), sum(r.strings for r in rows)) == (int(quoted.group(1)), int(quoted.group(2))), \
+		f'the walker measures {len(rows)} / {sum(r.strings for r in rows)}; its docstring says ' \
+		f'{quoted.group(1)} / {quoted.group(2)} — one of the two is stale'
 	assert len(rows) >= 28, f'the walker is not seeing the tables: {len(rows)}'
 	assert sum(r.strings for r in rows) >= 170, 'the walker is not recursing into the nested tables'
 	over = [f'{r.surface}: {r.over_the_ceiling}' for r in rows if r.over_the_ceiling]
@@ -121,9 +131,10 @@ def test_the_walker_sees_the_nested_tables_and_not_only_the_flat_ones() -> None:
 	`afya.strings` carries three nesting shapes: a flat `{key: sentence}` (`CALLBACK_ACK`), a
 	`{lang: {key: sentence}}` (`TRAVELLER_STRINGS`) and a `{lang: {int: sentence}}`
 	(`USSD_MENU_ANSWERS`). The flat-only walker reported **15 tables and 30 strings** against the
-	**30 and 181** below, silently skipping the fifteen that carry the clinical advice — a gate losing
-	151 of its 181 subjects without failing, which is the failure mode this whole file is written
-	against. It was written that way first, in this unit, and the canary reverts it.
+	**30 and 191** below, silently skipping the fifteen that carry the clinical advice — a gate
+	losing 15 of its 30 tables and 161 of its 191 strings without failing, which is the failure mode
+	this whole file is written against. It was written that way first, in this unit, and the canary
+	reverts it.
 	"""
 	surfaces = {r.surface for r in plain_language_report()}
 	assert 'afya.strings:CALLBACK_ACK' in surfaces, 'a flat table'

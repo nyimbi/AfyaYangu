@@ -5751,10 +5751,10 @@ is a description of the status quo wearing a bound's clothes.
 
 The first version handled flat `{key: sentence}` dicts. `afya.strings` carries three nesting shapes —
 flat (`CALLBACK_ACK`), `{lang: {key: sentence}}` (`TRAVELLER_STRINGS`), `{lang: {int: sentence}}`
-(`USSD_MENU_ANSWERS`) — so it reported **15 tables and 30 strings** against the true **30 and 181**,
-silently skipping the fifteen that carry the clinical advice. A gate losing 151 of its 181 subjects
-without failing, written and caught inside this unit. The recursion is now asserted in both
-directions by a canary that reverts it.
+(`USSD_MENU_ANSWERS`) — so it reported **15 tables and 30 strings** against the true **30 and 191**,
+silently skipping the fifteen that carry the clinical advice. A gate losing 15 of its 30 tables and
+161 of its 191 strings without failing, written and caught inside this unit. The recursion is now
+asserted in both directions by a canary that reverts it.
 
 `LANGUAGE_NAME_FOR` is a vocabulary rather than a message and is admitted by the "a message holds a
 space" property (`Luhya (Bukusu)`), so it is named in `NOT_A_MESSAGE` with the staleness check
@@ -6751,7 +6751,7 @@ The audit register's citations, checked rather than trusted (2026-10-15). Every 
 - **The spec writes a feature heading three ways and the reader knew two.** `#### TRI-001: Broad Febrile-Illness Triage` is the common form; `#### CHAN-0: Community Radio` puts a one-digit suffix where the `FID` pattern wants three, and §14.9 titles two sections in prose with the id on a `**Feature ID:**` line instead; and §14.1–§14.8 write `### 14.1 SENS-001: LiDAR-Based Contactless Respiration Monitoring` — **three hashes and the section number in front of the id**. The reader split on `^#### `, so those eight sections, 87 content bullets and 18 labels were not sections at all. `_spec_sections` now splits on the heading *shape* (a heading that carries an id or whose body declares one) rather than on a hash count, anchored on `14.N` so §14.9's two `###` prose headings stay out.
 - **A partition test whose both sides come from one reader measures the reader.** `test_the_report_states_how_much_of_the_spec_it_read` asserted that the audited sections and the unaudited list partition the labelled sections — and built `labelled` by calling `_spec_feature_ids()`, the same function that could not see §14. The two sides agreed because they were the same side. This is the second time this module has made the mistake (the first was the 69 that was really 78) and the first time it was named: **one instrument cannot refute itself**. The gap was found by crossing the registry's 97 ids against the 78 the audit claimed, which is a check outside the instrument.
 - **The unit of coverage is the (section, label) pair, and the two labels the spec writes both ways are why.** A pair is content when its label is a content label **or** its body is list-shaped, and a claim when its label is a claim label and its body is not. The strong form — content is list-shaped, claim is prose — was tested and **rejected on evidence**: 34 content-label pairs are prose-shaped (`CHAN-001 Format`, `FND-003 Features`, `INF-002 Output`, `SENS-007 Metrics`, `SENS-008 Use cases`, …), because a content list can be written as a comma-separated prose cell. `Privacy` is a six-bullet list in §SENS-001/§SENS-004 and a two-sentence statement in the other fourteen sections that print it; `Limitations` is a list in §SENS-001 and prose in §SENS-002/§LOC-002. Those two live in `_DUAL_LABELS` — in neither vocabulary, decided by the pair's shape — and a test asserts that set is exactly `{'Limitations', 'Privacy'}` so a third is a decision rather than a drift.
-- **The measure, before and after.** 86 sections (was 78), 113 labels (was 95), 127 claim pairs and 219 claim passages (was 92 and 165), 221 content rows (was 99). Verdicts: 148 carried, 29 deferred, 42 narrative on the claim side. The three `missing` rows are unchanged — §ACC-001's video tutorials, §ACC-002's six-language voice and §CHAN-005's flip charts, all blocked on an asset this repo cannot produce. Every carrier reference was resolved through `afya.refs.resolves` before being written (55 candidates, 5 wrong names found and corrected), and every verdict was probed against source rather than assumed: `EmergencyService.fall`'s near-zero-g window before the impact spike is what makes "genuine falls vs dropped phone" `carried`, and `EvidenceService.encrypted` being a *reported* property is what makes "photos encrypted on-device" `carried` rather than aspirational.
+- **The measure, before and after.** 86 sections (was 78), 113 labels (was 95), 127 claim pairs and 219 claim passages (was 92 and 165), 689 content rows over 122 pairs (was 567 over 99). Verdicts: 148 carried, 29 deferred, 42 narrative on the claim side. The three `missing` rows are unchanged — §ACC-001's video tutorials, §ACC-002's six-language voice and §CHAN-005's flip charts, all blocked on an asset this repo cannot produce. Every carrier reference was resolved through `afya.refs.resolves` before being written (55 candidates, 5 wrong names found and corrected), and every verdict was probed against source rather than assumed: `EmergencyService.fall`'s near-zero-g window before the impact spike is what makes "genuine falls vs dropped phone" `carried`, and `EvidenceService.encrypted` being a *reported* property is what makes "photos encrypted on-device" `carried` rather than aspirational.
 - **The deferred set grew a third kind, and the per-row word check was the wrong shape for it.** It asserted every note contains `fact about the world`, `device` or `client` — a substring test over prose, which is a proxy for a reason rather than a reason. §14 added a kind the vocabulary did not have: a *derived metric* the server cannot compute because it does not receive the series behind it (§SENS-007's sleep efficiency needs the two intervals; the server gets one derived duration). Thirteen rows carried none of the three words while being correctly deferred, so the check was satisfiable by rewording a note. Replaced with a **per-section count** (strictly stronger, and the same shape `test_the_missing_bullets_are_pinned_by_feature` uses), with the five world-conditioned rows still named individually because that is the verdict most easily abused.
 - **The ON_DEVICE gate's predicate was broader than its jurisdiction.** `'ON_DEVICE' in note` is a substring, so §SENS-004's "no facial recognition" — whose note cites `afya.ai.service:ON_DEVICE_MODELS`, the model inventory, to say no card takes a face — was read as a membership claim and reported as citing no member. Widened to `\bON_DEVICE\b`, the same fix the `^on[A-Z]` RSC gate needed. A predicate that is a strict superset of the thing it guards fails toward "defect"; one that is a strict subset fails toward "clean", and both are the gate being the finding.
 - **A canary must be disjoint from what its predicate reads, and the semicolon test's jurisdiction is the proof.** The semicolon split lives in the *prose* branch of `_spec_bullets`, which runs for a content-side pair only. The test's loop was widened to all three vocabularies while chasing this unit and immediately found **ten** lists — `CHAN-003 Capabilities`, `MED-001 Offline`, `LOC-001 Tier 4 behaviour`, `FND-006 Rollout`, `MON-006 Data sources`, `COM-103 Support`, `SENS-001 Accuracy`, `SENS-001 Availability` and the two real ones. That is a finding against a jurisdiction the split does not have, and the widening was the error; the loop is now scoped to `_side_of(fid, label) == 'content'` and finds §REC-003's eight and §SENS-008's four.
@@ -7663,3 +7663,43 @@ the refusal named nothing. The raw text is sent now, and the route refuses it by
 of the mark gate accepted an action with *one* marked field and missed a form action whose `lang`
 was unmarked — caught by its own canary, and the predicate now requires every body field. Full suite
 and pyright clean; both clients build.
+
+### A truncated recording, and the vocabulary a form could not answer
+
+Two defects, one in a route and one in the catalogue the routes are described by.
+
+**A dropped connection was answered as a server fault.** `wave` raises `RuntimeError` when a frame
+read seeks past the end of the file — which is exactly the shape a recording truncated in transit
+has. Both voice routes caught `(wave.Error, EOFError)`, and `RuntimeError` is neither, so a
+half-sent recording returned 500. That tells the person the server broke and to retry a request that
+will fail identically. Both routes now catch it and answer 422 with the reason, and the gate posts a
+WAV whose `data` chunk promises more than the file holds.
+
+**The catalogue could state a question no control could answer.** `MobileField` carries `options`,
+`placeholder`, `condition`, `distinct_from`, `accept` and `form`, and each of those is a claim about
+a control — but nothing crossed them against the controls the clients actually draw. Reading the
+served document found four shapes:
+
+* `options` on a non-`select`. Both clients offer a closed set only for `select`; `share_record`'s
+  `kinds` and `contraindications`'s `conditions` carried `options` as a `list`, which fell into the
+  text arm, so the set lived on the wire and the person typed past it. The two spellings are now one:
+  the set moved into the placeholder text, which the text arm draws.
+* `placeholder` on a `bool`, `select` or `file`. Seven shipped that way, and one — `flush_sync`'s
+  `ph='wifi'` — was the *only* statement that the field had a default. The text arms draw a hint and
+  nothing else does, so the hint was removed rather than left as a comment nobody reads.
+* `outbreak_support.condition` was a `path` with `options`. A path segment is substituted into the
+  URL, so the picker never offered the three slugs; they moved to the placeholder.
+* `moderate_story.note` says "optional when approving", which is a *condition* — the route refuses an
+  approval with no note? No: it requires a note only on `decline`. The catalogue said neither. It now
+  carries `condition` on `decision`/`['decline']`, which is the rule both clients can render.
+
+The predicate is `crossings()` in `afya.mobile.actions` — one function, two callers: `_a()` refuses to
+build an action that fails it, and `test_catalogue_vocabulary.py` reads it off the *served* document,
+so an action built anywhere else is caught too. It also asserts the two facts the catalogue cannot
+see: that every field type has a named branch in both clients (an unnamed one is a text box), and
+that a condition's `when` names a field the form *draws*.
+
+**Gates and canaries: 9 gates in `test_catalogue_vocabulary.py`, 9/9 canaries fired.** The register's
+counts moved with the wider walk — 86 feature sections under three heading spellings, not 78 under
+`#### FID:` alone — and `test_chan001.py` now reads the walker's totals out of its own docstring
+rather than restating them. Full suite 2430 passed; pyright clean; Android compiles.

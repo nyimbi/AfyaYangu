@@ -26,8 +26,9 @@ every other item. It is deliberately *not* served by `approve`, and it is delibe
 this module does not perform.
 """
 from enum import Enum
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from afya.auth.views import now_ms
 from afya.ids import ref8
@@ -161,6 +162,20 @@ class StoryModerationIn(BaseModel):
 	decision: str = Field(pattern='^(approve|decline)$')
 	note: str | None = None
 	at_ms: int | None = None
+
+	@model_validator(mode='after')
+	def _a_decline_carries_its_reason(self) -> Self:
+		"""The rule the catalogue now states, refused at the model so every door is behind it.
+
+		`StoryService.decline` asserts the reason, but it is reached only through this route, and the
+		catalogue carried the rule in a placeholder — prose no client reads. Moving it here makes the
+		refusal a 422 that names the field rather than a 404 from the service's assert, and it is the
+		same shape `register_border` uses for its lab fields: the model refuses the combination, the
+		catalogue says so with a `condition`, and the gate crosses the two.
+		"""
+		assert self.decision != 'decline' or (self.note or '').strip(), (
+			'a decline carries the reason the person is told')
+		return self
 
 
 class StoryService(LogMixin):

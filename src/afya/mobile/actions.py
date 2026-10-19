@@ -779,10 +779,85 @@ def _s(type_: str = 'text', form: bool = False) -> MobileField:
 	return _f('subject_ref', 'Me', type_, client_supplied=True, form=form)
 
 
+def crossings(act: MobileAction) -> list[str]:
+	"""Every way an action's vocabulary can offer a control no client can draw or answer it can't send.
+
+	The one predicate, read by two callers: `_a()` refuses to build an action that fails it, and
+	`tests/ci/test_catalogue_vocabulary.py` reads it off the *served* document so an action built
+	anywhere else is caught too. Returning the findings rather than asserting is what lets the gate
+	print all of them and lets a canary plant one and watch the gate notice.
+
+	Each entry is a crossing between two facts the catalogue states, which is why none of them can be
+	seen by reading one field:
+
+	* `options` is a *closed* answer set. Only a control that offers the set can produce a value from
+	  it, and both clients offer one on a `select` alone. An `options` list on any other type is a
+	  vocabulary on the wire that the person types past — the three `outbreak_support` slugs were the
+	  section's own names and reached the route as whatever was typed, so a near miss 422'd with the
+	  person holding a form that looked complete.
+	* `placeholder` is drawn by the text controls only. A hint on a toggle, a picker or a file button
+	  exists in the served document and on no screen.
+	* `equals_any` names the answers that fire a condition. A value the trigger cannot produce makes
+	  the condition dead code the form cannot make true — the mirror of the defect it exists to close.
+	* `distinct_from` names another question; a field naming one the action lacks is a rule both
+	  clients evaluate against `""` and never fire.
+	* `accept` is the picker's filter for a `file` and nothing else has a picker; `form` is the
+	  transport of the *whole* body, so a body half multipart and half JSON is a request no route
+	  reads.
+	"""
+	bad: list[str] = []
+	names = {f.name for f in act.fields}
+	by_name = {f.name: f for f in act.fields}
+	for f in act.fields:
+		if f.options and f.type != 'select':
+			bad.append(f'{act.id}.{f.name}: options on a {f.type!r}, which neither client offers as a set')
+		if f.options and len(set(f.options)) != len(f.options):
+			bad.append(f'{act.id}.{f.name}: duplicate options')
+		if f.type == 'select' and not f.options:
+			bad.append(f'{act.id}.{f.name}: a select with nothing to select')
+		if f.accept and f.type != 'file':
+			bad.append(f'{act.id}.{f.name}: accept on a {f.type!r} field')
+		if f.type == 'file' and not f.accept:
+			bad.append(f'{act.id}.{f.name}: a file with no accepted type')
+		if f.type == 'file' and not f.form:
+			bad.append(f'{act.id}.{f.name}: a file outside a multipart body')
+		if f.server_assigned and f.condition:
+			bad.append(f'{act.id}.{f.name}: a server value cannot be conditional')
+		if f.placeholder and f.type in ('bool', 'select', 'file'):
+			bad.append(f'{act.id}.{f.name}: a placeholder on a {f.type!r}, which neither client draws')
+		if f.distinct_from is not None and f.distinct_from not in names:
+			bad.append(f'{act.id}.{f.name}: distinct_from names {f.distinct_from!r}, which it lacks')
+		if f.condition is None:
+			continue
+		trigger = by_name.get(f.condition.when)
+		if trigger is None:
+			bad.append(f'{act.id}.{f.name}: condition names {f.condition.when!r}, which it lacks')
+			continue
+		if f.condition.equals_any:
+			offered = set(trigger.options or ()) | ({'true', 'false'} if trigger.type == 'bool' else set())
+			unreachable = sorted(set(f.condition.equals_any) - offered)
+			if unreachable:
+				bad.append(f'{act.id}.{f.name}: condition fires on {unreachable}, which '
+				           f'{trigger.name!r} cannot produce')
+	forms = {f.form for f in act.fields}
+	if len(forms) > 1:
+		bad.append(f'{act.id}: a body is multipart or JSON, not both')
+	return bad
+
+
 def _a(id: str, title: str, group: str, method: str, path: str, fields: list[MobileField], any_of: list[FieldGroup] | None = None) -> MobileAction:
+	"""One action, with every crossing between its fields refused here rather than shipped.
+
+	The crossings themselves are `crossings()` — one predicate, two callers, so the constructor and
+	the gate that reads the served document cannot disagree about what a fillable form is.
+	"""
 	assert method in ('GET', 'POST', 'DELETE') and all(fl.type in FIELD_TYPES for fl in fields), 'contract'
 	assert id in FEATURE_OF, f'action {id} must declare its source feature in FEATURE_OF'
-	return MobileAction(id=id, title=title, group=group, method=method, path=path, fields=fields, any_of=any_of or [])
+	names = [fl.name for fl in fields]
+	assert len(names) == len(set(names)), f'{id}: duplicate field names in {names}'
+	act = MobileAction(id=id, title=title, group=group, method=method, path=path, fields=fields, any_of=any_of or [])
+	assert not (found := crossings(act)), f'{id}: unfillable vocabulary: {found}'
+	return act
 
 
 def catalogue() -> list[MobileAction]:
@@ -860,7 +935,7 @@ def catalogue() -> list[MobileAction]:
 			_f('vaccine', 'Which vaccine?', ph='e.g. measles, polio, HPV'),
 			_f('age_months', 'Age in months', 'int', ph='for a child; leave blank for an adult'),
 			_f('max_cost_kes', 'Most I can pay (KES)', 'int'),
-			_f('walk_in_only', 'Walk-in only', 'bool', ph='yes if you cannot book ahead')]),
+			_f('walk_in_only', 'Walk-in only', 'bool')]),
 		# §LOC-001's two paths, and they are two actions because they are two routes with different
 		# guards. `risk_zones_near_me` asks which zones cover a point and is open: nothing about the
 		# caller is recorded, so it carries no `subject_ref` at all — the route refuses one rather
@@ -900,7 +975,6 @@ def catalogue() -> list[MobileAction]:
 			 _f('pregnant', 'Pregnant or breastfeeding', 'bool'),
 			 _f('age_months', 'Age in months (for a child)', 'int'),
 			 _f('conditions', 'Ongoing conditions', 'list',
-			    options=[label for _slug, label in contraindications.CONDITION_AXES],
 			    ph='e.g. Kidney problems, Asthma')]),
 		# `mg_per_kg` was a field here and is gone: it asked a parent for the one constant the
 		# calculator exists to look up, so the action answered a multiplication. `age_months` is the
@@ -926,7 +1000,7 @@ def catalogue() -> list[MobileAction]:
 		# three, so a fourth is refused rather than silently dropped — a dropped contact is a person
 		# who was never told. `channel` is the client's own answer to whether it has data, which is
 		# the half of the section's SMS claim only the client can know.
-		_a('sos', 'Get help now', 'Emergency', 'POST', '/emergency/sos', [_auto('sos_id', 'Alert number'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('severity', 'How serious?', 'select', ['low', 'medium', 'high']), _f('symptoms', 'Symptoms', 'list'), _f('contacts', 'Who to alert', 'list', ph='name:number, name:number (up to three)'), _f('channel', 'How you are sending this', 'select', ['native', 'sms']), _f('blood_group', 'Blood group', 'select', BLOOD_GROUPS, ph='optional'), _f('allergies', 'Allergies', 'list', ph='optional'), _f('conditions', 'Ongoing conditions', 'list', ph='optional'), _f('medications', 'Medicines', 'list', ph='optional')]),
+		_a('sos', 'Get help now', 'Emergency', 'POST', '/emergency/sos', [_auto('sos_id', 'Alert number'), _f('lat', 'Latitude', 'decimal'), _f('lon', 'Longitude', 'decimal'), _f('severity', 'How serious?', 'select', ['low', 'medium', 'high']), _f('symptoms', 'Symptoms', 'list'), _f('contacts', 'Who to alert', 'list', ph='name:number, name:number (up to three)'), _f('channel', 'How you are sending this', 'select', ['native', 'sms']), _f('blood_group', 'Blood group', 'select', BLOOD_GROUPS), _f('allergies', 'Allergies', 'list', ph='optional'), _f('conditions', 'Ongoing conditions', 'list', ph='optional'), _f('medications', 'Medicines', 'list', ph='optional')]),
 		# The countdown and its two exits. The client owns the timer — §ACC-004 wants no background
 		# polling and §EMG-001's Offline note wants the alert to work with no data — so what travels
 		# is the window: arming returns the deadline the client counts to, and the two exits are the
@@ -947,7 +1021,7 @@ def catalogue() -> list[MobileAction]:
 		_a('growth_flag', 'Is my child growing well?', 'Records', 'POST', '/records/growth', [_f('member_ref', 'Family member'), _f('age_months', 'Age in months', 'int'), _f('weight_kg', 'Weight in kg', 'decimal'), _f('height_cm', 'Height in cm', 'decimal'), _f('sex', 'Boy or girl?', 'select', ['boy', 'girl']), _f('head_circumference_cm', 'Head size in cm', 'decimal', ph='optional'), _f('muac_mm', 'Mid-upper arm in mm', 'decimal', ph='optional')]),
 		# §REC-003's milestone checklist, in Annex 9's two halves: read the list, then report it.
 		_a('milestone_checklist', 'What should my child be doing?', 'Records', 'GET', '/records/{member_ref}/milestones', [_f('member_ref', 'Family member', 'path'), _f('age_months', 'Age in months', 'int')]),
-		_a('milestone_check', 'Milestones my child has reached', 'Records', 'POST', '/records/milestones', [_f('member_ref', 'Family member'), _f('age_months', 'Age in months', 'int'), _f('present', 'Skills the child can do', 'list', ph='from the checklist'), _f('lost', 'Skills the child has stopped doing', 'list', ph='leave empty if none'), _f('checked_earlier', 'Were the earlier age groups also checked?', 'bool', ph='only if you asked about them')]),
+		_a('milestone_check', 'Milestones my child has reached', 'Records', 'POST', '/records/milestones', [_f('member_ref', 'Family member'), _f('age_months', 'Age in months', 'int'), _f('present', 'Skills the child can do', 'list', ph='from the checklist'), _f('lost', 'Skills the child has stopped doing', 'list', ph='leave empty if none'), _f('checked_earlier', 'Were the earlier age groups also checked?', 'bool')]),
 		_a('add_lab', 'Add a lab result', 'Records', 'POST', '/records/labs', [_f('member_ref', 'Family member'), _f('test', 'Test', 'select', ['mRDT', 'widal', 'hba1c', 'fbc', 'viral_load', 'glucose_f', 'bp', 'other']), _f('value', 'Result'), _f('unit', 'Unit', ph='optional'), _f('flag', 'Is it normal?', 'select', ['normal', 'abnormal', 'critical', 'unknown']), _f('performed_iso', 'Date of test')]),
 		_a('view_labs', 'My lab results', 'Records', 'GET', '/records/{ref}/labs', [_f('ref', 'Family member', 'path')]),
 		# §9.2 REC-001 and §10.1 REC-002: the wallet's documents, and the operations over them.
@@ -955,7 +1029,7 @@ def catalogue() -> list[MobileAction]:
 		_a('file_document', 'Add a document', 'Records', 'POST', '/records/documents', [_auto('doc_id', 'Reference'), _f('member_ref', 'Family member'), _f('kind', 'Type of document', 'select', list(WALLET_DOC_KINDS)), _f('title', 'What is it?'), _f('occurred_iso', 'Date on the document'), _f('detail', 'What does it say?', 'textarea'), _f('facility_id', 'Facility', ph='optional'), _f('media_ref', 'Photo reference', ph='from the camera upload'), _f('captured_iso', 'When the photo was taken')]),
 		_a('health_timeline', 'My health history', 'Records', 'GET', '/records/timeline', []),
 		_a('wallet_search', 'Find a document', 'Records', 'GET', '/records/search', [_f('q', 'What are you looking for?')]),
-		_a('share_record', 'Share my record', 'Records', 'POST', '/records/share', [_auto('grant_id', 'Share reference'), _f('member_ref', 'Family member'), _f('recipient', 'Who is it for?', ph='leave blank for a link'), _f('kinds', 'What they can see', 'list', list(WALLET_DOC_KINDS)), _f('issued_iso', 'From'), _f('expires_iso', 'Until')]),
+		_a('share_record', 'Share my record', 'Records', 'POST', '/records/share', [_auto('grant_id', 'Share reference'), _f('member_ref', 'Family member'), _f('recipient', 'Who is it for?', ph='leave blank for a link'), _f('kinds', 'What they can see', 'list', ph=', '.join(WALLET_DOC_KINDS)), _f('issued_iso', 'From'), _f('expires_iso', 'Until')]),
 		_a('record_shares', 'Who has seen my record?', 'Records', 'GET', '/records/{member_ref}/shares', [_f('member_ref', 'Family member', 'path')]),
 		_a('revoke_share', 'Stop sharing', 'Records', 'POST', '/records/share/{grant_id}/revoke', [_f('grant_id', 'Share reference', 'path')]),
 		_a('provider_view', 'A patient record shared with me', 'Records', 'GET', '/records/share/{grant_id}/view', [_f('grant_id', 'Share reference', 'path'), _f('at_iso', 'As at')]),
@@ -988,7 +1062,7 @@ def catalogue() -> list[MobileAction]:
 		# `condition` fills a path segment, so it must be `path` — as a `select` neither client
 		# substituted it and both sent the literal `{condition}` to the server. The options are the
 		# section's three; a client that draws them as a picker still writes the slug into the URL.
-		_a('outbreak_support', 'Support during the outbreak', 'Wellbeing', 'GET', '/mental/outbreak-support/{condition}', [_f('condition', 'What is happening?', 'path', options=['isolation_distress', 'grief', 'worker_burnout']), _f('lang', 'Language', 'select', ['en', 'sw'])]),
+		_a('outbreak_support', 'Support during the outbreak', 'Wellbeing', 'GET', '/mental/outbreak-support/{condition}', [_f('condition', 'What is happening?', 'path', ph='isolation_distress, grief, worker_burnout'), _f('lang', 'Language', 'select', ['en', 'sw'])]),
 		_a('ask_referral', 'Ask to be referred', 'Wellbeing', 'POST', '/mental/referral', [_s(), _f('reason', 'What is this about?', 'textarea'), _f('urgency', 'How soon?', 'select', ['routine', 'soon', 'urgent'])]),
 		# Chronic & daily
 		_a('log_bp', 'Log my blood pressure', 'Daily care', 'POST', '/chronic/bp', [_s(), _f('systolic', 'Systolic', 'int'), _f('diastolic', 'Diastolic', 'int'), _f('pulse', 'Pulse', 'int')]),
@@ -1030,7 +1104,7 @@ def catalogue() -> list[MobileAction]:
 		_a('birth_plan', 'My birth plan', 'Maternity', 'GET', '/maternal/{ref}/birth-plan', [_f('ref', 'Who is this for?', 'path')]),
 		_a('save_birth_plan', 'Plan where I will deliver', 'Maternity', 'POST', '/maternal/birth-plan', [_s(), _f('facility_id', 'Which facility', ph='optional'), _f('transport', 'How I will get there', ph='optional'), _f('birth_companion', 'Who comes with me', ph='optional'), _f('blood_donor', 'Who can donate blood', ph='optional'), _f('funds_kes', 'Money set aside (KES)', 'int', ph='optional')]),
 		_a('pmtct_referral', 'Do I need a PMTCT referral?', 'Maternity', 'POST', '/maternal/pmtct-referral', [_s(), _f('hiv_positive', 'Did the HIV test come back positive?', 'bool')]),
-		_a('maternity_facilities', 'Where can I deliver?', 'Maternity', 'GET', '/maternal/facilities', [_f('lat', 'My latitude', 'decimal'), _f('lon', 'My longitude', 'decimal'), _f('limit', 'How many to show', 'int'), _f('accepts_sha', 'Only places that take SHA', 'bool', ph='optional')]),
+		_a('maternity_facilities', 'Where can I deliver?', 'Maternity', 'GET', '/maternal/facilities', [_f('lat', 'My latitude', 'decimal'), _f('lon', 'My longitude', 'decimal'), _f('limit', 'How many to show', 'int'), _f('accepts_sha', 'Only places that take SHA', 'bool')]),
 		# Child immunisation
 		_a('register_child', "Add my child's date of birth", 'Children', 'POST', '/monitoring/child', [_f('member_ref', 'Child'), _f('dob_iso', 'Date of birth')]),
 		_a('child_schedule', 'My child vaccine schedule', 'Children', 'GET', '/monitoring/child/{member_ref}/schedule', [_f('member_ref', 'Child', 'path')]),
@@ -1068,7 +1142,7 @@ def catalogue() -> list[MobileAction]:
 		_a('set_alert_preference', 'Choose which alerts I get', 'Alerts', 'POST', '/alerting/preferences', [_s(), _f('category', 'Alert type'), _f('enabled', 'Turn on?', 'bool')]),
 		_a('alert_preferences', 'My alert settings', 'Alerts', 'GET', '/alerting/preferences/{subject_ref}', [_s('path')]),
 		_a('link_family', 'Link my family', 'Alerts', 'POST', '/alerting/family/link', [_f('family_ref', 'Family group'), _f('members', 'Family members', 'list')]),
-		_a('family_check_in', "I'm safe", 'Alerts', 'POST', '/alerting/family/check-in', [_s(), _f('family_ref', 'Family group'), _f('at_iso', 'When', ph='optional'), _f('channel', 'How did you check in?', 'select', ['native', 'sms'], ph='optional'), _f('note', 'Anything to add?', ph='optional')]),
+		_a('family_check_in', "I'm safe", 'Alerts', 'POST', '/alerting/family/check-in', [_s(), _f('family_ref', 'Family group'), _f('at_iso', 'When', ph='optional'), _f('channel', 'How did you check in?', 'select', ['native', 'sms']), _f('note', 'Anything to add?', ph='optional')]),
 		_a('my_checkins', 'My safety check-ins', 'Alerts', 'GET', '/alerting/family/check-ins/{subject_ref}', [_s('path')]),
 		_a('family_board', 'Is my family safe?', 'Alerts', 'GET', '/alerting/family/{family_ref}', [_f('family_ref', 'Family group', 'path')]),
 		# Community
@@ -1294,7 +1368,8 @@ def catalogue() -> list[MobileAction]:
 		_a('story_queue', 'Stories waiting to be checked', 'Channels', 'GET', '/info/stories/pending', []),
 		_a('moderate_story', 'Check a story', 'Channels', 'POST', '/info/stories/{story_id}/moderate',
 		   [_f('story_id', 'Story', 'path'), _f('decision', 'Decision', 'select', ['approve', 'decline']),
-		    _f('note', 'Note for the record', 'textarea', ph='optional when approving')]),
+		    _f('note', 'Note for the record', 'textarea', when='decision', equals_any=['decline'],
+		       ph='optional when approving')]),
 		_a('complete_chw_task', 'Complete a task', 'Channels', 'POST', '/channels/chw/tasks/{task_id}/done', [_f('task_id', 'Task number', 'path')]),
 		_a('send_sms', 'Send a free text message', 'Channels', 'POST', '/channels/sms', [_f('to_msisdn', 'Phone number'), _f('body', 'Message')]),
 		_a('channel_costs', 'Will this cost me airtime?', 'Channels', 'GET', '/channels/cost', []),
@@ -1303,7 +1378,7 @@ def catalogue() -> list[MobileAction]:
 		_a('whatsapp_send', 'WhatsApp reply', 'Channels', 'POST', '/channels/whatsapp', [_f('from_msisdn', 'Phone number'), _f('body', 'Message')]),
 		_a('whatsapp_voice', 'Send a WhatsApp voice note', 'Channels', 'POST', '/channels/whatsapp/voice', [_f('from_msisdn', 'Phone number', form=True), _f('voice_note_lang', 'Language', 'select', VOICE_LANGS, form=True), _f('file', 'Voice note', 'file', form=True, accept='audio/*')]),
 		_a('queue_sync_op', 'Save for later (offline)', 'Sync', 'POST', '/sync/ops', [_f('op_id', 'Change number'), _f('dataset', 'What kind of change?', 'select', SYNC_DATASETS), _f('client_ts', 'When it happened', 'int')]),
-		_a('flush_sync', 'Send everything now', 'Sync', 'POST', '/sync/flush', [_f('connection', 'Connection', 'select', ['wifi', 'metered', 'offline'], ph='wifi')]),
+		_a('flush_sync', 'Send everything now', 'Sync', 'POST', '/sync/flush', [_f('connection', 'Connection', 'select', ['wifi', 'metered', 'offline'])]),
 		_a('offline_state', 'Is my work saved?', 'Sync', 'GET', '/sync/state', []),
 		# §16.3's conflict matrix, from the side that has to live with it. A write the server
 		# overruled is invisible to a client that never asks, so the person whose edit lost had no
@@ -1325,7 +1400,7 @@ def catalogue() -> list[MobileAction]:
 		_a('tag_tap', 'Record this tap', 'Sensors', 'POST', '/sensors/tags/{tag_id}/tap', [_f('tag_id', 'Tag', 'path'), _f('at_iso', 'When'), _f('worker_ref', 'Who tapped it?', ph='only for a station log')]),
 		_a('tag_bind', 'Register a tag', 'Sensors', 'POST', '/sensors/tags', [_f('tag_id', 'Tag number'), _f('target', 'What is it on?', 'select', list(TAG_TARGETS)), _f('target_ref', 'Its number'), _f('label', 'What is it?'), _f('bound_at_iso', 'When')]),
 		_a('tag_coverage', 'Which tag uses are live?', 'Sensors', 'GET', '/sensors/tag-coverage', []),
-		_a('equipment_list', 'Where is our equipment?', 'Sensors', 'GET', '/sensors/equipment', [_f('status', 'Condition', 'select', list(EQUIPMENT_STATUSES), ph='optional')]),
+		_a('equipment_list', 'Where is our equipment?', 'Sensors', 'GET', '/sensors/equipment', [_f('status', 'Condition', 'select', list(EQUIPMENT_STATUSES))]),
 		_a('equipment_add', 'Add equipment', 'Sensors', 'POST', '/sensors/equipment', [_f('asset_ref', 'Asset number'), _f('label', 'What is it?'), _f('status', 'Condition', 'select', list(EQUIPMENT_STATUSES))]),
 		_a('equipment_move', 'Move equipment', 'Sensors', 'POST', '/sensors/equipment/{asset_ref}/move', [_f('asset_ref', 'Asset number', 'path'), _f('station', 'To which station?')]),
 		# Insurance
@@ -1438,6 +1513,13 @@ def marked(actions: 'list[MobileAction]',
 		for f in act.fields:
 			conditional = f.condition is not None
 			in_group = any(f.name in g.fields for g in act.any_of)
+			# A value nobody can know until the request arrives cannot be a value the route refuses
+			# without: the model would refuse every request that omits it and no form could ever
+			# supply it. `_auto()` marks these precisely so the route gives them a default, and this
+			# is the assertion that keeps a hand-written field from undoing that.
+			assert not (f.server_assigned and f.name in needed), (
+				f'{act.id}.{f.name} is server-assigned and the route requires it, so no form can '
+				'complete the request; give the model a default')
 			assert not (conditional and f.name in needed), (
 				f'{act.id}.{f.name} is both unconditionally required by its route and conditional; '
 				'the condition would be shadowed and a client would stop asking for it')

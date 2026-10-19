@@ -416,6 +416,10 @@ struct ActionFormView: View {
 	private func run() {
 		let missing = action.fields.filter { !($0.client_supplied ?? false) && !($0.server_assigned ?? false)
 			&& $0.type != "file" && needed($0) && !answered($0) }
+		// A required file is the picker's state, not a text answer: a form with no recording chosen
+		// submitted a multipart body with no part and the route refused it after the whole form had
+		// been filled. Android has always refused this before the request; this is the two agreeing.
+		let unpicked = action.fields.filter { $0.type == "file" && needed($0) && fileData == nil }
 		let open = (action.any_of ?? []).filter { groupUnsatisfied($0) }
 		// A rule the catalogue has carried since it was written and no client read: `distinct_from`
 		// says this answer must not equal another field's. `BackTranslation` refuses a render by the
@@ -427,9 +431,9 @@ struct ActionFormView: View {
 			let mine = values[f.name] ?? ""
 			return !mine.isEmpty && mine == values[other]
 		}
-		guard missing.isEmpty && open.isEmpty && same.isEmpty else {
+		guard missing.isEmpty && unpicked.isEmpty && open.isEmpty && same.isEmpty else {
 			failed = true
-			let labels = missing.map(\.label) + open.map { g in
+			let labels = missing.map(\.label) + unpicked.map(\.label) + open.map { g in
 				"one of " + g.fields.map { n in action.fields.first { $0.name == n }?.label ?? n }.joined(separator: ", ")
 			} + same.map { f in
 				let other = action.fields.first { $0.name == f.distinct_from }?.label ?? (f.distinct_from ?? "")

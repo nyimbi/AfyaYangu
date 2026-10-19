@@ -15,7 +15,7 @@ fit the widest sentence already written — which is a description of the status
 ceiling's clothes, and the reason the §SEC-004 caveat was split instead — and a walker that handles
 one nesting shape. **#5** is that walker: the flat-only version reports 15 tables and 30 strings
 while silently skipping the fifteen nested tables carrying the clinical advice, which is a gate
-losing 151 of its 181 subjects without failing.
+losing 15 of its 30 tables and 161 of its 191 strings without failing.
 
 **Three of these went MISSED on the first run, and two of those were bugs in the tests.** #4's test
 computed its input as `MAX_SENTENCE_WORDS + 3`, so loosening the ceiling loosened the test with it —
@@ -79,10 +79,11 @@ CANARIES = [
 
 	# 5. The walker handles one nesting shape. `afya.strings` carries three — flat, `{lang: {key}}`,
 	#    `{lang: {int}}` — so this reports 15 tables and 30 strings while silently skipping the
-	#    fifteen that carry the clinical advice, against 30 and 181. A gate that loses 151 of its
-	#    subjects without failing. Note the mutation has to remove the recursion *and* the dispatch
-	#    into it: deleting only the list branch still recurses every dict, and every table the test
-	#    names is dict-nested — which is how the first version of this canary went MISSED.
+	#    fifteen that carry the clinical advice, against 30 and 191. A gate that loses 15 of its 30
+	#    tables and 161 of its 191 strings without failing. Note the mutation has to remove the
+	#    recursion *and* the dispatch into it: deleting only the list branch still recurses every
+	#    dict, and every table the test names is dict-nested — which is how the first version of
+	#    this canary went MISSED.
 	('the walker stops recursing into the nested tables', OB,
 	 """		if isinstance(obj, dict):
 			for key, value in obj.items():

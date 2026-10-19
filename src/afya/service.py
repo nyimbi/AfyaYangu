@@ -2571,7 +2571,11 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			result = channels.route_whatsapp_voice(msg, path)
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
-		except (wavmod.Error, EOFError) as exc:
+		except (wavmod.Error, EOFError, RuntimeError) as exc:
+			# `RuntimeError` is `wave`'s answer when a frame read seeks past the end of the file: a
+			# recording truncated in transit, which is the shape a dropped connection leaves. It is
+			# not a `wave.Error`, so catching only that turned a malformed upload into a 500 and
+			# blamed the server for the network's truncation.
 			raise HTTPException(status_code=422, detail=f'not a readable WAV file: {exc}') from exc
 		finally:
 			path.unlink(missing_ok=True)
@@ -5092,7 +5096,9 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 			return access.transcribe_audio(req, path).model_dump(mode='json')
 		except AssertionError as exc:
 			raise HTTPException(status_code=422, detail=str(exc)) from exc
-		except (wavmod.Error, EOFError) as exc:
+		except (wavmod.Error, EOFError, RuntimeError) as exc:
+			# A truncated recording is `wave`'s `RuntimeError` from a seek past EOF, not its own
+			# `Error`; see the WhatsApp voice route for the same catch and the same reason.
 			raise HTTPException(status_code=422, detail=f'not a readable WAV file: {exc}') from exc
 		finally:
 			path.unlink(missing_ok=True)

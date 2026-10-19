@@ -350,13 +350,16 @@ def _client() -> TestClient:
 async def test_the_audio_route_serves_a_transcript_and_refuses_an_empty_recording() -> None:
 	c = _client()
 	headers = _token(c, 'U-1')
-	r = c.post('/access/voice/audio', params={'subject_ref': 'U-1', 'lang': 'en'},
+	# Form parts, not query parameters: the catalogue marks this route's fields `form` and both
+	# clients write them into the multipart body, so a test that sent them in the query would be
+	# proving a spelling no client uses — and the route reads them as `Form(...)`.
+	r = c.post('/access/voice/audio', data={'subject_ref': 'U-1', 'lang': 'en'},
 		files={'file': ('note.wav', _wav_bytes(SPEECH_EN), 'audio/wav')}, headers=headers)
 	assert r.status_code == 200, r.text
 	body = r.json()
 	assert 'nightfall' in body['transcript'].lower(), body
 	assert body['recogniser'] == 'whisper-tiny/en'
-	empty = c.post('/access/voice/audio', params={'subject_ref': 'U-1'},
+	empty = c.post('/access/voice/audio', data={'subject_ref': 'U-1'},
 		files={'file': ('note.wav', b'', 'audio/wav')}, headers=headers)
 	assert empty.status_code == 422
 
@@ -364,15 +367,45 @@ async def test_the_audio_route_serves_a_transcript_and_refuses_an_empty_recordin
 async def test_the_audio_route_refuses_a_file_that_is_not_a_wav() -> None:
 	c = _client()
 	headers = _token(c, 'U-1')
-	r = c.post('/access/voice/audio', params={'subject_ref': 'U-1'},
+	r = c.post('/access/voice/audio', data={'subject_ref': 'U-1'},
 		files={'file': ('note.wav', b'this is not a recording', 'audio/wav')}, headers=headers)
 	assert r.status_code == 422, r.text
+
+
+# A WAV header that declares a `data` chunk with zero bytes and a RIFF size that promises more.
+# `wave` seeks past the end of the file and raises `RuntimeError`, which is *not* `wave.Error` —
+# the exception a dropped connection leaves behind when it truncates a recording in transit.
+TRUNCATED_WAV = (b'RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00'
+	b'\x80>\x00\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00')
+
+
+async def test_a_truncated_recording_is_the_callers_422_and_not_the_servers_500() -> None:
+	"""A half-sent recording is the network's doing, and the route answers for it.
+
+	`wave` raises `RuntimeError` — not its own `Error` — when a frame read seeks past EOF, so the
+	routes' `except (wave.Error, EOFError)` missed the one malformed upload a dropped connection
+	actually produces. Both voice routes answered 500, which reads as a server fault and tells the
+	person to retry a request that will fail identically.
+	"""
+	c = _client()
+	headers = _token(c, 'U-1')
+	r = c.post('/access/voice/audio', data={'subject_ref': 'U-1'},
+		files={'file': ('note.wav', TRUNCATED_WAV, 'audio/wav')}, headers=headers)
+	assert r.status_code == 422, f'a truncated upload is the caller\'s 422, not {r.status_code}'
+	# Which of the two refusals answers depends on where the truncation is noticed — a `data` chunk
+	# that declares nothing fails the duration check, a seek past EOF raises `RuntimeError` — and
+	# both are the caller's 422. The status is the claim; the message is not.
+	assert 'detail' in r.json(), r.text
+	wa = c.post('/channels/whatsapp/voice',
+		files={'file': ('note.wav', TRUNCATED_WAV, 'audio/wav')},
+		data={'from_msisdn': '+254711222333'})
+	assert wa.status_code == 422, f'the WhatsApp voice route answers {wa.status_code}'
 
 
 async def test_the_audio_route_will_not_transcribe_for_someone_else() -> None:
 	c = _client()
 	headers = _token(c, 'U-1')
-	r = c.post('/access/voice/audio', params={'subject_ref': 'U-2'},
+	r = c.post('/access/voice/audio', data={'subject_ref': 'U-2'},
 		files={'file': ('note.wav', _wav_bytes(SPEECH_EN), 'audio/wav')}, headers=headers)
 	assert r.status_code == 403
 

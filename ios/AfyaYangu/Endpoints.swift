@@ -337,7 +337,10 @@ extension BackendClient {
 	private static func multipart(boundary: String, fields: [String: Any], file: Data?,
 		filename: String = "upload.jpg", mime: String = "image/jpeg") -> Data {
 		var out = Data()
-		for (name, value) in fields {
+		// Sorted, because a Swift dictionary is unordered: two bodies with the same fields would
+		// otherwise differ in part order, and the server's §15.5 replay table compares bodies — so a
+		// retry would be a different request from the attempt it is replaying.
+		for (name, value) in fields.sorted(by: { $0.key < $1.key }) {
 			let text = (value as? [String])?.joined(separator: ",") ?? "\(value)"
 			out.append(contentsOf: "--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(text)\r\n".utf8)
 		}

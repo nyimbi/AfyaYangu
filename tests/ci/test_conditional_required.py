@@ -237,6 +237,12 @@ _CONDITIONS = {
 		'voice_note': ('voice_note_lang', []),
 		'voice_note_lang': ('voice_note', []),
 	},
+	# `StoryService.decline` asserts a reason ("a decline with no note is a decision a person cannot
+	# learn from") and the catalogue carried that rule in the placeholder alone — prose no client
+	# reads, on a form that submitted the decline and took a 500-shaped refusal from the service.
+	'moderate_story': {
+		'note': ('decision', ['decline']),
+	},
 }
 
 # Where the route accepts *one of several* answers, which is not a property of any one field: neither

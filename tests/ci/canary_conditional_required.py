@@ -20,6 +20,7 @@ ACT = ROOT / 'src/afya/mobile/actions.py'
 COMM = ROOT / 'src/afya/community/views.py'
 FORMS = ROOT / 'src/afya/access/forms.py'
 LOC = ROOT / 'src/afya/info/localisation.py'
+SUB = ROOT / 'src/afya/info/submissions.py'
 KOT = ROOT / 'android/app/src/main/java/ke/go/health/afyayangu/ActionsActivity.kt'
 
 GATE = 'tests/ci/test_conditional_required.py'
@@ -153,10 +154,19 @@ CANARIES = [
 	 "			val other = f.distinctFrom ?: return@filter false\n			val mine = answers[f.name] ?: \"\"\n			mine.isNotEmpty() && mine == answers[other]",
 	 "			val other = f.distinctFrom ?: return@filter false\n			false && answers[f.name] == answers[other]",
 	 'test_both_clients_read_the_distinctness_flag'),
+	# 13. The decline rule goes back to living in the service's `assert` alone, which the route
+	#     catches as a 404: a moderator who left the note blank is told the story does not exist.
+	#     The mutation removes the model's refusal, which is disjoint from the gate's read of it.
+	('a decline stops being refused by the model', SUB,
+	 "		assert self.decision != 'decline' or (self.note or '').strip(), (",
+	 "		assert True, (",
+	 'test_the_model_refuses_a_decline_with_no_reason_before_the_service_does',
+	 'tests/ci/test_submissions.py'),
 ]
 
 failures = []
-for name, path, old, new, node in CANARIES:
+for name, path, old, new, node, *rest in CANARIES:
+	gate = rest[0] if rest else GATE
 	backup = pathlib.Path(f'/tmp/canary_cond.{path.name}.bak')
 	shutil.copy2(path, backup)
 	s = path.read_text()
@@ -164,7 +174,7 @@ for name, path, old, new, node in CANARIES:
 	assert count == 1, f'{name}: target not unique/found ({count})'
 	path.write_text(s.replace(old, new))
 	try:
-		proc = subprocess.run(['uv', 'run', 'pytest', '-q', '-p', 'no:randomly', f'{GATE}::{node}'],
+		proc = subprocess.run(['uv', 'run', 'pytest', '-q', '-p', 'no:randomly', f'{gate}::{node}'],
 			cwd=ROOT, capture_output=True, text=True)
 		caught = proc.returncode != 0
 	finally:

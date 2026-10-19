@@ -208,10 +208,10 @@ def _outbound_tables() -> list[tuple[str, dict[str, str]]]:
 	with `USSD_MENU_ANSWERS` a third (`{lang: {int: sentence}}`). A walker that handled one shape is
 	the checker that enumerates one of the ways the thing it checks can be written: the flat-only
 	version reports **15 tables and 30 strings**, silently skipping the fifteen nested tables that
-	carry the clinical advice, against **30 tables and 181 strings** here. A gate that loses 151 of
-	its 181 subjects without failing is the failure mode this walk exists to avoid — and it was
-	written, caught and rewritten inside this unit, which is why the canary that reverts it is the
-	one worth keeping.
+	carry the clinical advice, against **30 tables and 191 strings** here. A gate that loses 15 of
+	its 30 tables and 161 of its 191 strings without failing is the failure mode this walk exists to
+	avoid — and it was written, caught and rewritten inside this unit, which is why the canary that
+	reverts it is the one worth keeping.
 
 	**A string is a message when it holds a space.** That is the property, not a name filter: a
 	language *code* (`SMS_LANG_PREFIXES`) and most language *names* (`LANGUAGE_NAME_FOR`) live in the
