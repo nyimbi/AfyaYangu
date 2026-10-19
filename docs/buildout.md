@@ -7512,3 +7512,40 @@ failed; restored, it passed.
 **Gates and canaries: 12 gates, 9/9 canaries fired.** The two new canaries plant a route-level
 requirement that kills a condition's trigger, and drop one direction of the biconditional from the
 catalogue. The census is unchanged at 159 routes, 4 missing, 0 unexplained.
+
+## The checkbox that could only say yes, and the check that stopped asking
+
+Every `bool` in the catalogue is a toggle, and the two clients encoded it differently.
+
+Android's `raw()` was `if (v.isChecked) "true" else ""`. A ticked box said yes; an unticked one said
+**nothing**, and the body omits empty fields. Two defects in one line:
+
+* **A required bool could never be submitted false.** Eleven of them are marked required from their
+  routes — `monitoring_consent.granted`, `report_stock.in_stock`, `file_price.sha_covered`,
+  `register_border.screening_required` and the rest. A person who meant "no" had no control that
+  carried it; the only honest answer the app could give to "do you consent to share your location"
+  was yes.
+* **An optional bool fell back to its model default.** Nine drawn bools default to `True` —
+  `GlucoseReading.fasting`, `AccessProfile.read_aloud`, `ChannelReport.channel_ok` — so an untouched
+  checkbox recorded `True`. "Before eating?" was always yes, and the glucose reading was classified
+  against the fasting cut-off whatever the person had eaten.
+
+Swift had always sent both states, so neither defect was there. But sending `"false"` makes the string
+non-empty, and the pre-request check asked `(values[name] ?? "").isEmpty`. On iOS an unticked toggle
+therefore counted as **answered**. `flag_misinformation.evidence_consent` is required exactly when
+there is a recording to consent to, and the form would submit a report the route refuses — with no
+message, because the check had already decided the field was filled. Fixing the encoding on one
+client would have planted that bug on the other.
+
+The contract is three parts, and a client is wrong if it drops any: a toggle sends `"true"` or
+`"false"`; "answered" for a toggle means `"true"`; and both the missing-field check and the either/or
+check read the second, not string emptiness. The request still carries `false` — that is what lets a
+required yes/no question be answered no — while the *check* treats it as unanswered.
+
+**Gates and canaries: 3 gates, 4/4 canaries fired.** The gates read the client sources, because the
+rule is the client's and no Python execution observes a Kotlin `when` branch; the third pins the
+population the rule is about (eleven required bools, one conditional) so a new conditional bool is a
+decision rather than a default. The canaries mutate the encoding without the predicate, the predicate
+without the encoding, and the Swift check separately from the Kotlin one — a canary on one client
+would have called the class fixed. Both clients compile: `gradle compileDebugKotlin` and
+`xcodebuild -sdk iphonesimulator` both succeed, and the full suite is 2413 passed with pyright clean.

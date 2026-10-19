@@ -364,6 +364,17 @@ struct ActionFormView: View {
 		return c.equals_any.isEmpty ? !given.isEmpty : c.equals_any.contains(given)
 	}
 
+	/// Whether the person has answered this field, for the pre-request check only.
+	///
+	/// A toggle is the one control with no "empty" state: it is on or off, and the request carries
+	/// both as `true`/`false`. An off toggle therefore counts as unanswered *here* even though a value
+	/// is sent — otherwise `evidence_consent` ("share the recording", required once there is a
+	/// recording) would never be demanded and the form would submit a report the route refuses.
+	private func answered(_ f: MobileFieldDTO) -> Bool {
+		if f.type == "bool" { return (values[f.name] ?? "") == "true" }
+		return !(values[f.name] ?? "").isEmpty
+	}
+
 	/// Whether an either/or group is unsatisfied — the route accepts any one member.
 	private func groupUnsatisfied(_ g: FieldGroupDTO) -> Bool {
 		if let w = g.when {
@@ -374,12 +385,15 @@ struct ActionFormView: View {
 				return false
 			}
 		}
-		return !g.fields.contains { !(values[$0] ?? "").isEmpty }
+		return !g.fields.contains { n in
+			guard let f = action.fields.first(where: { $0.name == n }) else { return false }
+			return answered(f)
+		}
 	}
 
 	private func run() {
 		let missing = action.fields.filter { !($0.client_supplied ?? false) && !($0.server_assigned ?? false)
-			&& $0.type != "file" && needed($0) && (values[$0.name] ?? "").isEmpty }
+			&& $0.type != "file" && needed($0) && !answered($0) }
 		let open = (action.any_of ?? []).filter { groupUnsatisfied($0) }
 		guard missing.isEmpty && open.isEmpty else {
 			failed = true

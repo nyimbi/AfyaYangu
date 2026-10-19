@@ -113,13 +113,26 @@ class ActionsActivity : Activity() {
 		return if (c.equalsAny.isEmpty()) given.isNotEmpty() else c.equalsAny.contains(given)
 	}
 
+	/**
+	 * Whether the person has answered this field, for the pre-request check only.
+	 *
+	 * A checkbox is the one control with no "empty" state: it is ticked or it is not, and the request
+	 * carries both as `true`/`false`. So an unticked box counts as unanswered here even though a
+	 * value is sent — otherwise `evidence_consent` ("share the recording", required once there is a
+	 * recording) would never be demanded, and the form would submit a report the route refuses.
+	 */
+	private fun answered(f: ActionField, raw: String): Boolean =
+		if (f.type == "bool") raw == "true" else raw.isNotEmpty()
+
 	/** Whether an either/or group is unsatisfied — the route accepts any one member. */
-	private fun groupUnsatisfied(g: FieldGroup, answers: Map<String, String>): Boolean {
+	private fun groupUnsatisfied(a: CatalogueAction, g: FieldGroup, answers: Map<String, String>): Boolean {
 		g.whenField?.let { w ->
 			val given = answers[w] ?: ""
 			if (g.equalsAny.isEmpty()) { if (given.isEmpty()) return false } else if (!g.equalsAny.contains(given)) return false
 		}
-		return g.fields.none { !(answers[it] ?: "").isEmpty() }
+		// `answered`, not raw non-emptiness: a bool member would otherwise count as answered the
+		// moment the checkbox existed, since it now sends "false" rather than nothing.
+		return g.fields.none { n -> answered(a.fields.firstOrNull { it.name == n } ?: return@none false, answers[n] ?: "") }
 	}
 
 	/** The current answer for every drawn field, keyed by name — what a condition is evaluated against. */
@@ -131,7 +144,12 @@ class ActionsActivity : Activity() {
 
 	/** One field's value as the string the request will carry, or "" when unanswered. */
 	private fun raw(v: android.view.View?): String = when (v) {
-		is CheckBox -> if (v.isChecked) "true" else ""
+		// "false", not "": a checkbox that sent nothing when unchecked made "no" indistinguishable
+		// from "not answered", so a required bool could never be submitted false — every yes/no
+		// question on Android answered yes — and an optional bool whose model defaults to true
+		// (`GlucoseReading.fasting`) recorded the default whatever the person ticked. Swift has
+		// always sent both states; this is the two clients agreeing on what a checkbox means.
+		is CheckBox -> if (v.isChecked) "true" else "false"
 		is Spinner -> v.selectedItem?.toString().orEmpty()
 		is EditText -> v.text.toString().trim()
 		else -> ""
@@ -178,9 +196,13 @@ class ActionsActivity : Activity() {
 		// refuse after it. The two rules are the server's own: a conditional field whose condition
 		// holds, and an either/or group with nothing answered. Without this the person saw a form
 		// that looked complete and got a 422 naming a field they were never told to fill.
+		// `answered`, not `isEmpty`: a checkbox now sends "false" rather than nothing, so string
+		// emptiness no longer means "unanswered" for a bool. A ticked box is the only way to say
+		// yes, so an unticked one is unanswered *for the purpose of this check* — while the request
+		// still carries `false`, which is what lets a required yes/no question be answered "no".
 		val missing = a.fields.filter { !it.clientSupplied && !it.serverAssigned && it.type != "file" &&
-			needed(a, it, answers) && (answers[it.name] ?: "").isEmpty() }
-		val openGroups = a.anyOf.filter { groupUnsatisfied(it, answers) }
+			needed(a, it, answers) && !answered(it, answers[it.name] ?: "") }
+		val openGroups = a.anyOf.filter { groupUnsatisfied(a, it, answers) }
 		if (missing.isNotEmpty() || openGroups.isNotEmpty()) {
 			val names = missing.map { it.label } + openGroups.map { g ->
 				"one of " + g.fields.joinToString(", ") { n -> a.fields.firstOrNull { it.name == n }?.label ?: n }
