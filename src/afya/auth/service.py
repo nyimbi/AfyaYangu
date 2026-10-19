@@ -33,6 +33,10 @@ AUTHORIZATION_CODE_TTL_MS = 60_000
 class AuthService(LogMixin):
 	def __init__(self) -> None:
 		self._anonymous: dict[str, AnonymousToken] = {}
+		# Every subject this service has issued a token for. `_anonymous` is keyed by token and
+		# drops an entry on revoke; this outlives it, because a device whose token was revoked or
+		# lost still owns the subject it was given, and re-issuing that is not a claim about anyone.
+		self._subjects: set[str] = set()
 		self._workers: dict[str, WorkerToken] = {}
 		self._codes: dict[str, PKCEAuthorization] = {}
 		self._used_codes: set[str] = set()
@@ -52,8 +56,30 @@ class AuthService(LogMixin):
 			issued_at_ms=issued, expires_at_ms=issued + REFRESH_TOKEN_TTL_SECONDS * 1000,
 		)
 		self._anonymous[token.token] = token
+		self._subjects.add(subject)
 		self._log_info('anonymous token issued', subject=subject)
 		return token
+
+	def claim_subject(self, subject_ref: str) -> bool:
+		"""Register a subject for the first time, or refuse if somebody already holds it.
+
+		This is the rule that replaces "mint a token for whatever the body says". A subject is
+		claimed exactly once: the first request that names it registers it and is issued its token,
+		and every later request for the same name without that subject's token is refused. So the
+		forgery — naming somebody else's subject to get a key to their record — fails for every
+		subject that has ever been used, which is every subject that has records.
+
+		A first claim is not an identity check, and it does not need to be: a name nobody has claimed
+		names nothing. What the old route got wrong was honouring a *re-claim* with no proof, and
+		that is what this refuses.
+
+		`_anonymous` is keyed by token and loses an entry on revoke; the issued set outlives it,
+		because a device whose token was revoked or lost still owns the subject it was given.
+		"""
+		if subject_ref in self._subjects:
+			return False
+		self._subjects.add(subject_ref)
+		return True
 
 	def resolve_anonymous(self, token: str) -> AnonymousToken:
 		assert token in self._anonymous, 'unknown or revoked token'

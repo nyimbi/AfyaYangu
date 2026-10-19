@@ -7568,3 +7568,51 @@ nothing satisfies `'distinct_from' in src` and is the bug.
 **Two more gates, three more canaries, 12/12 fired.** The canaries drop the flag from the catalogue,
 disable the model's guard, and remove one client's comparison while leaving the decode — the last of
 which is the shipped state, so a gate that only checked the field existed would have passed it.
+
+### A key to anyone's record, and four ways the queue lost a write
+
+`POST /auth/anonymous` took a `subject_ref` from the body and minted a token for it. The subject is
+the *only* thing the citizen routes check — `require_self` compares the name a request carries to
+the name the token holds — so `{"subject_ref": "someone"}` returned a working key to `someone`, and
+the diary, wallet, cycles and antenatal notes under that name were readable and writable. Proven at
+the front door: a stranger read another person's diary entry and got `200` with the symptoms.
+
+The parameter existed for a real need — a device keeps its subject across a restart — and the first
+fix refused every re-claim, which broke that. The rule that satisfies both is **a subject is claimed
+once**: the first request naming a subject registers it and is issued its token; every later request
+for that name without the subject's live token is refused, and reissue revokes the old token. A
+forgery fails for every subject that has ever been used, which is every subject with records; a name
+nobody has claimed names nothing.
+
+The cost is real and is not hidden: a device that loses its token (storage cleared, reinstall) has
+no account to prove itself with, so it gets a *new* identity and the old records are unreachable.
+That is the bearer-token model. What must not happen is the device getting stuck, so both clients
+fall back to an empty-body mint when the reclaim is refused — a client that treats `403` as fatal
+has no token and cannot send anything at all.
+
+Four defects in the offline queue, all in the same direction — a write the person made, gone:
+
+* **A `429` was dropped as "refused".** Both clients dropped every 4xx; a rate limit is the one 4xx
+  a retry fixes, and the server answers with `Retry-After: 60`. Both now defer by the server's own
+  number rather than their backoff, and the branch is read as a branch (it must sit before the
+  blanket drop, or it can never run).
+* **iOS keyed the replay table on `String.hashValue`,** which Swift seeds randomly per process: the
+  same write carried a different key after every launch, so a replay was not recognised as a repeat
+  and a write that had committed before a `5xx` landed twice. Now SHA-256 of the op's content.
+* **Android's first attempt carried no key at all,** the mirror image: a `5xx` returned after the
+  write committed queued an op whose key the server had never seen. The first attempt and the
+  replay now derive the key from the same content, through one function.
+* **Android's key was `String.hashCode()`,** 32 bits, against a server table keyed by the string.
+
+Two more client defects in the same batch: Android injected `subject_ref` into the JSON body even
+when the action carried it as a *path* field, so `add_contact`, `monitoring_consent` and
+`monitoring_members` sent a field their models forbid (`extra='forbid'` → 422); and iOS's
+`send(req:)` accepted anything below 500, so every 401/403/422/429 was returned as data and the
+result panel printed a validation error in the same style as a success.
+
+**Gates and canaries: 11 gates across four files, 21/21 canaries fired.** The client rules are read
+from the sources, because no Python execution observes a Kotlin `catch` branch; the 429 gate reads
+the branch *body* rather than the file, since `store.drop` appears in the branch below it and a
+file-wide search passes a branch that drops. The server half is driven at the front door: a stranger
+refused, an owner reclaiming, a lost token falling back, and the limiter's `Retry-After` read off
+the response the clients now honour. Full suite 2424 passed, pyright clean, both clients build.

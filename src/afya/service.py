@@ -933,7 +933,47 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 	# --- §15.5 authentication ---
 	@app.post('/auth/anonymous')
-	async def auth_anonymous(req: TokenRequest) -> dict[str, object]:
+	async def auth_anonymous(req: TokenRequest,
+			authorization: str | None = Header(default=None)) -> dict[str, object]:
+		"""Mint a citizen token, or re-issue one for a subject this service has issued before.
+
+		§SEC-004 asks for no account, and the subject an anonymous token carries is the *only* thing
+		the citizen routes check — `require_self` compares the subject a request names to the subject
+		the token holds. A route that mints a token for any name in the body is therefore a way to
+		ask for a key to anyone's record: `{"subject_ref": "someone"}` used to return a token for
+		`someone`, and every `require_self` route then read and wrote that person's diary, wallet,
+		cycles and antenatal notes.
+
+		So a subject is honoured only when it is one this service has issued before — either because
+		the request carries that subject's live token (what a restart does), or because the name is
+		already in the issued set. A device that loses its token still owns its subject, which is
+		what makes a reinstall survivable; a caller naming somebody else's subject has neither the
+		token nor the prior issue, and is refused rather than quietly given a fresh identity under a
+		name it chose.
+
+		Reissue revokes the old token, so a stolen one does not outlive its replacement.
+		"""
+		if req.subject_ref is None:
+			token = await auth.issue_anonymous()
+			return token.model_dump(mode='json')
+		presented = (authorization or '')
+		presented = presented.split(' ', 1)[1].strip() if presented.lower().startswith('bearer ') else ''
+		holder: str | None = None
+		if presented:
+			try:
+				holder = auth.resolve_anonymous(presented).subject_ref
+			except AssertionError:
+				holder = None
+		if holder is None and not auth.claim_subject(req.subject_ref):
+			raise HTTPException(
+				status_code=403,
+				detail='an anonymous subject may be reclaimed only with the token that subject holds')
+		if holder is not None and holder != req.subject_ref:
+			raise HTTPException(
+				status_code=403,
+				detail='the token presented names a different subject')
+		if presented:
+			await auth.revoke(presented)
 		token = await auth.issue_anonymous(req.subject_ref)
 		return token.model_dump(mode='json')
 

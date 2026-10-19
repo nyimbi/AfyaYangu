@@ -238,7 +238,16 @@ class ActionsActivity : Activity() {
 		// being a subject, not on *any* field being client-supplied: a server-assigned reference
 		// carries its own flag, and injecting a subject for one would name a person into a request
 		// that has no subject.
-		if (a.fields.any { it.clientSupplied && it.name == "subject_ref" } && !params.has("subject_ref")) params.put("subject_ref", client.subjectRef())
+		//
+		// Only when the subject is not a *path* field. When it is, `perform` fills the URL and this
+		// line also put the same subject in the body — which three routes refuse, because their
+		// body models are `extra='forbid'` and the subject is not one of their fields
+		// (`ContactEntry`, `LocationConsentDecision`, `HouseholdMemberRequest`). iOS already skips
+		// `type == "path"` in its body loop; this is the same rule.
+		val subjectInPath = a.fields.any { it.clientSupplied && it.name == "subject_ref" && it.type == "path" }
+		if (!subjectInPath && a.fields.any { it.clientSupplied && it.name == "subject_ref" } && !params.has("subject_ref")) {
+			params.put("subject_ref", client.subjectRef())
+		}
 		executor.execute {
 			// §16.1: a write with no network is queued, not lost. `performOrQueue` keeps it and
 			// replays it on the next successful submit or resume.

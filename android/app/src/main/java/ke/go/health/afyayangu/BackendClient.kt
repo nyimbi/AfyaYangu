@@ -54,8 +54,20 @@ class BackendClient(private val context: Context) {
 	private fun ensureSession(): Pair<String, String> {
 		subject?.let { s -> token?.let { t -> return s to t } }
 		val known = prefs.getString("session.subject", null)
+		val held = prefs.getString("session.token", null)
 		val body = if (known == null) "{}" else JSONObject().put("subject_ref", known).toString()
-		val out = JSONObject(request("auth/anonymous", body, authorize = false))
+		// The stored token goes with the reclaim. The server honours a subject this service minted
+		// either way, and honours *any* subject when the request carries its token — so a device
+		// that still holds its token keeps a subject that was never service-shaped.
+		val out = try {
+			JSONObject(request("auth/anonymous", body, authorize = false, bearer = held))
+		} catch (e: HttpError) {
+			// The subject could not be reclaimed — revoked by `DELETE MY DATA`, or the server was
+			// wiped. Ask for a new identity rather than staying stuck on a name it cannot use: an
+			// app that cannot mint a token cannot send anything at all.
+			if (e.code != 403 || known == null) throw e
+			JSONObject(request("auth/anonymous", "{}", authorize = false))
+		}
 		val s = out.getString("subject_ref")
 		val t = out.getString("token")
 		subject = s
@@ -64,8 +76,12 @@ class BackendClient(private val context: Context) {
 		return s to t
 	}
 
-	/** A non-2xx response, carrying the code so a caller can tell "refused" from "try again later". */
-	class HttpError(val code: Int, val body: String) : Exception("HTTP $code")
+	/**
+	 * A non-2xx response, carrying the code so a caller can tell "refused" from "try again later",
+	 * and the server's own `Retry-After` when it sent one — a 429 is the server saying *how long*
+	 * to wait, and a client that ignores it either hammers the window or waits longer than asked.
+	 */
+	class HttpError(val code: Int, val body: String, val retryAfterSeconds: Long? = null) : Exception("HTTP $code")
 
 	private fun request(
 		path: String,
@@ -73,11 +89,15 @@ class BackendClient(private val context: Context) {
 		authorize: Boolean = true,
 		method: String? = null,
 		idempotencyKey: String? = null,
+		bearer: String? = null,
 	): String {
 		val conn = URL(BASE + path).openConnection() as HttpURLConnection
 		conn.connectTimeout = 8000
 		conn.readTimeout = 8000
-		if (authorize) conn.setRequestProperty("authorization", "Bearer ${ensureSession().second}")
+		// An explicit bearer is for the one call that runs *before* a session exists; `authorize`
+		// would recurse into `ensureSession`, which is the call asking.
+		val explicit = bearer ?: if (authorize) ensureSession().second else null
+		explicit?.let { conn.setRequestProperty("authorization", "Bearer $it") }
 		// The server replays the first response for a repeated key whose body is byte-identical
 		// (§15.5), which is what makes replaying a queued write safe: the retry cannot double-write.
 		idempotencyKey?.let { conn.setRequestProperty("idempotency-key", it) }
@@ -93,7 +113,7 @@ class BackendClient(private val context: Context) {
 		val code = conn.responseCode
 		val stream = if (code in 200..299) conn.inputStream else conn.errorStream
 		val text = stream?.use { ins -> ByteArrayOutputStream().apply { ins.copyTo(this) }.toString() } ?: ""
-		if (code !in 200..299) throw HttpError(code, text)
+		if (code !in 200..299) throw HttpError(code, text, conn.getHeaderField("Retry-After")?.trim()?.toLongOrNull())
 		return text
 	}
 
@@ -372,7 +392,12 @@ class BackendClient(private val context: Context) {
 			return "{\"queued\":true}"
 		}
 		return try {
-			perform(method, path, pathValues, params)
+			// The first attempt carries the same key the replay will. Without it, a 5xx returned
+			// *after* the write committed leaves the replay unable to be recognised as a repeat —
+			// the key it mints on queueing is one the server has never seen — and the write lands
+			// twice. Minting the key from the content means both attempts spell it identically.
+			val key = opKey(method, path, pathValues, params)
+			perform(method, path, pathValues, params, key)
 		} catch (e: HttpError) {
 			// A 5xx is the server failing, which a retry may fix; a 4xx is the server refusing this
 			// request, which a retry will not. Only the first is queued.
@@ -397,8 +422,7 @@ class BackendClient(private val context: Context) {
 		// and a replay after a restart is recognised as a repeat rather than a second write. It is
 		// also the row's primary key, which is what makes the deduplication a constraint rather than
 		// a convention.
-		val material = "$method $path $pathValues ${params}"
-		val key = "OP-" + Integer.toHexString(material.hashCode()).uppercase()
+		val key = opKey(method, path, pathValues, params)
 		store.enqueue(
 			QueuedOp(
 				opId = key,
@@ -413,6 +437,21 @@ class BackendClient(private val context: Context) {
 				retryAtMs = null,
 			),
 		)
+	}
+
+	/**
+	 * The op's idempotency key, derived from its own content and nothing else.
+	 *
+	 * SHA-256, not `String.hashCode()`. `hashCode` is a 32-bit JVM hash — fine as a row key inside
+	 * one process, but the server's §15.5 replay table is keyed by the string, and two different
+	 * writes colliding on 32 bits would be replayed as each other. The digest is of the content, so
+	 * the first attempt and the replay after a restart spell the key identically — which is what
+	 * makes a 5xx-after-commit a repeat rather than a second write.
+	 */
+	private fun opKey(method: String, path: String, pathValues: Map<String, String>, params: JSONObject): String {
+		val material = "$method $path $pathValues ${params}"
+		val digest = java.security.MessageDigest.getInstance("SHA-256").digest(material.toByteArray())
+		return "OP-" + digest.take(12).joinToString("") { "%02X".format(it) }
 	}
 
 	fun queuedCount(): Int = store.pendingCount()
@@ -435,6 +474,15 @@ class BackendClient(private val context: Context) {
 				store.markSynced(op.opId, now)
 				sent++
 			} catch (err: HttpError) {
+				// A 429 is the one 4xx a retry fixes: the server is asking the device to wait, and
+				// the queue is already the thing that waits. Dropping it deleted a write the person
+				// had made because the app had been busy — §16.1's "never lost" read literally.
+				if (err.code == 429) {
+					val attempt = op.attempt + 1
+					val wait = err.retryAfterSeconds?.times(1000) ?: backoffDelayMs(attempt)
+					store.defer(op.opId, attempt, now + wait)
+					return sent
+				}
 				if (err.code in 400..499) {
 					store.drop(op.opId)  // refused: dropping it is honest, retrying it is not
 					continue

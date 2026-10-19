@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 // Offline-first client per spec 16.1: cache last good response; 719 always callable.
 actor BackendClient {
@@ -40,7 +41,11 @@ actor BackendClient {
 			}.resume()
 		}
 		let http = try __http(response)
-		guard (200..<500).contains(http.statusCode) else { throw ApiError.transport(http.statusCode) }
+		// A refusal is not a result. The bound used to be `< 500`, so every 401/403/422/429 came back
+		// as data and the catalogue's result panel printed a validation error in the same style as a
+		// success — on a form whose whole purpose is to tell a person whether their report was taken.
+		// Android has always thrown `HttpError` on any non-2xx; this is the two clients agreeing.
+		guard (200..<300).contains(http.statusCode) else { throw ApiError.refused(http.statusCode, data) }
 		if (200..<300).contains(http.statusCode), let path = signed.url?.path {
 			defaults.set(data, forKey: "cache.\(path)")
 		}
@@ -56,15 +61,14 @@ actor BackendClient {
 	private func ensureSession() async throws -> (String, String) {
 		if let s = sessionSubject, let t = sessionToken { return (s, t) }
 		let known = defaults.string(forKey: "session.subject")
-		var body: [String: Any] = known.map { ["subject_ref": $0] } ?? [:]
-		var req = URLRequest(url: base.appendingPathComponent("auth/anonymous"))
-		req.httpMethod = "POST"
-		req.setValue("application/json", forHTTPHeaderField: "content-type")
-		req.httpBody = try JSONSerialization.data(withJSONObject: body)
-		let (data, _): (Data, URLResponse) = try await withCheckedThrowingContinuation { cont in
-			session.dataTask(with: req) { data, resp, err in
-				if let err { cont.resume(throwing: err) } else { cont.resume(returning: (data ?? Data(), resp ?? URLResponse())) }
-			}.resume()
+		// The stored token goes with the reclaim: the server honours a subject this service minted
+		// without one, and *any* subject when the request carries its token.
+		let held = defaults.string(forKey: "session.token")
+		var data = try await issueAnonymous(subject: known, bearer: held)
+		if known != nil, !Self.isSuccess(data) {
+			// The subject could not be reclaimed — revoked by `DELETE MY DATA`, or the server was
+			// wiped. Ask for a new identity rather than staying stuck on a name it cannot use.
+			data = try await issueAnonymous(subject: nil, bearer: nil)
 		}
 		guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
 		      let s = obj["subject_ref"] as? String, let t = obj["token"] as? String else {
@@ -75,6 +79,24 @@ actor BackendClient {
 		defaults.set(s, forKey: "session.subject")
 		defaults.set(t, forKey: "session.token")
 		return (s, t)
+	}
+
+	private static func isSuccess(_ data: Data) -> Bool {
+		(try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["token"] is String
+	}
+
+	private func issueAnonymous(subject: String?, bearer: String?) async throws -> Data {
+		var req = URLRequest(url: base.appendingPathComponent("auth/anonymous"))
+		req.httpMethod = "POST"
+		req.setValue("application/json", forHTTPHeaderField: "content-type")
+		if let bearer { req.setValue("Bearer \(bearer)", forHTTPHeaderField: "authorization") }
+		req.httpBody = try JSONSerialization.data(withJSONObject: subject.map { ["subject_ref": $0] } ?? [:])
+		let (data, _): (Data, URLResponse) = try await withCheckedThrowingContinuation { cont in
+			session.dataTask(with: req) { data, resp, err in
+				if let err { cont.resume(throwing: err) } else { cont.resume(returning: (data ?? Data(), resp ?? URLResponse())) }
+			}.resume()
+		}
+		return data
 	}
 
 	private func __http(_ response: URLResponse) throws -> HTTPURLResponse {
@@ -133,8 +155,7 @@ actor BackendClient {
 	/// It is also the row's primary key, which makes the deduplication a constraint rather than a
 	/// convention.
 	func enqueue(method: String, url: String, body: String) {
-		let material = "\(method) \(url) \(body)"
-		let key = "OP-" + String(UInt(bitPattern: material.hashValue), radix: 16).uppercased()
+		let key = Self.opKey(method: method, url: url, body: body)
 		store.enqueue(
 			QueuedOp(
 				opId: key,
@@ -150,12 +171,23 @@ actor BackendClient {
 		)
 	}
 
+	/// The op's idempotency key, derived from its own content and nothing else.
+	///
+	/// This was `String.hashValue`, which Swift seeds **randomly per process**: the same write got a
+	/// different key after every launch, so a queue replayed across a restart was not recognised as a
+	/// repeat and the write landed twice — the exact failure the key exists to prevent. A digest of
+	/// the content is the same on every launch and on every device.
+	static func opKey(method: String, url: String, body: String) -> String {
+		let material = "\(method) \(url) \(body)"
+		let digest = SHA256.hash(data: Data(material.utf8))
+		return "OP-" + digest.prefix(12).map { String(format: "%02X", $0) }.joined()
+	}
+
 	/// Replay the queue. Stops at the first op still unreachable so ordering holds; an op the server
 	/// *refuses* (4xx) is dropped rather than blocking the queue behind it forever.
 	///
-	/// It reads the status itself rather than going through `send(req:)`, which only throws at 5xx:
-	/// a 4xx there returns its body as though it were a success, so a refused op would be counted
-	/// as sent and silently discarded rather than reported.
+	/// It reads the status itself rather than going through `send(req:)`, which throws on a refusal:
+	/// going through it would collapse every status into one error and lose the 429's `Retry-After`.
 	@discardableResult
 	func flushQueue() async -> Int {
 		var sent = 0
@@ -174,10 +206,21 @@ actor BackendClient {
 			req.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
 			do {
 				let (_, resp) = try await session.data(for: req)
-				let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+				let http = resp as? HTTPURLResponse
+				let code = http?.statusCode ?? 0
 				if (200..<300).contains(code) {
 					store.markSynced(op.opId, serverTs: now)
 					sent += 1
+				} else if code == 429 {
+					// The one 4xx a retry fixes: the server is asking the device to wait, and the queue
+					// is already the thing that waits. Dropping it deleted a write the person had made
+					// because the app had been busy — §16.1's "never lost" read literally. The wait is
+					// the server's own, so `Retry-After` wins over the local backoff.
+					let attempt = op.attempt + 1
+					let hinted = (http?.value(forHTTPHeaderField: "Retry-After")).flatMap { Int64($0) }
+					let wait = hinted.map { $0 * 1000 } ?? backoffDelayMs(attempt)
+					store.deferOp(op.opId, attempt: attempt, retryAtMs: now + wait)
+					return sent // ordering holds: the queue stops at the first op that did not go
 				} else if (400..<500).contains(code) {
 					store.drop(op.opId) // refused: dropping it is honest, retrying it is not
 				} else {

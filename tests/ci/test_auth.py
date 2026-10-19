@@ -281,3 +281,90 @@ async def test_other_devices_are_unaffected_by_a_flood(client: httpx.AsyncClient
 	for _ in range(170):
 		await client.get('/health', headers={'X-Device-Id': 'flood-device-2'})
 	assert (await client.get('/health', headers={'X-Device-Id': 'innocent'})).status_code == 200
+
+
+# --- the anonymous subject is minted, never claimed -----------------------------------------
+
+async def test_an_anonymous_subject_cannot_be_claimed_by_a_stranger() -> None:
+	"""§SEC-004's no-account token is the *whole* identity on every citizen route.
+
+	`require_self` compares the subject a request names against the subject the token holds, and for
+	an anonymous caller that token is the only credential there is. So a body that can name any
+	subject mints a key to anyone's record: `{"subject_ref": "someone"}` returned a token for
+	`someone`, and every `require_self` route then read and wrote that person's diary, wallet,
+	cycles and antenatal notes. Driven at the front door, because the defect is in the route and the
+	service alone cannot see it.
+	"""
+	from afya.service import build_services, create_app
+
+	app = create_app(build_services())
+
+	async def walk() -> None:
+		async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+			# An honest person writes a diary entry with the token they were given.
+			a = (await c.post('/auth/anonymous', json={})).json()
+			ha = {'authorization': f'Bearer {a["token"]}'}
+			wrote = await c.post('/triage/diary', json={
+				'subject_ref': a['subject_ref'], 'day': 3, 'symptoms': ['fever'], 'temperature_c': 38.4,
+			}, headers=ha)
+			assert wrote.status_code == 200, wrote.text
+
+			# A stranger names that subject and is refused a token for it.
+			forged = await c.post('/auth/anonymous', json={'subject_ref': a['subject_ref']})
+			assert forged.status_code == 403, (
+				f'a stranger minted a token for {a["subject_ref"]!r}: {forged.text[:120]}')
+
+			# And the refusal is not a refusal-to-return: no token came back at all.
+			assert 'token' not in forged.json(), forged.json()
+
+			# The device that owns the subject may reclaim it, because that is what a restart does.
+			reclaim = await c.post('/auth/anonymous', json={'subject_ref': a['subject_ref']}, headers=ha)
+			assert reclaim.status_code == 200, reclaim.text
+			assert reclaim.json()['subject_ref'] == a['subject_ref']
+
+			# The old token stops working the moment the new one is issued — otherwise a stolen token
+			# would outlive the reissue it was meant to replace.
+			old = await c.get(f'/triage/{a["subject_ref"]}/diary', headers=ha)
+			assert old.status_code == 401, f'the reissued token left the old one live: {old.status_code}'
+			fresh = await c.get(f'/triage/{a["subject_ref"]}/diary',
+			                    headers={'authorization': f'Bearer {reclaim.json()["token"]}'})
+			assert fresh.status_code == 200, fresh.text
+			assert fresh.json()[0]['symptoms'] == ['fever'], 'the reclaim lost the subject\'s own record'
+
+	await walk()
+
+
+async def test_a_subject_is_claimed_once_and_a_lost_token_means_a_new_identity() -> None:
+	"""The other side of the same rule: no credential, no reclaim — and the client must cope.
+
+	Refusing a re-claim is the security property; it has a cost, and the cost is real. A device
+	that loses its token (storage cleared, app reinstalled) has no account to prove itself with, so
+	it cannot get its old subject back and the records under it are unreachable. That is the
+	bearer-token model, not a defect: the alternative is honouring a name the caller merely knows,
+	which is the forgery this route refuses. What must not happen is the device getting *stuck* —
+	so the empty body still mints a fresh identity, and both clients fall back to it.
+	"""
+	from afya.service import build_services, create_app
+
+	app = create_app(build_services())
+
+	async def walk() -> None:
+		async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+			a = (await c.post('/auth/anonymous', json={})).json()
+			await c.post('/triage/diary', json={
+				'subject_ref': a['subject_ref'], 'day': 1, 'symptoms': ['cough'], 'temperature_c': 37.9,
+			}, headers={'authorization': f'Bearer {a["token"]}'})
+
+			# Knowing the name is not owning it, whatever the name looks like.
+			again = await c.post('/auth/anonymous', json={'subject_ref': a['subject_ref']})
+			assert again.status_code == 403, f'a token was minted from the name alone: {again.text[:120]}'
+			invented = 'anon-' + 'a' * 16
+			assert (await c.post('/auth/anonymous', json={'subject_ref': invented})).status_code == 200
+			# ^ a name nobody holds is a *new* identity, which is what a first claim is.
+			assert (await c.post('/auth/anonymous', json={'subject_ref': invented})).status_code == 403
+
+			# And the device that lost everything asks for nothing and gets a fresh identity.
+			fresh = await c.post('/auth/anonymous', json={})
+			assert fresh.status_code == 200 and fresh.json()['subject_ref'] != a['subject_ref']
+
+	await walk()
