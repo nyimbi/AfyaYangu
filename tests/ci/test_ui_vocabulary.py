@@ -572,9 +572,12 @@ UNGATED_WRITES: frozenset[tuple[str, str]] = frozenset({
 	# were open writes attributed to a real person — a USSD menu walk filed a §5.4 case report under
 	# whatever number the caller typed, and a WhatsApp message the same — so the walker counting
 	# `require_webhook`'s header parameter as a guard is the honest reading, not a technicality.
-	('POST', '/sync/batch'),          # a device's own queued ops, keyed by its device id
-	('POST', '/sync/delta'),
-	('POST', '/sync/flush'),
+	('POST', '/sync/delta'),          # two dicts in, a diff out: nothing read, nothing stored
+	# `/sync/batch` and `/sync/flush` left this list when the queue got a scope. They were
+	# unguarded and they read the *shared* queue, so `POST /sync/batch` with no token returned every
+	# pending op in the deployment — payloads included — and a flush pushed every caller's ops
+	# through the conflict matrix. "A device's own queued ops" was never true of a store every
+	# caller writes to; the subject the enqueue records is what makes it true.
 	# `/sync/ops` left this list when the conflict scope landed. It now records the token's subject
 	# on the op, because `GET /sync/conflicts` filters the appeal surface on exactly that field —
 	# an unguarded enqueue would let a caller queue a write under no owner, whose conflict is then

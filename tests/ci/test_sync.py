@@ -321,17 +321,17 @@ async def test_sync_policy_and_delta_over_http() -> None:
 		token = (await c.post('/auth/anonymous', json={'subject_ref': 'U1'})).json()['token']
 		h = {'authorization': f'Bearer {token}'}
 		await c.post('/sync/ops', json={'op_id': 'OP-ROUTE00001', 'dataset': 'symptom_logs', 'client_ts': 1, 'payload': {'a': 'b'}}, headers=h)
-		off = (await c.post('/sync/flush', json={'connection': 'offline'})).json()
+		off = (await c.post('/sync/flush', json={'connection': 'offline'}, headers=h)).json()
 		assert off['synced'] == 0 and off['deferred'] == 1 and off['pending'] == 1, off
-		assert (await c.post('/sync/flush', json={'connection': 'satellite'})).status_code == 422
-		back = (await c.post('/sync/flush', json={'connection': 'wifi'})).json()
+		assert (await c.post('/sync/flush', json={'connection': 'satellite'}, headers=h)).status_code == 422
+		back = (await c.post('/sync/flush', json={'connection': 'wifi'}, headers=h)).json()
 		assert back['synced'] == 1 and back['deferred'] == 0, back
 
-		empty = (await c.post('/sync/batch', params={'connection': 'wifi'})).json()
+		empty = (await c.post('/sync/batch', params={'connection': 'wifi'}, headers=h)).json()
 		# An empty queue is still a 2-byte `[]` on the wire — the claim is that no *op* is sent,
 		# not that the request costs nothing.
 		assert empty['ops'] == [] and empty['encoding'] == 'identity'
-		assert (await c.post('/sync/batch', params={'connection': 'satellite'})).status_code == 422
+		assert (await c.post('/sync/batch', params={'connection': 'satellite'}, headers=h)).status_code == 422
 
 
 # --- §16.3 conflict matrix, and the appeal the immunisation row promises ---------------------
@@ -477,17 +477,69 @@ async def test_durability_is_computed_from_whether_a_store_exists() -> None:
 		assert st.durable is True and 'lost if the app closes' not in st.detail
 
 
-async def test_the_indicator_route_is_public_and_carries_no_spec_code() -> None:
-	"""It names no person — it is the state of the handset's own queue — so it needs no token, and
-	what it serves is copy a user reads, so no spec code may appear in it."""
+async def test_the_indicator_route_is_scoped_and_carries_no_spec_code() -> None:
+	"""The banner is about the caller's own queue, so it takes a token — and the *counts* it draws
+	are over that queue, not every caller's.
+
+	It was public on the argument that it names no person. The argument held for the label and
+	failed for the numbers: `pending` was counted over a queue every caller writes to, so the
+	banner told one person how many writes somebody else's phone was holding. A count is a fact
+	about the data however small it is.
+	"""
 	import httpx
 	import re
 	from afya.service import create_app
 	app = create_app()
 	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
-		out = (await c.get('/sync/state')).json()
+		assert (await c.get('/sync/state')).status_code in (401, 403), \
+			'the indicator counted a queue that is not the caller’s'
+		token = (await c.post('/auth/anonymous', json={'subject_ref': 'U1'})).json()['token']
+		h = {'authorization': f'Bearer {token}'}
+		out = (await c.get('/sync/state', headers=h)).json()
 		assert out['label'] == 'Offline' and out['durable'] is False
-		assert (await c.get('/sync/state', params={'connection': 'nonsense'})).status_code == 422
-		assert (await c.get('/sync/state', params={'connection': 'wifi'})).json()['label'] == 'Up to date'
+		assert (await c.get('/sync/state', params={'connection': 'nonsense'}, headers=h)).status_code == 422
+		assert (await c.get('/sync/state', params={'connection': 'wifi'}, headers=h)).json()['label'] == 'Up to date'
 		body = str(out)
 		assert re.search(r'\b(?:SENS|SEC|ACC|REC|MON|LOC|COM|ALT|AI|CHAN|INF|TRI|FND|MED|EMG)-\d{3}\b', body) is None
+
+
+async def test_one_callers_queue_is_not_readable_or_flushable_by_another() -> None:
+	"""The sync queue is one store shared by every caller, and three routes read or advance it.
+
+	Unguarded, `POST /sync/batch` with no token at all returned every pending op in the deployment
+	— a stranger's symptom log, their temperature, their medication — and `POST /sync/flush` pushed
+	every caller's ops through the conflict matrix, marking another person's unsent write synced
+	and deciding it against the server's value. The offline indicator counted them too. The subject
+	the enqueue records is the only thing that can scope any of it, so all three bind to it.
+
+	Both directions are asserted: the stranger's payload does not appear, and the owner's does. A
+	test that only checked the first would pass on a route that returned nothing to anybody.
+	"""
+	import httpx
+	from afya.service import build_services, create_app
+	app = create_app(build_services())
+	async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://t') as c:
+		victim = (await c.post('/auth/anonymous', json={'subject_ref': 'VICTIM01'})).json()['token']
+		other = (await c.post('/auth/anonymous', json={'subject_ref': 'OTHER001'})).json()['token']
+		hv = {'authorization': f'Bearer {victim}'}
+		ho = {'authorization': f'Bearer {other}'}
+		op = {'op_id': 'OP-PRIVATE1', 'dataset': 'symptom_logs', 'client_ts': 1,
+		      'payload': {'hiv_status': 'positive'}}
+		assert (await c.post('/sync/ops', json=op, headers=hv)).status_code == 200
+
+		# The payload must not cross to a different caller, nor to no caller at all.
+		assert (await c.post('/sync/batch', params={'connection': 'wifi'})).status_code in (401, 403), \
+			'an anonymous caller read the queue'
+		assert (await c.post('/sync/batch', params={'connection': 'wifi'}, headers=ho)).json()['ops'] == [], \
+			'another caller read the queue'
+		# And the owner still sees their own.
+		mine = (await c.post('/sync/batch', params={'connection': 'wifi'}, headers=hv)).json()
+		assert [o['op_id'] for o in mine['ops']] == ['OP-PRIVATE1']
+
+		# A flush by someone else must not advance it.
+		await c.post('/sync/flush', json={'connection': 'wifi'}, headers=ho)
+		assert (await c.get('/sync/state', headers=hv)).json()['pending'] == 1, \
+			'another caller’s flush sent a write that was not theirs'
+		# Their own flush does send it.
+		assert (await c.post('/sync/flush', json={'connection': 'wifi'}, headers=hv)).json()['synced'] == 1
+		assert (await c.get('/sync/state', headers=hv)).json()['pending'] == 0

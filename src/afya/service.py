@@ -3516,18 +3516,26 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 		return policy.model_dump(mode='json')
 
 	@app.post('/sync/batch')
-	async def sync_batch(connection: str = 'metered') -> dict[str, object]:
+	async def sync_batch(connection: str = 'metered',
+	                     _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
 		"""Assemble the next request from the queue: delta payloads, batched, gzipped if it pays.
 
 		Returns the encoding and byte counts as well as the ops, so a client can show the user what
 		the sync is about to cost them before it happens.
+
+		`self`-scoped, and the queue is filtered to the caller's own ops. Unguarded it was the worst
+		shape of this defect in the repo: `POST /sync/batch` with no token at all returned every
+		pending op in the deployment, payloads included — a stranger's symptom log, their temperature,
+		their medication. The queue is one store shared by every caller, so "this handset's queue"
+		was never true of it; the subject the enqueue recorded is what makes it true.
 		"""
 		try:
 			conn = ConnectionClass(connection)
 		except ValueError as exc:
 			raise HTTPException(status_code=422, detail=f'unknown connection class {connection}') from exc
 		await sync.load()
-		pending = [o for o in sync._queue.values() if not o.synced]  # noqa: SLF001 - the queue is the batch source
+		pending = [o for o in sync._queue.values()  # noqa: SLF001 - the queue is the batch source
+		           if not o.synced and o.subject_ref == _subject]
 		batch = sync.encode(pending, conn)
 		return batch.model_dump(mode='json')
 
@@ -3537,40 +3545,51 @@ def create_app(services: dict[str, object] | None = None) -> FastAPI:
 
 		A removal travels as an explicit `-field` entry. Omitting it would mean "unchanged", so a
 		deletion the user made would never reach the server and would return on the next pull.
+
+		This one stays unguarded because it is genuinely pure: two dicts in, a diff out, nothing
+		read and nothing stored. It is not the same claim as `/sync/batch`, which reads the queue.
 		"""
 		delta = delta_payload(previous, current)
 		assert apply_delta(previous, delta) == current, 'a delta must reconstruct the current state exactly'
 		return {'delta': delta, 'changed_fields': len(delta), 'full_fields': len(current)}
 
 	@app.post('/sync/flush')
-	async def sync_flush(connection: str = Body('wifi', embed=True)) -> dict[str, object]:
+	async def sync_flush(connection: str = Body('wifi', embed=True),
+	                     _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
 		"""§16.2's flow, run once: send what is due, schedule what failed, defer what cannot go.
 
 		`connection` is the diagram's first diamond. A client that says `offline` has its ops deferred
 		with no backoff earned — the phone was offline, not the op at fault — so they go out the
 		moment the connection returns instead of waiting out a delay they did not cause.
+
+		Scoped to the caller's own ops. Unguarded it pushed *every* queued op through the conflict
+		matrix: one caller's flush marked another caller's write synced, resolved it against the
+		server's value, and could record a conflict on a record its owner had not sent yet — a write
+		to somebody else's data performed by a stranger who only pressed "send now".
 		"""
 		try:
 			conn = ConnectionClass(connection)
 		except ValueError as exc:
 			raise HTTPException(status_code=422, detail=f'unknown connection class {connection}') from exc
-		return (await sync.flush(clock_ms(), conn)).model_dump(mode='json')
+		return (await sync.flush(clock_ms(), conn, _subject)).model_dump(mode='json')
 
 	@app.get('/sync/state')
-	async def sync_state(connection: str = 'offline') -> dict[str, object]:
+	async def sync_state(connection: str = 'offline',
+	                     _subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:
 		"""§16.1 principle 4 / ACC-003: what the offline indicator shows.
 
-		Unscoped because it names no person — it is the state of *this* handset's queue, which the
-		client reads to draw its own banner. `durable` is computed from whether the deployment has
-		a store, so an indicator cannot claim a queued write survives a restart in a build where it
-		does not.
+		Names no person in its output — the label and the counts are about the caller's own queue —
+		but it still takes a token, because the *counts* are over that queue. Unscoped they were
+		taken over every caller's ops, so the banner told one person how many writes somebody else's
+		phone was holding. `durable` is computed from whether the deployment has a store, so an
+		indicator cannot claim a queued write survives a restart in a build where it does not.
 		"""
 		try:
 			conn = ConnectionClass(connection)
 		except ValueError as exc:
 			raise HTTPException(status_code=422, detail=f'unknown connection class {connection}') from exc
 		await sync.load()
-		return sync.offline_state(conn).model_dump(mode='json')
+		return sync.offline_state(conn, _subject).model_dump(mode='json')
 
 	@app.get('/sync/conflicts')
 	async def sync_conflicts(_subject: str = Depends(require_self(names_subject=False))) -> dict[str, object]:

@@ -133,12 +133,20 @@ class SyncService(LogMixin):
 			return rows
 		return [c for c in rows if c.subject_ref == subject_ref]
 
-	def offline_state(self, connection: ConnectionClass) -> OfflineState:
+	def offline_state(self, connection: ConnectionClass, subject_ref: str | None = None) -> OfflineState:
 		"""§16.1 principle 4, computed. `durable` reports whether the queue is actually backed by a
 		store — a service with none keeps §16.1's promise only until the process exits, and saying
-		so is the difference between an indicator and a reassurance."""
-		pending = len([o for o in self._queue.values() if not o.synced])
-		open_conflicts = self.open_conflicts()
+		so is the difference between an indicator and a reassurance.
+
+		`subject_ref` scopes the counts to the caller's own queue. The indicator is drawn on one
+		handset about that handset's work, so a count taken over every caller's ops would tell a
+		person how many writes somebody else had pending. `None` keeps the whole-queue reading for
+		the in-process callers that are the server's own bookkeeping.
+		"""
+		scope = list(self._queue.values()) if subject_ref is None else [
+			o for o in self._queue.values() if o.subject_ref == subject_ref]
+		pending = len([o for o in scope if not o.synced])
+		open_conflicts = self.conflicts(subject_ref)
 		if connection is ConnectionClass.offline:
 			label = 'Offline'
 			detail = (
@@ -297,13 +305,21 @@ class SyncService(LogMixin):
 		else:
 			op.retry_at_ms = None
 
-	async def flush(self, now_ms: int, connection: ConnectionClass = ConnectionClass.wifi) -> SyncStatus:
+	async def flush(self, now_ms: int, connection: ConnectionClass = ConnectionClass.wifi,
+	                subject_ref: str | None = None) -> SyncStatus:
 		"""Run the queue through §16.2's flow once.
 
 		`connection` is the diagram's first diamond — "Network available?" — and is why it is a
 		parameter rather than an assumption: an offline flush defers every due op without pretending
 		it was sent, which is the difference between a queue that reports the truth and one that
 		marks work done because nobody asked the network.
+
+		`subject_ref` is whose queue this is. The route passes the token's subject and the flush
+		touches only that caller's ops; `None` is the in-process caller (a test, the server's own
+		bookkeeping) and keeps the whole queue. Without the filter, `POST /sync/flush` sent *every*
+		queued op — one person's flush pushed another person's pending health write through the
+		conflict matrix and marked it synced, which is both a cross-tenant write and a way to make
+		another caller's unsent work disappear from their queue before they ever sent it.
 		"""
 		await self.load()
 		synced = 0
@@ -311,6 +327,8 @@ class SyncService(LogMixin):
 		waiting = 0
 		for op in list(self._queue.values()):
 			if op.synced:
+				continue
+			if subject_ref is not None and op.subject_ref != subject_ref:
 				continue
 			# An op inside its backoff window is not offered to the network at all — offering it is
 			# the retry storm the backoff was computed to prevent.
@@ -372,14 +390,20 @@ class SyncService(LogMixin):
 					if self._store is not None:
 						op.attempt += 1
 						await self._store.save_sync_op(op)
-		pending = len([o for o in self._queue.values() if not o.synced])
+		# Every count the status reports is the caller's own. A global `pending` told one person
+		# how much work another person's phone was holding, which is a fact about somebody else's
+		# health data however small the number.
+		scope = list(self._queue.values()) if subject_ref is None else [
+			o for o in self._queue.values() if o.subject_ref == subject_ref]
+		pending = len([o for o in scope if not o.synced])
 		if synced:
 			self._last_synced_at_ms = now_ms
 		# The soonest any waiting op becomes due again, so a client can schedule its next attempt
 		# instead of polling on a fixed interval that is either too eager or too slow.
-		due_times = [o.retry_at_ms for o in self._queue.values() if not o.synced and o.retry_at_ms is not None]
+		due_times = [o.retry_at_ms for o in scope if not o.synced and o.retry_at_ms is not None]
+		conflicts = len(self.conflicts(subject_ref))
 		self._log_info('flush done', synced=synced, pending=pending, deferred=deferred, waiting=waiting,
-		               conflicts=len(self._conflicts))
-		return SyncStatus(pending=pending, synced=synced, conflicts=len(self._conflicts),
+		               conflicts=conflicts)
+		return SyncStatus(pending=pending, synced=synced, conflicts=conflicts,
 		                  deferred=deferred, waiting=waiting,
 		                  next_retry_at_ms=min(due_times) if due_times else None)

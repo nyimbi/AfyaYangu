@@ -516,10 +516,11 @@ OPERATOR_SCOPES: dict[str, str] = {
 #   inbound_wire    An external party posts to it: a carrier's USSD callback, the telco's inbound
 #                   SMS, the hotline's follow-up and outcome, a consent granted on a channel.
 #                   Authenticated by `require_webhook`'s signature, which no handset can present.
-#   device_write    An unguarded write that is the device's own queue (`/sync/batch`, `/sync/delta`)
-#                   or a pure computation with nothing stored (`/facilities/find`,
-#                   `/emergency/fall`). The same set `test_ui_vocabulary.UNGATED_WRITES` argues
-#                   for, restricted to the routes no action reaches.
+#   device_write    An unguarded write that is a pure computation with nothing stored
+#                   (`/facilities/find`, `/sync/delta`, `/emergency/fall`). The same set
+#                   `test_ui_vocabulary.UNGATED_WRITES` argues for, restricted to the routes no
+#                   action reaches. It is not a place for a route that reads the queue: those are
+#                   `citizen_self`, because the queue is shared and only the token can scope it.
 #   public_read     A public document — no personal data and no token: the brand, the feature
 #                   taxonomy, the personas, the rollout plan, the governance posture. §7.3's
 #                   tier model, §4's segments, §21's phases. These are the spec's own tables served
@@ -548,6 +549,14 @@ API_ONLY: dict[tuple[str, str], str] = {
 	# 2 routes: a citizen route whose form the client fills from its own subject.
 	('GET', '/triage/{ref}/diary'): 'citizen_self',
 	('POST', '/integrations/jali/link'): 'citizen_self',
+	# `/sync/batch` was here as `device_write` — "an unguarded write that is the device's own
+	# queue". Both halves of that were wrong. It was not unguarded: it had no guard at all and
+	# returned *every* caller's pending ops, payloads included, to a request with no token. And the
+	# queue is one store shared by every caller, so "the device's own" was a description of what
+	# the route was meant to be, not what it read. It is `self`-scoped now and filtered to the
+	# caller's ops, which makes `citizen_self` the honest jurisdiction: a citizen route whose
+	# subject comes from the token, with `flush_sync` as the catalogue's action over the same queue.
+	('POST', '/sync/batch'): 'citizen_self',
 
 	# 8 routes: an external party posts to it, authenticated by signature. The three channel
 	# arrivals are here for the same reason the callback is: the carrier holds the shared secret and
@@ -563,10 +572,9 @@ API_ONLY: dict[tuple[str, str], str] = {
 	('POST', '/integrations/telco/sms/inbound'): 'inbound_wire',
 	('POST', '/privacy/consent/by-phone'): 'inbound_wire',
 
-	# 4 routes: an unguarded write that is the device's own queue or a pure computation.
+	# 3 routes: an unguarded write that is a pure computation with nothing stored.
 	('POST', '/emergency/fall'): 'device_write',
 	('POST', '/facilities/find'): 'device_write',
-	('POST', '/sync/batch'): 'device_write',
 	('POST', '/sync/delta'): 'device_write',
 
 	# 35 routes: a public document: no personal data and no token.

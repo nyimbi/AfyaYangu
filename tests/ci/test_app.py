@@ -118,7 +118,10 @@ async def test_sync_endpoints(client: httpx.AsyncClient) -> None:
 	token = (await client.post('/auth/anonymous', json={'subject_ref': 'S1'})).json()['token']
 	h = {'authorization': f'Bearer {token}'}
 	assert (await client.post('/sync/ops', json=op, headers=h)).json() == {'queued': True}
-	flushed = (await client.post('/sync/flush')).json()
+	# The flush is the caller's own: the queue is shared by every caller, so a flush with no token
+	# would advance somebody else's unsent write — which is what it did before the guard landed.
+	assert (await client.post('/sync/flush')).status_code in (401, 403)
+	flushed = (await client.post('/sync/flush', headers=h)).json()
 	assert flushed['synced'] == 1
 	assert (await client.post('/sync/ops', json={**op, 'op_id': 'OP-BBB222333', 'dataset': 'nope'}, headers=h)).status_code == 422
 
